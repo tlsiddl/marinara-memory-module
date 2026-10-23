@@ -2,53 +2,65 @@
 
 사람처럼 기억하는 장기 RP용 기억 모듈이야. 마리나라(Marinara Engine) 서버가 켜질 때 끼워 넣는 런타임 패치로 동작하고, 원본 파일은 건드리지 않아.
 
-지금은 **1단계(v0.1.0): 넣는 자리 만들기**야.
+지금 버전: **v0.2.0 (2단계: 열린 실타래 장부)** · 대상: **Marinara Engine 2.5.1**
 
-## 1단계에서 하는 일
+## 하는 일
 
-- 프리셋의 원하는 자리에 `{{기억}}`(또는 `{{memory}}`)을 적으면, 그 자리에 기억 메모가 들어가.
-- 메모는 서버의 `memory-module/notes` 폴더에서 읽어.
-  - `_default.txt`: 모든 방에 들어가는 메모
-  - `<채팅방ID>.txt`: 그 방에만 들어가는 메모 (있으면 `_default.txt` 대신 사용)
-- 메모 안에 `{{user}}` 같은 매크로가 있어도 실행되지 않아.
-- 마리나라 버전이 맞지 않으면 기억 모듈만 스스로 꺼지고, 마리나라는 원래대로 돌아가.
+- **장부**: 이야기 속에서 아직 끝나지 않은 일을 네 가지로 관리해.
+  - 약속, 풀리지 않은 감정(원인 포함), 비밀과 단서, 미해결 일
+  - 감정은 잠이나 장면 전환으로는 안 닫히고, 사과·화해처럼 실제로 풀린 장면이 있어야 닫혀.
+  - 비밀은 단서가 나올 때마다 같은 항목에 원문 그대로 쌓여.
+- **원문은 베끼지 않고 가리키기**: 기억 모델은 문장 번호만 답하고, 원문은 프로그램이 실제 메시지에서 꺼내 와. 그래서 인용이 틀리지 않아. 근거 없는 항목은 버려.
+- **답변마다 갱신**: 답변이 끝나면 방금 주고받은 메시지만 읽어서 장부를 고쳐.
+- **스와이프·재생성 되돌리기**: 답변을 다시 뽑으면 그 답변으로 생긴 장부 변화를 되돌리고 새 답변을 다시 읽어.
+- **`{{기억}}` 매크로**: 프리셋에 `{{기억}}`을 적은 자리에 열린 항목이 들어가. 닫힌 항목은 안 들어가.
+- 마리나라 버전이 맞지 않으면 기억 모듈만 스스로 꺼지고 마리나라는 원래대로 돌아가.
 
-대상 버전: **Marinara Engine 2.5.1** (Docker 이미지 `ghcr.io/pasta-devs/marinara-engine:2.5.1`)
+기억 모델은 마리나라에 저장된 연결을 빌려 써. API 키는 마리나라에만 있어.
+장부는 `/app/data/memory-module/`(마리나라 데이터 저장 공간)에 방마다 파일로 저장돼.
 
-## 설치 (Docker 서버)
+## 설치·업데이트 (Docker 서버)
 
 ```sh
+curl -fsSL https://raw.githubusercontent.com/tlsiddl/marinara-memory-module/main/update.sh | sh
 cd /root/Marinara-Engine
-mkdir -p memory-module/notes
-curl -fsSL -o memory-module/marinara-memory-runtime.cjs https://raw.githubusercontent.com/tlsiddl/marinara-memory-module/main/marinara-memory-runtime.cjs
-curl -fsSL -o memory-module/notes/_default.txt https://raw.githubusercontent.com/tlsiddl/marinara-memory-module/main/notes/_default.txt
-curl -fsSL -o docker-compose.memory.yml https://raw.githubusercontent.com/tlsiddl/marinara-memory-module/main/docker-compose.memory.yml
 docker compose -f docker-compose.yml -f docker-compose.override.yml -f docker-compose.gf-customizer.yml -f docker-compose.251.yml -f docker-compose.memory.yml up -d
-```
-
-`docker-compose.memory.yml`은 **항상 마지막**에 붙여야 해. `NODE_OPTIONS`는 마지막 파일 것으로 통째로 바뀌기 때문에, 이 파일에 기존 패치 목록 전체와 기억 모듈이 같이 적혀 있어. 다른 패치를 추가하거나 빼면 이 파일의 목록도 같이 고쳐야 해.
-
-## 확인
-
-```sh
 docker logs marinara-engine-marinara-1 2>&1 | grep memory-module
 ```
 
-`applied: {{기억}} macro ready`가 보이면 성공이야. `fail closed`가 보이면 마리나라 버전이 달라서 기억 모듈이 꺼진 거야.
+로그에 `{{기억}} macro ready`와 `reply hook and admin API ready`가 보이면 성공이야.
+
+`docker-compose.memory.yml`은 **항상 마지막**에 붙여야 해. `NODE_OPTIONS`는 마지막 파일 것으로 통째로 바뀌기 때문에, 이 파일에 기존 패치 목록 전체와 기억 모듈이 같이 적혀 있어.
+
+## 명령
+
+서버에서 아래 형식으로 실행해.
+
+```sh
+docker exec marinara-engine-marinara-1 node /app/memory-module/memory-cli.cjs <명령>
+```
+
+| 명령 | 하는 일 |
+| --- | --- |
+| `list` | 채팅방 목록과 ID |
+| `connection "연결 이름"` | 기억 정리에 쓸 연결 정하기 |
+| `estimate <ID>` | 처음 정리에 드는 모델 호출 수 미리 보기 |
+| `start <ID>` | 정리 시작. 멈췄던 곳이 있으면 이어서, `--fresh`를 붙이면 처음부터 |
+| `status <ID>` | 진행 상황 |
+| `stop <ID>` | 정리 멈추기 |
+| `show <ID>` | 프롬프트에 들어갈 장부 보기. `--all`을 붙이면 닫힌 항목까지 |
+| `on <ID>` / `off <ID>` | 답변마다 갱신 켜기 / 끄기 |
+
+`start`를 한 방만 답변마다 갱신돼. 다른 방은 비용이 들지 않아.
 
 ## 끄기
 
-`docker-compose.memory.yml`을 빼고 다시 켜면 돼.
+마지막 `docker compose` 줄에서 `-f docker-compose.memory.yml`만 빼고 다시 실행해. 만든 장부는 데이터 저장 공간에 그대로 남아.
 
-```sh
-docker compose -f docker-compose.yml -f docker-compose.override.yml -f docker-compose.gf-customizer.yml -f docker-compose.251.yml up -d
-```
+## 검증 기록
 
-## 검증 기록 (v0.1.0)
+- v0.2.0: 마리나라 2.5.1을 직접 빌드해 Node 24에서 실행. 실제 330개 메시지 RP 기록을 넣고 가짜 모델로 확인: 처음 정리(32번 호출), 근거 문장이 실제 메시지 원문과 일치, `{{기억}}` 자리에 열린 항목 주입, 답변 1번에 기억 호출 1번, 재생성 시 되돌리기, 끄면 갱신 멈춤. me-speedup과 함께 동작.
+- v0.1.0: `{{기억}}` 자리에 메모가 정확히 한 번 들어가는 것 확인.
+- 실제 딥시크가 무엇을 장부에 올리는지(품질)는 서버에서 처음 정리를 돌려 본 뒤 확인해야 해.
 
-- Marinara 2.5.1 소스를 직접 빌드해 Node 24에서 실행했어.
-- 실제 서버의 프롬프트 미리보기(dry run, 모델 호출 없음)에서 확인: 공용 메모가 `{{기억}}` 자리에 들어감, 방 전용 메모가 공용 메모를 대신함, 정확히 한 번 그 섹션 안에만 들어감.
-- me-speedup과 함께 켜도 정상 동작.
-- 버전이 맞지 않는 원본이면 패치하지 않음(fail closed).
-
-테스트: `tests/test-macro.mjs`(매크로 단위), `tests/e2e-prompt-preview.mjs`(테스트용 서버 전체 흐름).
+테스트: `tests/test-ledger.cjs`, `tests/test-macro.mjs`, `tests/e2e-ledger.mjs`(+ `tests/fake-llm.mjs`), `tests/e2e-prompt-preview.mjs`.

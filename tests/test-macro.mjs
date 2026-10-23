@@ -1,4 +1,4 @@
-// Usage: node --require=./marinara-memory-runtime.cjs tests/test-macro.mjs <path to packages/shared/dist/utils/macro-engine.js>
+// Usage: node --require=./memory-module/marinara-memory-runtime.cjs tests/test-macro.mjs <path to packages/shared/dist/utils/macro-engine.js>
 // Set MEMORY_MODULE_NOTES_DIR to a folder with _default.txt and optional <chatId>.txt files.
 import assert from 'node:assert/strict';
 import { pathToFileURL } from 'node:url';

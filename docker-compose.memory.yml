@@ -4,8 +4,7 @@
 services:
   marinara:
     volumes:
-      - ./memory-module/marinara-memory-runtime.cjs:/app/marinara-memory-runtime.cjs:ro
-      - ./memory-module/notes:/app/memory-module/notes:ro
+      - ./memory-module:/app/memory-module:ro
     environment:
       NODE_OPTIONS: >-
         --require=/app/me-speedup.cjs
@@ -13,5 +12,4 @@ services:
         --require=/app/gacha-cg-runtime.cjs
         --require=/app/novelai-gacha-delay.cjs
         --require=/app/gf-customizer-runtime.cjs
-        --require=/app/marinara-memory-runtime.cjs
-      MEMORY_MODULE_NOTES_DIR: /app/memory-module/notes
+        --require=/app/memory-module/marinara-memory-runtime.cjs
