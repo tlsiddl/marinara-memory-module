@@ -68,18 +68,26 @@ const commands = {
   },
   async trial(chatId, from, to) {
     need(chatId);
-    console.log(`${from}~${to}번 메시지를 빈 장부로 시험해 볼게. 저장은 하지 않아. 잠깐 걸려...`);
     const r = await api('POST', `/chats/${chatId}/trial`, { from: Number(from), to: Number(to) });
-    console.log(`메시지 ${r.messages}개, 모델 호출 ${r.calls}번, 버린 항목 ${r.dropped}개\n`);
-    for (const t of r.threads) {
-      console.log(`${t.status === 'open' ? '열림' : '닫힘'} ${t.id} [${KIND[t.kind]}] ${t.title}${t.who ? ` (${[t.who, t.toward].filter(Boolean).join(' → ')})` : ''}${t.since ? ` · ${t.since}` : ''}`);
-      if (t.detail) console.log(`   ${t.detail}`);
-      if (t.cause) console.log(`   원인: ${t.cause}`);
-      for (const p of [...t.evidence, ...t.clues].slice(0, 3)) console.log(`   #${p.number}.${p.sentence} "${p.text.slice(0, 120)}"`);
-      if (t.latest) console.log(`   최근: ${t.latest.text}`);
-      if (t.closed) console.log(`   닫힘: ${t.closed.how || ''}`);
+    console.log(`${from}~${to}번 메시지 ${r.messages}개를 빈 장부로 시험할게. 저장은 하지 않아. 모델 호출 ${r.total}번이야.`);
+    console.log('창을 닫아도 서버에서 계속 돌아가. 그럴 땐 나중에 trial-result로 결과를 볼 수 있어.');
+    let last = -1;
+    for (;;) {
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+      const t = await api('GET', `/chats/${chatId}/trial`);
+      if (t.done !== last && t.state === 'running') {
+        console.log(`진행: ${t.done}/${t.total}`);
+        last = t.done;
+      }
+      if (t.state !== 'running') return printTrial(t);
     }
-    if (!r.threads.length) console.log('(찾은 항목 없음)');
+  },
+  async 'trial-result'(chatId) {
+    need(chatId);
+    const t = await api('GET', `/chats/${chatId}/trial`);
+    if (t.state === 'none') return console.log('이 방의 구간 시험 기록이 없어. (서버를 다시 켜면 사라져)');
+    if (t.state === 'running') return console.log(`아직 시험 중이야: ${t.done}/${t.total}`);
+    printTrial(t);
   },
   async stop(chatId) {
     need(chatId);
@@ -122,6 +130,21 @@ const commands = {
   },
 };
 
+function printTrial(t) {
+  console.log(`\n${t.from}~${t.to}번 시험 ${t.state === 'done' ? '완료' : '중단'}: 메시지 ${t.messages}개, 모델 호출 ${t.done}/${t.total}번, 버린 항목 ${t.result?.dropped ?? 0}개`);
+  if (t.error) console.log(`오류: ${t.error}`);
+  const threads = t.result?.threads || [];
+  for (const th of threads) {
+    console.log(`\n${th.status === 'open' ? '열림' : '닫힘'} ${th.id} [${KIND[th.kind]}] ${th.title}${th.who ? ` (${[th.who, th.toward].filter(Boolean).join(' → ')})` : ''}${th.since ? ` · ${th.since}` : ''}`);
+    if (th.detail) console.log(`   ${th.detail}`);
+    if (th.cause) console.log(`   원인: ${th.cause}`);
+    for (const p of [...th.evidence, ...th.clues].slice(0, 3)) console.log(`   #${p.number}.${p.sentence} "${p.text.slice(0, 120)}"`);
+    if (th.latest) console.log(`   최근: ${th.latest.text}`);
+    if (th.closed) console.log(`   닫힘: ${th.closed.how || ''}`);
+  }
+  if (!threads.length) console.log('(찾은 항목 없음)');
+}
+
 function need(chatId) {
   if (!chatId) throw Error('채팅방 ID가 필요해. list로 확인할 수 있어.');
 }
@@ -136,6 +159,7 @@ if (!commands[command]) {
   status <ID>                진행 상황
   tidy <ID>                  장부 점검(끝난 일 닫기, 겹치는 항목 합치기)
   trial <ID> <시작> <끝>     그 구간만 시험 정리(저장 안 함, 최대 40개)
+  trial-result <ID>          마지막 구간 시험 결과 다시 보기
   stop <ID>                  정리 멈추기
   show <ID> [--all]          프롬프트에 들어갈 장부 보기(--all은 닫힌 항목까지)
   on <ID> / off <ID>         답변마다 갱신 켜기/끄기`);

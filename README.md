@@ -2,7 +2,7 @@
 
 사람처럼 기억하는 장기 RP용 기억 모듈이야. 마리나라(Marinara Engine) 서버가 켜질 때 끼워 넣는 런타임 패치로 동작하고, 원본 파일은 건드리지 않아.
 
-지금 버전: **v0.2.3 (2단계: 열린 실타래 장부)** · 대상: **Marinara Engine 2.5.1**
+지금 버전: **v0.2.4 (2단계: 열린 실타래 장부)** · 대상: **Marinara Engine 2.5.1**
 
 ## 하는 일
 
@@ -52,6 +52,7 @@ docker exec -e NODE_OPTIONS= marinara-engine-marinara-1 node /app/memory-module/
 | `status <ID>` | 진행 상황 |
 | `tidy <ID>` | 장부 점검: 끝난 일은 닫고 겹치는 항목은 합치기 |
 | `trial <ID> <시작> <끝>` | 그 구간만 빈 장부로 시험 정리. 저장하지 않음, 최대 40개 |
+| `trial-result <ID>` | 마지막 구간 시험 결과 다시 보기 |
 | `stop <ID>` | 정리 멈추기 |
 | `show <ID>` | 프롬프트에 들어갈 장부 보기. `--all`을 붙이면 닫힌 항목까지 |
 | `on <ID>` / `off <ID>` | 답변마다 갱신 켜기 / 끄기 |
@@ -63,6 +64,8 @@ docker exec -e NODE_OPTIONS= marinara-engine-marinara-1 node /app/memory-module/
 마지막 `docker compose` 줄에서 `-f docker-compose.memory.yml`만 빼고 다시 실행해. 만든 장부는 데이터 저장 공간에 그대로 남아.
 
 ## 검증 기록
+
+- v0.2.4: 구간 시험이 오래 걸리면 서버가 요청을 끊을 수 있어서, 시험을 뒤에서 돌리고 명령은 진행 상황을 보여 주게 바꿈.
 
 - v0.2.3: 실제 딥시크 결과가 54 → 19 → 5개로 오락가락하고 원문이 엉뚱해서 구조를 바꿈. 처음 정리도 메시지 3~4개씩(8천 자) 읽고, 근거마다 핵심 구절을 받아 진짜 문장을 다시 찾아 번호를 바로잡음. 저장 없이 구간만 시험하는 `trial` 추가. 330개 기록 전체 정리는 121번 호출.
 

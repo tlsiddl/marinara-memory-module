@@ -339,25 +339,45 @@ function tidyChat(chatId) {
 }
 
 /**
- * Read messages from..to on a throwaway empty ledger and return what it would hold. Nothing is saved.
- * For trying the rules on a slice of the chat before paying for a full pass.
+ * Read messages from..to on a throwaway empty ledger, in the background. Nothing is saved to the chat's ledger.
+ * For trying the rules on a slice of the chat before paying for a full pass. The last result is kept in memory.
  */
-async function trialRange(chatId, from, to) {
+const trials = new Map();
+
+async function startTrial(chatId, from, to) {
+  if (trials.get(chatId)?.state === 'running') throw Error('이 방은 이미 구간 시험 중이야. 끝날 때까지 기다려 줘.');
   const messages = await chatMessages(chatId);
   const slice = messages.filter((m) => m.number >= from && m.number <= to);
   if (!slice.length) throw Error(`${from}~${to}번 사이에 읽을 메시지가 없어.`);
   if (slice.length > TRIAL_MAX_MESSAGES) throw Error(`구간 시험은 메시지 ${TRIAL_MAX_MESSAGES}개까지만 돼. 범위를 줄여 줘.`);
   const model = await memoryModel();
-  const ledger = L.emptyLedger();
   const batches = L.planBatches(slice, REBUILD_BATCH_CHARS);
-  let dropped = 0;
-  for (const batch of batches) {
-    const at = messages.indexOf(batch[0]);
-    for (const part of await readBatch(model, ledger, batch, messages.slice(Math.max(0, at - CONTEXT_MESSAGES), at))) {
-      dropped += L.applyResult(ledger, part.parsed, part.batch).dropped;
+  const trial = { state: 'running', from, to, messages: slice.length, done: 0, total: batches.length, startedAt: new Date().toISOString(), result: null, error: null };
+  trials.set(chatId, trial);
+  (async () => {
+    const ledger = L.emptyLedger();
+    let dropped = 0;
+    try {
+      for (const batch of batches) {
+        const at = messages.indexOf(batch[0]);
+        for (const part of await readBatch(model, ledger, batch, messages.slice(Math.max(0, at - CONTEXT_MESSAGES), at))) {
+          dropped += L.applyResult(ledger, part.parsed, part.batch).dropped;
+        }
+        trial.done++;
+      }
+      trial.result = { dropped, threads: ledger.threads, rendered: L.render(ledger) };
+      trial.state = 'done';
+      log(`chat ${chatId}: trial ${from}~${to} done (${batches.length} call(s), ${ledger.threads.length} thread(s))`);
+    } catch (error) {
+      trial.state = 'error';
+      trial.error = error?.message || String(error);
+      trial.result = { dropped, threads: ledger.threads, rendered: L.render(ledger) };
+      log(`chat ${chatId}: trial ${from}~${to} failed: ${trial.error}`);
+    } finally {
+      trial.finishedAt = new Date().toISOString();
     }
-  }
-  return { messages: slice.length, calls: batches.length, dropped, threads: ledger.threads, rendered: L.render(ledger) };
+  })();
+  return { started: true, messages: slice.length, total: batches.length };
 }
 
 /* ---------- prompt ---------- */
@@ -446,8 +466,9 @@ async function routes(app) {
     const from = Number(req.body?.from);
     const to = Number(req.body?.to);
     if (!Number.isInteger(from) || !Number.isInteger(to) || from > to) throw Error('사용법: trial <ID> <시작 번호> <끝 번호>');
-    return trialRange(safeChatId(req.params.id), from, to);
+    return startTrial(safeChatId(req.params.id), from, to);
   }));
+  app.get('/chats/:id/trial', guard(async (req) => trials.get(safeChatId(req.params.id)) || { state: 'none' }));
   app.post('/chats/:id/stop', guard(async (req) => {
     const job = jobs.get(safeChatId(req.params.id));
     if (job?.state === 'running') job.cancel = true;
