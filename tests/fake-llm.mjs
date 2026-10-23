@@ -54,7 +54,7 @@ http
         calls.tidy = (calls.tidy || 0) + 1;
         const user = messages.find((m) => m.role === 'user')?.content || '';
         const ids = [...user.matchAll(/^(T\d+) \[(\w+)\]/gm)].filter((m) => m[2] !== 'emotion').map((m) => m[1]);
-        content = JSON.stringify({ close: ids.length ? [{ id: ids[0], how: '테스트 점검' }] : [], merge: ids.length > 2 ? [{ keep: ids[1], drop: [ids[2]] }] : [] });
+        content = JSON.stringify({ close: ids.length ? [{ id: ids[0], how: '테스트 점검', why: 'momentary' }] : [], merge: ids.length > 2 ? [{ keep: ids[1], drop: [ids[2]] }] : [] });
       } else if (isMemory) {
         calls.memory++;
         const user = messages.find((m) => m.role === 'user')?.content || '';

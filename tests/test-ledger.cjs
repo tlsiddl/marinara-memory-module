@@ -41,7 +41,7 @@ test('applyResult keeps grounded items, drops bad ones, quotes come from the sou
     update: [{ id: 'T99', evidence: ['1.1'] }],
     close: [],
   }, batch);
-  assert.deepEqual(stats, { opened: 2, updated: 0, closed: 0, dropped: 3 });
+  assert.deepEqual(stats, { opened: 2, updated: 0, closed: 0, dropped: 3, merged: 0 });
   assert.equal(ledger.threads[0].evidence[1].text, '"Fine. Next week, the sea."');
   assert.equal(ledger.threads[1].id, 'T2');
 });
@@ -125,7 +125,7 @@ test('tidy closes finished threads and merges duplicates of the same kind only',
   const [system, user] = L.buildTidyPrompt(ledger, batch);
   assert.match(system.content, /점검/);
   assert.match(user.content, /T3 \[promise\] 스테이크 준비 \| 처음 원문: ""Fine\. Next week, the sea\.""/);
-  const stats = L.applyTidy(ledger, { close: [{ id: 'T3', how: '이미 먹음' }, { id: 'T99' }], merge: [{ keep: 'T1', drop: ['T2', 'T4'] }] });
+  const stats = L.applyTidy(ledger, { close: [{ id: 'T3', how: '이미 먹어서 완료됨', why: 'done' }, { id: 'T99' }], merge: [{ keep: 'T1', drop: ['T2', 'T4'] }] });
   assert.deepEqual(stats, { closed: 1, merged: 1, dropped: 2 });
   const open = ledger.threads.filter((t) => t.status === 'open').map((t) => t.id);
   assert.deepEqual(open, ['T1', 'T4']);
@@ -194,10 +194,10 @@ test('a feeling never closes on hedged words, without evidence, or from tidy unl
   const ledger = L.emptyLedger();
   const batch = L.prepareMessages(rows);
   L.applyResult(ledger, { open: [
-    { kind: 'emotion', need: '사과', title: '서운함', evidence: ['1.1'] },
-    { kind: 'emotion', need: '사과', title: '신뢰 흔들림', evidence: ['1.2'] },
-    { kind: 'emotion', need: '사과', title: '순간 흥분', evidence: ['2.1'] },
-    { kind: 'emotion', need: '사과', title: '화남', evidence: ['2.2'] },
+    { kind: 'emotion', need: '단테의 사과', who: '이리나', title: '서운함', evidence: ['1.1'] },
+    { kind: 'emotion', need: '믿음을 되찾을 계기', who: '이리나', toward: '단테', title: '신뢰 흔들림', evidence: ['1.2'] },
+    { kind: 'emotion', need: '진정', who: '킬리안', title: '순간 흥분', evidence: ['2.1'] },
+    { kind: 'emotion', need: '해명', who: '단테', title: '화남', evidence: ['2.2'] },
   ] }, batch);
   L.applyResult(ledger, { close: [
     { id: 'T1', how: '서운함이 누그러질 기로에 섬', evidence: ['2.1'] },
@@ -231,4 +231,62 @@ test('a feeling without a need is not an open thread; a hand-off is not an endin
   assert.equal(ledger.threads[1].status, 'open');
   L.applyResult(ledger, { close: [{ id: 'T2', how: '둘이 바다에 다녀옴', evidence: ['2.2'] }] }, batch);
   assert.equal(ledger.threads[1].status, 'closed');
+});
+
+test('closed lines are shown for reopening, and a reopen needs evidence', () => {
+  const ledger = L.emptyLedger();
+  const batch = L.prepareMessages(rows);
+  L.applyResult(ledger, { open: [{ kind: 'promise', title: '내일 데이트', evidence: ['2.1'] }] }, batch);
+  L.applyResult(ledger, { close: [{ id: 'T1', how: '흐지부지 취소됨', evidence: ['2.2'] }] }, batch);
+  assert.match(L.buildPrompt(ledger, batch)[1].content, /최근에 닫힌 항목[\s\S]*T1 \[promise\] 내일 데이트 \| 닫힌 이유: 흐지부지 취소됨/);
+  L.applyResult(ledger, { reopen: [{ id: 'T1', why: '데이트를 걸고 내기함' }] }, batch);
+  assert.equal(ledger.threads[0].status, 'closed', 'no evidence, no reopen');
+  const stats = L.applyResult(ledger, { reopen: [{ id: 'T1', why: '데이트를 걸고 내기함', evidence: [{ n: '1.2', q: '바다에 같이' }] }] }, batch);
+  assert.equal(stats.reopened, 1);
+  assert.equal(ledger.threads[0].status, 'open');
+  assert.equal(ledger.threads[0].reopened.from.how, '흐지부지 취소됨');
+});
+
+test('an update saying a feeling lifted closes it; hedged news does not', () => {
+  const ledger = L.emptyLedger();
+  const batch = L.prepareMessages(rows);
+  L.applyResult(ledger, { open: [
+    { kind: 'emotion', title: '질투', who: '단테', need: '이리나의 확답', evidence: ['1.1'] },
+    { kind: 'emotion', title: '서운함', who: '이리나', need: '알아봐 주기', evidence: ['1.2'] },
+  ] }, batch);
+  L.applyResult(ledger, { update: [
+    { id: 'T1', now: '단테의 질투가 눈 녹듯 사라짐', evidence: ['2.1'] },
+    { id: 'T2', now: '서운함이 풀릴 듯한 기미', evidence: ['2.2'] },
+  ] }, batch);
+  assert.deepEqual(ledger.threads.map((t) => t.status), ['closed', 'open']);
+});
+
+test('the same feeling opened three times becomes one thread', () => {
+  const ledger = L.emptyLedger();
+  const batch = L.prepareMessages(rows);
+  const stats = L.applyResult(ledger, { open: [
+    { kind: 'emotion', title: '배신감', who: '이리나', toward: '단테', cause: '단테가 몸을 샅샅이 안다면서도 새로 박은 사파이어 더멀을 눈치채지 못한 것', need: '단테가 사파이어 더멀을 스스로 알아차리고 이리나의 마음을 헤아려 달래는 것', evidence: ['1.1'] },
+    { kind: 'emotion', title: '서운함·화', who: '이리나', toward: '단테', cause: '단테가 사파이어를 알아차리지 못한 데서 온 서운함', need: '단테가 진짜 이유를 알아차리고 이리나의 기분을 풀어주는 것', evidence: ['1.2'] },
+    { kind: 'emotion', title: '신뢰 흔들림', who: '이리나', toward: '단테', cause: '단테가 이리나 몸에 새긴 사파이어를 알아차리지 못한 것', need: '단테가 사파이어 더멀을 스스로 알아차리고 상처를 헤아려 달래는 것', evidence: ['2.1'] },
+    { kind: 'emotion', title: '서운함', who: '이리나', toward: '킬리안', cause: '킬리안이 내기에서 이기려고 단테를 쫓아냄', need: '킬리안이 먼저 달래는 것', evidence: ['2.2'] },
+  ] }, batch);
+  assert.equal(stats.merged, 2);
+  assert.deepEqual(ledger.threads.filter((t) => t.status === 'open').map((t) => t.title), ['배신감', '서운함']);
+});
+
+test('tidy never closes a secret, and closes a promise only when its record says it was done', () => {
+  const ledger = L.emptyLedger();
+  const batch = L.prepareMessages(rows);
+  L.applyResult(ledger, { open: [
+    { kind: 'secret', title: '사파이어 더멀', evidence: ['2.3'] },
+    { kind: 'promise', title: '내일 데이트', evidence: ['2.1'] },
+    { kind: 'promise', title: '스테이크', evidence: ['1.1'] },
+  ] }, batch);
+  L.applyResult(ledger, { update: [{ id: 'T3', now: '스테이크를 구워 먹임' }] }, batch);
+  L.applyTidy(ledger, { close: [
+    { id: 'T1', how: '단테가 존재를 알아냄', why: 'done' },
+    { id: 'T2', how: '흐지부지됨', why: 'done' },
+    { id: 'T3', how: '구워 먹여서 완료됨', why: 'done' },
+  ] });
+  assert.deepEqual(ledger.threads.map((t) => t.status), ['open', 'open', 'closed']);
 });
