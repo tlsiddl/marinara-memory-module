@@ -89,7 +89,7 @@ state = await waitIdle(chatId);
 const calls = await (await fetch(`${llm}/__calls`)).json();
 assert.equal(state.summary.processed, 332, 'user message + reply processed');
 assert.equal(calls.memory - callsBefore.memory, 1, 'one memory call for one reply');
-const walk = state.threads.find((t) => t.detail && t.detail.includes('산책'));
+const walk = state.threads.find((t) => t.detail && t.detail.includes('달빛호수'));
 assert.ok(walk, 'new promise from the reply is in the ledger');
 console.log(`ok 4: after one reply the ledger has ${state.threads.length - before} new thread(s) from 1 memory call`);
 
@@ -99,11 +99,29 @@ const msgs = await api('GET', `/api/chats/${chatId}/messages?limit=5`);
 const list = Array.isArray(msgs) ? msgs : msgs.messages || msgs.items;
 const last = list.filter((m) => m.role === 'assistant').at(-1) ?? list.at(-1);
 await api('POST', '/api/generate', { chatId, regenerateMessageId: last.id, streaming: true });
+const rerollPrompt = await (await fetch(`${llm}/__lastrp`)).text();
+assert.ok(!rerollPrompt.includes('달빛호수'), 'the reroll prompt never saw the promise from the reply it replaces');
 await sleep(2500);
 state = await waitIdle(chatId);
-assert.ok(!state.threads.some((t) => t.detail && t.detail.includes('산책')), 'promise from the replaced reply is gone');
+assert.ok(!state.threads.some((t) => t.detail && t.detail.includes('달빛호수')), 'promise from the replaced reply is gone');
 assert.equal(state.summary.processed, 332);
-console.log('ok 5: regenerated reply rolled back its promise and was read again');
+console.log('ok 5: regenerated reply rolled back its promise before and after, and was read again');
+
+// 5b) Reroll while the memory model is still reading the reply: that read is stopped, nothing of it leaks.
+await fetch(`${llm}/__delay/6000`);
+fs.writeFileSync(replyFile, '단테가 말했다. "약속할게, 금요일에 별빛극장 가자."');
+await api('POST', '/api/generate', { chatId, userMessage: '내일 뭐 해?', streaming: true });
+await sleep(3000); // the reply read has started and is waiting on the slow model
+fs.writeFileSync(replyFile, '단테가 어깨를 으쓱했다. "글쎄."');
+const msgs2 = await api('GET', `/api/chats/${chatId}/messages?limit=5`);
+const list2 = Array.isArray(msgs2) ? msgs2 : msgs2.messages || msgs2.items;
+await api('POST', '/api/generate', { chatId, regenerateMessageId: list2.filter((m) => m.role === 'assistant').at(-1).id, streaming: true });
+await fetch(`${llm}/__delay/0`);
+await sleep(2500);
+state = await waitIdle(chatId);
+assert.ok(!state.threads.some((t) => t.detail && t.detail.includes('별빛극장')), 'the stopped read saved nothing');
+assert.equal(state.summary.processed, 334);
+console.log('ok 5b: a reroll during the read stops it cleanly');
 
 // 6) Turning the chat off stops reply updates; the existing ledger stays in the prompt.
 run('off', chatId);

@@ -180,7 +180,7 @@ async function memoryModel() {
 }
 
 async function askModel(model, messages) {
-  const signal = AbortSignal.timeout(MODEL_TIMEOUT_MS);
+  const signal = model.signal ? AbortSignal.any([AbortSignal.timeout(MODEL_TIMEOUT_MS), model.signal]) : AbortSignal.timeout(MODEL_TIMEOUT_MS);
   const base = { model: model.model, maxTokens: 4096, temperature: 0.2, signal };
   try {
     return (await model.provider.chatComplete(messages, { ...base, responseFormat: { type: 'json_object' } })).content;
@@ -252,11 +252,12 @@ function jobStatus(chatId) {
 function processChat(chatId, { rebuild = false, reason = 'auto' } = {}) {
   return enqueue(chatId, async () => {
     if (!rebuild && !chatEnabled(chatId)) return;
-    const job = { state: 'running', reason, done: 0, total: 0, startedAt: new Date().toISOString(), error: null, cancel: false };
+    const job = { state: 'running', reason, done: 0, total: 0, startedAt: new Date().toISOString(), error: null, cancel: false, abort: new AbortController() };
     jobs.set(chatId, job);
     try {
       const messages = await chatMessages(chatId);
-      let ledger = rebuild ? L.emptyLedger() : loadLedger(chatId) || L.emptyLedger();
+      // Work on a copy: a stopped or failed run must not leave half its changes in the cached ledger.
+      let ledger = rebuild ? L.emptyLedger() : structuredClone(loadLedger(chatId) || L.emptyLedger());
       const state = L.reconcile(ledger, messages);
       if (state.rebuild) {
         ledger.needsRebuild = { at: new Date().toISOString(), changedAt: state.changedAt };
@@ -272,12 +273,14 @@ function processChat(chatId, { rebuild = false, reason = 'auto' } = {}) {
       }
       const batches = L.planBatches(remaining, REBUILD_BATCH_CHARS);
       job.total = batches.length;
-      const model = await memoryModel();
+      const model = { ...(await memoryModel()), signal: job.abort.signal };
       for (const batch of batches) {
         if (job.cancel) throw Error('중단했어. 다시 시작하면 이어서 정리해.');
         const at = messages.indexOf(batch[0]);
         const context = messages.slice(Math.max(0, at - CONTEXT_MESSAGES), at);
-        for (const part of await readBatch(model, ledger, batch, context)) {
+        const parts = await readBatch(model, ledger, batch, context);
+        if (job.cancel) throw Error('중단했어. 다시 시작하면 이어서 정리해.');
+        for (const part of parts) {
           L.beginBatch(ledger, messages.indexOf(part.batch[0]));
           const stats = L.applyResult(ledger, part.parsed, part.batch);
           L.commitBatch(ledger, part.batch);
@@ -304,9 +307,9 @@ function processChat(chatId, { rebuild = false, reason = 'auto' } = {}) {
       job.state = 'done';
       log(`chat ${chatId}: ledger up to date (${reason}, ${job.total} call(s))`);
     } catch (error) {
-      job.state = 'error';
-      job.error = error?.message || String(error);
-      log(`chat ${chatId}: ${job.error}`);
+      job.state = job.cancel ? 'idle' : 'error';
+      job.error = job.cancel ? null : error?.message || String(error);
+      log(`chat ${chatId}: ${job.cancel ? `stopped (${job.cancelReason || 'stop'})` : job.error}`);
     } finally {
       job.finishedAt = new Date().toISOString();
     }
@@ -319,8 +322,9 @@ function tidyChat(chatId) {
     const job = { state: 'running', reason: 'tidy', stage: '장부 점검', done: 0, total: 1, startedAt: new Date().toISOString(), error: null };
     jobs.set(chatId, job);
     try {
-      const ledger = loadLedger(chatId);
-      if (!ledger) throw Error('아직 장부가 없어. 먼저 start로 정리해 줘.');
+      const cached = loadLedger(chatId);
+      if (!cached) throw Error('아직 장부가 없어. 먼저 start로 정리해 줘.');
+      const ledger = structuredClone(cached);
       const before = ledger.threads.filter((t) => t.status === 'open').length;
       const tidy = await tidyLedger(await memoryModel(), ledger, await chatMessages(chatId));
       saveLedger(chatId, ledger);
@@ -441,7 +445,7 @@ async function routes(app) {
   app.get('/chats/:id', guard(async (req) => {
     const chatId = safeChatId(req.params.id);
     const ledger = loadLedger(chatId);
-    const { cancel: _cancel, ...job } = jobStatus(chatId);
+    const { cancel: _cancel, abort: _abort, cancelReason: _reason, ...job } = jobStatus(chatId);
     return { version: globalThis.__marinaraMemory?.version || null, enabled: chatEnabled(chatId), job, summary: summary(ledger), threads: ledger?.threads || [], rendered: renderLedger(chatId) };
   }));
   app.post('/chats/:id/estimate', guard(async (req) => {
@@ -483,8 +487,54 @@ async function routes(app) {
 }
 
 /** Called once from Marinara's app setup (see the runtime hook). */
+/**
+ * Right before a reply is generated: undo what a replaced, deleted or swiped-away message put in the ledger,
+ * so the new reply's prompt never sees it. Restores saved snapshots only; no model call.
+ * On a regenerate, the message being replaced counts as already gone.
+ */
+async function syncBeforeReply(chatId, body) {
+  const running = jobs.get(chatId);
+  if (running?.state === 'running' && running.reason !== 'reply') {
+    // A full pass is under way; waiting for it would hold the reply for minutes.
+    log(`chat ${chatId}: ledger is being rebuilt, prompt uses the current ledger`);
+    return;
+  }
+  if (running?.state === 'running') {
+    // Still reading the reply that is about to be replaced or followed: stop it, nothing of it was saved yet.
+    running.cancel = true;
+    running.cancelReason = 'a new reply';
+    running.abort?.abort();
+  }
+  await enqueue(chatId, async () => {
+    const cached = loadLedger(chatId);
+    if (!cached) return;
+    const ledger = structuredClone(cached);
+    let view = await chatMessages(chatId);
+    const replaced = typeof body?.regenerateMessageId === 'string' ? view.findIndex((m) => m.id === body.regenerateMessageId) : -1;
+    if (replaced >= 0) view = view.slice(0, replaced);
+    const state = L.reconcile(ledger, view);
+    if (state.rebuild) {
+      ledger.needsRebuild = { at: new Date().toISOString(), changedAt: state.changedAt };
+      saveLedger(chatId, ledger);
+    } else if (state.rolledBack) {
+      saveLedger(chatId, ledger);
+      log(`chat ${chatId}: undid message ${state.changedAt + 1} before the reply`);
+    }
+  });
+}
+
 function attach(app) {
   app.register(routes, { prefix: '/api/memory-module' });
+  app.addHook('preHandler', async (req) => {
+    try {
+      const url = String(req.raw?.url || '').split('?')[0];
+      if (req.method !== 'POST' || url !== '/api/generate') return;
+      const chatId = req.body?.chatId;
+      if (typeof chatId === 'string' && chatEnabled(chatId)) await syncBeforeReply(chatId, req.body);
+    } catch (error) {
+      log(`before-reply sync: ${error?.message || error}`);
+    }
+  });
   app.addHook('onResponse', async (req, reply) => {
     try {
       const url = String(req.raw?.url || '').split('?')[0];

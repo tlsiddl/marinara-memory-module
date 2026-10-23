@@ -7,6 +7,8 @@ import fs from 'node:fs';
 const port = Number(process.argv[2] || 9911);
 const replyFile = process.argv[3];
 const calls = { memory: 0, rp: 0 };
+let memoryDelayMs = 0;
+let lastRpPrompt = '';
 
 function ledgerReply(user) {
   const lines = [...user.matchAll(/^\[(\d+\.\d+)\] (.*)$/gm)];
@@ -26,7 +28,7 @@ function ledgerReply(user) {
 
 function rpReply() {
   if (replyFile && fs.existsSync(replyFile)) return fs.readFileSync(replyFile, 'utf8');
-  return '단테가 웃었다. "약속할게, 내일 같이 산책 가자."';
+  return '단테가 웃었다. "약속할게, 내일 같이 달빛호수 가자."';
 }
 
 http
@@ -37,6 +39,16 @@ http
       if (req.url.endsWith('/models')) {
         res.writeHead(200, { 'content-type': 'application/json' });
         return res.end(JSON.stringify({ data: [{ id: 'fake-model' }] }));
+      }
+      const delay = req.url.match(/^\/__delay\/(\d+)$/);
+      if (delay) {
+        memoryDelayMs = Number(delay[1]);
+        res.writeHead(200);
+        return res.end('ok');
+      }
+      if (req.url === '/__lastrp') {
+        res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
+        return res.end(lastRpPrompt);
       }
       if (req.url === '/__calls') {
         res.writeHead(200, { 'content-type': 'application/json' });
@@ -61,8 +73,10 @@ http
         content = JSON.stringify(ledgerReply(user));
       } else {
         calls.rp++;
+        lastRpPrompt = JSON.stringify(messages);
         content = rpReply();
       }
+      const send = () => {
       if (input.stream) {
         res.writeHead(200, { 'content-type': 'text/event-stream' });
         const chunk = (delta, finish = null) => `data: ${JSON.stringify({ id: 'x', object: 'chat.completion.chunk', choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`;
@@ -73,6 +87,9 @@ http
       }
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({ id: 'x', object: 'chat.completion', choices: [{ index: 0, message: { role: 'assistant', content }, finish_reason: 'stop' }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } }));
+      };
+      if (isMemory && memoryDelayMs) setTimeout(send, memoryDelayMs);
+      else send();
     });
   })
   .listen(port, '127.0.0.1', () => console.log(`fake llm on ${port}`));
