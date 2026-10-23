@@ -60,7 +60,7 @@ test('a duplicate title becomes an update, secret clues accumulate', () => {
 test('emotion stays open until a resolving close, and closed threads leave the prompt', () => {
   const ledger = L.emptyLedger();
   const b1 = L.prepareMessages([{ id: 'a', number: 1, speaker: '이리나', content: '이리나는 단테에게 화가 나서 문을 쾅 닫았다.' }]);
-  L.applyResult(ledger, { open: [{ kind: 'emotion', title: '단테에게 화남', who: '이리나', toward: '단테', cause: '약속을 어김', evidence: ['1.1'] }] }, b1);
+  L.applyResult(ledger, { open: [{ kind: 'emotion', need: '사과', title: '단테에게 화남', who: '이리나', toward: '단테', cause: '약속을 어김', evidence: ['1.1'] }] }, b1);
   assert.match(L.render(ledger), /풀리지 않은 감정[\s\S]*이리나 → 단테: 단테에게 화남[\s\S]*원인: 약속을 어김/);
   const b2 = L.prepareMessages([{ id: 'b', number: 2, speaker: '단테', content: '단테가 고개를 숙여 사과했고, 이리나는 결국 웃었다.' }]);
   L.applyResult(ledger, { close: [{ id: 'T1', how: '사과하고 화해함', evidence: ['2.1'] }] }, b2);
@@ -120,7 +120,7 @@ test('tidy closes finished threads and merges duplicates of the same kind only',
     { kind: 'promise', title: '오빠 호칭 수금', evidence: ['1.1'] },
     { kind: 'promise', title: '오빠 호칭 외상', evidence: ['1.2'] },
     { kind: 'promise', title: '스테이크 준비', evidence: ['2.1'] },
-    { kind: 'emotion', title: '서운함', evidence: ['2.2'] },
+    { kind: 'emotion', need: '사과', title: '서운함', evidence: ['2.2'] },
   ] }, batch);
   const [system, user] = L.buildTidyPrompt(ledger, batch);
   assert.match(system.content, /점검/);
@@ -136,7 +136,7 @@ test('render puts feelings first, quotes the line where it began, caps each kind
   const ledger = L.emptyLedger();
   const many = L.prepareMessages(Array.from({ length: 14 }, (_, i) => ({ id: `p${i}`, number: i + 1, speaker: '단테', content: `약속 ${i}번이야. 나중 이야기 ${i}.` })));
   L.applyResult(ledger, { open: many.map((m) => ({ kind: 'promise', title: `약속 ${m.number}`, evidence: [`${m.number}.1`] })) }, many);
-  L.applyResult(ledger, { open: [{ kind: 'emotion', title: '서운함', evidence: ['1.1'] }] }, many);
+  L.applyResult(ledger, { open: [{ kind: 'emotion', need: '사과', title: '서운함', evidence: ['1.1'] }] }, many);
   L.applyResult(ledger, { update: [{ id: 'T1', detail: '나중에 바뀜', evidence: ['1.2'] }] }, many, '2099-01-01T00:00:00.000Z');
   const text = L.render(ledger);
   assert.ok(text.indexOf('풀리지 않은 감정') < text.indexOf('■ 약속'));
@@ -149,13 +149,13 @@ test('render puts feelings first, quotes the line where it began, caps each kind
 test('an update keeps the original description and adds a dated latest line', () => {
   const ledger = L.emptyLedger();
   const batch = L.prepareMessages(rows);
-  L.applyResult(ledger, { open: [{ kind: 'emotion', title: '자괴감', who: '이리나', detail: '발정기 때 매달린 자신이 부끄러움', since: '24-10-20 (일) 13:55', evidence: ['1.1'] }] }, batch);
+  L.applyResult(ledger, { open: [{ kind: 'emotion', need: '사과', title: '자괴감', who: '이리나', detail: '발정기 때 매달린 자신이 부끄러움', since: '24-10-20 (일) 13:55', evidence: ['1.1'] }] }, batch);
   L.applyResult(ledger, { update: [{ id: 'T1', now: '킬리안에게 털어놓음', at: '24-10-21 (월) 18:05', evidence: ['2.1'] }] }, batch);
   const t = ledger.threads[0];
   assert.equal(t.detail, '발정기 때 매달린 자신이 부끄러움');
   assert.deepEqual(t.latest, { text: '킬리안에게 털어놓음', at: '24-10-21 (월) 18:05', number: 2 });
   assert.match(L.render(ledger), /시작: 24-10-20 \(일\) 13:55\)\n  최근: 킬리안에게 털어놓음 \(24-10-21 \(월\) 18:05\)/);
-  assert.match(L.buildPrompt(ledger, batch)[1].content, /T1 \[emotion\] 자괴감 \(이리나\) — 발정기 때 매달린 자신이 부끄러움 \| 최근: 킬리안에게 털어놓음/);
+  assert.match(L.buildPrompt(ledger, batch)[1].content, /T1 \[emotion\] 자괴감 \(이리나\) — 발정기 때 매달린 자신이 부끄러움 \| 풀리려면: 사과 \| 최근: 킬리안에게 털어놓음/);
 });
 
 test('an update that says it is over closes promises and secrets, but never feelings', () => {
@@ -164,7 +164,7 @@ test('an update that says it is over closes promises and secrets, but never feel
   L.applyResult(ledger, { open: [
     { kind: 'promise', title: '금욕', evidence: ['1.1'] },
     { kind: 'secret', title: '목탄화 취미', evidence: ['1.2'] },
-    { kind: 'emotion', title: '서운함', evidence: ['2.1'] },
+    { kind: 'emotion', need: '사과', title: '서운함', evidence: ['2.1'] },
     { kind: 'promise', title: '서재 동행', evidence: ['2.2'] },
   ] }, batch);
   const stats = L.applyResult(ledger, { update: [
@@ -184,7 +184,7 @@ test('a phrase fixes a wrong sentence number, and a wrong phrase never drops a v
   L.applyResult(ledger, { open: [
     { kind: 'promise', title: '바다', evidence: [{ n: '1.1', q: '바다에 같이 가기로' }] },
     { kind: 'secret', title: '반지', evidence: [{ n: '9.9', q: '반지를 주머니에' }] },
-    { kind: 'emotion', title: '노려봄', evidence: [{ n: '1.1', q: '전혀 없는 말' }] },
+    { kind: 'emotion', need: '사과', title: '노려봄', evidence: [{ n: '1.1', q: '전혀 없는 말' }] },
     { kind: 'pending', title: '근거 없음', evidence: [{ n: '9.9', q: '전혀 없는 말' }] },
   ] }, batch);
   assert.deepEqual(ledger.threads.map((t) => `${t.title}:${t.evidence[0].number}.${t.evidence[0].sentence}`), ['바다:1.2', '반지:2.3', '노려봄:1.1']);
@@ -194,10 +194,10 @@ test('a feeling never closes on hedged words, without evidence, or from tidy unl
   const ledger = L.emptyLedger();
   const batch = L.prepareMessages(rows);
   L.applyResult(ledger, { open: [
-    { kind: 'emotion', title: '서운함', evidence: ['1.1'] },
-    { kind: 'emotion', title: '신뢰 흔들림', evidence: ['1.2'] },
-    { kind: 'emotion', title: '순간 흥분', evidence: ['2.1'] },
-    { kind: 'emotion', title: '화남', evidence: ['2.2'] },
+    { kind: 'emotion', need: '사과', title: '서운함', evidence: ['1.1'] },
+    { kind: 'emotion', need: '사과', title: '신뢰 흔들림', evidence: ['1.2'] },
+    { kind: 'emotion', need: '사과', title: '순간 흥분', evidence: ['2.1'] },
+    { kind: 'emotion', need: '사과', title: '화남', evidence: ['2.2'] },
   ] }, batch);
   L.applyResult(ledger, { close: [
     { id: 'T1', how: '서운함이 누그러질 기로에 섬', evidence: ['2.1'] },
@@ -213,4 +213,22 @@ test('a feeling never closes on hedged words, without evidence, or from tidy unl
   assert.equal(ledger.threads[1].mergedInto, 'T1');
   L.applyResult(ledger, { close: [{ id: 'T4', how: '사과하고 화해함', evidence: ['2.2'] }] }, batch);
   assert.equal(ledger.threads[3].status, 'closed');
+});
+
+test('a feeling without a need is not an open thread; a hand-off is not an ending', () => {
+  const ledger = L.emptyLedger();
+  const batch = L.prepareMessages(rows);
+  const stats = L.applyResult(ledger, { open: [
+    { kind: 'emotion', title: '뭉클함', evidence: ['1.1'] },
+    { kind: 'emotion', title: '서운함', need: '단테가 알아봐 주는 것', evidence: ['1.2'] },
+    { kind: 'promise', title: '내일 데이트', evidence: ['2.1'] },
+  ] }, batch);
+  assert.equal(stats.dropped, 1);
+  assert.match(L.render(ledger), /풀리려면: 단테가 알아봐 주는 것/);
+  L.applyResult(ledger, { close: [{ id: 'T2', how: '장소 문제는 T80으로 이어짐', evidence: ['2.2'] }] }, batch);
+  assert.equal(ledger.threads[1].status, 'open');
+  L.applyTidy(ledger, { close: [{ id: 'T2', how: '별도 항목으로 넘어감' }] });
+  assert.equal(ledger.threads[1].status, 'open');
+  L.applyResult(ledger, { close: [{ id: 'T2', how: '둘이 바다에 다녀옴', evidence: ['2.2'] }] }, batch);
+  assert.equal(ledger.threads[1].status, 'closed');
 });

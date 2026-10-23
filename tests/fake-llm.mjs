@@ -15,7 +15,7 @@ function ledgerReply(user) {
   const ids = [...user.matchAll(/^(T\d+) \[(\w+)\] (.*)$/gm)];
   for (const [, id, text] of lines) {
     if (/약속|promise/i.test(text)) open.push({ kind: 'promise', title: `약속 ${id}`, who: null, toward: null, detail: text.slice(0, 60), evidence: [id] });
-    if (/화가|화났|서운/.test(text)) open.push({ kind: 'emotion', title: `감정 ${id}`, who: null, toward: null, detail: null, cause: '본문 근거', evidence: [id] });
+    if (/화가|화났|서운/.test(text)) open.push({ kind: 'emotion', title: `감정 ${id}`, who: null, toward: null, detail: null, cause: '본문 근거', need: '사과', evidence: [id] });
     if (/화해|사과했/.test(text) && ids.some(([, , kind]) => kind === 'emotion')) {
       const emotion = ids.find(([, , kind]) => kind === 'emotion');
       close.push({ id: emotion[1], how: '사과', evidence: [id] });
