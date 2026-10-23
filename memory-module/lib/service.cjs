@@ -365,7 +365,11 @@ async function startTrial(chatId, from, to) {
         }
         trial.done++;
       }
-      trial.result = { dropped, threads: ledger.threads, rendered: L.render(ledger) };
+      const before = ledger.threads.filter((t) => t.status === 'open').length;
+      trial.stage = '장부 점검';
+      const tidy = await tidyLedger(model, ledger, slice);
+      trial.stage = null;
+      trial.result = { dropped, tidy: { before, after: ledger.threads.filter((t) => t.status === 'open').length, ...tidy }, threads: ledger.threads, rendered: L.render(ledger) };
       trial.state = 'done';
       log(`chat ${chatId}: trial ${from}~${to} done (${batches.length} call(s), ${ledger.threads.length} thread(s))`);
     } catch (error) {

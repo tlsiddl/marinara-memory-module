@@ -76,7 +76,7 @@ const commands = {
       await new Promise((resolve) => setTimeout(resolve, 5000));
       const t = await api('GET', `/chats/${chatId}/trial`);
       if (t.done !== last && t.state === 'running') {
-        console.log(`진행: ${t.done}/${t.total}`);
+        console.log(`진행: ${t.done}/${t.total}${t.stage ? ` · ${t.stage}` : ''}`);
         last = t.done;
       }
       if (t.state !== 'running') return printTrial(t);
@@ -133,6 +133,10 @@ const commands = {
 function printTrial(t) {
   console.log(`\n${t.from}~${t.to}번 시험 ${t.state === 'done' ? '완료' : '중단'}: 메시지 ${t.messages}개, 모델 호출 ${t.done}/${t.total}번, 버린 항목 ${t.result?.dropped ?? 0}개`);
   if (t.error) console.log(`오류: ${t.error}`);
+  if (t.result?.tidy) console.log(`장부 점검: 열린 항목 ${t.result.tidy.before}개 → ${t.result.tidy.after}개 (닫음 ${t.result.tidy.closed}, 합침 ${t.result.tidy.merged})`);
+  console.log('\n===== 프롬프트에 들어갈 모습 =====');
+  console.log(t.result?.rendered || '(열린 항목 없음)');
+  console.log('\n===== 전체 항목 =====');
   const threads = t.result?.threads || [];
   for (const th of threads) {
     console.log(`\n${th.status === 'open' ? '열림' : '닫힘'} ${th.id} [${KIND[th.kind]}] ${th.title}${th.who ? ` (${[th.who, th.toward].filter(Boolean).join(' → ')})` : ''}${th.since ? ` · ${th.since}` : ''}`);
