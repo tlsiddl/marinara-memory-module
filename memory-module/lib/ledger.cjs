@@ -503,13 +503,13 @@ function addEvidence(thread, evidence, news, now, at = null) {
 }
 
 /** An update that already says it is over closes the thread (never for feelings, which need a real resolution). */
-const DONE_WORDS = /(완료(됐|되었|됨|했|함)?|폐기|취소(됐|되었|됨)|일단락|무산|해결(됐|되었|됨)|밝혀(졌|짐)|자백(했|함)|공개(됐|되었|됨)|끝났|마무리(됐|되었|됨))/;
+const DONE_WORDS = /(완료(됐|되었|됨|했|함)?|폐기|취소(됐|되었|됨)|일단락|무산|해결(됐|되었|됨)|밝혀(졌|짐)|자백(했|함)|공개(됐|되었|됨)|끝났|마무리(됐|되었|됨)|깨졌|깨짐|깨져 버)/;
 function soundsDone(thread, text) {
   return thread.kind !== 'emotion' && typeof text === 'string' && DONE_WORDS.test(text);
 }
 
 /** Words that say a feeling has actually lifted. Hedged wording ("on the verge of") never counts. */
-const RESOLVED_WORDS = /(사라지|사라졌|사라짐|풀렸|풀리고|풀림|해소|화해|용서|가라앉았|녹아내|눈 녹듯|웃음으로 꺾|웃으며 넘어|기분이 풀|마음이 풀)/;
+const RESOLVED_WORDS = /(사라지|사라졌|사라짐|풀렸|풀리고|풀림|해소|화해|용서|가라앉았|녹아내|눈 녹듯|웃음으로 꺾|웃으며 넘어|기분이 풀|마음이 풀|달랬|달래졌|달래 주었|달래줬)/;
 function soundsResolved(text) {
   return typeof text === 'string' && RESOLVED_WORDS.test(text) && !hedged(text);
 }
@@ -533,6 +533,23 @@ function beginBatch(ledger, firstIndex) {
 
 function commitBatch(ledger, batch) {
   for (const message of batch) ledger.processed.push({ id: message.id, h: message.h });
+  const last = batch.at(-1)?.number;
+  if (typeof last === 'number' && last > (ledger.lastNumber || 0)) ledger.lastNumber = last;
+}
+
+/** The last message where this thread came up. */
+function lastSeen(t) {
+  const numbers = [...t.evidence, ...t.clues].map((p) => p.number).filter((n) => typeof n === 'number');
+  if (typeof t.latest?.number === 'number') numbers.push(t.latest.number);
+  if (typeof t.reopened?.at?.number === 'number') numbers.push(t.reopened.at.number);
+  return numbers.length ? Math.max(...numbers) : t.openedAt?.number ?? 0;
+}
+
+// A feeling nobody has touched for this many messages has faded. It stays in the ledger, out of the prompt.
+// Promises and secrets do not fade: a promise made 500 turns ago is still a promise.
+const FEELING_FADES_AFTER = 120;
+function faded(t, lastNumber) {
+  return t.kind === 'emotion' && typeof lastNumber === 'number' && lastNumber - lastSeen(t) > FEELING_FADES_AFTER;
 }
 
 /**
@@ -593,7 +610,9 @@ function renderThread(t, maxClues) {
 
 /** Text placed at {{기억}}: open threads only, newest first within each kind, never cut mid-item. */
 function render(ledger, { maxChars = 6000, maxClues = 6 } = {}) {
-  const open = (ledger?.threads || []).filter((t) => t.status === 'open');
+  // Ledgers saved before lastNumber existed: the newest line any thread points at is close enough.
+  const lastNumber = ledger?.lastNumber ?? Math.max(0, ...(ledger?.threads || []).map(lastSeen));
+  const open = (ledger?.threads || []).filter((t) => t.status === 'open' && !faded(t, lastNumber));
   if (!open.length) return '';
   const header = [
     '[Open threads: things still unresolved in this story. The characters remember them.',
@@ -604,7 +623,7 @@ function render(ledger, { maxChars = 6000, maxClues = 6 } = {}) {
   for (const kind of RENDER_ORDER) {
     const items = open
       .filter((t) => t.kind === kind)
-      .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || '') || (b.openedAt?.number ?? 0) - (a.openedAt?.number ?? 0))
+      .sort((a, b) => lastSeen(b) - lastSeen(a) || (b.updatedAt || '').localeCompare(a.updatedAt || ''))
       .slice(0, RENDER_LIMIT[kind]);
     const blocks = [];
     for (const t of items) {
@@ -636,5 +655,7 @@ module.exports = {
   commitBatch,
   reconcile,
   render,
+  faded,
+  lastSeen,
   SYSTEM_PROMPT,
 };

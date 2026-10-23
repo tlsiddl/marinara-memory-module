@@ -137,7 +137,7 @@ test('render puts feelings first, quotes the line where it began, caps each kind
   const many = L.prepareMessages(Array.from({ length: 14 }, (_, i) => ({ id: `p${i}`, number: i + 1, speaker: '단테', content: `약속 ${i}번이야. 나중 이야기 ${i}.` })));
   L.applyResult(ledger, { open: many.map((m) => ({ kind: 'promise', title: `약속 ${m.number}`, evidence: [`${m.number}.1`] })) }, many);
   L.applyResult(ledger, { open: [{ kind: 'emotion', need: '사과', title: '서운함', evidence: ['1.1'] }] }, many);
-  L.applyResult(ledger, { update: [{ id: 'T1', detail: '나중에 바뀜', evidence: ['1.2'] }] }, many, '2099-01-01T00:00:00.000Z');
+  L.applyResult(ledger, { update: [{ id: 'T1', detail: '나중에 바뀜', evidence: ['14.2'] }] }, many, '2099-01-01T00:00:00.000Z');
   const text = L.render(ledger);
   assert.ok(text.indexOf('풀리지 않은 감정') < text.indexOf('■ 약속'));
   assert.equal((text.match(/^- /gm) || []).length, 11, '1 feeling + 10 promises');
@@ -289,4 +289,35 @@ test('tidy never closes a secret, and closes a promise only when its record says
     { id: 'T3', how: '구워 먹여서 완료됨', why: 'done' },
   ] });
   assert.deepEqual(ledger.threads.map((t) => t.status), ['open', 'open', 'closed']);
+});
+
+test('a feeling untouched for 120 messages fades from the prompt but stays in the ledger; promises never fade', () => {
+  const ledger = L.emptyLedger();
+  const early = L.prepareMessages([{ id: 'e', number: 5, speaker: '이리나', content: '이리나는 단테에게 서운했다. 다음 주에 바다 가자.' }]);
+  L.applyResult(ledger, { open: [
+    { kind: 'emotion', title: '서운함', who: '이리나', need: '사과', evidence: ['5.1'] },
+    { kind: 'promise', title: '바다', evidence: ['5.2'] },
+  ] }, early);
+  L.commitBatch(ledger, early);
+  const late = L.prepareMessages([{ id: 'l', number: 200, speaker: '단테', content: '단테가 웃었다.' }]);
+  L.commitBatch(ledger, late);
+  const text = L.render(ledger);
+  assert.doesNotMatch(text, /서운함/);
+  assert.match(text, /바다/);
+  assert.equal(ledger.threads[0].status, 'open');
+  assert.equal(L.faded(ledger.threads[0], ledger.lastNumber), true);
+});
+
+test('soothed feelings and broken promises close', () => {
+  const ledger = L.emptyLedger();
+  const batch = L.prepareMessages(rows);
+  L.applyResult(ledger, { open: [
+    { kind: 'emotion', title: '질투', who: '단테', need: '확답', evidence: ['1.1'] },
+    { kind: 'promise', title: '사흘 간호', evidence: ['1.2'] },
+  ] }, batch);
+  L.applyResult(ledger, { update: [
+    { id: 'T1', now: '이리나가 단테의 질투를 달랬다', evidence: ['2.1'] },
+    { id: 'T2', now: '병가 선언으로 계획이 사실상 깨졌다' },
+  ] }, batch);
+  assert.deepEqual(ledger.threads.map((t) => t.status), ['closed', 'closed']);
 });
