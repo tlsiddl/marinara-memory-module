@@ -1,17 +1,23 @@
 #!/usr/bin/env node
 'use strict';
 // Memory module commands. Run inside the Marinara container, for example:
-//   docker exec marinara-engine-marinara-1 node /app/memory-module/memory-cli.cjs list
+//   docker exec -e NODE_OPTIONS= marinara-engine-marinara-1 node /app/memory-module/memory-cli.cjs list
+// (-e NODE_OPTIONS= keeps the server patches out of this small command.)
 
-const PORT = process.env.PORT || 7860;
+const PORT = process.env.MEMORY_MODULE_PORT || 7860;
 const BASE = `http://127.0.0.1:${PORT}/api/memory-module`;
 
 async function api(method, path, body) {
-  const response = await fetch(BASE + path, {
+  let response;
+  try {
+    response = await fetch(BASE + path, {
     method,
     headers: { 'content-type': 'application/json', 'x-marinara-csrf': '1' },
     body: method === 'GET' ? undefined : JSON.stringify(body ?? {}),
-  });
+    });
+  } catch (error) {
+    throw Error(`마리나라 서버(${BASE})에 연결하지 못했어 (${error.cause?.code || error.message}). 서버가 막 다시 켜지는 중이면 잠깐 뒤에 다시 해 줘.`);
+  }
   const text = await response.text();
   let data;
   try {

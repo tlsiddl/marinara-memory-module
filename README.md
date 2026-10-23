@@ -37,7 +37,7 @@ docker logs marinara-engine-marinara-1 2>&1 | grep memory-module
 서버에서 아래 형식으로 실행해.
 
 ```sh
-docker exec marinara-engine-marinara-1 node /app/memory-module/memory-cli.cjs <명령>
+docker exec -e NODE_OPTIONS= marinara-engine-marinara-1 node /app/memory-module/memory-cli.cjs <명령>
 ```
 
 | 명령 | 하는 일 |
