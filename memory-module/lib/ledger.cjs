@@ -135,16 +135,16 @@ const TIDY_PROMPT = `너는 장기 롤플레이의 기억 관리자야. 지금 �
 할 일:
 - close: 이미 실행됐거나, 끝났거나, 취소됐거나, 더 이상 의미 없는 항목을 닫아. 설명이나 최근 상황에 "완료", "이행됨", "끝남", "폐기", "일단락", "밝혀짐", "인정함", "언급 없음"이 있으면 대부분 닫을 대상이야.
   비밀은 숨긴 상대가 그 사실을 실제로 알게 됐을 때만 닫아. "아직 모름"이면 그대로 둬.
-  하루 뒤에는 의미 없을 장면 속 순간 반응(흥분, 만족, 안도, 승리감 등)이나 그 자리에서 끝난 화제도 닫아.
+  그 자리에서 끝난 화제도 닫아.
   장면 안에서 바로 끝난 일이나, 이미 일어난 일의 기록이 잘못 들어간 것도 닫아.
 - merge: 같은 일을 가리키는 항목들은 하나로 합쳐. keep에는 남길 항목, drop에는 합쳐서 없앨 항목을 적어.
   같은 인물이 같은 상대에게 같은 원인으로 느끼는 감정, 같은 약속을 다시 확인한 항목은 합칠 대상이야.
-- 감정은 사과, 화해, 감정이 풀렸다는 묘사가 최근 장면에 있을 때만 닫아. 시간이 흐른 것만으로는 닫지 마.
+- 감정은 점검에서 닫지 마. 같은 감정이면 merge만 해. 예외: 하루 뒤엔 의미 없는 장면 속 순간 반응이 잘못 들어간 것이면 why를 "momentary"로 적고 닫아.
 - 아직 남아 있는 일은 그대로 둬. 확실하지 않으면 그대로 둬.
 - 장부에 없는 id는 만들지 마.
 
 출력 형식:
-{"close":[{"id":"T3","how":"닫는 이유"}],"merge":[{"keep":"T5","drop":["T9"]}]}
+{"close":[{"id":"T3","how":"닫는 이유","why":"done|momentary"}],"merge":[{"keep":"T5","drop":["T9"]}]}
 바꿀 게 없으면 {"close":[],"merge":[]}.`;
 
 function describeThread(thread) {
@@ -321,7 +321,8 @@ function applyResult(ledger, result, batch, now = new Date().toISOString()) {
     const thread = byId.get(String(item?.id || ''));
     const evidence = resolveEvidence(item?.evidence, index);
     const how = cleanText(item?.how, 200);
-    if (!thread || thread.status !== 'open' || (!evidence.length && !how)) {
+    const feelingBlocked = thread?.kind === 'emotion' && (!evidence.length || hedged(how));
+    if (!thread || thread.status !== 'open' || (!evidence.length && !how) || feelingBlocked) {
       stats.dropped++;
       continue;
     }
@@ -385,11 +386,14 @@ function applyTidy(ledger, result, now = new Date().toISOString()) {
   }
   for (const item of Array.isArray(result.close) ? result.close : []) {
     const thread = openThread(item?.id);
-    if (!thread) {
+    const how = cleanText(item?.how, 200);
+    // The tidy pass sees no new lines, so it may only drop a feeling that never belonged (a passing reaction).
+    const feelingBlocked = thread?.kind === 'emotion' && (item?.why !== 'momentary' || hedged(how));
+    if (!thread || feelingBlocked) {
       stats.dropped++;
       continue;
     }
-    closeThread(thread, cleanText(item.how, 200) || '점검에서 닫음', [], thread.openedAt, now);
+    closeThread(thread, how || '점검에서 닫음', [], thread.openedAt, now);
     stats.closed++;
   }
   return stats;
@@ -411,6 +415,12 @@ function addEvidence(thread, evidence, news, now, at = null) {
 const DONE_WORDS = /(완료(됐|되었|됨|했|함)?|폐기|취소(됐|되었|됨)|일단락|무산|해결(됐|되었|됨)|밝혀(졌|짐)|자백(했|함)|공개(됐|되었|됨)|끝났|마무리(됐|되었|됨))/;
 function soundsDone(thread, text) {
   return thread.kind !== 'emotion' && typeof text === 'string' && DONE_WORDS.test(text);
+}
+
+/** "On the verge of softening" is not resolved. A feeling never closes on hedged words. */
+const HEDGE_WORDS = /(기로|기미|아직|누그러질|잦아들|풀릴 듯|풀릴지|조금씩|어느 정도|일부|반쯤|듯하|것 같|가능성|시작했|려는|려 함)/;
+function hedged(text) {
+  return typeof text === 'string' && HEDGE_WORDS.test(text);
 }
 
 /** Remember the state before a batch so a later swipe or edit inside it can be undone. */

@@ -12,7 +12,7 @@ const { registerHooks } = require('node:module');
 const { fileURLToPath } = require('node:url');
 
 const TAG = '[memory-module]';
-const VERSION = '0.2.5';
+const VERSION = '0.2.6';
 const NOTES_DIR = process.env.MEMORY_MODULE_NOTES_DIR || path.join(__dirname, 'notes');
 const DEFAULT_NOTE = '_default.txt';
 const MAX_NOTE_CHARS = 20000;

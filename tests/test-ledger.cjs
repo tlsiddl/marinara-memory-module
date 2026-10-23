@@ -189,3 +189,28 @@ test('a phrase fixes a wrong sentence number, and a wrong phrase never drops a v
   ] }, batch);
   assert.deepEqual(ledger.threads.map((t) => `${t.title}:${t.evidence[0].number}.${t.evidence[0].sentence}`), ['바다:1.2', '반지:2.3', '노려봄:1.1']);
 });
+
+test('a feeling never closes on hedged words, without evidence, or from tidy unless it was a passing reaction', () => {
+  const ledger = L.emptyLedger();
+  const batch = L.prepareMessages(rows);
+  L.applyResult(ledger, { open: [
+    { kind: 'emotion', title: '서운함', evidence: ['1.1'] },
+    { kind: 'emotion', title: '신뢰 흔들림', evidence: ['1.2'] },
+    { kind: 'emotion', title: '순간 흥분', evidence: ['2.1'] },
+    { kind: 'emotion', title: '화남', evidence: ['2.2'] },
+  ] }, batch);
+  L.applyResult(ledger, { close: [
+    { id: 'T1', how: '서운함이 누그러질 기로에 섬', evidence: ['2.1'] },
+    { id: 'T4', how: '사과해서 화해함' },
+  ] }, batch);
+  assert.deepEqual(ledger.threads.map((t) => t.status), ['open', 'open', 'open', 'open']);
+  const stats = L.applyTidy(ledger, {
+    close: [{ id: 'T2', how: '떨림이 잦아들 기미', why: 'momentary' }, { id: 'T1', how: '풀림' }, { id: 'T3', how: '장면 속 흥분', why: 'momentary' }],
+    merge: [{ keep: 'T1', drop: ['T2'] }],
+  });
+  assert.deepEqual(stats, { closed: 1, merged: 1, dropped: 2 });
+  assert.deepEqual(ledger.threads.map((t) => t.status), ['open', 'closed', 'closed', 'open']);
+  assert.equal(ledger.threads[1].mergedInto, 'T1');
+  L.applyResult(ledger, { close: [{ id: 'T4', how: '사과하고 화해함', evidence: ['2.2'] }] }, batch);
+  assert.equal(ledger.threads[3].status, 'closed');
+});
