@@ -121,5 +121,13 @@ state = await waitIdle(chatId);
 assert.equal(state.job.state, 'done', JSON.stringify(state.job));
 assert.match(run('status', chatId), /점검 결과: 열린 항목 \d+개 → \d+개/);
 console.log('ok 7: tidy command closes and merges on the saved ledger');
+
+// 8) Trial on a slice: nothing saved.
+const saved = (await api('GET', `/api/memory-module/chats/${chatId}`)).threads.length;
+const trial = run('trial', chatId, '300', '330');
+assert.match(trial, /메시지 31개, 모델 호출 \d+번/);
+assert.equal((await api('GET', `/api/memory-module/chats/${chatId}`)).threads.length, saved);
+assert.throws(() => run('trial', chatId, '1', '200'));
+console.log('ok 8: trial reads a slice without saving');
 console.log(run('status', chatId).trim());
 console.log('all ledger e2e checks passed');

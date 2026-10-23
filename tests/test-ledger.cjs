@@ -177,3 +177,15 @@ test('an update that says it is over closes promises and secrets, but never feel
   assert.deepEqual(ledger.threads.map((t) => t.status), ['closed', 'closed', 'open', 'open']);
   assert.equal(ledger.threads[1].closed.at.time, '24-10-20 11:50');
 });
+
+test('a phrase fixes a wrong sentence number, and a wrong phrase never drops a valid number', () => {
+  const ledger = L.emptyLedger();
+  const batch = L.prepareMessages(rows);
+  L.applyResult(ledger, { open: [
+    { kind: 'promise', title: '바다', evidence: [{ n: '1.1', q: '바다에 같이 가기로' }] },
+    { kind: 'secret', title: '반지', evidence: [{ n: '9.9', q: '반지를 주머니에' }] },
+    { kind: 'emotion', title: '노려봄', evidence: [{ n: '1.1', q: '전혀 없는 말' }] },
+    { kind: 'pending', title: '근거 없음', evidence: [{ n: '9.9', q: '전혀 없는 말' }] },
+  ] }, batch);
+  assert.deepEqual(ledger.threads.map((t) => `${t.title}:${t.evidence[0].number}.${t.evidence[0].sentence}`), ['바다:1.2', '반지:2.3', '노려봄:1.1']);
+});

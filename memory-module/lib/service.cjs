@@ -10,7 +10,9 @@ const L = require('./ledger.cjs');
 const DATA_DIR = path.join(process.env.DATA_DIR || '/app/data', 'memory-module');
 const CHAT_DIR = path.join(DATA_DIR, 'chats');
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
-const REBUILD_BATCH_CHARS = Number(process.env.MEMORY_MODULE_BATCH_CHARS) || 24000;
+// About three or four messages at a time: the same small view the model gets after a live reply.
+const REBUILD_BATCH_CHARS = Number(process.env.MEMORY_MODULE_BATCH_CHARS) || 8000;
+const TRIAL_MAX_MESSAGES = 40;
 const CONTEXT_MESSAGES = 2;
 const MODEL_TIMEOUT_MS = 5 * 60_000;
 
@@ -284,7 +286,7 @@ function processChat(chatId, { rebuild = false, reason = 'auto' } = {}) {
         delete ledger.needsRebuild;
         job.done++;
         // A long first pass is tidied along the way so the open list each batch sees stays short.
-        if (batches.length > 1 && job.done % 8 === 0 && job.done < batches.length) {
+        if (batches.length > 1 && job.done % 20 === 0 && job.done < batches.length) {
           job.stage = '장부 점검';
           await tidyLedger(model, ledger, messages.slice(0, messages.indexOf(batch.at(-1)) + 1));
           job.stage = null;
@@ -334,6 +336,28 @@ function tidyChat(chatId) {
       job.finishedAt = new Date().toISOString();
     }
   });
+}
+
+/**
+ * Read messages from..to on a throwaway empty ledger and return what it would hold. Nothing is saved.
+ * For trying the rules on a slice of the chat before paying for a full pass.
+ */
+async function trialRange(chatId, from, to) {
+  const messages = await chatMessages(chatId);
+  const slice = messages.filter((m) => m.number >= from && m.number <= to);
+  if (!slice.length) throw Error(`${from}~${to}번 사이에 읽을 메시지가 없어.`);
+  if (slice.length > TRIAL_MAX_MESSAGES) throw Error(`구간 시험은 메시지 ${TRIAL_MAX_MESSAGES}개까지만 돼. 범위를 줄여 줘.`);
+  const model = await memoryModel();
+  const ledger = L.emptyLedger();
+  const batches = L.planBatches(slice, REBUILD_BATCH_CHARS);
+  let dropped = 0;
+  for (const batch of batches) {
+    const at = messages.indexOf(batch[0]);
+    for (const part of await readBatch(model, ledger, batch, messages.slice(Math.max(0, at - CONTEXT_MESSAGES), at))) {
+      dropped += L.applyResult(ledger, part.parsed, part.batch).dropped;
+    }
+  }
+  return { messages: slice.length, calls: batches.length, dropped, threads: ledger.threads, rendered: L.render(ledger) };
 }
 
 /* ---------- prompt ---------- */
@@ -417,6 +441,12 @@ async function routes(app) {
     await memoryModel();
     tidyChat(chatId);
     return { started: true };
+  }));
+  app.post('/chats/:id/trial', guard(async (req) => {
+    const from = Number(req.body?.from);
+    const to = Number(req.body?.to);
+    if (!Number.isInteger(from) || !Number.isInteger(to) || from > to) throw Error('사용법: trial <ID> <시작 번호> <끝 번호>');
+    return trialRange(safeChatId(req.params.id), from, to);
   }));
   app.post('/chats/:id/stop', guard(async (req) => {
     const job = jobs.get(safeChatId(req.params.id));

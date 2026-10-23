@@ -66,6 +66,21 @@ const commands = {
     await api('POST', `/chats/${chatId}/tidy`);
     console.log('장부 점검을 시작했어. 끝난 일은 닫고, 겹치는 항목은 합칠게. 결과는 status로 볼 수 있어.');
   },
+  async trial(chatId, from, to) {
+    need(chatId);
+    console.log(`${from}~${to}번 메시지를 빈 장부로 시험해 볼게. 저장은 하지 않아. 잠깐 걸려...`);
+    const r = await api('POST', `/chats/${chatId}/trial`, { from: Number(from), to: Number(to) });
+    console.log(`메시지 ${r.messages}개, 모델 호출 ${r.calls}번, 버린 항목 ${r.dropped}개\n`);
+    for (const t of r.threads) {
+      console.log(`${t.status === 'open' ? '열림' : '닫힘'} ${t.id} [${KIND[t.kind]}] ${t.title}${t.who ? ` (${[t.who, t.toward].filter(Boolean).join(' → ')})` : ''}${t.since ? ` · ${t.since}` : ''}`);
+      if (t.detail) console.log(`   ${t.detail}`);
+      if (t.cause) console.log(`   원인: ${t.cause}`);
+      for (const p of [...t.evidence, ...t.clues].slice(0, 3)) console.log(`   #${p.number}.${p.sentence} "${p.text.slice(0, 120)}"`);
+      if (t.latest) console.log(`   최근: ${t.latest.text}`);
+      if (t.closed) console.log(`   닫힘: ${t.closed.how || ''}`);
+    }
+    if (!r.threads.length) console.log('(찾은 항목 없음)');
+  },
   async stop(chatId) {
     need(chatId);
     const r = await api('POST', `/chats/${chatId}/stop`);
@@ -120,6 +135,7 @@ if (!commands[command]) {
   start <ID> [--fresh]       정리 시작(멈춘 곳부터 이어서, --fresh는 처음부터)
   status <ID>                진행 상황
   tidy <ID>                  장부 점검(끝난 일 닫기, 겹치는 항목 합치기)
+  trial <ID> <시작> <끝>     그 구간만 시험 정리(저장 안 함, 최대 40개)
   stop <ID>                  정리 멈추기
   show <ID> [--all]          프롬프트에 들어갈 장부 보기(--all은 닫힌 항목까지)
   on <ID> / off <ID>         답변마다 갱신 켜기/끄기`);
