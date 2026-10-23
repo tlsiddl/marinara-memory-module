@@ -2,7 +2,7 @@
 
 사람처럼 기억하는 장기 RP용 기억 모듈이야. 마리나라(Marinara Engine) 서버가 켜질 때 끼워 넣는 런타임 패치로 동작하고, 원본 파일은 건드리지 않아.
 
-지금 버전: **v0.2.1 (2단계: 열린 실타래 장부)** · 대상: **Marinara Engine 2.5.1**
+지금 버전: **v0.2.2 (2단계: 열린 실타래 장부)** · 대상: **Marinara Engine 2.5.1**
 
 ## 하는 일
 
@@ -28,6 +28,8 @@ cd /root/Marinara-Engine
 docker compose -f docker-compose.yml -f docker-compose.override.yml -f docker-compose.gf-customizer.yml -f docker-compose.251.yml -f docker-compose.memory.yml up -d
 docker logs marinara-engine-marinara-1 2>&1 | grep memory-module
 ```
+
+`update.sh`는 파일을 받은 뒤 마리나라 컨테이너를 다시 켜. 서버는 다시 켜야 새 코드를 쓰거든.
 
 로그에 `{{기억}} macro ready`와 `reply hook and admin API ready`가 보이면 성공이야.
 
@@ -60,6 +62,8 @@ docker exec -e NODE_OPTIONS= marinara-engine-marinara-1 node /app/memory-module/
 마지막 `docker compose` 줄에서 `-f docker-compose.memory.yml`만 빼고 다시 실행해. 만든 장부는 데이터 저장 공간에 그대로 남아.
 
 ## 검증 기록
+
+- v0.2.2: 업데이트가 원래 설명을 덮어쓰던 문제를 고침(원래 설명 + "최근:" 한 줄과 그 장면의 작중 시간). "완료·폐기·일단락·밝혀짐·자백" 같은 업데이트는 자동으로 닫음(감정은 제외). `status`에 서버가 실제로 쓰는 버전 표시. `update.sh`가 마리나라를 다시 켬.
 
 - v0.2.1: 실제 딥시크 첫 결과에서 나온 문제(끝난 약속이 열려 있음, 중복, 엉뚱한 근거, 감정이 잘림)를 고침. 정리 규칙 강화, 장부 점검 추가, 감정 우선 표시. 같은 330개 기록으로 전체 흐름 다시 통과.
 

@@ -18,4 +18,9 @@ do
 done
 # The step-1 test sentence is no longer needed once the ledger fills {{기억}}.
 rm -f memory-module/notes/_default.txt
-echo "memory module updated in $DIR/memory-module"
+echo "memory module files updated in $DIR/memory-module"
+# A running server keeps the old code until it restarts.
+if docker ps --format '{{.Names}}' | grep -qx marinara-engine-marinara-1; then
+  docker restart marinara-engine-marinara-1 >/dev/null
+  echo "restarted marinara-engine-marinara-1; give it about 20 seconds to come back"
+fi

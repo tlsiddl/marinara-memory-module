@@ -367,7 +367,7 @@ async function routes(app) {
       return reply.status(400).send({ error: error?.message || String(error) });
     }
   };
-  app.get('/status', guard(async () => ({ settings: settings(), dataDir: DATA_DIR })));
+  app.get('/status', guard(async () => ({ version: globalThis.__marinaraMemory?.version || null, settings: settings(), dataDir: DATA_DIR })));
   app.post('/settings', guard(async (req) => {
     const connection = String(req.body?.connection || '').trim();
     if (!connection) throw Error('연결 이름이 비어 있어.');
@@ -394,7 +394,7 @@ async function routes(app) {
     const chatId = safeChatId(req.params.id);
     const ledger = loadLedger(chatId);
     const { cancel: _cancel, ...job } = jobStatus(chatId);
-    return { enabled: chatEnabled(chatId), job, summary: summary(ledger), threads: ledger?.threads || [], rendered: renderLedger(chatId) };
+    return { version: globalThis.__marinaraMemory?.version || null, enabled: chatEnabled(chatId), job, summary: summary(ledger), threads: ledger?.threads || [], rendered: renderLedger(chatId) };
   }));
   app.post('/chats/:id/estimate', guard(async (req) => {
     const chatId = safeChatId(req.params.id);

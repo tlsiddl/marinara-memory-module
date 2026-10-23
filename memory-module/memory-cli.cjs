@@ -75,7 +75,7 @@ const commands = {
     need(chatId);
     const r = await api('GET', `/chats/${chatId}`);
     const j = r.job;
-    console.log(`기억 모듈: ${r.enabled ? '켜짐' : '꺼짐'}`);
+    console.log(`기억 모듈: ${r.enabled ? '켜짐' : '꺼짐'} · 서버가 쓰는 버전 v${r.version || '?'}`);
     console.log(`작업: ${STATE[j.state] || j.state}${j.stage ? ` · ${j.stage}` : ''}${j.total ? ` (${j.done}/${j.total})` : ''}${j.error ? `\n오류: ${j.error}` : ''}`);
     if (j.result) console.log(`점검 결과: 열린 항목 ${j.result.before}개 → ${j.result.after}개 (닫음 ${j.result.closed}, 합침 ${j.result.merged})`);
     console.log(`장부: ${openLine(r.summary.open)} · 닫힌 항목 ${r.summary.closed} · 정리된 메시지 ${r.summary.processed}개`);
@@ -88,7 +88,8 @@ const commands = {
       for (const t of r.threads) {
         console.log(`${t.status === 'open' ? '열림' : '닫힘'} ${t.id} [${KIND[t.kind]}] ${t.title}${t.who ? ` (${[t.who, t.toward].filter(Boolean).join(' → ')})` : ''}`);
         if (t.detail) console.log(`   ${t.detail}`);
-        if (t.closed) console.log(`   닫힘: ${t.closed.how || ''} (#${t.closed.at?.number})`);
+        if (t.latest) console.log(`   최근: ${t.latest.text}${t.latest.at ? ` (${t.latest.at})` : ''}`);
+        if (t.closed) console.log(`   닫힘: ${t.closed.how || ''} (#${t.closed.at?.number}${t.closed.at?.time ? `, ${t.closed.at.time}` : ''})`);
       }
       return;
     }

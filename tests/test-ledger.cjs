@@ -145,3 +145,35 @@ test('render puts feelings first, quotes the line where it began, caps each kind
   const small = L.render(ledger, { maxChars: 400 });
   assert.ok(small.length <= 400 && !small.endsWith('…'));
 });
+
+test('an update keeps the original description and adds a dated latest line', () => {
+  const ledger = L.emptyLedger();
+  const batch = L.prepareMessages(rows);
+  L.applyResult(ledger, { open: [{ kind: 'emotion', title: '자괴감', who: '이리나', detail: '발정기 때 매달린 자신이 부끄러움', since: '24-10-20 (일) 13:55', evidence: ['1.1'] }] }, batch);
+  L.applyResult(ledger, { update: [{ id: 'T1', now: '킬리안에게 털어놓음', at: '24-10-21 (월) 18:05', evidence: ['2.1'] }] }, batch);
+  const t = ledger.threads[0];
+  assert.equal(t.detail, '발정기 때 매달린 자신이 부끄러움');
+  assert.deepEqual(t.latest, { text: '킬리안에게 털어놓음', at: '24-10-21 (월) 18:05', number: 2 });
+  assert.match(L.render(ledger), /시작: 24-10-20 \(일\) 13:55\)\n  최근: 킬리안에게 털어놓음 \(24-10-21 \(월\) 18:05\)/);
+  assert.match(L.buildPrompt(ledger, batch)[1].content, /T1 \[emotion\] 자괴감 \(이리나\) — 발정기 때 매달린 자신이 부끄러움 \| 최근: 킬리안에게 털어놓음/);
+});
+
+test('an update that says it is over closes promises and secrets, but never feelings', () => {
+  const ledger = L.emptyLedger();
+  const batch = L.prepareMessages(rows);
+  L.applyResult(ledger, { open: [
+    { kind: 'promise', title: '금욕', evidence: ['1.1'] },
+    { kind: 'secret', title: '목탄화 취미', evidence: ['1.2'] },
+    { kind: 'emotion', title: '서운함', evidence: ['2.1'] },
+    { kind: 'promise', title: '서재 동행', evidence: ['2.2'] },
+  ] }, batch);
+  const stats = L.applyResult(ledger, { update: [
+    { id: 'T1', now: '금욕 계획이 사실상 전면 폐기됨' },
+    { id: 'T2', now: '단테가 모든 걸 자백함', at: '24-10-20 11:50' },
+    { id: 'T3', now: '서운함이 거의 해소됨, 완료' },
+    { id: 'T4', now: '실제 이행 시작' },
+  ] }, batch);
+  assert.deepEqual([stats.closed, stats.updated], [2, 2]);
+  assert.deepEqual(ledger.threads.map((t) => t.status), ['closed', 'closed', 'open', 'open']);
+  assert.equal(ledger.threads[1].closed.at.time, '24-10-20 11:50');
+});
