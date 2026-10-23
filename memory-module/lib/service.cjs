@@ -201,6 +201,31 @@ async function readBatch(model, ledger, batch, context) {
   return [...first, ...(await readBatch(model, ledger, batch.slice(half), batch.slice(half - CONTEXT_MESSAGES, half)))];
 }
 
+const TIDY_EVERY_REPLIES = 15;
+const TIDY_CHUNK = 60;
+
+/** Close finished threads and fold duplicates. Open threads are checked in chunks of TIDY_CHUNK. */
+async function tidyLedger(model, ledger, messages) {
+  const recent = messages.slice(-4);
+  const total = { closed: 0, merged: 0, calls: 0 };
+  const open = ledger.threads.filter((t) => t.status === 'open');
+  for (const kind of L.KINDS) {
+    const ofKind = open.filter((t) => t.kind === kind);
+    for (let i = 0; i < ofKind.length; i += TIDY_CHUNK) {
+      const view = { threads: ofKind.slice(i, i + TIDY_CHUNK) };
+      const parsed = L.parseJsonObject(await askModel(model, L.buildTidyPrompt(view, recent)));
+      total.calls++;
+      if (!parsed) continue;
+      const stats = L.applyTidy(ledger, parsed);
+      total.closed += stats.closed;
+      total.merged += stats.merged;
+    }
+  }
+  ledger.repliesSinceTidy = 0;
+  ledger.lastTidy = { at: new Date().toISOString(), ...total };
+  return total;
+}
+
 /* ---------- jobs ---------- */
 
 const queues = new Map();
@@ -257,9 +282,23 @@ function processChat(chatId, { rebuild = false, reason = 'auto' } = {}) {
           if (stats.dropped) log(`chat ${chatId}: dropped ${stats.dropped} ungrounded item(s)`);
         }
         delete ledger.needsRebuild;
-        saveLedger(chatId, ledger);
         job.done++;
+        // A long first pass is tidied along the way so the open list each batch sees stays short.
+        if (batches.length > 1 && job.done % 8 === 0 && job.done < batches.length) {
+          job.stage = '장부 점검';
+          await tidyLedger(model, ledger, messages.slice(0, messages.indexOf(batch.at(-1)) + 1));
+          job.stage = null;
+        }
+        saveLedger(chatId, ledger);
       }
+      ledger.repliesSinceTidy = (ledger.repliesSinceTidy || 0) + (reason === 'reply' ? 1 : 0);
+      if (batches.length > 1 || ledger.repliesSinceTidy >= TIDY_EVERY_REPLIES) {
+        job.stage = '장부 점검';
+        const tidy = await tidyLedger(model, ledger, messages);
+        log(`chat ${chatId}: tidy closed ${tidy.closed}, merged ${tidy.merged} (${tidy.calls} call(s))`);
+      }
+      saveLedger(chatId, ledger);
+      job.stage = null;
       job.state = 'done';
       log(`chat ${chatId}: ledger up to date (${reason}, ${job.total} call(s))`);
     } catch (error) {
@@ -267,6 +306,31 @@ function processChat(chatId, { rebuild = false, reason = 'auto' } = {}) {
       job.error = error?.message || String(error);
       log(`chat ${chatId}: ${job.error}`);
     } finally {
+      job.finishedAt = new Date().toISOString();
+    }
+  });
+}
+
+/** Run only the tidy pass on the saved ledger (the "tidy" command). */
+function tidyChat(chatId) {
+  return enqueue(chatId, async () => {
+    const job = { state: 'running', reason: 'tidy', stage: '장부 점검', done: 0, total: 1, startedAt: new Date().toISOString(), error: null };
+    jobs.set(chatId, job);
+    try {
+      const ledger = loadLedger(chatId);
+      if (!ledger) throw Error('아직 장부가 없어. 먼저 start로 정리해 줘.');
+      const before = ledger.threads.filter((t) => t.status === 'open').length;
+      const tidy = await tidyLedger(await memoryModel(), ledger, await chatMessages(chatId));
+      saveLedger(chatId, ledger);
+      job.result = { before, after: ledger.threads.filter((t) => t.status === 'open').length, ...tidy };
+      job.done = 1;
+      job.state = 'done';
+      log(`chat ${chatId}: tidy ${before} → ${job.result.after} open (${tidy.calls} call(s))`);
+    } catch (error) {
+      job.state = 'error';
+      job.error = error?.message || String(error);
+    } finally {
+      job.stage = null;
       job.finishedAt = new Date().toISOString();
     }
   });
@@ -290,6 +354,7 @@ function summary(ledger) {
     open: { promise: count('promise'), emotion: count('emotion'), secret: count('secret'), pending: count('pending') },
     closed: threads.filter((t) => t.status === 'closed').length,
     needsRebuild: Boolean(ledger?.needsRebuild),
+    lastTidy: ledger?.lastTidy || null,
     updatedAt: ledger?.updatedAt || null,
   };
 }
@@ -345,6 +410,13 @@ async function routes(app) {
     setChatEnabled(chatId, true);
     processChat(chatId, { rebuild: fresh, reason: fresh ? 'rebuild' : 'resume' });
     return { started: true, fresh };
+  }));
+  app.post('/chats/:id/tidy', guard(async (req) => {
+    const chatId = safeChatId(req.params.id);
+    if (jobStatus(chatId).state === 'running') throw Error('지금 정리 중이야. 끝난 뒤에 다시 해 줘.');
+    await memoryModel();
+    tidyChat(chatId);
+    return { started: true };
   }));
   app.post('/chats/:id/stop', guard(async (req) => {
     const job = jobs.get(safeChatId(req.params.id));

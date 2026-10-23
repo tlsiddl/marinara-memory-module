@@ -50,7 +50,12 @@ http
       const system = messages.find((m) => m.role === 'system')?.content || '';
       const isMemory = typeof system === 'string' && system.startsWith('너는 장기 롤플레이의 기억 관리자야');
       let content;
-      if (isMemory) {
+      if (isMemory && system.includes('열린 항목을 점검해')) {
+        calls.tidy = (calls.tidy || 0) + 1;
+        const user = messages.find((m) => m.role === 'user')?.content || '';
+        const ids = [...user.matchAll(/^(T\d+) \[(\w+)\]/gm)].map((m) => m[1]);
+        content = JSON.stringify({ close: ids.length ? [{ id: ids[0], how: '테스트 점검' }] : [], merge: ids.length > 2 ? [{ keep: ids[1], drop: [ids[2]] }] : [] });
+      } else if (isMemory) {
         calls.memory++;
         const user = messages.find((m) => m.role === 'user')?.content || '';
         content = JSON.stringify(ledgerReply(user));

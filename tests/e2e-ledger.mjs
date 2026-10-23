@@ -25,7 +25,7 @@ async function api(method, url, body) {
     return text;
   }
 }
-const run = (...args) => execFileSync(process.execPath, [cli, ...args], { env: { ...process.env, PORT: port }, encoding: 'utf8' });
+const run = (...args) => execFileSync(process.execPath, [cli, ...args], { env: { ...process.env, MEMORY_MODULE_PORT: port }, encoding: 'utf8' });
 async function waitIdle(chatId) {
   for (let i = 0; i < 600; i++) {
     const r = await api('GET', `/api/memory-module/chats/${chatId}`);
@@ -69,12 +69,15 @@ const promise = state.threads.find((t) => t.kind === 'promise');
 assert.ok(promise, 'the real chat mentions 약속 somewhere');
 const rows = fs.readFileSync(jsonlPath, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)).slice(1);
 assert.ok(rows.some((r) => r.mes.includes(promise.evidence[0].text)), 'evidence text is copied from the real message');
-console.log(`ok 2: ${state.job.total} call(s), ${state.threads.length} thread(s), quotes match the source`);
+assert.ok(state.summary.lastTidy?.calls >= 1, 'the first pass ends with a tidy');
+assert.ok(state.threads.some((t) => t.closed?.how === '테스트 점검'), 'tidy closed a thread');
+console.log(`ok 2: ${state.job.total} call(s), ${state.threads.length} thread(s), quotes match the source, tidy ran ${state.summary.lastTidy.calls} time(s)`);
 
 // 3) The ledger reaches the prompt at {{기억}}, inside <memory>, before the chat history.
 let preview = JSON.stringify((await api('POST', '/api/generate/dryRun', { chatId, returnPrompt: true, userMessage: '안녕' })).prompt);
 assert.match(preview, /<memory>\\n\s*\[Open threads/);
-assert.ok(preview.includes(promise.title));
+const shown = state.threads.find((t) => t.status === 'open' && state.rendered.includes(t.title));
+assert.ok(shown && preview.includes(shown.title), 'a rendered open thread is in the prompt');
 console.log('ok 3: open threads appear at {{기억}} in the prompt preview');
 
 // 4) A real reply: the fake RP model answers with a new promise; the ledger updates by itself.
@@ -111,5 +114,12 @@ assert.equal((await (await fetch(`${llm}/__calls`)).json()).memory, callsOff);
 preview = JSON.stringify((await api('POST', '/api/generate/dryRun', { chatId, returnPrompt: true })).prompt);
 assert.match(preview, /\[Open threads/);
 console.log('ok 6: off stops updates, ledger still in the prompt');
+
+// 7) The tidy command on its own.
+assert.match(run('tidy', chatId), /장부 점검을 시작/);
+state = await waitIdle(chatId);
+assert.equal(state.job.state, 'done', JSON.stringify(state.job));
+assert.match(run('status', chatId), /점검 결과: 열린 항목 \d+개 → \d+개/);
+console.log('ok 7: tidy command closes and merges on the saved ledger');
 console.log(run('status', chatId).trim());
 console.log('all ledger e2e checks passed');

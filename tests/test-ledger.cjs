@@ -100,3 +100,48 @@ test('planBatches respects the size limit but keeps a long message whole', () =>
   const batches = L.planBatches(messages, 1200);
   assert.deepEqual(batches.map((b) => b.map((m) => m.id)), [['1', '2'], ['3']]);
 });
+
+test('update and close may come without evidence when they carry words', () => {
+  const ledger = L.emptyLedger();
+  const batch = L.prepareMessages(rows);
+  L.applyResult(ledger, { open: [{ kind: 'promise', title: '다음 주 바다', evidence: ['2.1'] }] }, batch);
+  const stats = L.applyResult(ledger, { update: [{ id: 'T1', detail: '토요일로 확정' }, { id: 'T1' }], close: [] }, batch);
+  assert.deepEqual([stats.updated, stats.dropped], [1, 1]);
+  assert.equal(ledger.threads[0].detail, '토요일로 확정');
+  assert.equal(ledger.threads[0].evidence.length, 1, 'no evidence was invented');
+  L.applyResult(ledger, { close: [{ id: 'T1', how: '바다에 다녀옴' }] }, batch);
+  assert.equal(ledger.threads[0].status, 'closed');
+});
+
+test('tidy closes finished threads and merges duplicates of the same kind only', () => {
+  const ledger = L.emptyLedger();
+  const batch = L.prepareMessages(rows);
+  L.applyResult(ledger, { open: [
+    { kind: 'promise', title: '오빠 호칭 수금', evidence: ['1.1'] },
+    { kind: 'promise', title: '오빠 호칭 외상', evidence: ['1.2'] },
+    { kind: 'promise', title: '스테이크 준비', evidence: ['2.1'] },
+    { kind: 'emotion', title: '서운함', evidence: ['2.2'] },
+  ] }, batch);
+  const [system, user] = L.buildTidyPrompt(ledger, batch);
+  assert.match(system.content, /점검/);
+  assert.match(user.content, /T3 \[promise\] 스테이크 준비 \| 처음 원문: ""Fine\. Next week, the sea\.""/);
+  const stats = L.applyTidy(ledger, { close: [{ id: 'T3', how: '이미 먹음' }, { id: 'T99' }], merge: [{ keep: 'T1', drop: ['T2', 'T4'] }] });
+  assert.deepEqual(stats, { closed: 1, merged: 1, dropped: 2 });
+  const open = ledger.threads.filter((t) => t.status === 'open').map((t) => t.id);
+  assert.deepEqual(open, ['T1', 'T4']);
+  assert.equal(ledger.threads[0].evidence.length, 2, 'the merged line moved into the kept thread');
+});
+
+test('render puts feelings first, quotes the line where it began, caps each kind, never cuts mid-item', () => {
+  const ledger = L.emptyLedger();
+  const many = L.prepareMessages(Array.from({ length: 14 }, (_, i) => ({ id: `p${i}`, number: i + 1, speaker: '단테', content: `약속 ${i}번이야. 나중 이야기 ${i}.` })));
+  L.applyResult(ledger, { open: many.map((m) => ({ kind: 'promise', title: `약속 ${m.number}`, evidence: [`${m.number}.1`] })) }, many);
+  L.applyResult(ledger, { open: [{ kind: 'emotion', title: '서운함', evidence: ['1.1'] }] }, many);
+  L.applyResult(ledger, { update: [{ id: 'T1', detail: '나중에 바뀜', evidence: ['1.2'] }] }, many, '2099-01-01T00:00:00.000Z');
+  const text = L.render(ledger);
+  assert.ok(text.indexOf('풀리지 않은 감정') < text.indexOf('■ 약속'));
+  assert.equal((text.match(/^- /gm) || []).length, 11, '1 feeling + 10 promises');
+  assert.match(text, /약속 1 — 나중에 바뀜\n  원문: "약속 0번이야\."/);
+  const small = L.render(ledger, { maxChars: 400 });
+  assert.ok(small.length <= 400 && !small.endsWith('…'));
+});

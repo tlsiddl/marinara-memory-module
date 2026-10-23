@@ -61,6 +61,11 @@ const commands = {
     const r = await api('POST', `/chats/${chatId}/start`, { fresh: flag === '--fresh' });
     console.log(r.fresh ? '처음부터 정리를 시작했어. 진행 상황은 status로 볼 수 있어.' : '멈췄던 곳부터 이어서 정리해. 진행 상황은 status로 볼 수 있어.');
   },
+  async tidy(chatId) {
+    need(chatId);
+    await api('POST', `/chats/${chatId}/tidy`);
+    console.log('장부 점검을 시작했어. 끝난 일은 닫고, 겹치는 항목은 합칠게. 결과는 status로 볼 수 있어.');
+  },
   async stop(chatId) {
     need(chatId);
     const r = await api('POST', `/chats/${chatId}/stop`);
@@ -71,7 +76,8 @@ const commands = {
     const r = await api('GET', `/chats/${chatId}`);
     const j = r.job;
     console.log(`기억 모듈: ${r.enabled ? '켜짐' : '꺼짐'}`);
-    console.log(`작업: ${STATE[j.state] || j.state}${j.total ? ` (${j.done}/${j.total})` : ''}${j.error ? `\n오류: ${j.error}` : ''}`);
+    console.log(`작업: ${STATE[j.state] || j.state}${j.stage ? ` · ${j.stage}` : ''}${j.total ? ` (${j.done}/${j.total})` : ''}${j.error ? `\n오류: ${j.error}` : ''}`);
+    if (j.result) console.log(`점검 결과: 열린 항목 ${j.result.before}개 → ${j.result.after}개 (닫음 ${j.result.closed}, 합침 ${j.result.merged})`);
     console.log(`장부: ${openLine(r.summary.open)} · 닫힌 항목 ${r.summary.closed} · 정리된 메시지 ${r.summary.processed}개`);
     if (r.summary.needsRebuild) console.log('주의: 예전 메시지가 바뀌어서 start --fresh로 다시 정리해야 해.');
   },
@@ -112,6 +118,7 @@ if (!commands[command]) {
   estimate <ID>              처음 정리에 드는 모델 호출 수 미리 보기
   start <ID> [--fresh]       정리 시작(멈춘 곳부터 이어서, --fresh는 처음부터)
   status <ID>                진행 상황
+  tidy <ID>                  장부 점검(끝난 일 닫기, 겹치는 항목 합치기)
   stop <ID>                  정리 멈추기
   show <ID> [--all]          프롬프트에 들어갈 장부 보기(--all은 닫힌 항목까지)
   on <ID> / off <ID>         답변마다 갱신 켜기/끄기`);
