@@ -6,7 +6,7 @@
 > **비공식 모듈입니다.** Marinara Engine 및 Pasta-Devs와 관련이 없고, 그쪽의 검토나 지원을 받지 않습니다.
 > Marinara Engine **2.5.1**에서 확인했습니다. 다른 버전에서는 일부 기능이 스스로 꺼질 수 있습니다(아래 참고).
 
-지금 버전: **v0.7.0 (베타)** · 변경 내역은 [CHANGELOG.md](CHANGELOG.md)
+지금 버전: **v0.7.1 (베타)** · 변경 내역은 [CHANGELOG.md](CHANGELOG.md)
 
 ---
 
@@ -65,8 +65,8 @@ irm https://raw.githubusercontent.com/tlsiddl/marinara-memory-module/main/instal
 **설치 확인** — 마리나라 로그에 아래 줄들이 보이면 성공입니다.
 
 ```
-[memory-module] v0.7.0 applied: {{기억}} macro ready
-[memory-module] v0.7.0 applied: reply hook and admin API ready
+[memory-module] v0.7.1 applied: {{기억}} macro ready
+[memory-module] v0.7.1 applied: reply hook and admin API ready
 ```
 
 ### 2. 기억 서재 화면 (확장)
@@ -76,17 +76,31 @@ irm https://raw.githubusercontent.com/tlsiddl/marinara-memory-module/main/instal
 - 저장소 주소: `https://github.com/tlsiddl/marinara-memory-module`
 - 파일: `deliverable/manifest.json`
 
-(또는 [deliverable/memory-library-module.personal-extension.zip](deliverable/memory-library-module.personal-extension.zip)을 받아 가져오기.) **전체 페이지 접근**을 허용하고 켜면 화면 오른쪽 아래에 책 아이콘이 생깁니다.
+(또는 [deliverable/memory-library-module.personal-extension.zip](deliverable/memory-library-module.personal-extension.zip)을 받아 가져오기.) **전체 페이지 접근**을 허용하고 켜면 화면 오른쪽 아래에 책 아이콘이 생깁니다. 아이콘은 끌어서 원하는 곳으로 옮길 수 있고(두 번 누르면 처음 자리로), [확장 서랍](https://github.com/boricha417/marinara-extension-drawer)을 쓰시면 서랍 안에 자동으로 담깁니다.
 
 ### 3. 처음 설정
 
 1. 기억 서재 → **설정** → **기억 정리에 쓸 연결**을 고르고 저장합니다.
-2. 쓰는 프롬프트 프리셋에 새 섹션(역할: 시스템)을 하나 만들고 내용에 `{{기억}}`을 적습니다. 채팅 기록 바로 위에 두는 것을 추천합니다. **이걸 빠뜨리면 기억이 만들어져도 답변에 들어가지 않습니다.**
+2. 쓰는 프롬프트 프리셋에 새 섹션(역할: 시스템)을 하나 만들고 내용에 `{{기억}}`을 적습니다. 채팅 기록 바로 위에 두는 것을 추천합니다. **이걸 빠뜨리면 기억이 만들어져도 답변에 들어가지 않습니다.** (아래 '프리셋 예시' 참고)
 3. 기억을 쓸 채팅방을 열고, 기억 서재 왼쪽 아래 **이 방에서 기억 사용**을 켭니다.
 4. **기억 보관함** 탭에서 **이어서 정리**를 누릅니다. 처음에는 지난 대화 전체를 정리합니다.
 5. (선택) 설정 → **뜻으로 찾기**에 임베딩 모델 이름을 넣고 **임베딩 저장·연결 확인**.
 
 그다음부터는 답변마다 자동으로 정리됩니다. 기억을 켠 방만 비용이 듭니다.
+
+### 프리셋 예시
+
+섹션을 태그로 감싸 쓰는 프리셋이라면, 앞뒤 구분자 섹션에 `<memory>` 태그를 넣어 주면 깔끔합니다. 순서는 이렇게 둡니다.
+
+| 순서 | 섹션 | 내용 |
+| --- | --- | --- |
+| … | 페르소나 (마커) | |
+| | 구분자 | `</persona>` 빈 줄 `<memory>` |
+| | **기억** (새로 만든 섹션, 시스템) | `{{기억}}` |
+| | 구분자 | `</memory>` 빈 줄 `<chat_history>` |
+| | 채팅 요약 (마커) · 채팅 기록 (마커) | |
+
+이렇게 섹션을 따로 두면 마리나라의 **프롬프트 구성** 보기에서 `MEMORY`가 독립된 칸으로 보여서, 기억이 실제로 들어갔는지와 몇 토큰인지 바로 확인할 수 있습니다.
 
 ---
 

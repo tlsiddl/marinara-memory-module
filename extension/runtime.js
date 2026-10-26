@@ -748,12 +748,92 @@
     render();
   }
 
+  const LAUNCH_ICON = '<svg class="launch-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+    + '<path d="M3 7.2c2.9-1.1 5.9-.9 9 1.1 3.1-2 6.1-2.2 9-1.1v11.6c-2.9-1.1-5.9-.9-9 1.1-3.1-2-6.1-2.2-9-1.1z"/>'
+    + '<path d="M12 8.3v11.6"/><path d="M6 11.4c1.4-.4 2.7-.3 3.8.2M6 14.4c1.4-.4 2.7-.3 3.8.2M14.2 11.6c1.1-.5 2.4-.6 3.8-.2" opacity=".55"/>'
+    + '<path d="M12 1.2l.7 1.6 1.6.7-1.6.7-.7 1.6-.7-1.6-1.6-.7 1.6-.7z" fill="currentColor" stroke-width=".8"/>'
+    + '</svg>';
+  const LAUNCH_POS_KEY = 'memory-module-launch-pos';
+
+  /** The launcher can be dragged anywhere; its spot is kept as a share of the screen so it survives resizing. */
+  function placeLaunch(launch, pos) {
+    if (!pos || launch.dataset.exdHidden !== undefined) return; // hidden in another extension's drawer: leave it be
+    const w = launch.offsetWidth || 50;
+    const h = launch.offsetHeight || 50;
+    const x = Math.min(Math.max(pos.x * innerWidth - w / 2, 6), innerWidth - w - 6);
+    const y = Math.min(Math.max(pos.y * innerHeight - h / 2, 6), innerHeight - h - 6);
+    launch.style.left = `${Math.round(x)}px`;
+    launch.style.top = `${Math.round(y)}px`;
+    launch.style.right = 'auto';
+    launch.style.bottom = 'auto';
+  }
+
+  function makeDraggable(launch) {
+    let pos = null;
+    try {
+      pos = JSON.parse(localStorage.getItem(LAUNCH_POS_KEY) || 'null');
+    } catch {}
+    if (pos && !(pos.x >= 0 && pos.x <= 1 && pos.y >= 0 && pos.y <= 1)) pos = null;
+    placeLaunch(launch, pos);
+    let drag = null;
+    let moved = false;
+    launch.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0 || !e.isTrusted) return; // a click passed on by a drawer extension is just a click
+      const r = launch.getBoundingClientRect();
+      drag = { id: e.pointerId, sx: e.clientX, sy: e.clientY, dx: e.clientX - r.left, dy: e.clientY - r.top };
+      moved = false;
+      try {
+        launch.setPointerCapture(e.pointerId);
+      } catch {}
+    });
+    launch.addEventListener('pointermove', (e) => {
+      if (!drag || e.pointerId !== drag.id) return;
+      if (!moved && Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) < 6) return;
+      if (!moved) {
+        moved = true;
+        launch.classList.add('dragging');
+      }
+      const w = launch.offsetWidth;
+      const h = launch.offsetHeight;
+      pos = { x: (e.clientX - drag.dx + w / 2) / innerWidth, y: (e.clientY - drag.dy + h / 2) / innerHeight };
+      placeLaunch(launch, pos);
+    });
+    const end = (e) => {
+      if (!drag || e.pointerId !== drag.id) return;
+      drag = null;
+      launch.classList.remove('dragging');
+      if (moved) {
+        try {
+          localStorage.setItem(LAUNCH_POS_KEY, JSON.stringify(pos));
+        } catch {}
+      }
+    };
+    launch.addEventListener('pointerup', end);
+    launch.addEventListener('pointercancel', end);
+    // A drag must not also open the library.
+    launch.addEventListener('click', (e) => {
+      if (moved) {
+        moved = false;
+        e.stopImmediatePropagation();
+        e.preventDefault();
+      }
+    }, true);
+    addEventListener('resize', () => placeLaunch(launch, pos));
+    launch.addEventListener('dblclick', () => {
+      pos = null;
+      try {
+        localStorage.removeItem(LAUNCH_POS_KEY);
+      } catch {}
+      for (const k of ['left', 'top', 'right', 'bottom']) launch.style.removeProperty(k);
+    });
+  }
+
   function install() {
     const element = document.createElement('div');
     element.id = 'memory-module-library';
     root = element.attachShadow({ mode: 'open' });
     root.innerHTML = `<style>${UI_CSS}${EXTRA_CSS}</style>
-      <button id="launch" aria-label="기억 서재 열기" title="기억 서재">${icon('library')}</button>
+      <button id="launch" aria-label="기억 서재 열기" title="기억 서재 (끌어서 옮길 수 있습니다)">${LAUNCH_ICON}</button>
       <div id="backdrop" hidden></div>
       <section id="panel" role="dialog" aria-label="기억 서재" aria-modal="true" hidden>
         <aside class="sidebar"><div class="brand">${icon('book')}<div>기억 서재<small>MEMORY MODULE</small></div></div>
@@ -772,9 +852,10 @@
         <aside class="inspector" id="inspector"></aside>
       </section>`;
     element.setAttribute('style', 'position:fixed!important;inset:0!important;z-index:2147483647!important;pointer-events:none!important;display:block!important;');
-    (document.documentElement || document.body).append(element);
+    (document.body || document.documentElement).append(element);
     root.host.setAttribute('data-theme', theme);
 
+    makeDraggable(root.querySelector('#launch'));
     root.querySelector('#launch').onclick = () => {
       open = !open;
       if (open) {
@@ -873,14 +954,22 @@
   }
 
   const EXTRA_CSS = `
-    #launch{position:fixed;right:20px;bottom:126px;width:50px;height:50px;padding:0;border-radius:50%;place-items:center;background:var(--im-accent);color:#fff;border:1px solid #ffffff40}
+    #launch{position:fixed;right:20px;bottom:126px;width:52px;height:52px;padding:0;border-radius:18px;place-items:center;color:#fff;
+      background:linear-gradient(145deg,#8f7ad8 0%,#6a55b5 55%,#54418f 100%);border:1px solid #ffffff3d;
+      box-shadow:0 8px 22px #3a2a6a40,inset 0 1px 0 #ffffff40;transition:transform .18s,box-shadow .18s}
+    #launch:not(:disabled):hover{background:linear-gradient(145deg,#9c88e2 0%,#735ec0 55%,#5b479a 100%);transform:translateY(-1px);box-shadow:0 11px 26px #3a2a6a55,inset 0 1px 0 #ffffff50}
+    #launch:not(:disabled):active{transform:scale(.96)}
+    #launch.dragging{transform:scale(1.06);box-shadow:0 14px 32px #2a1d5070,inset 0 1px 0 #ffffff50}
+    #launch .launch-icon{width:28px;height:28px;filter:drop-shadow(0 1px 1px #2a1d5055)}
+    :host([data-theme=dark]) #launch{color:#fff;background:linear-gradient(145deg,#a891ea 0%,#7c66c9 55%,#5f4ba4 100%);border-color:#ffffff30}
+    :host([data-theme=dark]) #launch:not(:disabled):hover{color:#fff;background:linear-gradient(145deg,#b6a1f0 0%,#8771d2 55%,#6853ae 100%)}
     #roomSelect{max-width:min(360px,100%);font-size:12px;padding:7px 10px;border-radius:10px}
     .fact-row{border-top:1px solid var(--im-line);padding:10px 0}.fact-row:first-of-type{border-top:0}.fact-row label{margin:0 0 6px}
     .fact-row textarea{min-height:64px}
     #eventEditor article,#recEditor article{background:var(--im-field);padding:14px;border:1px solid var(--im-line);border-radius:12px;margin:12px 0}
     .metric-row{flex-wrap:wrap}.metric{min-width:120px}
     pre{max-height:none}
-    @media(max-width:720px){.metric{min-width:calc(50% - 6px)}#launch{width:46px;height:46px}}
+    @media(max-width:720px){.metric{min-width:calc(50% - 6px)}#launch{width:48px;height:48px;border-radius:16px}#launch .launch-icon{width:26px;height:26px}}
   `;
 
   function cleanup() {
