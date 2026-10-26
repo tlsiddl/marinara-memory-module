@@ -255,6 +255,7 @@
         </div>
         <small>평소에는 누르지 않으셔도 됩니다. ‘이어서 정리’는 기억을 처음 켰을 때나 밀린 정리를 바로 하고 싶을 때 사용해 주세요. 처음부터 다시 정리하면 장면을 직접 고친 내용은 사라집니다.</small>
       </div>
+      ${deadlinePaper()}
       <div class="paper">
         <h2>최근 회상</h2>
         ${rc.at
@@ -263,6 +264,19 @@
              ${rc.raw?.length ? `<small>원문에서 찾은 대목: ${rc.raw.map((x) => `${x.number}번`).join(', ')}</small>` : ''}
              ${rc.error ? `<div class="note">${esc(rc.error)}</div>` : ''}`
           : '<p class="hint">다음 답변부터 표시됩니다.</p>'}
+      </div>`;
+  }
+
+  /** Things with a date to meet: nearest first, with how far off they are on the story's own calendar. */
+  function deadlinePaper() {
+    const list = info?.deadlines || [];
+    if (!list.length) return '';
+    const label = (d) =>
+      d.state === 'shelved' ? `${-d.days}일 지남 · 보관 중` : d.state === 'overdue' ? `${-d.days}일 지남` : d.state === 'today' ? '오늘' : d.state === 'ahead' ? `D-${d.days}` : '작중 날짜 모름';
+    return `<div class="paper">
+        <div class="paper-toolbar"><h2>기한</h2>${info.storyDate ? `<span class="pill neutral">작중 오늘 ${esc(info.storyDate)}</span>` : ''}</div>
+        ${list.map((d) => `<p class="deadline ${esc(d.state)}"><span class="pill ${d.state === 'ahead' || d.state === 'unknown' ? 'neutral' : ''}">${esc(label(d))}</span> <b>${esc(d.title)}</b><br><small>${esc(d.id)} · ${esc(d.date)}${d.time ? ` ${esc(d.time)}` : ''}${d.who ? ` · ${esc(d.who)}` : ''}</small></p>`).join('')}
+        <small>기한이 가까운 것부터 답변마다 들어갑니다. 기한이 지나고 50개 메시지 동안 언급이 없으면 '보관 중'이 되어, 관련 이야기가 나올 때만 들어갑니다. 날짜는 장부 탭에서 고칠 수 있습니다.</small>
       </div>`;
   }
 
@@ -346,6 +360,7 @@
         <label class="full">제목<input id="sTitle" value="${esc(s.title)}"></label>
         <label>작중 시간<input id="sTime" value="${esc(s.time || '')}"></label>
         <label>장소<input id="sPlace" value="${esc(s.place || '')}"></label>
+        <label>날씨<input id="sWeather" value="${esc(s.weather || '')}" placeholder="예: 비, 첫눈 / 모르면 비워 두세요"></label>
         <label class="full">요약<textarea id="sSummary" style="min-height:110px">${esc(s.summary)}</textarea></label>
         ${group() ? `<label class="full">그 자리에 있던 사람 (쉼표로 구분 · 없던 인물은 이 장면 일을 모르는 것으로 기억합니다)<input id="sPresent" value="${esc((s.present || []).join(', '))}" placeholder="예: 서아, 도윤"></label>
         ${(s.heardLater || []).length ? `<p class="full hint">나중에 들은 사람: ${s.heardLater.map((h) => `${esc(h.who)}${h.from ? `(${esc(h.from)}에게)` : ''}`).join(', ')}</p>` : ''}` : ''}
@@ -382,7 +397,7 @@
     });
     return {
       id: s.id,
-      body: { title: root.querySelector('#sTitle').value, time: root.querySelector('#sTime').value, place: root.querySelector('#sPlace').value, summary: root.querySelector('#sSummary').value, events, recollections, ...(root.querySelector('#sPresent') ? { present: root.querySelector('#sPresent').value } : {}) },
+      body: { title: root.querySelector('#sTitle').value, time: root.querySelector('#sTime').value, place: root.querySelector('#sPlace').value, weather: root.querySelector('#sWeather')?.value ?? '', summary: root.querySelector('#sSummary').value, events, recollections, ...(root.querySelector('#sPresent') ? { present: root.querySelector('#sPresent').value } : {}) },
     };
   }
 
@@ -420,6 +435,7 @@
           <label class="full">제목<input data-f="title" value="${esc(t.title)}"></label>
           <label class="full">설명<textarea class="event-field" data-f="detail">${esc(t.detail || '')}</textarea></label>
           ${t.kind === 'emotion' ? `<label class="full">풀리려면<input data-f="need" value="${esc(t.need || '')}"></label>` : ''}
+          ${['promise', 'pending'].includes(t.kind) ? `<label>기한 날짜 (작중)<input data-f="dueDate" value="${esc(t.due?.date || '')}" placeholder="예: 24-10-20 / 비우면 기한 없음"></label><label>기한 시각<input data-f="dueTime" value="${esc(t.due?.time || '')}" placeholder="예: 17:00"></label>` : ''}
           ${group() ? `<label>아직 모르는 인물 (쉼표로 구분)<input data-f="unaware" value="${esc((t.unaware || []).join(', '))}" placeholder="모두 알면 비워 두세요"></label><label>짐작만 하는 인물<input data-f="guess" value="${esc((t.guess || []).join(', '))}" placeholder="없으면 비워 두세요"></label>` : ''}
         </div>
         ${(() => {
@@ -727,7 +743,7 @@
       case 'editThread': {
         const box = root.querySelector(`[data-thread="${CSS.escape(id)}"]`);
         const body = {};
-        for (const f of ['title', 'detail', 'need', 'unaware', 'guess']) {
+        for (const f of ['title', 'detail', 'need', 'unaware', 'guess', 'dueDate', 'dueTime']) {
           const el = box?.querySelector(`[data-f="${f}"]`);
           if (el) body[f] = el.value;
         }

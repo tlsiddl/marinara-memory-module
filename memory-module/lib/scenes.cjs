@@ -67,8 +67,9 @@ const SCENE_PROMPT = `너는 장기 롤플레이의 기억 관리자야. 지나�
 - 마지막 장면은 반드시 [필수 끝 번호] 이상에서 끝나야 해. 그 뒤 메시지는 장면이 거기서 자연스럽게 끝날 때만 포함해.
 
 장면마다 적을 것:
-- time: 작중 시간 범위. 본문 머리말에 있으면 그대로 옮겨. 없으면 null.
+- time: 작중 시간 범위. 본문 머리말이나 말한 사람 옆 "(작중 …)" 표시에 있으면 그대로 옮겨. 없으면 null.
 - place: 장소. 없으면 null.
+- weather: 그 장면의 날씨나 하늘(예: "비", "첫눈", "맑고 추움", "장마"). 본문이나 "(… 날씨: …)" 표시에 나온 것만 짧게. 짐작하지 말고, 없으면 null.
 - title: 짧은 제목.
 - summary: 1~2문장. 무슨 일이 있었고 무엇이 바뀌었는지.
 - events: 중요한 일 3~6개를 순서대로. 각 사건은 한두 문장(text)과, 그 순간을 보여 주는 대사나 문장(quotes) 1~4개.
@@ -127,7 +128,7 @@ const SCENE_PROMPT = `너는 장기 롤플레이의 기억 관리자야. 지나�
 - 수위 높은 장면도 관계에서 의미 있는 일은 기록하되 묘사는 짧게.
 
 출력 형식:
-{"scenes":[{"end":25,"time":"…","place":"…","title":"…","summary":"…","present":["인물"],
+{"scenes":[{"end":25,"time":"…","place":"…","weather":"… 또는 null","title":"…","summary":"…","present":["인물"],
  "events":[{"text":"누가 누구에게 무엇을 어떻게","time":"작중 시각 또는 null","why":"이유·계기 또는 null","importance":"critical|major|minor","quotes":[{"n":"23.4","q":"…","by":"말한 사람 또는 null","to":"들은 사람 또는 null"}]}],
  "recollections":[{"who":"인물","text":"…","remembers":"full|partial|none","why":"…또는 null","kept":"…또는 null"}],
  "facts":[{"about":"인물","text":"…","evidence":[{"n":"23.9","q":"…"}],"replaces":null,"unaware":[{"who":"인물","why":"이유","guess":false}]}],
@@ -264,8 +265,8 @@ function buildScenePrompt(store, slice, required, problem = null) {
   if (problem) parts.push('', `## 지난번 답의 문제 (이번엔 고쳐 줘)`, problem);
   parts.push('', `## 메시지 (${slice[0].number}번부터)`, `[필수 끝 번호] ${required}`);
   for (const message of slice) {
-    parts.push(`[${message.number}] ${message.speaker}:`);
-    message.sentences.forEach((sentence, index) => parts.push(`[${message.number}.${index + 1}] ${sentence}`));
+    parts.push(`[${message.number}] ${message.speaker}${L.clockNote(message)}:`);
+    message.sentences.forEach((sentence, index) => parts.push(`[${message.number}.${index + 1}] ${String(sentence).replace(/\s*\n\s*/g, ' / ')}`));
   }
   return [
     { role: 'system', content: SCENE_PROMPT },
@@ -551,6 +552,7 @@ function applyScenes(store, result, slice, required, now = new Date().toISOStrin
       messages: messages.map((m) => ({ id: m.id, h: m.h })),
       time: cleanText(item.time, 60),
       place: cleanText(item.place, 60),
+      weather: cleanText(item.weather, 30) || mostOften(messages.map((m) => m.weather)),
       title: cleanText(item.title, 60) || '(제목 없음)',
       summary: cleanText(item.summary, 600) || '',
       events,
@@ -931,8 +933,15 @@ function memoryNote(scene, cast = []) {
   return notes.length ? ` ※ ${notes.join(', ')}` : '';
 }
 
+/** The value most messages of a scene carry (the tracker's weather), or null. */
+function mostOften(values) {
+  const count = new Map();
+  for (const v of values) if (v) count.set(v, (count.get(v) || 0) + 1);
+  return [...count.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || null;
+}
+
 function sceneHead(scene, n) {
-  const where = [scene.time, scene.place].filter(Boolean).join(' · ');
+  const where = [scene.time, scene.place, scene.weather].filter(Boolean).join(' · ');
   return `${CIRCLED[n] || `(${n + 1})`} ${where ? `${where} — ` : ''}${scene.title}`;
 }
 
@@ -1044,7 +1053,7 @@ function buildChapterPrompt(store, scenes) {
   parts.push(`## 장면 (${scenes[0].id}~${scenes.at(-1).id})`);
   const ids = new Set(scenes.map((x) => x.id));
   for (const sc of scenes) {
-    parts.push(`${sc.id} | ${[sc.time, sc.place].filter(Boolean).join(' · ')} | ${sc.title}: ${sc.summary}${memoryNote(sc, castOf(store))}`);
+    parts.push(`${sc.id} | ${[sc.time, sc.place, sc.weather].filter(Boolean).join(' · ')} | ${sc.title}: ${sc.summary}${memoryNote(sc, castOf(store))}`);
     for (const e of sc.events.filter((x) => x.importance !== 'minor' || /\d/.test(x.text))) parts.push(`  - ${e.importance === 'critical' ? '★ ' : ''}${e.text}${e.why ? ` (계기: ${e.why})` : ''}`);
     for (const x of sc.later || []) parts.push(`  - 나중에 밝혀짐: ${x.what}`);
   }
@@ -1119,7 +1128,7 @@ function commitChapter(store, chapter) {
 }
 
 /** "[지난 이야기 흐름]": newest chapters whole, older ones shorter, the oldest just their titles, in order. */
-function renderChapters(store, maxChars = 4000, query = '') {
+function renderChapters(store, maxChars = 4000, query = '', today = null) {
   const list = store.chapters || [];
   if (!list.length) return '';
   const full = (c) => [`${c.id} ${c.time ? `${c.time} — ` : ''}${c.title}: ${c.summary}`, ...c.turns.map((t) => `  · ${t}`), ...(c.keep || []).map((t) => `  ※ ${t}`)].join('\n');
@@ -1133,9 +1142,12 @@ function renderChapters(store, maxChars = 4000, query = '') {
   // share of their own, first the ones that touch what is being talked about now, then the newest.
   const detailRoom = Math.floor(maxChars * 0.3);
   let detailUsed = 0;
+  // Order: what the talk touches now; then dates still ahead in the story (nearest first); then the newest;
+  // details whose date has already passed come last.
+  const rank = (d) => (d.score >= 0.3 ? 0 : d.date && today ? (d.date >= today ? 1 : 3) : 2);
   const details = list
-    .flatMap((c, i) => (c.keep || []).map((t, k) => ({ i, k, text: t, score: query ? overlap(t, query) : 0 })))
-    .sort((a, b) => (b.score >= 0.3) - (a.score >= 0.3) || (a.score >= 0.3 ? b.score - a.score : 0) || b.i - a.i || a.k - b.k);
+    .flatMap((c, i) => (c.keep || []).map((t, k) => ({ i, k, text: t, score: query ? overlap(t, query) : 0, date: L.parseClock(t, today)?.date || null })))
+    .sort((a, b) => rank(a) - rank(b) || (rank(a) === 0 ? b.score - a.score : 0) || (rank(a) === 1 ? a.date.localeCompare(b.date) : 0) || b.i - a.i || a.k - b.k);
   const picked = new Map();
   for (const d of details) {
     const cost = d.text.length + 5;
@@ -1257,12 +1269,12 @@ function applyFactMerge(store, about, facts, result, now = new Date().toISOStrin
  * The memory text for scenes that have left the context window (start before `firstInside`).
  * All of them get a one-line summary (newest `maxSummaries`); the newest `expand` get events and recollections.
  */
-function renderScenes(store, firstInside, { maxChars = 9000, maxSummaries = 40, expand = 2, maxFacts = 70, factChars = 4500, chapterChars = 4000, query = '' } = {}) {
+function renderScenes(store, firstInside, { maxChars = 9000, maxSummaries = 40, expand = 2, maxFacts = 70, factChars = 4500, chapterChars = 4000, query = '', today = null } = {}) {
   // Scenes already folded into a chapter are told by the chapter.
   const chaptered = new Set((store.chapters || []).flatMap((c) => c.scenes));
   const outside = store.scenes.filter((s) => (firstInside == null || s.start < firstInside) && !chaptered.has(s.id));
   const out = [];
-  const flow = renderChapters(store, chapterChars, query);
+  const flow = renderChapters(store, chapterChars, query, today);
   if (flow) out.push(flow);
   if (outside.length) {
     const shown = outside.slice(-maxSummaries);

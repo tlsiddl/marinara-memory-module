@@ -65,7 +65,13 @@ function engine() {
       load('services/generation/connection-base-url.js'),
     ]);
     const handle = await db.getDB();
+    // Trackers are optional: a Marinara without them (or with another layout) just gives no story clock.
+    let gameStates = null;
+    try {
+      gameStates = (await load('services/storage/game-state.storage.js')).createGameStateStorage(handle);
+    } catch {}
     return {
+      gameStates,
       chats: chats.createChatsStorage(handle),
       characters: characters.createCharactersStorage(handle),
       connections: connections.createConnectionsStorage(handle),
@@ -386,9 +392,69 @@ async function chatMessages(chatId) {
         : row.role === 'narrator'
           ? 'Narrator'
           : (await characterName(e, row.characterId)) || 'Character';
-    out.push({ id: row.id, number: row.rowid ?? index + 1, speaker, role: row.role, content: String(row.content) });
+    out.push({ id: row.id, number: row.rowid ?? index + 1, speaker, role: row.role, content: String(row.content), swipe: row.activeSwipeIndex });
   }
+  await addTrackerClock(e, chatId, out);
+  for (const m of out) delete m.swipe;
   return L.prepareMessages(out);
+}
+
+const CLOCK_FIELD = /날짜|일자|date|day|시간|시각|time|작중|게임 ?내|in-?game/i;
+
+/** The story date and time a tracker snapshot shows: the world tracker's date/time, or a custom field named so. */
+function trackerClock(row, base) {
+  if (!row) return null;
+  const parse = (v) => {
+    try {
+      return typeof v === 'string' ? JSON.parse(v) : v;
+    } catch {
+      return null;
+    }
+  };
+  const texts = [];
+  if (row.date || row.time) texts.push([row.date, row.time].filter(Boolean).join(' '));
+  const world = parse(row.worldCustomFields);
+  const custom = parse(row.playerStats)?.customTrackerFields;
+  for (const f of [...(Array.isArray(world) ? world : []), ...(Array.isArray(custom) ? custom : [])]) {
+    if (f && CLOCK_FIELD.test(String(f.name || '')) && f.value) texts.push(String(f.value));
+  }
+  let date = null;
+  let time = null;
+  for (const t of texts) {
+    const c = L.parseClock(t, base);
+    date ??= c?.date || null;
+    time ??= c?.time || null;
+  }
+  let weather = String(row.weather || '').trim() || null;
+  for (const f of Array.isArray(world) ? world : []) if (!weather && WEATHER_FIELD.test(String(f?.name || '')) && f.value) weather = String(f.value).trim();
+  return date || time || weather ? { date, time, weather: weather ? weather.slice(0, 30) : null } : null;
+}
+
+const WEATHER_FIELD = /날씨|하늘|weather|sky/i;
+
+/**
+ * Messages without a date line of their own get the story clock from Marinara's trackers: the snapshot made for
+ * that message, or else the last one before it. With no trackers, nothing is added (the order is all there is).
+ */
+async function addTrackerClock(e, chatId, messages) {
+  if (!e.gameStates?.getCommittedForMessages || !messages.length) return;
+  let snaps;
+  try {
+    snaps = await e.gameStates.getCommittedForMessages(chatId, messages.map((m) => ({ id: m.id, activeSwipeIndex: m.swipe ?? 0 })));
+  } catch {
+    return;
+  }
+  if (!snaps?.size) return;
+  let last = null;
+  let weather = null;
+  for (const m of messages) {
+    const base = last?.date || L.storyDate([m]) || null;
+    const clock = trackerClock(snaps.get(m.id), base);
+    if (clock?.date || clock?.time) last = { date: clock.date || last?.date || null, time: clock.time };
+    if (clock?.weather) weather = clock.weather;
+    if (last) m.clock = { ...last };
+    if (weather) m.weather = weather;
+  }
 }
 
 /**
@@ -930,7 +996,8 @@ function memoryHeader(style) {
     'Each character knows only what they saw, heard or were told: "모름: X" or "자리에 없어 모름" means X does not know it — X must not mention it, hint at it or act on it until X learns it in the story, even while others who know it are in the same scene. "짐작만: X" means X suspects it without the details. ' +
     'Lines are quoted here in a short form for memory only; keep writing the story in its own usual format. ' +
     '"최근 생활" says when each person last ate, washed and slept: keep daily life believable, and do not repeat a meal or bath that just happened unless the story calls for it. ' +
-    '"※" lines under a chapter are details that must stay exact (dates, deadlines, conditions).]'
+    '"※" lines under a chapter are details that must stay exact (dates, deadlines, conditions). ' +
+    'The weather by a scene is how that day was: a character may recall it naturally ("the night it rained") when that scene comes to mind, but do not bring weather up for its own sake.]'
   );
 }
 
@@ -976,7 +1043,8 @@ function renderLedger(chatId) {
   if (!chatEnabled(chatId)) return '';
   const ledger = loadLedger(chatId);
   const scenes = scenesForReply(chatId);
-  const open = ledger ? L.renderCompact(ledger) : '';
+  const query = turnQuery.get(chatId) || '';
+  const open = ledger ? L.renderCompact(ledger, { query }) : '';
   const routine = ledger ? L.renderRoutine(ledger, storyNow.get(chatId) || ledger.storyTime || null) : '';
   const fixed = [open ? `[아직 끝나지 않은 일]\n${open}` : '', routine].filter(Boolean);
   const style = settings().recallStyle;
@@ -997,7 +1065,7 @@ function renderLedger(chatId) {
     // The story so far keeps up to its usual size, but never more than half of what is left.
     const overviewMax = Math.min(17_500, Math.floor(room * 0.5));
     const scale = Math.min(1, overviewMax / 17_500);
-    const overview = S.renderScenes(scenes, firstInside, { maxChars: Math.floor(9000 * scale), factChars: Math.floor(4500 * scale), chapterChars: Math.floor(4000 * scale), query: turnQuery.get(chatId) || '' });
+    const overview = S.renderScenes(scenes, firstInside, { maxChars: Math.floor(9000 * scale), factChars: Math.floor(4500 * scale), chapterChars: Math.floor(4000 * scale), query, today: (storyNow.get(chatId) || '').slice(0, 10) || ledger?.storyDate || null });
     if (overview) {
       story.push(overview);
       room -= overview.length + 2;
@@ -1101,6 +1169,16 @@ async function routes(app) {
         }
         if (req.body?.unaware !== undefined) thread.unaware = nameList(req.body.unaware);
         if (req.body?.guess !== undefined) thread.guess = nameList(req.body.guess);
+        // The date to meet, set by hand: "24-10-20", "10월 20일", with an optional time. Both empty clears it.
+        if (typeof req.body?.dueDate === 'string' || typeof req.body?.dueTime === 'string') {
+          const dateText = String(req.body.dueDate || '').trim();
+          const timeText = String(req.body.dueTime || '').trim();
+          const date = dateText ? L.parseClock(dateText, ledger.storyDate)?.date : null;
+          const time = timeText ? L.parseClock(timeText.includes(':') || /시/.test(timeText) ? timeText : `${timeText}시`)?.time : null;
+          if (dateText && !date) throw Error('기한 날짜를 읽지 못했습니다. 24-10-20이나 10월 20일처럼 적어 주세요.');
+          if (timeText && !time) throw Error('기한 시각을 읽지 못했습니다. 17:00처럼 적어 주세요.');
+          thread.due = date || time ? { date: date || null, time: time || null } : null;
+        }
       } else if (action === 'reopen') {
         thread.reopened = { from: thread.closed, by: 'hand' };
         thread.status = 'open';
@@ -1262,6 +1340,9 @@ async function routes(app) {
       summary: summary(ledger),
       scenes: { count: scenes?.scenes.length || 0, chapters: scenes?.chapters?.length || 0, facts: scenes ? S.liveFacts(scenes).length : 0, coveredThrough: scenes?.scenes.at(-1)?.end ?? null, firstInside: windows.get(chatId) ?? scenes?.window?.firstInside ?? null },
       threads: ledger?.threads || [],
+      storyDate: (storyNow.get(chatId) || '').slice(0, 10) || ledger?.storyDate || null,
+      deadlines: ledger ? L.deadlineList(ledger, (storyNow.get(chatId) || '').slice(0, 10) || ledger.storyDate || null) : [],
+      lastNumber: ledger?.lastNumber ?? null,
       rendered: renderLedger(chatId),
     };
   }));
@@ -1324,7 +1405,7 @@ async function routes(app) {
     return editScenes(chatId, (store) => {
       const scene = store.scenes.find((x) => x.id === req.params.sceneId);
       if (!scene) throw Error('해당 장면을 찾지 못했습니다.');
-      for (const field of ['title', 'summary', 'time', 'place']) if (typeof req.body?.[field] === 'string') scene[field] = req.body[field].trim();
+      for (const field of ['title', 'summary', 'time', 'place', 'weather']) if (typeof req.body?.[field] === 'string') scene[field] = req.body[field].trim();
       if (req.body?.present !== undefined) scene.present = nameList(req.body.present);
       const str = (v) => (typeof v === 'string' && v.trim() ? v.trim() : null);
       if (Array.isArray(req.body?.events))
@@ -1515,7 +1596,7 @@ const storyNow = new Map();
  * A reroll of the same turn reuses the last pick.
  */
 function recallFingerprint(s) {
-  return L.hashText(JSON.stringify([s.id, s.editedAt || null, s.title, s.time, s.place, s.summary, s.events, s.loose || null, s.recollections, s.later || null, s.learned || null, s.heardLater || null]));
+  return L.hashText(JSON.stringify([s.id, s.editedAt || null, s.title, s.time, s.place, s.weather || null, s.summary, s.events, s.loose || null, s.recollections, s.later || null, s.learned || null, s.heardLater || null]));
 }
 
 async function recallBeforeReply(chatId, view, userMessage) {
@@ -1630,4 +1711,4 @@ function attach(app) {
   log('admin API ready at /api/memory-module');
 }
 
-module.exports = { fixSpeakers, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health } };
+module.exports = { fixSpeakers, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock } };

@@ -323,6 +323,9 @@ const SYSTEM_PROMPT = `너는 장기 롤플레이의 기억 관리자야. 새 �
   예) 금요일에 "보고서는 월요일까지 기다리라 해. 내일 아무도 출근 안 해" → 쉬는 기간은 {"from":"(금)","to":"(일)"}, 제목도 "월요일 복귀"처럼 써. "월요일까지 휴가"라고 쓰지 마.
 - 정해진 때에 하기로 한 약속에는 due를 적어. {"date":"날짜 또는 null","weekday":"요일 한 글자 또는 null","time":"HH:MM 또는 null"}.
   예) "월요일 7시에 보자" → {"weekday":"월","time":"07:00"}, "20일 저녁 8시" → {"date":"24-10-20","time":"20:00"}. 정해진 때가 없으면 null.
+  마감·기한이 있는 일(서류 제출, 돈 갚기, 신청 마감 등)도 pending이나 promise로 열고 due에 그 기한을 적어.
+  작중 날짜는 머리말이나 말한 사람 옆 "(작중 …)" 표시에서 읽어.
+- 기한이 지난 항목('약속한 때: …, N일 지남' 또는 '기한: …, N일 지남')은 원문에 한 일·놓친 일·미룬 일이 나오면 닫거나(해냈다/놓쳤다) 새 기한으로 update해. 아무 말이 없으면 그대로 둬.
 
 사용자 캐릭터:
 - [사용자 캐릭터]로 표시된 인물은 사용자가 직접 연기해. 그 인물의 감정·속마음·이유는 원문에 직접 쓰인 것만 기록해.
@@ -454,7 +457,7 @@ function buildFeelingPrompt(ledger, messages, feeling, { afterChars = 20000, tai
   parts.push('', '## 그 뒤 이야기 (번호가 붙은 문장만 근거로 쓸 수 있어)');
   const write = (list) => {
     for (const message of list) {
-      parts.push(`[${message.number}] ${message.speaker}:`);
+      parts.push(`[${message.number}] ${message.speaker}${clockNote(message)}:`);
       message.sentences.forEach((sentence, index) => parts.push(`[${message.number}.${index + 1}] ${oneLine(sentence)}`));
     }
   };
@@ -588,10 +591,10 @@ function reasonedNames(value, cast) {
 
 const unawareNote = (thread, sep = ' | ') => (thread.unaware?.length ? `${sep}모름: ${thread.unaware.join('·')}` : '') + (thread.guess?.length ? `${sep}짐작만: ${thread.guess.join('·')}` : '');
 
-function describeThread(thread) {
+function describeThread(thread, today = null) {
   const who = [thread.who, thread.toward].filter(Boolean).join(' → ');
   const latest = thread.latest ? ` | 최근: ${thread.latest.text}${thread.latest.at ? ` (${thread.latest.at})` : ''}` : '';
-  const need = (thread.need ? ` | 풀리려면: ${thread.need}` : '') + (thread.period ? ` | 기간: ${formatPeriod(thread.period)}` : '') + (thread.due ? ` | 약속한 때: ${formatDue(thread.due)}` : '');
+  const need = (thread.need ? ` | 풀리려면: ${thread.need}` : '') + (thread.period ? ` | 기간: ${formatPeriod(thread.period, today)}` : '') + (thread.due ? ` | ${thread.kind === 'pending' ? '기한' : '약속한 때'}: ${formatDue(thread.due, today)}` : '');
   return `${thread.id} [${thread.kind}] ${thread.title}${who ? ` (${who})` : ''}${thread.detail ? ` — ${thread.detail}` : ''}${need}${latest}${unawareNote(thread)}`;
 }
 
@@ -609,7 +612,7 @@ function buildPrompt(ledger, batch, context = []) {
   if (cast.length >= 2) parts.push(`[등장인물] ${cast.join(', ')}`);
   if (personas.length) parts.push(`[사용자 캐릭터] ${personas.join(', ')}`);
   if (personas.length || cast.length >= 2) parts.push('');
-  parts.push('## 현재 장부 (열린 항목)', open.length ? open.map(describeThread).join('\n') : '(비어 있음)');
+  parts.push('## 현재 장부 (열린 항목)', open.length ? open.map((t) => describeThread(t, ledger.storyDate)).join('\n') : '(비어 있음)');
   const recentlyClosed = ledger.threads
     .filter((t) => t.status === 'closed' && !t.mergedInto)
     .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''))
@@ -624,7 +627,7 @@ function buildPrompt(ledger, batch, context = []) {
   }
   parts.push('', '## 새 메시지 (번호가 붙은 문장만 근거로 쓸 수 있어)');
   for (const message of batch) {
-    parts.push(`[${message.number}] ${message.speaker}:`);
+    parts.push(`[${message.number}] ${message.speaker}${clockNote(message)}:`);
     message.sentences.forEach((sentence, index) => parts.push(`[${message.number}.${index + 1}] ${oneLine(sentence)}`));
   }
   return [
@@ -992,7 +995,7 @@ function buildTidyPrompt(ledger, recent = []) {
   const parts = ['## 열린 항목'];
   for (const t of open) {
     const origin = t.evidence[0]?.text ? ` | 처음 원문: "${shortQuote(t.evidence[0].text, 120)}"` : '';
-    parts.push(`${describeThread(t)}${t.since ? ` | 시작: ${t.since}` : ''}${origin}`);
+    parts.push(`${describeThread(t, ledger.storyDate)}${t.since ? ` | 시작: ${t.since}` : ''}${origin}`);
   }
   if (recent.length) {
     parts.push('', '## 최근 장면 (지금 상황)');
@@ -1116,12 +1119,61 @@ function addDays(iso, days) {
 function storyDate(messages) {
   let latest = null;
   for (const m of messages || []) {
+    let found = false;
     for (const hit of String(m.content || '').matchAll(/(\d{2,4}-\d{1,2}-\d{1,2})\s*\([월화수목금토일]\)/g)) {
       const iso = isoDate(hit[1]);
-      if (iso && (!latest || iso > latest)) latest = iso;
+      if (!iso) continue;
+      found = true;
+      if (!latest || iso > latest) latest = iso;
     }
+    if (!found && m.clock?.date && (!latest || m.clock.date > latest)) latest = m.clock.date;
   }
   return latest;
+}
+
+/**
+ * A date and time written in a tracker field, in the forms people use: "2024-10-18", "24.10.18", "2024년 10월 18일",
+ * "10월 18일" or "10/18" (year from `base`), "14:30", "오후 2시 30분", "2:30 PM". Returns { date, time } or null.
+ * "Day 3" or "3일차" is not a calendar date: null (the story then keeps order only).
+ */
+function parseClock(text, base = null) {
+  const raw = String(text || '').trim();
+  if (!raw) return null;
+  let date = null;
+  const ko = raw.match(/(?:(\d{2}|\d{4})\s*년\s*)?(\d{1,2})\s*월\s*(\d{1,2})\s*일(?!\s*차)/);
+  if (ko) date = isoDate(`${ko[1] ? `${ko[1]}-` : ''}${ko[2]}-${ko[3]}`, base);
+  if (!date) {
+    const num = raw.match(/(?<![\d:])(?:(\d{4}|\d{2})[-./]\s*)?(\d{1,2})[-./]\s*(\d{1,2})(?![\d:])/);
+    if (num) date = isoDate(`${num[1] ? `${num[1]}-` : ''}${num[2]}-${num[3]}`, base);
+  }
+  let time = null;
+  const hm = raw.match(/(오전|오후|새벽|아침|저녁|밤)?\s*(\d{1,2})\s*(?::\s*(\d{2})|시\s*(?:(\d{1,2})\s*분|반)?)\s*(AM|PM|am|pm)?/);
+  if (hm && (hm[3] !== undefined || /시/.test(hm[0]))) {
+    let h = Number(hm[2]);
+    const min = hm[3] !== undefined ? Number(hm[3]) : hm[4] !== undefined ? Number(hm[4]) : /반/.test(hm[0]) ? 30 : 0;
+    const pm = /오후|저녁|밤|PM|pm/.test(`${hm[1] || ''}${hm[5] || ''}`);
+    const am = /오전|새벽|아침|AM|am/.test(`${hm[1] || ''}${hm[5] || ''}`);
+    if (pm && h < 12) h += 12;
+    if (am && h === 12) h = 0;
+    if (/밤/.test(hm[1] || '') && h === 24) h = 0;
+    if (h < 24 && min < 60) time = `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+  }
+  return date || time ? { date, time } : null;
+}
+
+/**
+ * " (작중 24-10-18 (금) 14:00 · 날씨: 비)" after a speaker name: the story date from a tracker (when the message has
+ * no date line of its own) and the tracker's weather.
+ */
+function clockNote(message) {
+  const c = message?.clock;
+  const parts = [];
+  if ((c?.date || c?.time) && !/\d{2,4}-\d{1,2}-\d{1,2}\s*\([월화수목금토일]\)/.test(String(message.content || ''))) {
+    const day = c.date ? `${c.date.slice(2)} (${WEEKDAYS[new Date(`${c.date}T00:00:00Z`).getUTCDay()]})` : '';
+    parts.push(`작중 ${[day, c.time].filter(Boolean).join(' ')}`);
+  }
+  if (message?.weather) parts.push(`날씨: ${message.weather}`);
+  return parts.length ? ` (${parts.join(' · ')})` : '';
 }
 
 const ROUTINE = ['meal', 'wash', 'sleep', 'wake', 'medicine'];
@@ -1139,10 +1191,17 @@ function notAMeal(text) {
 function storyTime(messages) {
   let latest = null;
   for (const m of messages || []) {
+    let found = false;
     for (const hit of String(m.content || '').matchAll(/(\d{2,4}-\d{1,2}-\d{1,2})\s*\([월화수목금토일]\)\s*\|?\s*(\d{1,2}:\d{2})/g)) {
       const iso = isoDate(hit[1]);
       if (!iso) continue;
+      found = true;
       const at = `${iso}T${hit[2].padStart(5, '0')}`;
+      if (!latest || at > latest) latest = at;
+    }
+    // No date line in the message: the tracker's date and time for it, when both are known.
+    if (!found && m.clock?.date && m.clock.time) {
+      const at = `${m.clock.date}T${m.clock.time}`;
       if (!latest || at > latest) latest = at;
     }
   }
@@ -1562,32 +1621,101 @@ const COMPACT_LIMIT = { emotion: 6, state: 5, promise: 8, secret: 5, pending: 4 
 const COMPACT_LABEL = { emotion: '감정', state: '상태', promise: '약속', secret: '비밀', pending: '미해결' };
 
 /** One line per open thread, no quotes: the slim form used next to scene memories. */
-function renderCompact(ledger, { maxChars = 2400 } = {}) {
+/** Promises and pending tasks with a date to meet: a set date, or the end of a set period. */
+function deadlineOf(t) {
+  return ['promise', 'pending'].includes(t?.kind) ? t.due?.date || t.period?.to || null : null;
+}
+
+/** Overdue, and nobody has mentioned it for this many messages: kept, but only shown when it comes up. */
+const OVERDUE_FADES_AFTER = 50;
+const DUE_LIMIT = 10;
+
+function shelved(t, today, lastNumber) {
+  const d = deadlineOf(t);
+  return !!(d && today && d < today && typeof lastNumber === 'number' && lastNumber - lastSeen(t) > OVERDUE_FADES_AFTER);
+}
+
+/** Open items with a date to meet, nearest first, each with where it stands on the story date `today`. */
+function deadlineList(ledger, today = ledger?.storyDate || null) {
   const threads = ledger?.threads || [];
   const lastNumber = ledger?.lastNumber ?? Math.max(0, ...threads.map(lastSeen));
+  return threads
+    .filter((t) => t.status === 'open' && deadlineOf(t))
+    .map((t) => {
+      const date = deadlineOf(t);
+      const days = today ? Math.round((Date.parse(date) - Date.parse(today)) / 86400000) : null;
+      const state = shelved(t, today, lastNumber) ? 'shelved' : days == null ? 'unknown' : days < 0 ? 'overdue' : days === 0 ? 'today' : 'ahead';
+      return { id: t.id, kind: t.kind, title: t.title, who: [t.who, t.toward].filter(Boolean).join(' → '), date, time: t.due?.time || null, days, state };
+    })
+    .sort((a, b) => a.date.localeCompare(b.date) || String(a.time || '').localeCompare(String(b.time || '')));
+}
+
+function sharedPairs(a, b) {
+  const grams = (t) => {
+    const x = squash(t);
+    return new Set(Array.from({ length: Math.max(0, x.length - 1) }, (_, i) => x.slice(i, i + 2)));
+  };
+  const ga = grams(a);
+  const gb = grams(b);
+  if (!ga.size || !gb.size) return 0;
+  let n = 0;
+  for (const g of ga) if (gb.has(g)) n++;
+  return n / Math.min(ga.size, gb.size);
+}
+
+function compactLine(ledger, t, kind) {
+  const who = [t.who, t.toward].filter(Boolean).join('→');
+  // A feeling reads with its cause, so "what was hidden" is never left to guessing.
+  const tail =
+    t.kind === 'emotion' && t.need
+      ? ` (${t.cause ? `원인: ${shortQuote(t.cause, 90)} / ` : ''}풀리려면: ${t.need})`
+      : t.latest?.text
+        ? ` (최근: ${shortQuote(t.latest.text, 80)})`
+        : '';
+  // A promise reads as what was said, and when.
+  const said = t.kind === 'promise' && t.detail ? ` — ${shortQuote(t.detail, 100)}` : '';
+  const when = t.kind === 'emotion' ? '' : t.due ? ` [${t.kind === 'pending' ? '기한' : '약속한 때'}: ${formatDue(t.due, ledger.storyDate)}]` : t.period ? ` [${formatPeriod(t.period, ledger.storyDate)}]` : t.kind === 'promise' && t.since ? ` [${t.since}]` : '';
+  const said2 = t.kind === 'state' && t.detail ? ` — ${shortQuote(t.detail, 100)}` : '';
+  const marks = groupCast(ledger).length ? [t.unaware?.length ? `모름: ${t.unaware.join('·')}` : null, t.guess?.length ? `짐작만: ${t.guess.join('·')}` : null].filter(Boolean) : [];
+  const unaware = marks.length ? ` [${marks.join(' / ')}]` : '';
+  const line = `- ${COMPACT_LABEL[kind]} ${who ? `${who}: ` : ''}${t.title}${said}${said2}${when}${tail}${unaware}`;
+  return line;
+}
+
+/**
+ * "[아직 끝나지 않은 일]". Things with a date to meet come first, nearest first, however long ago they were
+ * mentioned; an overdue one nobody mentions any more is shelved and comes back when the talk touches it (`query`).
+ * Without a story date, dated items keep their order and are never shelved.
+ */
+function renderCompact(ledger, { maxChars = 2400, query = '' } = {}) {
+  const threads = ledger?.threads || [];
+  const lastNumber = ledger?.lastNumber ?? Math.max(0, ...threads.map(lastSeen));
+  const today = ledger?.storyDate || null;
   const lines = [];
   let used = 0;
+  const open = threads.filter((t) => t.status === 'open');
+  const dated = open.filter((t) => deadlineOf(t));
+  const due = dated
+    .filter((t) => !shelved(t, today, lastNumber))
+    .sort((a, b) => deadlineOf(a).localeCompare(deadlineOf(b)) || String(a.due?.time || '').localeCompare(String(b.due?.time || '')) || lastSeen(b) - lastSeen(a))
+    .slice(0, DUE_LIMIT);
+  const asked = query
+    ? dated.filter((t) => shelved(t, today, lastNumber) && sharedPairs(`${t.title} ${t.detail || ''}`, query) >= 0.3).slice(0, 3)
+    : [];
+  const shown = new Set([...due, ...asked]);
+  for (const t of [...due, ...asked]) {
+    const line = compactLine(ledger, t, t.kind) + (asked.includes(t) ? ' (기한이 지나고 한동안 말이 없던 일)' : '');
+    if (used + line.length + 1 > maxChars) break;
+    lines.push(line);
+    used += line.length + 1;
+  }
   for (const kind of RENDER_ORDER) {
-    const items = threads
-      .filter((t) => t.status === 'open' && t.kind === kind && !faded(t, lastNumber))
+    const items = open
+      .filter((t) => t.kind === kind && !shown.has(t) && !faded(t, lastNumber) && !shelved(t, today, lastNumber))
       .sort((a, b) => lastSeen(b) - lastSeen(a))
       .slice(0, COMPACT_LIMIT[kind]);
     for (const t of items) {
-      const who = [t.who, t.toward].filter(Boolean).join('→');
-      // A feeling reads with its cause, so "what was hidden" is never left to guessing.
-      const tail =
-        t.kind === 'emotion' && t.need
-          ? ` (${t.cause ? `원인: ${shortQuote(t.cause, 90)} / ` : ''}풀리려면: ${t.need})`
-          : t.latest?.text
-            ? ` (최근: ${shortQuote(t.latest.text, 80)})`
-            : '';
-      // A promise reads as what was said, and when.
-      const said = t.kind === 'promise' && t.detail ? ` — ${shortQuote(t.detail, 100)}` : '';
-      const when = t.kind === 'emotion' ? '' : t.due ? ` [약속한 때: ${formatDue(t.due, ledger.storyDate)}]` : t.period ? ` [${formatPeriod(t.period, ledger.storyDate)}]` : t.kind === 'promise' && t.since ? ` [${t.since}]` : '';
-      const said2 = t.kind === 'state' && t.detail ? ` — ${shortQuote(t.detail, 100)}` : '';
-      const marks = groupCast(ledger).length ? [t.unaware?.length ? `모름: ${t.unaware.join('·')}` : null, t.guess?.length ? `짐작만: ${t.guess.join('·')}` : null].filter(Boolean) : [];
-      const unaware = marks.length ? ` [${marks.join(' / ')}]` : '';
-      const line = `- ${COMPACT_LABEL[kind]} ${who ? `${who}: ` : ''}${t.title}${said}${said2}${when}${tail}${unaware}`;
+      const line = compactLine(ledger, t, kind);
       if (used + line.length + 1 > maxChars) break;
       lines.push(line);
       used += line.length + 1;
@@ -1612,6 +1740,10 @@ module.exports = {
   parsePeriod,
   formatPeriod,
   storyDate,
+  parseClock,
+  deadlineOf,
+  deadlineList,
+  clockNote,
   personaNames,
   renderCompact,
   resolveEvidence,
