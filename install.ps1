@@ -26,13 +26,95 @@ function Get-Version($path) {
   if ($m) { $m.Matches[0].Groups[1].Value } else { '?' }
 }
 
-Write-Host ''
-$candidates = @($env:MARINARA_DIR, (Get-Location).Path, (Join-Path $env:LOCALAPPDATA 'Marinara-Engine'), (Join-Path $env:USERPROFILE 'Marinara-Engine')) | Where-Object { $_ }
-$dir = $candidates | Where-Object { Test-Path (Join-Path $_ 'packages\server') } | Select-Object -First 1
-if (-not $dir) {
-  Write-Host '[설치 실패] 마리나라 폴더를 찾지 못했습니다. 마리나라 폴더(start.bat이 있는 곳)에서 PowerShell을 열고 다시 실행해 주세요.'
-  return
+# Accept a folder, launcher file, or a subfolder of an installation.
+# Validate both the Windows entry point and server directory before writing.
+function Resolve-MarinaraRoot([string]$Path) {
+  if ([string]::IsNullOrWhiteSpace($Path)) { return }
+  try {
+    $Path = [Environment]::ExpandEnvironmentVariables($Path.Trim().Trim('"'))
+    $item = Get-Item -LiteralPath $Path -ErrorAction Stop
+    if ($item.PSProvider.Name -ne 'FileSystem') { return }
+    $folder = if ($item.PSIsContainer) { $item } else { $item.Directory }
+    while ($null -ne $folder) {
+      if ((Test-Path -LiteralPath (Join-Path $folder.FullName 'start.bat') -PathType Leaf) -and
+          (Test-Path -LiteralPath (Join-Path $folder.FullName 'packages\server') -PathType Container)) {
+        return $folder.FullName
+      }
+      $folder = $folder.Parent
+    }
+  } catch {}
 }
+
+Write-Host ''
+$dir = $null
+if ($env:MARINARA_DIR) {
+  $dir = Resolve-MarinaraRoot $env:MARINARA_DIR
+  if (-not $dir) {
+    Write-Host "[폴더 확인] MARINARA_DIR에 지정한 위치가 올바르지 않습니다: $env:MARINARA_DIR"
+  }
+} else {
+  # Prefer the installation whose directory the user deliberately opened.
+  $dir = Resolve-MarinaraRoot (Get-Location).Path
+}
+if (-not $dir) {
+  $candidates = New-Object 'System.Collections.Generic.List[string]'
+  foreach ($baseDir in @($env:LOCALAPPDATA, $env:USERPROFILE, $env:ProgramFiles, [Environment]::GetEnvironmentVariable('ProgramFiles(x86)'))) {
+    if ($baseDir) { [void]$candidates.Add((Join-Path $baseDir 'Marinara-Engine')) }
+  }
+  if ($env:LOCALAPPDATA) {
+    [void]$candidates.Add((Join-Path $env:LOCALAPPDATA 'Programs\Marinara-Engine'))
+  }
+  # Shortcuts locate custom installs on other drives without scanning whole disks.
+  try {
+    $shortcutShell = New-Object -ComObject WScript.Shell
+    foreach ($special in @('Desktop', 'CommonDesktopDirectory', 'StartMenu', 'CommonStartMenu')) {
+      $shortcutDir = [Environment]::GetFolderPath($special)
+      if (-not $shortcutDir) { continue }
+      foreach ($shortcutFile in @(Get-ChildItem -LiteralPath $shortcutDir -Filter '*Marinara*.lnk' -Recurse -File -ErrorAction SilentlyContinue)) {
+        try {
+          $shortcut = $shortcutShell.CreateShortcut($shortcutFile.FullName)
+          if ($shortcut.TargetPath) { [void]$candidates.Add($shortcut.TargetPath) }
+          if ($shortcut.WorkingDirectory) { [void]$candidates.Add($shortcut.WorkingDirectory) }
+        } catch {}
+      }
+    }
+  } catch {}
+  $found = @($candidates | ForEach-Object { Resolve-MarinaraRoot $_ } | Sort-Object -Unique)
+  if ($found.Count -eq 1 -and -not $env:MARINARA_DIR) {
+    $dir = $found[0]
+  } elseif ($found.Count -gt 0) {
+    Write-Host '설치 위치를 선택해 주세요. 다른 위치라면 Enter를 누르세요.'
+    for ($i = 0; $i -lt $found.Count; $i++) { Write-Host "  $($i + 1). $($found[$i])" }
+    while (-not $dir) {
+      $choice = Read-Host '번호 (Enter: 직접 폴더 선택)'
+      if ([string]::IsNullOrWhiteSpace($choice)) { break }
+      $index = 0
+      if ([int]::TryParse($choice, [ref]$index) -and $index -ge 1 -and $index -le $found.Count) {
+        $dir = $found[$index - 1]
+      } else { Write-Host '목록에 있는 번호를 입력해 주세요.' }
+    }
+  }
+}
+if (-not $dir) {
+  Write-Host 'start.bat과 packages 폴더가 들어 있는 마리나라 폴더를 선택해 주세요.'
+  try {
+    $folderShell = New-Object -ComObject Shell.Application
+    $picked = $folderShell.BrowseForFolder(0, 'Marinara Engine - start.bat folder', 0x51, 0)
+    if ($null -ne $picked) { $dir = Resolve-MarinaraRoot $picked.Self.Path }
+  } catch {}
+  while (-not $dir) {
+    $typed = Read-Host '마리나라 폴더 경로 (따옴표 포함 가능, Enter: 취소)'
+    if ([string]::IsNullOrWhiteSpace($typed)) {
+      Write-Host '[취소] 설치를 취소했습니다. 기존 파일은 변경하지 않았습니다.'
+      return
+    }
+    $dir = Resolve-MarinaraRoot $typed
+    if (-not $dir) {
+      Write-Host '[폴더 확인] start.bat과 packages\server를 찾지 못했습니다. 경로를 다시 입력해 주세요.'
+    }
+  }
+}
+Write-Host "설치 대상: $dir"
 $m = Join-Path $dir 'memory-module'
 $prev = Join-Path $m '.prev'
 
