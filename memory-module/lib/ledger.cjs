@@ -528,12 +528,23 @@ function nameKeys(name) {
 }
 
 /** A name as written ("재민이", "재민아", "Dan") matched to one person of the cast; null when unknown or ambiguous. */
+/** What may follow a name and still be that name: nothing, a particle or a title ("재민이", "Dan's", "하준 씨"). */
+const AFTER_NAME = /^(?:\s*(?:이|가|은|는|을|를|의|에게|에게서|한테|한테서|께|께서|아|야|이가|이는|이를|이의|이랑|랑|이와|와|과|도|이도|만|이만|이나|나|님|씨|군|양|이네|네|이었|였|이야|야)|'s|’s|\s+(?:씨|님|군|양|선배|형|오빠|언니|누나)\b.*|\s*[,.!?…:]|\s*$)/;
+
+/**
+ * A name as written ("재민이", "Dan", "이경민") matched to one person of the cast; null when unknown or ambiguous.
+ * The exact name comes first; then a known name followed only by a particle (the longest such name, so
+ * "이경민이" is 이경민, not 이경); a short form ("재민" for 서재민) only when it fits exactly one person.
+ */
 function matchName(raw, cast) {
   const text = String(raw || '').trim();
   if (!text) return null;
-  const exact = cast.find((n) => text === n || text.startsWith(n));
+  const exact = cast.find((n) => text === n);
   if (exact) return exact;
-  const hits = cast.filter((n) => nameKeys(n).some((k) => text === k || text.startsWith(k)));
+  const after = (name) => text.startsWith(name) && AFTER_NAME.test(text.slice(name.length));
+  const full = cast.filter(after).sort((a, b) => b.length - a.length);
+  if (full.length) return full.length === 1 || full[0].length > full[1].length ? full[0] : null;
+  const hits = cast.filter((n) => nameKeys(n).some((k) => text === k || after(k)));
   return hits.length === 1 ? hits[0] : null;
 }
 
@@ -1599,6 +1610,12 @@ function reconcile(ledger, current) {
   if (snapshot.routine) ledger.routine = snapshot.routine;
   ledger.processed = ledger.processed.slice(0, snapshot.start);
   ledger.batches = ledger.batches.slice(0, snapshotIndex);
+  // The story clock and the last message read go back too: worked out again from the messages still read
+  // (they are unchanged up to there), so older saves without these in their snapshots are put right as well.
+  const kept = current.slice(0, snapshot.start);
+  ledger.storyDate = storyDate(kept) || null;
+  ledger.storyTime = storyTime(kept) || null;
+  ledger.lastNumber = typeof kept.at(-1)?.number === 'number' ? kept.at(-1).number : null;
   return { from: snapshot.start, rolledBack: true, changedAt: firstChanged };
 }
 

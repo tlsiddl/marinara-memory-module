@@ -1128,28 +1128,70 @@ function commitChapter(store, chapter) {
 }
 
 /** "[지난 이야기 흐름]": newest chapters whole, older ones shorter, the oldest just their titles, in order. */
-function renderChapters(store, maxChars = 4000, query = '', today = null) {
+function renderChapters(store, limit = 4000, query = '', today = null) {
   const list = store.chapters || [];
   if (!list.length) return '';
+  const HEAD = '[지난 이야기 흐름]\n';
+  const maxChars = limit - HEAD.length;
   const full = (c) => [`${c.id} ${c.time ? `${c.time} — ` : ''}${c.title}: ${c.summary}`, ...c.turns.map((t) => `  · ${t}`), ...(c.keep || []).map((t) => `  ※ ${t}`)].join('\n');
   // Details that must stay exact (deadlines, conditions) are kept even when the chapter is shortened.
   const keepLines = (c) => (c.keep || []).map((t) => `  ※ ${t}`).join('\n');
   const short = (c) => [`${c.id} ${c.time ? `${c.time} — ` : ''}${c.title}: ${String(c.summary).split(/(?<=[.다])\s/)[0]}`, keepLines(c)].filter(Boolean).join('\n');
   const tiny = (c) => `${c.id} ${c.title}`;
-  const lines = list.map(tiny);
-  let used = lines.join('\n').length;
-  // Exact details of old chapters (deadlines, amounts, conditions) are not lost with their summary: they get a
-  // share of their own, first the ones that touch what is being talked about now, then the newest.
-  const detailRoom = Math.floor(maxChars * 0.3);
-  let detailUsed = 0;
-  // Order: what the talk touches now; then dates still ahead in the story (nearest first); then the newest;
-  // details whose date has already passed come last.
+  // Order of details: what the talk touches now; then dates still ahead in the story (nearest first); then the
+  // newest; details whose date has already passed come last.
   const rank = (d) => (d.score >= 0.3 ? 0 : d.date && today ? (d.date >= today ? 1 : 3) : 2);
   const details = list
     .flatMap((c, i) => (c.keep || []).map((t, k) => ({ i, k, text: t, score: query ? overlap(t, query) : 0, date: L.parseClock(t, today)?.date || null })))
     .sort((a, b) => rank(a) - rank(b) || (rank(a) === 0 ? b.score - a.score : 0) || (rank(a) === 1 ? a.date.localeCompare(b.date) : 0) || b.i - a.i || a.k - b.k);
+
+  // Which chapters get a line at all. When even their titles would not fit (a very long story), the ones the
+  // talk touches now, the ones holding a date still ahead, and then the newest are named; the rest are folded
+  // into one line per stretch ("C1~C120 …"), so the limit holds however long the story gets.
+  const titleRoom = Math.floor(maxChars * 0.6);
+  let shown = new Set(list.map((_, i) => i));
+  if (list.map(tiny).join('\n').length > titleRoom) {
+    shown = new Set();
+    let cost = 120; // room for the folded stretches
+    const add = (i) => {
+      const c = tiny(list[i]).length + 1;
+      if (shown.has(i) || cost + c > titleRoom) return false;
+      shown.add(i);
+      cost += c;
+      return true;
+    };
+    const touched = query
+      ? list.map((c, i) => ({ i, s: overlap(`${c.title} ${c.summary} ${(c.keep || []).join(' ')}`, query) })).filter((x) => x.s >= 0.3).sort((a, b) => b.s - a.s).slice(0, 5)
+      : [];
+    for (const x of touched) add(x.i);
+    for (const i of [...new Set(details.filter((d) => rank(d) === 1).map((d) => d.i))].slice(0, 5)) add(i);
+    for (let i = list.length - 1; i >= 0; i--) if (!shown.has(i) && !add(i)) break;
+  }
+  const lines = list.map((c, i) => (shown.has(i) ? tiny(c) : null));
+  const day = (c) => String(c?.time || '').split(/\s*[~]\s*/)[0].trim().split(/\s+/)[0];
+  const folded = () => {
+    const out = [];
+    for (let i = 0; i < list.length; i++) {
+      if (lines[i] !== null) {
+        out.push(lines[i]);
+        continue;
+      }
+      let k = i;
+      while (k + 1 < list.length && lines[k + 1] === null) k++;
+      const span = [day(list[i]), day(list[k])].filter(Boolean);
+      out.push(`${list[i].id}${k > i ? `~${list[k].id}` : ''} — 챕터 ${k - i + 1}개 줄임${span.length ? ` (${[...new Set(span)].join('~')})` : ''}`);
+      i = k;
+    }
+    return out;
+  };
+  let used = folded().join('\n').length;
+
+  // Exact details of old chapters get a share of their own, so they are not lost with their summary.
+  const detailRoom = Math.floor(maxChars * 0.3);
+  let detailUsed = 0;
   const picked = new Map();
   for (const d of details) {
+    if (!shown.has(d.i)) continue;
     const cost = d.text.length + 5;
     if (detailUsed + cost > detailRoom || used + cost > maxChars) continue;
     detailUsed += cost;
@@ -1159,13 +1201,14 @@ function renderChapters(store, maxChars = 4000, query = '', today = null) {
   for (const [i, ds] of picked) lines[i] = [tiny(list[i]), ...ds.sort((a, b) => a.k - b.k).map((d) => `  ※ ${d.text}`)].join('\n');
   for (const make of [short, full]) {
     for (let i = list.length - 1; i >= 0; i--) {
+      if (lines[i] === null) continue;
       const next = make(list[i]);
       if (used - lines[i].length + next.length > maxChars) break;
       used += next.length - lines[i].length;
       lines[i] = next;
     }
   }
-  return `[지난 이야기 흐름]\n${lines.join('\n')}`;
+  return `${HEAD}${folded().join('\n')}`;
 }
 
 /* ---------- merging facts that piled up about one person ---------- */

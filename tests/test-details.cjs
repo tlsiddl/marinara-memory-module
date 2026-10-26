@@ -232,3 +232,48 @@ test('chat-app HTML: a styled name speaks every bubble under it, the user side s
   const [, m] = L.prepareMessages([{ id: 'c0', role: 'user', speaker: '서아', content: '안녕' }, { id: 'c1', role: 'assistant', speaker: '하준', content: html }]);
   assert.match(m.content, /^서아 \| 오늘 저녁/m);
 });
+
+test('an exact name is never taken for a shorter one that starts it; a short form needs exactly one owner', () => {
+  assert.equal(L.matchName('Daniel', ['Dan', 'Daniel']), 'Daniel');
+  assert.equal(L.matchName('Dan', ['Dan', 'Daniel']), 'Dan');
+  assert.equal(L.matchName('이경민', ['이경', '이경민']), '이경민');
+  assert.equal(L.matchName('이경민이', ['이경', '이경민']), '이경민', 'a particle after the longer name');
+  assert.equal(L.matchName('이경이', ['이경', '이경민']), '이경');
+  assert.equal(L.matchName('Dana', ['Dan']), null, 'another name that starts the same is not that person');
+  assert.equal(L.canonNames('이경민·Daniel', ['이경', '이경민', 'Dan', 'Daniel']), '이경민·Daniel');
+});
+
+test('undoing the ledger also takes its story date, time and last message back', () => {
+  const rows = [
+    { id: 'r1', number: 1, speaker: '서아', role: 'user', content: '2027년 4월 14일 수요일 | 10시 30분\n"안녕."' },
+    { id: 'r2', number: 2, speaker: '도윤', role: 'assistant', content: '"응."' },
+    { id: 'r3', number: 3, speaker: '서아', role: 'user', content: '2027년 5월 20일 목요일 | 21시\n"오랜만이야."' },
+    { id: 'r4', number: 4, speaker: '도윤', role: 'assistant', content: '"그러게."' },
+  ];
+  const msgs = L.prepareMessages(rows);
+  const ledger = L.emptyLedger();
+  L.beginBatch(ledger, 0);
+  L.commitBatch(ledger, msgs.slice(0, 2));
+  L.beginBatch(ledger, 2);
+  L.commitBatch(ledger, msgs.slice(2));
+  assert.equal(ledger.storyDate, '2027-05-20');
+  const after = L.prepareMessages(rows.slice(0, 2));
+  const state = L.reconcile(ledger, after);
+  assert.equal(state.rolledBack, true);
+  assert.equal(ledger.storyDate, '2027-04-14');
+  assert.equal(ledger.storyTime, '2027-04-14T10:30');
+  assert.equal(ledger.lastNumber, 2);
+});
+
+test('two hundred chapters still fit the set length: old ones fold into stretches, ones being talked about stay', () => {
+  const store = S.emptyStore();
+  store.chapters = Array.from({ length: 200 }, (_, i) => ({ id: `C${i + 1}`, scenes: [], time: `24-01-${String((i % 28) + 1).padStart(2, '0')}`, title: `오래 이어진 이야기의 한 토막 ${i + 1}`, summary: '여러 일이 있었다. '.repeat(6), turns: [], keep: [] }));
+  store.chapters[11].title = '장학금 서류를 준비함';
+  for (const limit of [4000, 2000, 1000]) {
+    const text = S.renderChapters(store, limit, '장학금 서류 언제까지였지?');
+    assert.ok(text.length <= limit, `${limit}: ${text.length}`);
+    assert.match(text, /^C12 .*장학금 서류를 준비함/m);
+    assert.match(text, /^C1~C11 — 챕터 11개 줄임/m);
+    assert.match(text, /^C200 /m);
+  }
+});
