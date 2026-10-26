@@ -215,6 +215,7 @@
     if (!h) return '';
     const NAMES = { macro: '{{기억}} 자리 채우기', app: '답변 뒤 자동 정리와 이 화면', speakers: '말풍선 태그 되살리기' };
     const notes = [];
+    for (const b of h.broken || []) notes.push(`기억 파일 ${b.file}이(가) 손상되어 읽지 못했습니다. 덮어쓰지 않도록 이 파일의 저장과 정리를 멈췄습니다.${b.backup ? ` 원본 복사본: ${b.backup}` : ''} 파일을 고치거나 지운 뒤 마리나라를 다시 켜 주세요.`);
     if (h.failed?.length) notes.push(`이 마리나라 버전에서는 ${h.failed.map((k) => NAMES[k] || k).join(', ')} 기능이 꺼져 있습니다. 마리나라는 그대로 정상 작동합니다. 기억 모듈 업데이트가 나오면 설치해 주세요.`);
     if (h.marinara && h.tested && h.marinara !== h.tested) notes.push(`마리나라 ${h.marinara} 버전입니다. 기억 모듈은 ${h.tested}에서 확인했습니다.${h.failed?.length ? '' : ' 지금은 모든 기능이 정상으로 붙었습니다.'}`);
     return notes.length ? `<div class="note">${notes.map(esc).join('<br>')}</div>` : '';
@@ -398,7 +399,7 @@
       ${[...groups].map(([who, list]) => `<div class="paper"><h2>${esc(who)}</h2>${list
         .map((f) => {
           const replaced = f.replacedBy && ids.has(f.replacedBy);
-          return `<div class="fact-row" data-fact="${esc(f.id)}"><label>${esc(f.id)}${f.unaware?.length ? ` · 모름: ${esc(f.unaware.join('·'))}` : ''}${f.guess?.length ? ` · 짐작만: ${esc(f.guess.join('·'))}` : ''}${f.edited ? ' · 직접 고침' : ''}${replaced ? ` · ${esc(f.replacedBy)}로 바뀜(기억 칸에서 제외)` : ''}</label>
+          return `<div class="fact-row" data-fact="${esc(f.id)}"><label>${esc(f.id)}${f.unaware?.length ? ` · 모름: ${esc(f.unaware.join('·'))}` : ''}${f.guess?.length ? ` · 짐작만: ${esc(f.guess.join('·'))}` : ''}${f.edited || f.knowSet?.length ? ' · 직접 고침' : ''}${replaced ? ` · ${esc(f.replacedBy)}로 바뀜(기억 칸에서 제외)` : ''}</label>
             ${f.sceneId ? `<p class="record-links">${sceneLink(store.scenes.find((x) => x.id === f.sceneId), '에서 알게 됨')}</p>` : ''}
             <textarea class="event-field">${esc(f.text)}</textarea>
             ${group() ? `<div class="form-grid"><label>아직 모르는 인물 (쉼표로 구분)<input data-f="unaware" value="${esc((f.unaware || []).join(', '))}" placeholder="모두 알면 비워 두세요"></label><label>짐작만 하는 인물<input data-f="guess" value="${esc((f.guess || []).join(', '))}" placeholder="없으면 비워 두세요"></label></div>` : ''}

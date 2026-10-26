@@ -731,10 +731,44 @@ function setKnowing(fact, who, inScene, { unaware, guess }) {
   if (unaware !== undefined) fact.unaware = unaware ? [...new Set([...(fact.unaware || []), who])] : (fact.unaware || []).filter((n) => n !== who);
   if (guess !== undefined) fact.guess = guess ? [...new Set([...(fact.guess || []), who])] : (fact.guess || []).filter((n) => n !== who);
   const after = { unaware: !!fact.unaware?.includes(who), guess: !!fact.guess?.includes(who) };
-  if (inScene && (after.unaware !== before.unaware || after.guess !== before.guess)) fact.knowHistory = [...(fact.knowHistory || []), before];
+  if (inScene && (after.unaware !== before.unaware || after.guess !== before.guess)) {
+    fact.knowHistory = [...(fact.knowHistory || []), before];
+    // A later scene changed it again: undoing that scene goes back to what the user had set.
+    if (fact.knowSet?.includes(who)) fact.knowSet = fact.knowSet.filter((n) => n !== who);
+    if (fact.knowSet && !fact.knowSet.length) delete fact.knowSet;
+  }
 }
 
-/** Knowledge changes made in scenes that are gone are undone, newest first. Hand-edited facts keep what the user set. */
+/**
+ * A hand edit of a fact. Fixing its wording and changing who knows it are recorded apart: only the people whose
+ * knowing the user set by hand (fact.knowSet) are kept when a scene is undone; a typo fix protects nobody's.
+ */
+function editFact(fact, { text, about, unaware, guess }) {
+  // Edits from now on are recorded apart; a fact hand-edited before this (edited, no mark) keeps the old rule.
+  if (!fact.edited) fact.editsSplit = true;
+  else if (!fact.editsSplit && !fact.knowSet) fact.knowSet = [...new Set([...(fact.unaware || []), ...(fact.guess || []), ...(fact.knowHistory || []).map((h) => h.who)])];
+  fact.editsSplit = true;
+  if (text !== undefined && text !== fact.text) {
+    fact.text = text;
+    fact.edited = true;
+  }
+  if (about !== undefined && about !== fact.about) {
+    fact.about = about;
+    fact.edited = true;
+  }
+  const changed = new Set();
+  for (const [key, next] of [['unaware', unaware], ['guess', guess]]) {
+    if (next === undefined) continue;
+    const before = new Set(fact[key] || []);
+    const after = new Set(next);
+    for (const n of new Set([...before, ...after])) if (before.has(n) !== after.has(n)) changed.add(n);
+    fact[key] = [...after];
+  }
+  if (changed.size) fact.knowSet = [...new Set([...(fact.knowSet || []), ...changed])];
+  return fact;
+}
+
+/** Knowledge changes made in scenes that are gone are undone, newest first, except for people the user set by hand. */
 function undoKnowing(facts, droppedIds) {
   for (const f of facts) {
     if (!f.knowHistory?.length) continue;
@@ -742,8 +776,11 @@ function undoKnowing(facts, droppedIds) {
     if (!gone.length) continue;
     f.knowHistory = f.knowHistory.filter((h) => !droppedIds.has(h.in));
     if (!f.knowHistory.length) delete f.knowHistory;
-    if (f.edited) continue;
+    // Hand-edited before wording and knowing were told apart: what the user set may be knowing, so it stays.
+    if (f.edited && !f.editsSplit) continue;
+    const handSet = new Set(f.knowSet || []);
     for (const h of [...gone].reverse()) {
+      if (handSet.has(h.who)) continue;
       f.unaware = h.unaware ? [...new Set([...(f.unaware || []), h.who])] : (f.unaware || []).filter((n) => n !== h.who);
       f.guess = h.guess ? [...new Set([...(f.guess || []), h.who])] : (f.guess || []).filter((n) => n !== h.who);
     }
@@ -1230,6 +1267,7 @@ function renderScenes(store, firstInside, { maxChars = 9000, maxSummaries = 40, 
 }
 
 module.exports = {
+  editFact,
   relinkLoose,
   linkQuote,
   CHAPTER_PROMPT,

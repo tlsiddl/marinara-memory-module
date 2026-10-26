@@ -6,7 +6,7 @@
 > **비공식 모듈입니다.** Marinara Engine 및 Pasta-Devs와 관련이 없고, 그쪽의 검토나 지원을 받지 않습니다.
 > Marinara Engine **2.5.1**에서 확인했습니다. 다른 버전에서는 일부 기능이 스스로 꺼질 수 있습니다(아래 참고).
 
-지금 버전: **v0.9.3 (베타)** · 변경 내역은 [CHANGELOG.md](CHANGELOG.md)
+지금 버전: **v0.9.4 (베타)** · 변경 내역은 [CHANGELOG.md](CHANGELOG.md)
 
 ---
 
@@ -65,8 +65,8 @@ irm https://raw.githubusercontent.com/tlsiddl/marinara-memory-module/main/instal
 **설치 확인** — 마리나라 로그에 아래 줄들이 보이면 성공입니다.
 
 ```
-[memory-module] v0.9.3 applied: {{기억}} macro ready
-[memory-module] v0.9.3 applied: reply hook and admin API ready
+[memory-module] v0.9.4 applied: {{기억}} macro ready
+[memory-module] v0.9.4 applied: reply hook and admin API ready
 ```
 
 ### 2. 기억 서재 화면 (확장)

@@ -79,15 +79,53 @@ function engine() {
 
 /* ---------- files ---------- */
 
-function readJson(file, fallback) {
+/**
+ * Files that exist but could not be read (broken JSON, no permission). The original is copied aside once and
+ * the file is never written over automatically while it stays broken: deleting or fixing it lifts the block.
+ */
+const brokenFiles = new Map();
+
+function readJson(file, fallback, { replaceable = false } = {}) {
+  let text;
   try {
-    return JSON.parse(fs.readFileSync(file, 'utf8'));
-  } catch {
-    return fallback;
+    text = fs.readFileSync(file, 'utf8');
+  } catch (error) {
+    if (error?.code === 'ENOENT') {
+      brokenFiles.delete(file);
+      return fallback;
+    }
+    return markBroken(file, error, fallback, replaceable);
+  }
+  try {
+    const value = JSON.parse(text);
+    brokenFiles.delete(file);
+    return value;
+  } catch (error) {
+    return markBroken(file, error, fallback, replaceable);
   }
 }
 
+function markBroken(file, error, fallback, replaceable) {
+  const old = brokenFiles.get(file);
+  if (old) return fallback;
+  let backup = null;
+  try {
+    backup = `${file}.broken-${new Date().toISOString().replace(/[:.]/g, '-')}`;
+    fs.copyFileSync(file, backup);
+  } catch {
+    backup = null;
+  }
+  brokenFiles.set(file, { file, backup, error: String(error?.message || error).slice(0, 200), at: new Date().toISOString(), replaceable });
+  log(`could not read ${file}: ${error?.message || error}${backup ? ` (copy kept at ${backup})` : ''}${replaceable ? '' : '; it will not be written over'}`);
+  return fallback;
+}
+
 function writeJson(file, value) {
+  const broken = brokenFiles.get(file);
+  if (broken && !broken.replaceable && fs.existsSync(file)) {
+    throw Error(`기억 파일(${path.basename(file)})이 손상되어 읽지 못했습니다. 덮어쓰지 않도록 저장을 멈췄습니다.${broken.backup ? ` 원본 복사본: ${broken.backup}.` : ''} 파일을 고치거나 지운 뒤 다시 시도해 주세요.`);
+  }
+  brokenFiles.delete(file);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const tmp = `${file}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(value));
@@ -211,7 +249,7 @@ function embeddingModel() {
 function loadVectors(chatId) {
   const model = embeddingModel();
   if (!model) return null;
-  let index = vectorCache.get(chatId) || readJson(vectorsFile(chatId), null);
+  let index = vectorCache.get(chatId) || readJson(vectorsFile(chatId), null, { replaceable: true });
   if (!V.usable(index, model)) index = V.emptyIndex(model);
   vectorCache.set(chatId, index);
   return index;
@@ -578,12 +616,23 @@ function jobStatus(chatId) {
  * Bring the ledger up to date with the chat. mode "rebuild" starts from an empty ledger.
  * Progress is saved after every batch, so a stopped or failed run continues where it left off.
  */
+/** Stop before any model call when this chat's memory files are broken: the work could not be saved anyway. */
+function checkFiles(chatId) {
+  loadLedger(chatId);
+  loadScenes(chatId);
+  for (const file of [ledgerFile(chatId), scenesFile(chatId), SETTINGS_FILE]) {
+    const broken = brokenFiles.get(file);
+    if (broken && !broken.replaceable) throw Error(`기억 파일(${path.basename(file)})이 손상되어 정리를 멈췄습니다.${broken.backup ? ` 원본 복사본: ${broken.backup}.` : ''} 파일을 고치거나 지운 뒤 다시 시도해 주세요.`);
+  }
+}
+
 function processChat(chatId, { rebuild = false, reason = 'auto' } = {}) {
   const run = enqueue(chatId, async () => {
     if (!rebuild && !chatEnabled(chatId)) return;
     const job = { state: 'running', reason, done: 0, total: 0, startedAt: new Date().toISOString(), error: null, cancel: false, abort: new AbortController() };
     jobs.set(chatId, job);
     try {
+      checkFiles(chatId);
       const messages = settled(await chatMessages(chatId));
       // Work on a copy: a stopped or failed run must not leave half its changes in the cached ledger.
       let ledger = rebuild ? L.emptyLedger() : structuredClone(loadLedger(chatId) || L.emptyLedger());
@@ -666,6 +715,7 @@ function processScenes(chatId, { rebuild = false, reason = 'auto' } = {}) {
     const job = { state: 'running', reason, calls: 0, startedAt: new Date().toISOString(), error: null, cancel: false, abort: new AbortController(), again: false };
     sceneJobs.set(chatId, job);
     try {
+      checkFiles(chatId);
       let fresh = rebuild;
       do {
         job.again = false;
@@ -718,6 +768,7 @@ function rebuildChapters(chatId) {
     const job = { state: 'running', reason: 'chapters', calls: 0, startedAt: new Date().toISOString(), error: null, cancel: false, abort: new AbortController(), stage: '챕터 다시 묶기' };
     sceneJobs.set(chatId, job);
     try {
+      checkFiles(chatId);
       const store = structuredClone(loadScenes(chatId) || S.emptyStore());
       const before = (store.chapters || []).length;
       store.chapters = [];
@@ -744,6 +795,7 @@ function tidyChat(chatId) {
     const job = { state: 'running', reason: 'tidy', stage: '장부 점검', done: 0, total: 1, startedAt: new Date().toISOString(), error: null };
     jobs.set(chatId, job);
     try {
+      checkFiles(chatId);
       const cached = loadLedger(chatId);
       if (!cached) throw Error('아직 장부가 없습니다. 먼저 정리를 시작해 주세요.');
       const ledger = structuredClone(cached);
@@ -992,7 +1044,8 @@ function health() {
   const m = globalThis.__marinaraMemory || {};
   const patches = m.patches || {};
   const failed = Object.entries(patches).filter(([, v]) => v === 'failed').map(([k]) => k);
-  return { marinara: marinaraVersion, tested: m.testedMarinara || null, patches, failed };
+  const broken = [...brokenFiles.values()].filter((b) => !b.replaceable).map((b) => ({ file: path.basename(b.file), backup: b.backup, error: b.error, at: b.at }));
+  return { marinara: marinaraVersion, tested: m.testedMarinara || null, patches, failed, broken };
 }
 
 /** "하준, 도윤" or ["하준"] → ["하준", "도윤"]. */
@@ -1252,6 +1305,8 @@ async function routes(app) {
       const store = structuredClone(loadScenes(chatId) || S.emptyStore());
       const out = edit(store);
       saveScenes(chatId, store);
+      // What was picked for this turn may rest on the old wording: pick again on the next reply or reroll.
+      recalls.delete(chatId);
       return out;
     });
   app.patch('/chats/:id/scenes/:sceneId', guard(async (req) => {
@@ -1311,11 +1366,12 @@ async function routes(app) {
     return editScenes(chatId, (store) => {
       const fact = store.facts.find((x) => x.id === req.params.factId);
       if (!fact) throw Error('해당 사실을 찾지 못했습니다.');
-      if (typeof req.body?.text === 'string') fact.text = req.body.text.trim();
-      if (typeof req.body?.about === 'string') fact.about = req.body.about.trim();
-      if (req.body?.unaware !== undefined) fact.unaware = nameList(req.body.unaware);
-      if (req.body?.guess !== undefined) fact.guess = nameList(req.body.guess);
-      fact.edited = true;
+      S.editFact(fact, {
+        text: typeof req.body?.text === 'string' ? req.body.text.trim() : undefined,
+        about: typeof req.body?.about === 'string' ? req.body.about.trim() : undefined,
+        unaware: req.body?.unaware !== undefined ? nameList(req.body.unaware) : undefined,
+        guess: req.body?.guess !== undefined ? nameList(req.body.guess) : undefined,
+      });
       return fact;
     });
   }));
@@ -1353,7 +1409,10 @@ async function syncBeforeReply(chatId, body) {
     log(`chat ${chatId}: ledger is still reading earlier messages, prompt uses the current ledger`);
   } else {
     await enqueue(chatId, async () => {
-      const ledger = structuredClone(loadLedger(chatId) || L.emptyLedger());
+      const stored = loadLedger(chatId);
+      // A broken ledger file is left alone (and shown in the memory library); the reply goes on without it.
+      if (!stored && brokenFiles.has(ledgerFile(chatId))) return;
+      const ledger = structuredClone(stored || L.emptyLedger());
       const state = L.reconcile(ledger, settled(view));
       if (state.rebuild) {
         ledger.needsRebuild = { at: new Date().toISOString(), changedAt: state.changedAt };
@@ -1444,6 +1503,10 @@ const storyNow = new Map();
  * the model pick has a time limit, and any failure falls back to the fast pick.
  * A reroll of the same turn reuses the last pick.
  */
+function recallFingerprint(s) {
+  return L.hashText(JSON.stringify([s.id, s.editedAt || null, s.title, s.time, s.place, s.summary, s.events, s.loose || null, s.recollections, s.later || null, s.learned || null, s.heardLater || null]));
+}
+
 async function recallBeforeReply(chatId, view, userMessage) {
   const mode = RECALL_MODES.includes(settings().recall) ? settings().recall : 'model';
   const store = scenesForReply(chatId);
@@ -1453,7 +1516,8 @@ async function recallBeforeReply(chatId, view, userMessage) {
   const recent = view.slice(-6);
   // The same turn gives the same key whether it is sent or rerolled (then the user message is already saved).
   const tail = [...view.map((m) => m.h), ...(userMessage ? [L.hashText(userMessage)] : [])].slice(-5);
-  const key = L.hashText(JSON.stringify([mode, list.map((s) => s.id + (s.edited ? '*' : '')), tail]));
+  // The scenes' own content is in the key, so a scene edited again (or changed by a re-fold) is never served stale.
+  const key = L.hashText(JSON.stringify([mode, list.map(recallFingerprint), tail]));
   if (recalls.get(chatId)?.key === key) return;
   const entry = await computeRecall(chatId, store, view, userMessage, { mode, firstInside, list });
   entry.key = key;
@@ -1553,4 +1617,4 @@ function attach(app) {
   log('admin API ready at /api/memory-module');
 }
 
-module.exports = { fixSpeakers, attach, renderLedger, processChat, chatMessages, DATA_DIR };
+module.exports = { fixSpeakers, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health } };
