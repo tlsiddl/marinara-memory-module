@@ -1342,6 +1342,37 @@ async function routes(app) {
       embedding: { mode: embeddingMode(), model: src?.model || null, label: src?.label || null, error: src ? null : embedSource.error },
     };
   }));
+  // SIDE B semantic search: read existing vectors across ALL scenes, without recall/window or memory writes.
+  app.post('/chats/:id/search', guard(async (req) => {
+    const chatId = safeChatId(req.params.id);
+    if (!chatEnabled(chatId)) return { state: 'disabled', results: [] };
+    const queries = req.body?.queries;
+    if (!Array.isArray(queries) || !queries.length || queries.length > 5 || queries.some(q => !q || typeof q.query !== 'string' || !q.query.trim() || q.query.length > 300 || (q.subject != null && (typeof q.subject !== 'string' || q.subject.length > 120)))) throw Error('검색 질문은 1~5개, 검색어는 300자 이하여야 합니다.');
+    const store = loadScenes(chatId);
+    if (!store?.scenes?.length) return { state: 'empty', results: queries.map(query => ({ query, hits: [] })) };
+    await embeddingSource();
+    const index = loadVectors(chatId);
+    if (!index || !Object.keys(index.items).length) return { state: 'unavailable', results: [] };
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), QUERY_TIMEOUT_MS);
+    const disconnected = () => controller.abort();
+    req.raw?.once?.('aborted', disconnected);
+    try {
+      const vectors = await embedTexts(queries.map(q => [q.subject || '', q.query.trim()].filter(Boolean).join(' · ')), 'query', controller.signal);
+      if (controller.signal.aborted) throw Error('기억 검색이 중단되거나 시간 한도를 넘었습니다.');
+      if (vectors.some(v => !Array.isArray(v) && !(v instanceof Float32Array) || !v.length || Array.from(v).some(n => !Number.isFinite(n)))) throw Error('검색 임베딩 형식이 올바르지 않습니다.');
+      const normalize = v => String(v || '').normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+      const results = queries.map((query, i) => {
+        const subject = normalize(query.subject);
+        const firstInside = windows.get(chatId) ?? store.window?.firstInside ?? null;
+        const searchable = req.body?.scope === 'side-b' ? store.scenes : R.candidates(store, firstInside);
+        const candidates = subject ? searchable.filter(scene => normalize(JSON.stringify(scene)).includes(subject)) : searchable;
+        const hits = V.nearest(index, [vectors[i]], candidates, 8).filter(hit => hit.score > 0).map(hit => ({ id: hit.id, piece: hit.piece, score: hit.score, strong: hit.strong }));
+        return { query, hits };
+      });
+      return { state: 'ok', model: embeddingModel(), results };
+    } finally { clearTimeout(timer); req.raw?.removeListener?.('aborted', disconnected); }
+  }));
   // "What would come up if I sent this?" — the recall without a reply, nothing saved.
   app.post('/chats/:id/recall-test', guard(async (req) => {
     const chatId = safeChatId(req.params.id);
@@ -1881,3 +1912,4 @@ function attach(app) {
 }
 
 module.exports = { fixSpeakers, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays } };
+
