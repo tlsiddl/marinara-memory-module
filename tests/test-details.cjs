@@ -93,3 +93,69 @@ test('a recalled scene brings the scene where its reason came out, right after i
   // Only scenes outside what the reply model already sees.
   assert.deepEqual(R.withFollowUps(store, [{ id: 'S1' }], store.scenes.slice(0, 2)).map((p) => p.id), ['S1']);
 });
+
+test('a question and its answer written as two scenes become one, and the answer is kept', () => {
+  const msgs = L.prepareMessages([
+    { id: 'q0', number: 1, role: 'assistant', speaker: '도윤', content: '도윤이 서류를 넘겼다.' },
+    { id: 'q1', number: 2, role: 'user', speaker: '서아', content: '"접수 마감이 언제야?"' },
+    { id: 'q2', number: 3, role: 'assistant', speaker: '도윤', content: '"1월 7일 오후 5시야."' },
+  ]);
+  const r = S.applyScenes(S.emptyStore(), { scenes: [
+    { end: 2, title: '질문', summary: '물음.', events: [{ text: '서아가 마감을 물음', quotes: [{ n: '2.1', q: '접수 마감' }] }] },
+    { end: 3, title: '답', summary: '답함.', events: [{ text: '도윤이 1월 7일 오후 5시라고 답함', quotes: [{ n: '3.1', q: '1월 7일' }] }], facts: [] },
+  ] }, msgs, 3);
+  assert.ok(!r.error, r.error);
+  assert.equal(r.scenes.length, 1);
+  assert.deepEqual(r.scenes[0].events.map((e) => e.quotes.map((q) => q.number)), [[2], [3]]);
+  assert.match(r.scenes[0].events[1].text, /1월 7일 오후 5시/);
+});
+
+test('a very long question and answer still go together', () => {
+  const big = '가나다라'.repeat(2500);
+  const msgs = L.prepareMessages([
+    { id: 'b1', number: 1, role: 'assistant', content: '시작.' },
+    { id: 'b2', number: 2, role: 'user', content: big },
+    { id: 'b3', number: 3, role: 'assistant', content: big },
+  ]);
+  assert.deepEqual(L.planBatches(msgs, 8000).map((b) => b.map((m) => m.number)), [[1], [2, 3]]);
+  const store = S.emptyStore();
+  store.covered = [{ id: 'b1', h: msgs[0].h }];
+  assert.deepEqual(S.nextSlice(store, msgs, 0, { maxChars: 8000, lead: 0, minVisible: 0 }).slice.map((m) => m.number), [2, 3]);
+});
+
+test('facts and recollections are kept under the full name, also ones saved before', () => {
+  const msgs = L.prepareMessages([{ id: 'n1', number: 1, role: 'assistant', speaker: '서재민', content: '재민은 커피를 마셨다.' }]);
+  const store = S.emptyStore();
+  store.cast = ['서재민', '도윤'];
+  store.facts.push({ id: 'F1', about: '재민', text: '단 것을 싫어한다.', evidence: [], sceneId: 'S0' });
+  store.nextFact = 2;
+  const r = S.applyScenes(store, { scenes: [{ end: 1, title: '커피', summary: '커피.', events: [{ text: '재민이 커피를 마심', quotes: [{ n: '1.1', q: '커피를' }] }], recollections: [{ who: '재민', text: '쓴맛이 좋았다.' }], facts: [{ about: '재민', text: '커피를 좋아한다.', evidence: [{ n: '1.1', q: '커피를' }] }] }] }, msgs, 1);
+  assert.ok(!r.error, r.error);
+  assert.equal(r.facts[0].about, '서재민');
+  assert.equal(r.scenes[0].recollections[0].who, '서재민');
+  S.tidyKnowledge(store);
+  assert.equal(store.facts[0].about, '서재민');
+});
+
+test('HTML bubbles without quotation marks: the name element says who speaks', () => {
+  const html = '<div class="chat-bubble"><img src="a.png"><div class="char-name">도윤</div><div class="msg">오늘은 일찍 들어와</div></div><p>그는 <b>정말</b> 웃었다.</p>';
+  assert.equal(L.htmlToText(html), '도윤 | 오늘은 일찍 들어와\n\n그는 정말 웃었다.');
+});
+
+test('a line cited under the wrong scene is moved to its own scene; an event with no line gets the sentence it describes', () => {
+  const msgs = L.prepareMessages([
+    { id: 'w1', number: 1, role: 'user', speaker: '서아', content: '"병원은 안 갈 거야."' },
+    { id: 'w2', number: 2, role: 'assistant', speaker: '도윤', content: '도윤이 한숨을 쉬었다.' },
+    { id: 'w3', number: 3, role: 'user', speaker: '서아', content: '"등록금이 모자라."' },
+    { id: 'w4', number: 4, role: 'assistant', speaker: '도윤', content: '"입학금은 내가 빌려줄게." 도윤이 통장을 꺼냈다.' },
+  ]);
+  const r = S.applyScenes(S.emptyStore(), { scenes: [
+    { end: 2, title: '병원', summary: '거절.', events: [{ text: '서아가 병원을 거절함', quotes: [{ n: '1.1', q: '병원은' }, { n: '4.1', q: '입학금은 내가' }] }] },
+    { end: 4, title: '돈', summary: '입학금.', events: [{ text: '서아가 등록금이 모자라다고 함', quotes: [{ n: '3.1', q: '등록금이' }] }, { text: '도윤이 통장을 꺼냄', quotes: [] }] },
+  ] }, msgs, 4);
+  assert.ok(!r.error, r.error);
+  const lines = (sc) => sc.events.flatMap((e) => e.quotes.map((q) => `${q.number}.${q.sentence}`));
+  assert.deepEqual(lines(r.scenes[0]), ['1.1']);
+  assert.ok(lines(r.scenes[1]).includes('4.1'), 'the stray line is kept, in the scene it came from');
+  assert.deepEqual(r.scenes[1].events[1].quotes.map((q) => `${q.number}.${q.sentence}`), ['4.2']);
+});

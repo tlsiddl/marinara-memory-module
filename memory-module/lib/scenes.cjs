@@ -34,7 +34,9 @@ function nextSlice(store, messages, window, { maxChars = 20000, lookahead = 6, l
   let size = 0;
   for (let i = from; i < messages.length - minVisible && i < foldLine + lookahead; i++) {
     const cost = messages[i].content.length + 40;
-    if (slice.length && size + cost > maxChars) break;
+    // A reply right after a user message comes along even past the size limit.
+    const answers = slice.length && slice.at(-1).role === 'user' && messages[i].role !== 'user';
+    if (slice.length && size + cost > maxChars && !answers) break;
     slice.push(messages[i]);
     size += cost;
   }
@@ -186,6 +188,15 @@ function sensibleKnowledge(fact) {
 /** Fix knowledge marks saved before these rules. Returns how many facts changed. */
 function tidyKnowledge(store) {
   let changed = 0;
+  // Facts saved before under a short name ("재민") move to the full one ("서재민").
+  const names = [...castOf(store), ...(store.personas || [])];
+  for (const f of store.facts || []) {
+    const about = L.canonNames(f.about, names);
+    if (about && about !== f.about) {
+      f.about = about;
+      changed++;
+    }
+  }
   for (const f of store.facts || []) {
     if (!f.unaware?.length && !f.guess?.length) continue;
     const next = sensibleKnowledge(f);
@@ -349,6 +360,95 @@ function sameFact(a, b) {
   return shared / Math.min(gx.size, gy.size) >= 0.7;
 }
 
+/** Where a scene ends, as an index into the slice (an end between messages snaps to the one before it). */
+function endIndex(item, slice, byNumber) {
+  const at = byNumber.get(Number(item?.end));
+  if (at !== undefined) return at;
+  const below = slice.filter((m) => m.number <= Number(item?.end)).at(-1);
+  return below ? byNumber.get(below.number) : undefined;
+}
+
+/**
+ * A scene never ends on a user message whose reply follows: the question and its answer stay together.
+ * The scene is stretched to the reply, and a next scene that falls inside the stretch is joined into it
+ * (its events, lines, facts and the rest), so nothing the model wrote about the answer is lost.
+ */
+function joinAnswers(raw, slice, byNumber) {
+  const out = [];
+  for (const item of raw) {
+    let endAt = endIndex(item, slice, byNumber);
+    if (endAt === undefined) continue;
+    const prev = out.at(-1);
+    if (prev && endAt <= prev._endAt) {
+      for (const key of ['events', 'facts', 'learned', 'later', 'recollections']) {
+        if (Array.isArray(item[key])) prev[key] = [...(Array.isArray(prev[key]) ? prev[key] : []), ...item[key]];
+      }
+      prev.present = [...new Set([...splitNames(prev.present), ...splitNames(item.present)])];
+      if (item.summary) prev.summary = [prev.summary, item.summary].filter(Boolean).join(' ');
+      continue;
+    }
+    while (slice[endAt]?.role === 'user' && slice[endAt + 1] && slice[endAt + 1].role !== 'user') endAt += 1;
+    out.push({ ...item, _endAt: endAt });
+  }
+  // Recollections of one person from two joined scenes become one.
+  for (const item of out) {
+    if (!Array.isArray(item.recollections)) continue;
+    const by = new Map();
+    for (const r of item.recollections) {
+      const old = by.get(r?.who);
+      if (!old) by.set(r?.who, { ...r });
+      else if (r?.text) old.text = [old.text, r.text].filter(Boolean).join(' ');
+    }
+    item.recollections = [...by.values()];
+  }
+  return out;
+}
+
+/** Two-letter pieces, for "how much do these two texts share". */
+function overlap(a, b) {
+  const grams = (t) => {
+    const x = squash(t);
+    return new Set(Array.from({ length: Math.max(0, x.length - 1) }, (_, i) => x.slice(i, i + 2)));
+  };
+  const ga = grams(a);
+  const gb = grams(b);
+  if (!ga.size || !gb.size) return 0;
+  let shared = 0;
+  for (const g of ga) if (gb.has(g)) shared++;
+  return shared / Math.min(ga.size, gb.size);
+}
+
+/** A line cited under the wrong scene goes to the event of its own scene that it fits best (or that scene's last event). */
+function placeStray(made, stray) {
+  for (const { quote, about } of stray) {
+    const scene = made.find((x) => quote.number >= x.start && quote.number <= x.end);
+    if (!scene || !scene.events.length) continue;
+    if (scene.events.some((e) => e.quotes.some((q) => q.number === quote.number && q.sentence === quote.sentence))) continue;
+    let best = scene.events.at(-1);
+    let score = 0;
+    for (const e of scene.events) {
+      const sc = Math.max(overlap(e.text, quote.text), overlap(e.text, about) * 0.5);
+      if (sc > score) [best, score] = [e, sc];
+    }
+    if (best.quotes.length < MAX_QUOTES_PER_EVENT + 2) best.quotes.push(quote);
+  }
+}
+
+/** An event with no line at all gets the sentence of its scene that it describes best, when one clearly fits. */
+function supportEvents(scene, index, slice) {
+  for (const e of scene.events) {
+    if (e.quotes.length) continue;
+    let best = null;
+    let score = 0;
+    for (const p of index.values()) {
+      if (p.number < scene.start || p.number > scene.end) continue;
+      const sc = overlap(e.text, p.text);
+      if (sc > score) [best, score] = [p, sc];
+    }
+    if (best && score >= 0.35) e.quotes = resolveQuotes([{ n: `${best.number}.${best.sentence}` }], index, slice);
+  }
+}
+
 /**
  * Turn a model result into scenes for this slice. Scenes follow each other with no gap, from the slice start,
  * and the last one must reach `required`. Returns { scenes, facts, covered } or { error }.
@@ -364,29 +464,29 @@ function applyScenes(store, result, slice, required, now = new Date().toISOStrin
   const byNumber = new Map(slice.map((m, i) => [m.number, i]));
   const made = [];
   const newFacts = [];
+  // Lines the model put under the wrong scene: moved to the scene they belong to once all scenes are made.
+  const stray = [];
   let startAt = 0;
-  for (const item of raw) {
-    let endAt = byNumber.get(Number(item?.end));
-    if (endAt === undefined) {
-      // An end number that falls between messages (a skipped hidden one) snaps to the message before it.
-      const below = slice.filter((m) => m.number <= Number(item?.end)).at(-1);
-      endAt = below ? byNumber.get(below.number) : undefined;
-    }
+  for (const item of joinAnswers(raw, slice, byNumber)) {
+    const endAt = item._endAt;
     if (endAt === undefined || endAt < startAt) continue;
-    // A scene never ends on a user message whose reply follows: the question and its answer stay together.
-    if (slice[endAt]?.role === 'user' && slice[endAt + 1] && slice[endAt + 1].role !== 'user') endAt += 1;
     const messages = slice.slice(startAt, endAt + 1);
     const lo = messages[0].number;
     const hi = messages.at(-1).number;
     // Lines and evidence come from this scene's own messages only (a line from the next scene does not belong here).
     const inScene = (p) => p.number >= lo && p.number <= hi;
     const events = (Array.isArray(item.events) ? item.events : [])
-      .map((e) => ({ text: cleanText(e?.text, 500), time: cleanText(e?.time, 40), why: cleanText(e?.why, 300), importance: ['critical', 'major', 'minor'].includes(e?.importance) ? e.importance : 'major', quotes: resolveQuotes(e?.quotes, index, slice).filter(inScene).slice(0, MAX_QUOTES_PER_EVENT) }))
+      .map((e) => {
+        const all = resolveQuotes(e?.quotes, index, slice);
+        const text = cleanText(e?.text, 500);
+        for (const q of all) if (!inScene(q) && text) stray.push({ quote: q, about: text });
+        return { text, time: cleanText(e?.time, 40), why: cleanText(e?.why, 300), importance: ['critical', 'major', 'minor'].includes(e?.importance) ? e.importance : 'major', quotes: all.filter(inScene).slice(0, MAX_QUOTES_PER_EVENT) };
+      })
       .filter((e) => e.text)
       .slice(0, MAX_EVENTS);
     const recollections = (Array.isArray(item.recollections) ? item.recollections : [])
       .map((r) => ({
-        who: cleanText(r?.who, 40),
+        who: L.canonNames(cleanText(r?.who, 40), [...cast, ...personas]),
         text: cleanText(r?.text, 300),
         remembers: REMEMBERS.includes(r?.remembers) ? r.remembers : 'full',
         why: cleanText(r?.why, 100),
@@ -415,7 +515,8 @@ function applyScenes(store, result, slice, required, now = new Date().toISOStrin
       _to: endAt,
     });
     for (const f of Array.isArray(item.facts) ? item.facts : []) {
-      const about = cleanText(f?.about, 40);
+      // "재민" and "서재민" are one person: facts are kept under the full name.
+      const about = L.canonNames(cleanText(f?.about, 40), [...cast, ...personas]);
       let text = stripAbout(cleanText(f?.text, 400), about);
       const evidence = L.resolveEvidence(f?.evidence, index).filter(inScene);
       if (!text || !evidence.length) continue;
@@ -467,6 +568,8 @@ function applyScenes(store, result, slice, required, now = new Date().toISOStrin
     startAt = endAt + 1;
   }
   if (!made.length) return { error: '쓸 수 있는 장면이 없습니다' };
+  placeStray(made, stray);
+  for (const scene of made) supportEvents(scene, index, slice);
   // A scene whose lines all come from a few of its messages skipped the rest: those would be lost.
   const bad = made.findIndex((scene, i) => uncited(scene, slice, newFacts) > MAX_UNCITED);
   if (bad >= 0) {

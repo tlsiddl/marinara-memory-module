@@ -79,6 +79,9 @@ function htmlToText(text) {
     .replace(/<(style|script|template)\b[\s\S]*?<\/\1\s*>/gi, '')
     // A short name in its own element right before a quoted line is who says it: "도윤 | “…”".
     .replace(/<(span|b|strong|em|div|p|h[1-6]|label|small)\b[^>]*>\s*([^<>"“「『|\n]{1,20}?)\s*<\/\1\s*>\s*(?:<(?!\/?speaker\b)[^>]+>\s*)*(["“「『]|&ldquo;|&quot;|&#8220;|&#34;)/gi, '\n$2 | $3')
+    // A bubble whose name sits in an element marked as a name (class="name", "char", "speaker" …) speaks the
+    // text after it, even without quotation marks.
+    .replace(/<(span|div|p|b|strong|label|h[1-6]|small|em|td)\b[^>]*?\b(?:class|id|data-[a-z-]+)\s*=\s*["'][^"']*(?:name|char|speaker|who|author|nick|sender|이름|화자)[^"']*["'][^>]*>\s*([^<>|\n]{1,24}?)\s*<\/\1\s*>\s*(?:<(?!\/?speaker\b)[^>]+>\s*)*(?=[^<\s])/gi, '\n$2 | ')
     .replace(/<(p|div|li|tr|h[1-6]|blockquote|section|article|header|footer|details|summary|table)\b[^>]*>/gi, '\n')
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<\/(p|div|li|tr|h[1-6]|blockquote|section|article|header|footer|details|summary|table)\s*>/gi, '\n')
@@ -114,9 +117,11 @@ function planBatches(messages, maxChars = 24000) {
   let size = 0;
   for (const message of messages) {
     const chars = messageChars(message);
-    if (current.length && size + chars > maxChars) {
+    // A reply always joins the user message right before it, even past the size limit: the two are read together.
+    const answers = current.length && current.at(-1).role === 'user' && message.role !== 'user';
+    if (current.length && size + chars > maxChars && !(answers && current.length === 1)) {
       // A user message goes with the reply to it, into the next batch.
-      const carry = current.length > 1 && current.at(-1).role === 'user' ? [current.pop()] : [];
+      const carry = answers ? [current.pop()] : [];
       batches.push(current);
       current = carry;
       size = carry.reduce((n, m) => n + messageChars(m), 0);
@@ -363,6 +368,16 @@ function matchName(raw, cast) {
   return hits.length === 1 ? hits[0] : null;
 }
 
+/** "재민·도윤" → "서재민·도윤": every name written to its full form when it is clearly one known person. */
+function canonNames(text, names) {
+  const t = String(text ?? '').trim();
+  if (!t || !names?.length) return t;
+  return t
+    .split(/\s*([,·、/])\s*/)
+    .map((part, i) => (i % 2 ? part : matchName(part, names) && part.length <= 12 ? matchName(part, names) : part))
+    .join('');
+}
+
 function castNames(value, cast) {
   const list = Array.isArray(value) ? value : typeof value === 'string' ? value.split(/[,·、/]/) : [];
   const out = [];
@@ -573,8 +588,8 @@ function applyResult(ledger, result, batch, now = new Date().toISOString()) {
       kind,
       status: 'open',
       title,
-      who: cleanText(item.who, 40),
-      toward: cleanText(item.toward, 40),
+      who: canonNames(cleanText(item.who, 40), [...(ledger.cast || []), ...personaNames(batch)]),
+      toward: canonNames(cleanText(item.toward, 40), [...(ledger.cast || []), ...personaNames(batch)]),
       detail: cleanText(item.detail, 300),
       cause: kind === 'emotion' ? cleanText(item.cause, 200) : null,
       need: kind === 'emotion' ? need : null,
@@ -1463,4 +1478,4 @@ module.exports = {
   render,
   faded,
   lastSeen,
-  SYSTEM_PROMPT, matchName, nameKeys, htmlToText };
+  SYSTEM_PROMPT, matchName, nameKeys, htmlToText, canonNames };
