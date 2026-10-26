@@ -1,0 +1,15 @@
+#!/bin/sh
+# 기억 모듈 명령어 (도커 서버용 짧은 명령): mm status, mm report, mm use <ID> ...
+C="${MARINARA_CONTAINER:-marinara-engine-marinara-1}"
+if ! docker inspect "$C" >/dev/null 2>&1; then
+  C="$(docker ps --format '{{.Names}}	{{.Image}}' 2>/dev/null | awk -F '	' 'tolower($1) ~ /marinara/ || tolower($2) ~ /marinara/ { print $1; exit }')"
+fi
+[ -n "$C" ] || { echo "켜져 있는 마리나라 컨테이너를 찾지 못했습니다. MARINARA_CONTAINER=이름 mm ... 처럼 알려 주세요." >&2; exit 1; }
+if [ "$1" = report ]; then
+  OUT="${HOME:-/root}/memory-report.txt"
+  docker exec -e NODE_OPTIONS= "$C" node /app/memory-module/memory-cli.cjs "$@" | tee "$OUT"
+  echo
+  echo "(이 내용은 $OUT 에도 저장했습니다)"
+else
+  exec docker exec -e NODE_OPTIONS= "$C" node /app/memory-module/memory-cli.cjs "$@"
+fi
