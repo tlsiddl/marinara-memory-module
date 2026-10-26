@@ -748,11 +748,8 @@
     render();
   }
 
-  const LAUNCH_ICON = '<svg class="launch-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
-    + '<path d="M3 7.2c2.9-1.1 5.9-.9 9 1.1 3.1-2 6.1-2.2 9-1.1v11.6c-2.9-1.1-5.9-.9-9 1.1-3.1-2-6.1-2.2-9-1.1z"/>'
-    + '<path d="M12 8.3v11.6"/><path d="M6 11.4c1.4-.4 2.7-.3 3.8.2M6 14.4c1.4-.4 2.7-.3 3.8.2M14.2 11.6c1.1-.5 2.4-.6 3.8-.2" opacity=".55"/>'
-    + '<path d="M12 1.2l.7 1.6 1.6.7-1.6.7-.7 1.6-.7-1.6-1.6-.7 1.6-.7z" fill="currentColor" stroke-width=".8"/>'
-    + '</svg>';
+  // A paper ticket with stamp edges: the launcher icon. No ids inside, so drawer extensions can copy it as is.
+  const LAUNCH_ICON = `<svg class="launch-icon" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M4 11L4.75 11A2.05 2.05 0 0 0 8.85 11L10.35 11A2.05 2.05 0 0 0 14.45 11L15.95 11A2.05 2.05 0 0 0 20.05 11L21.55 11A2.05 2.05 0 0 0 25.65 11L27.15 11A2.05 2.05 0 0 0 31.25 11L32.75 11A2.05 2.05 0 0 0 36.85 11L38.35 11A2.05 2.05 0 0 0 42.45 11L43.95 11A2.05 2.05 0 0 0 48.05 11L49.55 11A2.05 2.05 0 0 0 53.65 11L55.15 11A2.05 2.05 0 0 0 59.25 11L60 11L60 11.57A2.05 2.05 0 0 0 60 15.68L60 16.82A2.05 2.05 0 0 0 60 20.93L60 22.07A2.05 2.05 0 0 0 60 26.18L60 27.32A2.05 2.05 0 0 0 60 31.43L60 32.58A2.05 2.05 0 0 0 60 36.67L60 37.83A2.05 2.05 0 0 0 60 41.92L60 43.08A2.05 2.05 0 0 0 60 47.17L60 48.33A2.05 2.05 0 0 0 60 52.42L60 53L59.25 53A2.05 2.05 0 0 0 55.15 53L53.65 53A2.05 2.05 0 0 0 49.55 53L48.05 53A2.05 2.05 0 0 0 43.95 53L42.45 53A2.05 2.05 0 0 0 38.35 53L36.85 53A2.05 2.05 0 0 0 32.75 53L31.25 53A2.05 2.05 0 0 0 27.15 53L25.65 53A2.05 2.05 0 0 0 21.55 53L20.05 53A2.05 2.05 0 0 0 15.95 53L14.45 53A2.05 2.05 0 0 0 10.35 53L8.85 53A2.05 2.05 0 0 0 4.75 53L4 53L4 52.42A2.05 2.05 0 0 0 4 48.33L4 47.17A2.05 2.05 0 0 0 4 43.08L4 41.92A2.05 2.05 0 0 0 4 37.83L4 36.67A2.05 2.05 0 0 0 4 32.58L4 31.43A2.05 2.05 0 0 0 4 27.32L4 26.18A2.05 2.05 0 0 0 4 22.07L4 20.93A2.05 2.05 0 0 0 4 16.82L4 15.68A2.05 2.05 0 0 0 4 11.57Z" fill="#f1eee7" stroke="#0000002e" stroke-width=".5"/><rect x="9" y="15.5" width="46" height="33" fill="none" stroke="#141414" stroke-width=".9"/><line x1="43.5" y1="16.5" x2="43.5" y2="47.5" stroke="#141414" stroke-width=".9" stroke-dasharray="1.6 1.6"/><text x="26.2" y="30.3" font-family="Georgia,'Times New Roman',serif" font-weight="700" font-size="6" text-anchor="middle" fill="#141414" letter-spacing=".25">MEMORY</text><text x="26.2" y="38.6" font-family="ui-monospace,Menlo,monospace" font-size="3.4" text-anchor="middle" fill="#141414" letter-spacing=".2">ADMIT ONE</text><path d="M49.3 27.7C49.815999999999995 31.484 49.815999999999995 31.484 53.599999999999994 32C49.815999999999995 32.516 49.815999999999995 32.516 49.3 36.3C48.784 32.516 48.784 32.516 45 32C48.784 31.484 48.784 31.484 49.3 27.7Z" fill="#141414"/></svg>`;
   const LAUNCH_POS_KEY = 'memory-module-launch-pos';
 
   /** The launcher can be dragged anywhere; its spot is kept as a share of the screen so it survives resizing. */
@@ -954,22 +951,20 @@
   }
 
   const EXTRA_CSS = `
-    #launch{position:fixed;right:20px;bottom:126px;width:52px;height:52px;padding:0;border-radius:18px;place-items:center;color:#fff;
-      background:linear-gradient(145deg,#8f7ad8 0%,#6a55b5 55%,#54418f 100%);border:1px solid #ffffff3d;
-      box-shadow:0 8px 22px #3a2a6a40,inset 0 1px 0 #ffffff40;transition:transform .18s,box-shadow .18s}
-    #launch:not(:disabled):hover{background:linear-gradient(145deg,#9c88e2 0%,#735ec0 55%,#5b479a 100%);transform:translateY(-1px);box-shadow:0 11px 26px #3a2a6a55,inset 0 1px 0 #ffffff50}
-    #launch:not(:disabled):active{transform:scale(.96)}
-    #launch.dragging{transform:scale(1.06);box-shadow:0 14px 32px #2a1d5070,inset 0 1px 0 #ffffff50}
-    #launch .launch-icon{width:28px;height:28px;filter:drop-shadow(0 1px 1px #2a1d5055)}
-    :host([data-theme=dark]) #launch{color:#fff;background:linear-gradient(145deg,#a891ea 0%,#7c66c9 55%,#5f4ba4 100%);border-color:#ffffff30}
-    :host([data-theme=dark]) #launch:not(:disabled):hover{color:#fff;background:linear-gradient(145deg,#b6a1f0 0%,#8771d2 55%,#6853ae 100%)}
+    #launch{position:fixed;right:18px;bottom:122px;width:64px;height:64px;padding:0;border:0;border-radius:0;place-items:center;color:inherit;
+      background:transparent!important;box-shadow:none!important;filter:drop-shadow(0 3px 5px #00000040);transition:transform .18s,filter .18s}
+    #launch:not(:disabled):hover{background:transparent;transform:translateY(-2px) rotate(-3deg);filter:drop-shadow(0 6px 9px #00000050)}
+    #launch:not(:disabled):active{background:transparent;transform:scale(.95)}
+    #launch.dragging{transform:rotate(-5deg) scale(1.06);filter:drop-shadow(0 10px 14px #00000060)}
+    #launch .launch-icon{width:64px;height:64px;display:block}
+    :host([data-theme=dark]) #launch,:host([data-theme=dark]) #launch:not(:disabled):hover{background:transparent;filter:drop-shadow(0 3px 7px #000000a0)}
     #roomSelect{max-width:min(360px,100%);font-size:12px;padding:7px 10px;border-radius:10px}
     .fact-row{border-top:1px solid var(--im-line);padding:10px 0}.fact-row:first-of-type{border-top:0}.fact-row label{margin:0 0 6px}
     .fact-row textarea{min-height:64px}
     #eventEditor article,#recEditor article{background:var(--im-field);padding:14px;border:1px solid var(--im-line);border-radius:12px;margin:12px 0}
     .metric-row{flex-wrap:wrap}.metric{min-width:120px}
     pre{max-height:none}
-    @media(max-width:720px){.metric{min-width:calc(50% - 6px)}#launch{width:48px;height:48px;border-radius:16px}#launch .launch-icon{width:26px;height:26px}}
+    @media(max-width:720px){.metric{min-width:calc(50% - 6px)}#launch{width:58px;height:58px}#launch .launch-icon{width:58px;height:58px}}
   `;
 
   function cleanup() {
