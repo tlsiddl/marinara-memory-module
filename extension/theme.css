@@ -213,3 +213,6 @@ pre{font-size:12.5px!important;line-height:1.85!important}
   mask:radial-gradient(circle at 0 calc(100% - 52px),#0000 7px,#000 7.5px) left/51% 100% no-repeat,radial-gradient(circle at 100% calc(100% - 52px),#0000 7px,#000 7.5px) right/51% 100% no-repeat!important}
 .file-index .file-code{letter-spacing:0!important;font-size:8.5px!important}
 .file-index .file-code{white-space:normal!important;overflow:visible!important;line-height:1.5}.file-index .file-range{display:block;opacity:.75;font-family:var(--body-font)!important;font-size:10px}.file-index .file-range{white-space:nowrap}
+
+/* Lines kept on a scene without a clear event */
+.quote-card.loose { border-style: dashed !important; opacity: .85; }

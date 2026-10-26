@@ -157,5 +157,77 @@ test('a line cited under the wrong scene is moved to its own scene; an event wit
   const lines = (sc) => sc.events.flatMap((e) => e.quotes.map((q) => `${q.number}.${q.sentence}`));
   assert.deepEqual(lines(r.scenes[0]), ['1.1']);
   assert.ok(lines(r.scenes[1]).includes('4.1'), 'the stray line is kept, in the scene it came from');
-  assert.deepEqual(r.scenes[1].events[1].quotes.map((q) => `${q.number}.${q.sentence}`), ['4.2']);
+  // Its words fit no event, but its speaker is named in exactly one: that one.
+  assert.deepEqual(r.scenes[1].events[1].quotes.map((q) => `${q.number}.${q.sentence}`), ['4.1']);
+});
+
+test('an event with no line gets the sentence of its scene that it describes', () => {
+  const msgs = L.prepareMessages([
+    { id: 'v1', number: 1, role: 'user', speaker: '서아', content: '"같이 가자."' },
+    { id: 'v2', number: 2, role: 'assistant', speaker: '도윤', content: '도윤이 우산을 펼쳤다. 비가 그쳤다.' },
+  ]);
+  const r = S.applyScenes(S.emptyStore(), { scenes: [{ end: 2, title: '비', summary: '비.', events: [{ text: '서아가 같이 가자고 함', quotes: [{ n: '1.1', q: '같이' }] }, { text: '도윤이 우산을 펼침', quotes: [] }] }] }, msgs, 2);
+  assert.ok(!r.error, r.error);
+  assert.deepEqual(r.scenes[0].events[1].quotes.map((q) => `${q.number}.${q.sentence}`), ['2.1']);
+});
+
+test('joined question and answer keep the answer events even past the per-scene limit', () => {
+  const msgs = L.prepareMessages([
+    { id: 'j1', number: 1, role: 'assistant', speaker: '도윤', content: '도윤이 서류를 하나씩 넘겼다. 첫 장은 계약서였다. 둘째 장은 영수증이었다. 셋째 장은 지도였다. 넷째 장은 사진이었다.' },
+    { id: 'j2', number: 2, role: 'user', speaker: '서아', content: '"그래서 마감이 언제야?"' },
+    { id: 'j3', number: 3, role: 'assistant', speaker: '도윤', content: '도윤이 달력을 봤다. 펜을 들었다. 동그라미를 쳤다. "3월 2일 정오야."' },
+  ]);
+  const ev = (text, n) => ({ text, quotes: [{ n }] });
+  const r = S.applyScenes(S.emptyStore(), { scenes: [
+    { end: 2, title: '서류', summary: '서류.', events: [ev('도윤이 서류를 넘김', '1.1'), ev('계약서', '1.2'), ev('영수증', '1.3'), ev('지도', '1.4'), ev('사진', '1.5'), ev('서아가 마감을 물음', '2.1')] },
+    { end: 3, title: '마감', summary: '답.', events: [ev('달력을 봄', '3.1'), ev('펜을 듦', '3.2'), ev('동그라미', '3.3'), ev('도윤이 3월 2일 정오라고 답함', '3.4')] },
+  ] }, msgs, 3);
+  assert.ok(!r.error, r.error);
+  assert.equal(r.scenes.length, 1);
+  assert.equal(r.scenes[0].events.length, 10);
+  assert.match(r.scenes[0].events.at(-1).text, /3월 2일 정오/);
+});
+
+test('a stray line that fits no event is kept unlinked, shown as such, and linked once an event fits', () => {
+  const msgs = L.prepareMessages([
+    { id: 'u1', number: 1, role: 'assistant', speaker: '하준', content: '하준이 창문을 열었다.' },
+    { id: 'u2', number: 2, role: 'assistant', speaker: '하준', content: '바람이 불었다. 커튼이 흔들렸다.' },
+    { id: 'u3', number: 3, role: 'user', speaker: '서아', content: '"내일 도서관에서 보자."' },
+  ]);
+  const r = S.applyScenes(S.emptyStore(), { scenes: [
+    { end: 1, title: '창문', summary: '창문.', events: [{ text: '하준이 창문을 엶', quotes: [{ n: '1.1' }, { n: '3.1', q: '도서관' }] }] },
+    { end: 3, title: '바람', summary: '바람.', events: [{ text: '바람이 붊', quotes: [{ n: '2.1' }] }, { text: '커튼이 흔들림', quotes: [{ n: '2.2' }] }] },
+  ] }, msgs, 3);
+  assert.ok(!r.error, r.error);
+  const scene = r.scenes[1];
+  assert.deepEqual(scene.events.map((e) => e.quotes.map((q) => q.number)), [[2], [2]], 'not put on the last event by default');
+  assert.deepEqual(scene.loose.map((q) => q.number), [3]);
+  assert.match(S.renderExpanded(scene, 1), /연결 미확정 대사[^\n]*\n\s+.*도서관/);
+  scene.events.push({ text: '서아가 내일 도서관에서 보자고 함', quotes: [] });
+  assert.equal(S.relinkLoose(scene), 1);
+  assert.equal(scene.loose, undefined);
+  assert.deepEqual(scene.events[2].quotes.map((q) => q.number), [3]);
+});
+
+test('chat-app HTML: a styled name speaks every bubble under it, the user side speaks as the user, clocks and avatars go', () => {
+  const html = '<div style="display:flex;flex-direction:column;gap:8px;">'
+    + '<div style="display:flex;align-items:center;gap:6px;"><span style="font-size:14px;font-weight:700;">하준 (29)</span><span style="font-size:11px;color:#999;">대화 중</span></div>'
+    + '<div style="align-self:flex-end;max-width:70%;"><div style="display:flex;gap:4px;flex-direction:row-reverse;"><div style="padding:10px 14px;background:#4d7bff;border-radius:14px;">오늘 저녁 같이 먹을래?</div><span style="font-size:10px;">00:00</span></div></div>'
+    + '<div style="align-self:flex-start;display:flex;gap:8px;"><div style="width:36px;height:36px;border-radius:50%;background:#eee;">🌙</div>'
+    + '<div style="display:flex;flex-direction:column;gap:4px;"><span style="font-size:12px;font-weight:700;">하준</span>'
+    + '<div style="padding:10px 14px;background:#f1f1f1;border-radius:14px;">좋지, 마침 배고팠어.</div>'
+    + '<div style="padding:10px 14px;background:#f1f1f1;border-radius:14px;">어디로 갈까?</div>'
+    + '<div style="padding:10px 14px;background:#f1f1f1;border-radius:14px;">역 앞에서 일곱 시에 보자.</div></div>'
+    + '<span style="font-size:10px;">00:02</span></div>'
+    + '<div style="text-align:center;font-size:11px;">— 채팅방 —</div></div>';
+  const text = L.htmlToText(html, { user: '서아' });
+  assert.deepEqual(text.split('\n').filter(Boolean), [
+    '하준 (29)', '대화 중',
+    '서아 | 오늘 저녁 같이 먹을래?',
+    '하준 | 좋지, 마침 배고팠어.', '하준 | 어디로 갈까?', '하준 | 역 앞에서 일곱 시에 보자.',
+    '— 채팅방 —',
+  ]);
+  // Through prepareMessages the user name comes from the chat's own user messages.
+  const [, m] = L.prepareMessages([{ id: 'c0', role: 'user', speaker: '서아', content: '안녕' }, { id: 'c1', role: 'assistant', speaker: '하준', content: html }]);
+  assert.match(m.content, /^서아 \| 오늘 저녁/m);
 });

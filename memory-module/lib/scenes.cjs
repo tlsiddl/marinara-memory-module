@@ -373,6 +373,10 @@ function endIndex(item, slice, byNumber) {
  * The scene is stretched to the reply, and a next scene that falls inside the stretch is joined into it
  * (its events, lines, facts and the rest), so nothing the model wrote about the answer is lost.
  */
+function ownEvents(item) {
+  return (Array.isArray(item?.events) ? item.events : []).filter((e) => cleanText(e?.text, 500)).slice(0, MAX_EVENTS);
+}
+
 function joinAnswers(raw, slice, byNumber) {
   const out = [];
   for (const item of raw) {
@@ -381,14 +385,16 @@ function joinAnswers(raw, slice, byNumber) {
     const prev = out.at(-1);
     if (prev && endAt <= prev._endAt) {
       for (const key of ['events', 'facts', 'learned', 'later', 'recollections']) {
-        if (Array.isArray(item[key])) prev[key] = [...(Array.isArray(prev[key]) ? prev[key] : []), ...item[key]];
+        if (Array.isArray(item[key])) prev[key] = [...(Array.isArray(prev[key]) ? prev[key] : []), ...(key === 'events' ? ownEvents(item) : item[key])];
       }
+      // Each joined part keeps up to MAX_EVENTS of its own: the answer's events are never cut for the question's.
+      prev._maxEvents += MAX_EVENTS;
       prev.present = [...new Set([...splitNames(prev.present), ...splitNames(item.present)])];
       if (item.summary) prev.summary = [prev.summary, item.summary].filter(Boolean).join(' ');
       continue;
     }
     while (slice[endAt]?.role === 'user' && slice[endAt + 1] && slice[endAt + 1].role !== 'user') endAt += 1;
-    out.push({ ...item, _endAt: endAt });
+    out.push({ ...item, events: ownEvents(item), _endAt: endAt, _maxEvents: MAX_EVENTS });
   }
   // Recollections of one person from two joined scenes become one.
   for (const item of out) {
@@ -418,20 +424,57 @@ function overlap(a, b) {
   return shared / Math.min(ga.size, gb.size);
 }
 
-/** A line cited under the wrong scene goes to the event of its own scene that it fits best (or that scene's last event). */
-function placeStray(made, stray) {
-  for (const { quote, about } of stray) {
-    const scene = made.find((x) => quote.number >= x.start && quote.number <= x.end);
-    if (!scene || !scene.events.length) continue;
-    if (scene.events.some((e) => e.quotes.some((q) => q.number === quote.number && q.sentence === quote.sentence))) continue;
-    let best = scene.events.at(-1);
-    let score = 0;
-    for (const e of scene.events) {
-      const sc = Math.max(overlap(e.text, quote.text), overlap(e.text, about) * 0.5);
-      if (sc > score) [best, score] = [e, sc];
-    }
-    if (best.quotes.length < MAX_QUOTES_PER_EVENT + 2) best.quotes.push(quote);
+const LINK_MIN = 0.25;
+
+/**
+ * The event of `scene` a line belongs to, or null when none clearly fits: the line's own words must match the
+ * event, or the line's speaker must be named in exactly one event. Never a guess.
+ */
+function linkQuote(scene, quote, speakerOf) {
+  let best = null;
+  let score = 0;
+  for (const e of scene.events) {
+    const sc = overlap(e.text, quote.text);
+    if (sc > score) [best, score] = [e, sc];
   }
+  if (best && score >= LINK_MIN) return best;
+  const who = quote.by || speakerOf?.(quote.number);
+  if (!who) return null;
+  const named = scene.events.filter((e) => String(e.text).includes(who));
+  return named.length === 1 ? named[0] : null;
+}
+
+/**
+ * A line cited under the wrong scene goes to the event of its own scene that it clearly fits. When none does,
+ * it is kept on that scene as a line not yet linked (scene.loose), and is matched again when the events change.
+ */
+function placeStray(made, stray, speakerOf) {
+  const same = (a, b) => a.number === b.number && a.sentence === b.sentence;
+  for (const { quote } of stray) {
+    const scene = made.find((x) => quote.number >= x.start && quote.number <= x.end);
+    if (!scene) continue;
+    if (scene.events.some((e) => e.quotes.some((q) => same(q, quote))) || (scene.loose || []).some((q) => same(q, quote))) continue;
+    const event = linkQuote(scene, quote, speakerOf);
+    if (event && event.quotes.length < MAX_QUOTES_PER_EVENT + 2) event.quotes.push(quote);
+    else (scene.loose ||= []).push(quote);
+  }
+}
+
+/** Lines kept unlinked on a scene, matched again against its (changed) events; the ones still unclear stay. */
+function relinkLoose(scene, speakerOf) {
+  if (!scene.loose?.length) return 0;
+  const keep = [];
+  let moved = 0;
+  for (const quote of scene.loose) {
+    const event = linkQuote(scene, quote, speakerOf);
+    if (event) {
+      if (!event.quotes.some((q) => q.number === quote.number && q.sentence === quote.sentence)) event.quotes.push(quote);
+      moved++;
+    } else keep.push(quote);
+  }
+  if (keep.length) scene.loose = keep;
+  else delete scene.loose;
+  return moved;
 }
 
 /** An event with no line at all gets the sentence of its scene that it describes best, when one clearly fits. */
@@ -483,7 +526,7 @@ function applyScenes(store, result, slice, required, now = new Date().toISOStrin
         return { text, time: cleanText(e?.time, 40), why: cleanText(e?.why, 300), importance: ['critical', 'major', 'minor'].includes(e?.importance) ? e.importance : 'major', quotes: all.filter(inScene).slice(0, MAX_QUOTES_PER_EVENT) };
       })
       .filter((e) => e.text)
-      .slice(0, MAX_EVENTS);
+      .slice(0, item._maxEvents || MAX_EVENTS);
     const recollections = (Array.isArray(item.recollections) ? item.recollections : [])
       .map((r) => ({
         who: L.canonNames(cleanText(r?.who, 40), [...cast, ...personas]),
@@ -568,7 +611,8 @@ function applyScenes(store, result, slice, required, now = new Date().toISOStrin
     startAt = endAt + 1;
   }
   if (!made.length) return { error: '쓸 수 있는 장면이 없습니다' };
-  placeStray(made, stray);
+  const speakers = new Map(slice.map((m) => [m.number, m.speaker]));
+  placeStray(made, stray, (n) => speakers.get(n));
   for (const scene of made) supportEvents(scene, index, slice);
   // A scene whose lines all come from a few of its messages skipped the rest: those would be lost.
   const bad = made.findIndex((scene, i) => uncited(scene, slice, newFacts) > MAX_UNCITED);
@@ -643,7 +687,7 @@ function parseScenesReply(text) {
 
 /** The longest run of messages in a scene that no quote or fact points into. */
 function uncited(scene, slice, facts) {
-  const cited = new Set(scene.events.flatMap((e) => e.quotes.map((q) => q.number)));
+  const cited = new Set([...scene.events.flatMap((e) => e.quotes), ...(scene.loose || [])].map((q) => q.number));
   for (const f of facts) if (f.sceneId === scene.id) for (const e of f.evidence) cited.add(e.number);
   let run = 0;
   let longest = 0;
@@ -854,6 +898,10 @@ function renderExpanded(scene, n, personas = [], cast = []) {
       lines.push(`- ${e.importance === 'critical' ? '★ ' : ''}${e.time ? `[${e.time}] ` : ''}${e.text}${e.why ? ` (계기: ${e.why})` : ''}`);
       for (const q of e.quotes) lines.push(`  ${quoteLine(q)}`);
     }
+  }
+  if (scene.loose?.length) {
+    lines.push('연결 미확정 대사 (이 장면의 대사지만 어느 사건인지 확실하지 않음):');
+    for (const q of scene.loose) lines.push(`  ${quoteLine(q)}`);
   }
   if (scene.recollections.some((r) => (r.text && !personas.includes(r.who)) || r.remembers !== 'full')) {
     lines.push('회상:');
@@ -1177,6 +1225,8 @@ function renderScenes(store, firstInside, { maxChars = 9000, maxSummaries = 40, 
 }
 
 module.exports = {
+  relinkLoose,
+  linkQuote,
   CHAPTER_PROMPT,
   FACT_MERGE_PROMPT,
   nextChapter,

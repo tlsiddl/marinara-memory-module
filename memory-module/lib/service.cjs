@@ -1272,6 +1272,8 @@ async function routes(app) {
             importance: ['critical', 'major', 'minor'].includes(e.importance) ? e.importance : 'major',
             quotes: Array.isArray(e.quotes) ? e.quotes : [],
           }));
+      // Lines not yet linked to an event are matched again against the changed events.
+      if (Array.isArray(req.body?.events)) S.relinkLoose(scene);
       if (Array.isArray(req.body?.recollections))
         scene.recollections = req.body.recollections
           .filter((r) => r && typeof r.who === 'string' && r.who.trim())

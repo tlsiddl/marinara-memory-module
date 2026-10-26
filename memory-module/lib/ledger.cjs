@@ -71,37 +71,167 @@ const ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', 
  * Messages written as HTML (styled speech bubbles, status cards) read as plain text: tags, styles and scripts
  * go, line-breaking tags become line breaks, entities are decoded. <speaker="…"> tags stay (they name who speaks).
  */
-function htmlToText(text) {
+const BLOCK_TAGS = new Set(['p', 'div', 'li', 'tr', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'section', 'article', 'header', 'footer', 'details', 'summary', 'table', 'ul', 'ol']);
+const VOID_TAGS = new Set(['br', 'img', 'hr', 'input', 'meta', 'link', 'source', 'wbr', 'area', 'col', 'embed', 'param', 'track']);
+const NAME_TAGS = new Set(['span', 'div', 'p', 'b', 'strong', 'label', 'small', 'em', 'td', 'font', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6']);
+const NAME_HINT = /\b(?:class|id|data-[a-z-]+)\s*=\s*["'][^"']*(?:name|char|speaker|who|author|nick|sender|이름|화자)[^"']*["']/i;
+const BUBBLE_HINT = /\b(?:class|id)\s*=\s*["'][^"']*(?:bubble|balloon|msg|message|말풍선|chat-text|speech)[^"']*["']/i;
+const QUOTE_START = /^["“「『]/;
+const TIME_ONLY = /^(?:오전|오후|AM|PM)?\s*\d{1,2}:\d{2}(?::\d{2})?\s*(?:AM|PM)?$/i;
+
+/** A forgiving tag tree: unclosed tags close with their parent, stray closing tags are ignored. */
+function parseHtml(raw) {
+  const root = { tag: '#root', attrs: '', children: [] };
+  const stack = [root];
+  const re = /<!--[\s\S]*?-->|<\/?speaker\b[^>]*>|<(\/?)([a-z][\w-]*)\b([^>]*)>|[^<]+|</gi;
+  for (const m of raw.matchAll(re)) {
+    const top = stack.at(-1);
+    if (m[0].startsWith('<!--')) continue;
+    if (!m[2]) {
+      top.children.push(m[0]);
+      continue;
+    }
+    const tag = m[2].toLowerCase();
+    if (m[1]) {
+      const at = stack.map((n) => n.tag).lastIndexOf(tag);
+      if (at > 0) stack.length = at;
+      continue;
+    }
+    const node = { tag, attrs: m[3] || '', children: [] };
+    top.children.push(node);
+    if (!VOID_TAGS.has(tag) && !/\/\s*$/.test(node.attrs)) stack.push(node);
+  }
+  return root;
+}
+
+const styleOf = (n) => (n.attrs.match(/\bstyle\s*=\s*(["'])([\s\S]*?)\1/i)?.[2] || '').toLowerCase();
+const textOf = (n) => (typeof n === 'string' ? n : n.tag === 'br' ? '\n' : n.children.map(textOf).join(''));
+const flatText = (n) => decodeEntities(textOf(n)).replace(/\s+/g, ' ').trim();
+
+/** Looks like one speech bubble: a "bubble"/"msg" class, or a filled, padded or rounded box. */
+function bubbleLike(n) {
+  if (typeof n === 'string' || !n.children.length) return false;
+  if (BUBBLE_HINT.test(n.attrs)) return true;
+  const st = styleOf(n);
+  return /background(?:-color)?\s*:\s*(?!\s*(?:none|transparent|inherit)\b)[^;]+/.test(st) && /padding|border-radius/.test(st);
+}
+const hasBubble = (n) => typeof n !== 'string' && n.children.some((c) => bubbleLike(c) || hasBubble(c));
+/** The innermost bubble: a box holding other bubbles is a container, not a line. */
+const isBubble = (n) => bubbleLike(n) && !hasBubble(n) && !!flatText(n);
+
+function nameText(n) {
+  if (typeof n === 'string' || !NAME_TAGS.has(n.tag) || n.children.some((c) => typeof c !== 'string' && BLOCK_TAGS.has(c.tag))) return null;
+  const t = flatText(n).replace(/\s*[(\[][^()\[\]]{0,12}[)\]]$/, '').replace(/[:：]$/, '').trim();
+  if (!t || t.length > 24 || /[|.!?。…"“”「」『』~]/.test(t) || !/\p{L}/u.test(t) || TIME_ONLY.test(t)) return null;
+  return t;
+}
+const boldStyle = (n) => n.tag === 'b' || n.tag === 'strong' || /font-weight\s*:\s*(?:bold|bolder|[6-9]00)/.test(styleOf(n));
+const userSide = (n) => /align-self\s*:\s*flex-end|flex-direction\s*:\s*row-reverse|justify-content\s*:\s*flex-end|margin-left\s*:\s*auto|text-align\s*:\s*right/.test(styleOf(n));
+const charSide = (n) => /align-self\s*:\s*flex-start|justify-content\s*:\s*flex-start/.test(styleOf(n));
+/** Clock times next to bubbles, and avatar boxes holding only an emoji or a picture. */
+function chrome(n) {
+  if (typeof n === 'string' || hasBubble(n)) return false;
+  const t = flatText(n);
+  if (t && TIME_ONLY.test(t) && !isBubble(n)) return true;
+  // A round or fixed-size box with no words in it is an avatar, even when filled like a bubble.
+  return !/[\p{L}\p{N}]/u.test(t) && (/border-radius\s*:\s*50%|(?:^|;)\s*width\s*:/.test(styleOf(n)) || /\b(?:class|id)\s*=\s*["'][^"']*(?:avatar|profile|프로필)/i.test(n.attrs));
+}
+
+function decodeEntities(text) {
+  return text.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m, e) => {
+    if (e[0] === '#') {
+      const code = e[1] === 'x' || e[1] === 'X' ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10);
+      return Number.isFinite(code) && code > 0 && code < 0x110000 ? String.fromCodePoint(code) : m;
+    }
+    return ENTITIES[e.toLowerCase()] ?? m;
+  });
+}
+
+const said = (who, body) => {
+  const text = body.replace(/\s*\n\s*/g, '\n').trim();
+  return text ? `\n${who} | ${text}\n` : '';
+};
+
+function renderNode(n, ctx) {
+  if (typeof n === 'string') return n;
+  if (n.tag === 'br') return '\n';
+  if (VOID_TAGS.has(n.tag)) return '';
+  const side = userSide(n) ? 'user' : charSide(n) ? 'char' : ctx.side;
+  const inner = { ...ctx, side };
+  if (isBubble(n)) {
+    // A bubble speaks as the name above it, or as the user on the user's side of the chat.
+    const who = ctx.speaker || (side === 'user' ? ctx.user || '사용자' : null);
+    if (who) return said(who, renderChildren(n, { ...inner, speaker: null }));
+  }
+  const body = renderChildren(n, inner);
+  const block = BLOCK_TAGS.has(n.tag) || ctx.flex;
+  return block ? `\n${body}\n` : body;
+}
+
+function renderChildren(n, ctx) {
+  const kids = n.children;
+  const flex = /display\s*:\s*(?:inline-)?flex/.test(styleOf(n));
+  let speaker = null; // { name, plain: names everything after it, not only bubbles }
+  let quoteName = null;
+  let out = '';
+  for (let i = 0; i < kids.length; i++) {
+    const c = kids[i];
+    if (typeof c !== 'string' && chrome(c)) continue;
+    const name = nameText(c);
+    if (name) {
+      const later = kids.slice(i + 1);
+      if (NAME_HINT.test(c.attrs)) {
+        speaker = { name, plain: true };
+        continue;
+      }
+      if (boldStyle(c) && later.some((x) => isBubble(x) || hasBubble(x))) {
+        speaker = { name, plain: false };
+        continue;
+      }
+      // A short name right before a quoted line is who says it.
+      const next = later.find((x) => flatText(x));
+      if (next && QUOTE_START.test(flatText(next))) {
+        quoteName = name;
+        continue;
+      }
+    }
+    if (quoteName && flatText(c)) {
+      out += said(quoteName, renderNode(c, { ...ctx, flex: false, speaker: null }));
+      quoteName = null;
+      continue;
+    }
+    const who = speaker?.name ?? ctx.speaker;
+    if (speaker?.plain && flatText(c) && !isBubble(c) && !hasBubble(c)) {
+      out += said(speaker.name, renderNode(c, { ...ctx, flex: false, speaker: null }));
+      continue;
+    }
+    out += renderNode(c, { ...ctx, flex, speaker: who });
+  }
+  return out;
+}
+
+/**
+ * Messages written as HTML (styled speech bubbles, chat-app mockups, status cards) read as plain text: tags,
+ * styles and scripts go, blocks become lines, entities are decoded. A name above bubbles speaks every bubble
+ * under it; bubbles on the user's side speak as `user`. <speaker="…"> tags stay (they name who speaks).
+ */
+function htmlToText(text, { user = null } = {}) {
   const raw = String(text ?? '');
   if (!/<(?!\/?speaker\b)[a-z!\/][^>]*>/i.test(raw)) return raw;
-  return raw
-    .replace(/<!--[\s\S]*?-->/g, '')
-    .replace(/<(style|script|template)\b[\s\S]*?<\/\1\s*>/gi, '')
-    // A short name in its own element right before a quoted line is who says it: "도윤 | “…”".
-    .replace(/<(span|b|strong|em|div|p|h[1-6]|label|small)\b[^>]*>\s*([^<>"“「『|\n]{1,20}?)\s*<\/\1\s*>\s*(?:<(?!\/?speaker\b)[^>]+>\s*)*(["“「『]|&ldquo;|&quot;|&#8220;|&#34;)/gi, '\n$2 | $3')
-    // A bubble whose name sits in an element marked as a name (class="name", "char", "speaker" …) speaks the
-    // text after it, even without quotation marks.
-    .replace(/<(span|div|p|b|strong|label|h[1-6]|small|em|td)\b[^>]*?\b(?:class|id|data-[a-z-]+)\s*=\s*["'][^"']*(?:name|char|speaker|who|author|nick|sender|이름|화자)[^"']*["'][^>]*>\s*([^<>|\n]{1,24}?)\s*<\/\1\s*>\s*(?:<(?!\/?speaker\b)[^>]+>\s*)*(?=[^<\s])/gi, '\n$2 | ')
-    .replace(/<(p|div|li|tr|h[1-6]|blockquote|section|article|header|footer|details|summary|table)\b[^>]*>/gi, '\n')
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/(p|div|li|tr|h[1-6]|blockquote|section|article|header|footer|details|summary|table)\s*>/gi, '\n')
-    .replace(/<(?!\/?speaker\b)\/?[a-z][^>]*>/gi, '')
-    .replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m, e) => {
-      if (e[0] === '#') {
-        const code = e[1] === 'x' || e[1] === 'X' ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10);
-        return Number.isFinite(code) && code > 0 && code < 0x110000 ? String.fromCodePoint(code) : m;
-      }
-      return ENTITIES[e.toLowerCase()] ?? m;
-    })
+  const cleaned = raw.replace(/<!--[\s\S]*?-->/g, '').replace(/<(style|script|template)\b[\s\S]*?<\/\1\s*>/gi, '');
+  return decodeEntities(renderChildren(parseHtml(cleaned), { side: null, speaker: null, user, flex: false }))
     .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n[ \t]+/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
 
 function prepareMessages(rows) {
   // The fingerprint (h) is of the message as stored, so a change in how it is read never looks like an edit.
+  // Bubbles drawn on the user's side of an HTML chat are the user's own character speaking.
+  const user = rows.find((r) => r.role === 'user' && r.speaker)?.speaker || null;
   return rows.map((row) => {
-    const content = htmlToText(row.content);
+    const content = htmlToText(row.content, { user });
     return { ...row, content, h: hashText(row.content), sentences: segment(content) };
   });
 }
