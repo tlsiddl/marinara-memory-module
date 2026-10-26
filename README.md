@@ -55,11 +55,15 @@ bash start-memory.sh
 
 **핸드폰 (Termux)** — 마리나라 폴더에서 같은 명령을 실행한 뒤 `bash start-memory.sh`로 켜 주세요(안에서 `start-termux.sh`를 부릅니다).
 
-**Windows (베타 — 아직 실제 Windows에서 확인 중입니다)** — 마리나라 폴더(`start.bat`이 있는 곳)에서 PowerShell을 열고:
+**Windows (베타 — 아직 실제 Windows에서 확인 중입니다)** — PowerShell을 열고 아래 명령을 실행해 주세요. 설치기가 기본 설치 위치와 바탕화면·시작 메뉴의 Marinara 바로가기를 확인합니다. 마리나라 폴더 또는 그 안의 하위 폴더에서 실행하면 해당 설치본을 우선합니다.
 
 ```powershell
 irm https://raw.githubusercontent.com/tlsiddl/marinara-memory-module/main/install.ps1 | iex
 ```
+
+자동으로 찾지 못하면 **폴더 선택 창**이 열립니다. `start.bat`과 `packages` 폴더가 들어 있는 마리나라 폴더를 골라 주세요. 선택 창을 사용할 수 없거나 선택한 위치가 맞지 않으면 터미널에 경로를 붙여 넣을 수 있습니다(따옴표 포함 가능). 경로 입력에서 Enter만 누르면 파일을 변경하지 않고 취소합니다. 설치본이 여러 개 발견되면 번호로 선택하며, 설치 대상 경로를 표시한 뒤 진행합니다.
+
+직접 지정하려면 설치 명령보다 먼저 `$env:MARINARA_DIR = 'D:\Marinara-Engine'`처럼 실제 경로를 설정해 주세요.
 
 바탕화면에 생긴 **Marinara + 기억 서재** 바로가기(또는 `start-memory.bat`)로 켜 주세요. `start.bat`이나 MarinaraLauncher로 켜면 기억 모듈 없이 켜집니다.
 
