@@ -665,6 +665,24 @@ async function condense(chatId, store, model, job, { maxCalls = 6, chaptersOnly 
       break;
     }
   }
+  // Old chapters folded once more into arcs, so the oldest part of a long story always keeps a line.
+  while (calls < maxCalls && !job?.cancel) {
+    const chapters = S.nextArc(store);
+    if (!chapters) break;
+    if (job) job.stage = `큰 흐름 묶기 (${chapters[0].id}~${chapters.at(-1).id})`;
+    calls++;
+    try {
+      const parsed = L.parseJsonObject(await askModel(model, S.buildArcPrompt(store, chapters), { maxTokens: 1500 }));
+      const made = S.applyArc(store, parsed, chapters);
+      if (made.error) throw Error(made.error);
+      S.commitArc(store, made.arc);
+      saveScenes(chatId, store);
+      log(`chat ${chatId}: arc ${made.arc.id} (${made.arc.chapters[0]}~${made.arc.chapters.at(-1)}) ${made.arc.title}`);
+    } catch (error) {
+      log(`chat ${chatId}: arc failed, will try again later (${error?.message || error})`);
+      break;
+    }
+  }
   while (!chaptersOnly && calls < maxCalls && !job?.cancel) {
     const next = S.nextFactMerge(store);
     if (!next) break;
@@ -869,6 +887,8 @@ function rebuildChapters(chatId) {
       const before = (store.chapters || []).length;
       store.chapters = [];
       store.nextChapter = 1;
+      store.arcs = [];
+      store.nextArc = 1;
       saveScenes(chatId, store);
       const model = { ...(await memoryModel()), signal: job.abort.signal };
       job.calls = await condense(chatId, store, model, job, { maxCalls: Infinity, chaptersOnly: true });
@@ -1016,6 +1036,7 @@ function memoryHeader(style) {
     'Each character knows only what they saw, heard or were told: "모름: X" or "자리에 없어 모름" means X does not know it — X must not mention it, hint at it or act on it until X learns it in the story, even while others who know it are in the same scene. "짐작만: X" means X suspects it without the details. ' +
     'Lines are quoted here in a short form for memory only; keep writing the story in its own usual format. ' +
     '"최근 생활" says when each person last ate, washed and slept: keep daily life believable, and do not repeat a meal or bath that just happened unless the story calls for it. ' +
+    '"[지난 이야기 흐름]" starts with the oldest parts of the story (A1, A2 …, each covering many chapters) and goes on with chapters (C…); a line "… 줄임" stands for a stretch left out for length. ' +
     '"※" lines under a chapter are details that must stay exact (dates, deadlines, conditions). ' +
     'The weather by a scene is how that day was: a character may recall it naturally ("the night it rained") when that scene comes to mind, but do not bring weather up for its own sake.]'
   );
@@ -1485,6 +1506,18 @@ async function routes(app) {
       if (Array.isArray(req.body?.keep)) chapter.keep = req.body.keep.map((t) => String(t).trim()).filter(Boolean).slice(0, 12);
       chapter.edited = true;
       return chapter;
+    });
+  }));
+  app.patch('/chats/:id/arcs/:arcId', guard(async (req) => {
+    const chatId = safeChatId(req.params.id);
+    return editScenes(chatId, (store) => {
+      const arc = (store.arcs || []).find((x) => x.id === req.params.arcId);
+      if (!arc) throw Error('해당 큰 흐름을 찾지 못했습니다.');
+      for (const field of ['title', 'summary']) if (typeof req.body?.[field] === 'string' && req.body[field].trim()) arc[field] = req.body[field].trim();
+      if (Array.isArray(req.body?.turns)) arc.turns = req.body.turns.map((t) => String(t).trim()).filter(Boolean).slice(0, 6);
+      if (Array.isArray(req.body?.keep)) arc.keep = req.body.keep.map((t) => String(t).trim()).filter(Boolean).slice(0, 8);
+      arc.edited = true;
+      return arc;
     });
   }));
   app.patch('/chats/:id/facts/:factId', guard(async (req) => {

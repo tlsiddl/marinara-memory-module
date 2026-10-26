@@ -32,6 +32,7 @@
   let selectedScene = '';
   /** Which shelf the scenes tab shows: a chapter id, or '' for the scenes not in a chapter yet. */
   let selectedGroup = null;
+  let selectedArc = '';
   /** Folded lists the person opened (kept open when the screen is drawn again). */
   const openLists = new Set();
   let connections = [];
@@ -330,10 +331,28 @@
       })
       .join('');
     const s = inGroup.find((x) => x.id === selectedScene);
+    const arcs = store.arcs || [];
+    const arc = arcs.find((a) => a.id === selectedArc) || null;
+    const arcBar = arcs.length
+      ? `<p class="hint">큰 흐름 — 오래된 챕터 여러 개를 한 번 더 묶은 것입니다. 기억 칸의 '지난 이야기 흐름' 맨 앞에 늘 들어갑니다.</p><div class="chapter-bar arc-bar">${arcs.map((a) => `<button class="chapter-chip ${a.id === selectedArc ? 'is-selected' : ''}" data-arc="${esc(a.id)}"><span class="chip-id">${esc(a.id)} · ${esc(a.chapters[0])}~${esc(a.chapters.at(-1))}</span>${esc(a.title)}</button>`).join('')}</div>${arc ? arcEditor(arc) : ''}`
+      : '';
     return `<div class="eyebrow">SCENES · ${store.scenes.length}${chapters.length ? ` · CHAPTERS · ${chapters.length}` : ''}</div><h1>장면</h1>
       <p class="intro">ON AIR 도장이 찍힌 카드는 아직 모델이 원문으로 직접 보고 있는 장면입니다(기억 칸에는 들어가지 않습니다). 카드를 누르면 아래에서 고치실 수 있습니다.${chapters.length ? ' 오래된 장면은 챕터로 묶여, 기억 칸에는 챕터 요약으로 들어갑니다.' : ''}</p>
-      ${bar}${chapters.length ? `<div class="buttons"><button data-act="rebuildChapters" ${running() ? 'disabled' : ''}>${armed === 'chapters' ? '한 번 더 누르면 챕터를 다시 묶습니다' : '챕터만 다시 묶기'}</button><small>장면·사실·장부는 그대로 두고 챕터만 새로 묶습니다. 챕터를 직접 고친 내용은 사라집니다.</small></div>` : ''}${chapter ? chapterEditor(chapter) : ''}
+      ${arcBar}${bar}${chapters.length ? `<div class="buttons"><button data-act="rebuildChapters" ${running() ? 'disabled' : ''}>${armed === 'chapters' ? '한 번 더 누르면 챕터를 다시 묶습니다' : '챕터만 다시 묶기'}</button><small>장면·사실·장부는 그대로 두고 챕터와 큰 흐름만 새로 묶습니다. 챕터·큰 흐름을 직접 고친 내용은 사라집니다.</small></div>` : ''}${chapter ? chapterEditor(chapter) : ''}
       <div class="file-shelf" id="shelf">${shelf || '<p class="hint">이 묶음에는 장면이 없습니다.</p>'}</div>${s ? sceneEditor(s) : ''}`;
+  }
+
+  function arcEditor(a) {
+    return `<div class="paper chapter-paper" id="arcEditor" data-id="${esc(a.id)}">
+      <div class="paper-toolbar"><h2>${esc(a.id)} · ${esc(a.chapters[0])}~${esc(a.chapters.at(-1))}${a.time ? ` · ${esc(a.time)}` : ''}</h2>${a.edited ? '<span class="pill">직접 고침</span>' : ''}</div>
+      <div class="form-grid">
+        <label class="full">큰 흐름 제목<input id="aTitle" value="${esc(a.title)}"></label>
+        <label class="full">요약<textarea id="aSummary" class="event-field" style="min-height:110px">${esc(a.summary)}</textarea></label>
+        <label class="full">그 시기를 바꾼 일 (한 줄에 하나)<textarea id="aTurns" class="event-field">${esc((a.turns || []).join('\n'))}</textarea></label>
+        <label class="full">지금까지 영향을 주는 세부 사항 (한 줄에 하나)<textarea id="aKeep" class="event-field">${esc((a.keep || []).join('\n'))}</textarea></label>
+      </div>
+      <div class="buttons editor-actions"><button class="primary" data-act="saveArc">이 큰 흐름 저장</button></div>
+    </div>`;
   }
 
   function chapterEditor(c) {
@@ -746,6 +765,11 @@
           recallTest = await api('POST', `/chats/${chat}/recall-test`, { text: recallTestText });
         }, '회상 시험을 마쳤습니다.');
       }
+      case 'saveArc': {
+        const ed = root.querySelector('#arcEditor');
+        const body = { title: ed.querySelector('#aTitle').value, summary: ed.querySelector('#aSummary').value, turns: ed.querySelector('#aTurns').value.split('\n'), keep: ed.querySelector('#aKeep').value.split('\n') };
+        return act(() => api('PATCH', `/chats/${chat}/arcs/${encodeURIComponent(ed.dataset.id)}`, body), '큰 흐름을 저장했습니다.');
+      }
       case 'saveChapter': {
         const ed = root.querySelector('#chapterEditor');
         const body = { title: ed.querySelector('#cTitle').value, summary: ed.querySelector('#cSummary').value, turns: ed.querySelector('#cTurns').value.split('\n'), keep: ed.querySelector('#cKeep').value.split('\n') };
@@ -1022,6 +1046,11 @@
       if (n.dataset.group !== undefined) {
         selectedGroup = n.dataset.group;
         selectedScene = '';
+        selectedArc = '';
+        return render();
+      }
+      if (n.dataset.arc !== undefined) {
+        selectedArc = selectedArc === n.dataset.arc ? '' : n.dataset.arc;
         return render();
       }
       if (n.dataset.scene) {

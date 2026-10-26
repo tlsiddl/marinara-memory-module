@@ -277,3 +277,53 @@ test('two hundred chapters still fit the set length: old ones fold into stretche
     assert.match(text, /^C200 /m);
   }
 });
+
+function manyChapters(n) {
+  return Array.from({ length: n }, (_, i) => ({ id: `C${i + 1}`, scenes: [`S${i + 1}`], time: `24-${String((Math.floor(i / 28) % 12) + 1).padStart(2, '0')}-${String((i % 28) + 1).padStart(2, '0')}`, title: `이야기의 한 토막 ${i + 1}`, summary: '여러 일이 있었다. 둘은 가까워졌다.', turns: [], keep: [] }));
+}
+
+test('old chapters are folded into arcs by the model, leaving the newest chapters as they are', () => {
+  const store = S.emptyStore();
+  store.chapters = manyChapters(30);
+  const offered = S.nextArc(store);
+  assert.deepEqual([offered[0].id, offered.at(-1).id], ['C1', 'C12']);
+  assert.match(S.buildArcPrompt(store, offered)[1].content, /C1 \| 24-01-01 \| 이야기의 한 토막 1/);
+  const made = S.applyArc(store, { end: 'C9', title: '처음 만난 봄', summary: '서아와 도윤이 이웃으로 만나 조금씩 가까워졌다.', turns: ['C3 도윤이 서아를 도움', 'C11 범위 밖'], keep: ['매달 1일에 월세 50만 원'] }, offered);
+  assert.ok(!made.error, made.error);
+  assert.deepEqual(made.arc.chapters, ['C1', 'C2', 'C3', 'C4', 'C5', 'C6', 'C7', 'C8', 'C9']);
+  assert.deepEqual(made.arc.turns, ['C3 도윤이 서아를 도움'], 'a turn from a chapter left for the next arc is dropped');
+  S.commitArc(store, made.arc);
+  assert.equal(S.nextArc(store), null, 'not enough chapters for another arc yet');
+  assert.equal(S.applyArc(store, { end: 'C2', title: 't', summary: 's' }, offered).arc.chapters.length, 4, 'never fewer than the minimum');
+});
+
+test('with arcs, the oldest part of a long story always has a line, and the limit still holds', () => {
+  const store = S.emptyStore();
+  store.chapters = manyChapters(200);
+  store.chapters[20].title = '장학금 서류를 준비함';
+  for (let a = 0; a < 15; a++) {
+    const chapters = store.chapters.slice(a * 12, a * 12 + 12).map((c) => c.id);
+    S.commitArc(store, { id: `A${a + 1}`, chapters, time: null, title: `큰 흐름 ${a + 1}`, summary: `${a + 1}번째 시기에 관계가 바뀌었다. 자세한 일들이 있었다.`, turns: [], keep: [] });
+  }
+  for (const limit of [4000, 2000]) {
+    const text = S.renderChapters(store, limit, '장학금 서류 언제까지였지?');
+    assert.ok(text.length <= limit, `${limit}: ${text.length}`);
+    assert.match(text, /^\[지난 이야기 흐름\]\nA\d+/, 'the arcs come first');
+    assert.match(text, /^A15 \(C169~C180/m);
+    assert.match(text, /^C21 .*장학금 서류를 준비함/m, 'a chapter inside an arc comes in when it is talked about');
+    assert.match(text, /^C200 /m);
+    assert.doesNotMatch(text, /^C5 /m);
+  }
+  assert.match(S.renderChapters(store, 4000), /^A1 \(C1~C12\) 큰 흐름 1/m, 'with room, even the first part of the story is there');
+});
+
+test('arcs that held a chapter now gone are made again later', () => {
+  const store = S.emptyStore();
+  store.chapters = manyChapters(3);
+  store.arcs = [{ id: 'A1', chapters: ['C1', 'C2'] }];
+  store.scenes = store.chapters.map((c, i) => ({ id: c.scenes[0], start: i + 1, end: i + 1, messages: [{ id: `m${i}`, h: 'x' }], events: [], recollections: [] }));
+  store.covered = store.scenes.map((s, i) => ({ id: `m${i}`, h: 'x' }));
+  S.reconcileScenes(store, [{ id: 'm0', h: 'x' }, { id: 'm1', h: 'changed' }]);
+  assert.deepEqual(store.chapters.map((c) => c.id), ['C1']);
+  assert.deepEqual(store.arcs, []);
+});
