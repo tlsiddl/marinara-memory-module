@@ -71,7 +71,8 @@ run('start', chatId, '--fresh');
 await sleep(1000);
 let state = await settle(chatId);
 assert.equal(state.sceneJob.state, 'done', JSON.stringify(state.sceneJob));
-assert.equal(state.scenes.coveredThrough, 54, 'folded through message 54 (66 - 12)');
+// 66 - 12 = 54, a user message: its answer (55) stays with it (since v0.9.0).
+assert.equal(state.scenes.coveredThrough, 55, 'folded through message 55 (66 - 12, with the answer to message 54)');
 assert.ok(state.scenes.count >= 9, `${state.scenes.count} scenes`);
 assert.ok(state.scenes.facts >= 1);
 console.log(`ok 2: ${state.scenes.count} scenes through message ${state.scenes.coveredThrough}, ${(await calls()).scenes} scene call(s)`);
@@ -96,13 +97,15 @@ assert.doesNotMatch(prompt, /<speaker/, 'speaker tags are taken off');
 assert.match(prompt, /\(서술\) /, 'narration lines are marked; spoken lines get who → whom (unit tests)');
 console.log('ok 3: scenes outside the window are in the prompt, newest expanded');
 
-// 4) One reply does not fold (only 2 new messages); four replies do, in one call.
+// 4) One reply does not fold (only 2 new messages); five replies do, in one call (scenes reach 55, so the
+// 8 waiting messages are 56~63; the fold reaches 64, the last message before the window).
 const before = (await calls()).scenes;
 state = await reply(chatId, '오늘 뭐 해?');
 assert.equal((await calls()).scenes, before, 'no fold for 2 messages');
-for (const t of ['응', '그래', '좋아']) state = await reply(chatId, t);
+for (const t of ['응', '그래', '좋아', '그럼']) state = await reply(chatId, t);
 assert.equal((await calls()).scenes, before + 1, 'one fold once 8 have gathered');
-assert.equal(state.scenes.coveredThrough, 62);
+assert.equal(state.scenes.coveredThrough, 64);
+const through = state.scenes.coveredThrough;
 console.log(`ok 4: folded again after 8 new messages, now through ${state.scenes.coveredThrough}`);
 
 // 5) A hand edit sticks and shows in the prompt.
@@ -121,7 +124,7 @@ const list = Array.isArray(msgs) ? msgs : msgs.messages || msgs.items;
 await api('POST', '/api/generate', { chatId, regenerateMessageId: list.filter((m) => m.role === 'assistant').at(-1).id, streaming: true });
 await sleep(2000);
 state = await settle(chatId);
-assert.equal(state.scenes.coveredThrough, 62);
+assert.equal(state.scenes.coveredThrough, through);
 assert.equal((await calls()).scenes, callsBefore);
 assert.match(await preview(chatId), /손으로 고친 요약/);
 console.log('ok 6: a reroll leaves folded scenes and edits alone');

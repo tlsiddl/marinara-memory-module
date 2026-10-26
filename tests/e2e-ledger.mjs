@@ -137,15 +137,17 @@ assert.equal(state.summary.processed, answered + 7, 'the reply before the empty 
 assert.equal((await memoryCalls()) - calls0, 1);
 console.log('ok 5c: an empty send keeps the reply before it, and it is read');
 
-// 6) Turning the chat off stops reply updates; the existing ledger stays in the prompt.
+// 6) Turning the chat off stops reply updates, and (since v0.8.2) nothing of its memory goes into the prompt;
+// the saved ledger stays on disk and comes back when the chat is turned on again.
 run('off', chatId);
 const callsOff = (await (await fetch(`${llm}/__calls`)).json()).memory;
 await api('POST', '/api/generate', { chatId, userMessage: '잘 자.', streaming: true });
 await sleep(2500);
 assert.equal((await (await fetch(`${llm}/__calls`)).json()).memory, callsOff);
 preview = JSON.stringify((await api('POST', '/api/generate/dryRun', { chatId, returnPrompt: true })).prompt);
-assert.match(preview, /\[아직 끝나지 않은 일\]/);
-console.log('ok 6: off stops updates, ledger still in the prompt');
+assert.doesNotMatch(preview, /\[아직 끝나지 않은 일\]/);
+assert.ok((await api('GET', `/api/memory-module/chats/${chatId}`)).threads.length > 0, 'the ledger is kept');
+console.log('ok 6: off stops updates and keeps memory out of the prompt; the ledger is kept');
 
 // 7) The tidy command on its own.
 assert.match(run('tidy', chatId), /장부 점검을 시작/);

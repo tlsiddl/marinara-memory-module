@@ -552,7 +552,7 @@ function applyScenes(store, result, slice, required, now = new Date().toISOStrin
       messages: messages.map((m) => ({ id: m.id, h: m.h, ...(m.c ? { c: m.c } : {}) })),
       time: cleanText(item.time, 60),
       place: cleanText(item.place, 60),
-      weather: cleanText(item.weather, 30) || mostOften(messages.map((m) => m.weather)),
+      weather: cleanText(item.weather, 30) || mostOften(messages.map((m) => m.weather), Math.ceil(messages.length / 2)),
       title: cleanText(item.title, 60) || '(제목 없음)',
       summary: cleanText(item.summary, 600) || '',
       events,
@@ -939,10 +939,12 @@ function memoryNote(scene, cast = []) {
 }
 
 /** The value most messages of a scene carry (the tracker's weather), or null. */
-function mostOften(values) {
+function mostOften(values, atLeast = 1) {
   const count = new Map();
   for (const v of values) if (v) count.set(v, (count.get(v) || 0) + 1);
-  return [...count.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || null;
+  const [value, n] = [...count.entries()].sort((a, b) => b[1] - a[1])[0] || [];
+  // A scene that only ends in the rain is not "a rainy scene": the weather must hold for at least half of it.
+  return value && n >= atLeast ? value : null;
 }
 
 function sceneHead(scene, n) {
@@ -1053,7 +1055,9 @@ function buildChapterPrompt(store, scenes) {
   const parts = [];
   const personas = store.personas || [];
   if (personas.length) parts.push(`[사용자 캐릭터] ${personas.join(', ')}`, '');
-  const before = (store.chapters || []).at(-1);
+  // The chapter just before these scenes (not one that holds them, which may be the one being made again).
+  const first = store.scenes.findIndex((x) => x.id === scenes[0].id);
+  const before = [...(store.chapters || [])].reverse().find((c) => !c.stale && c.scenes.every((id) => store.scenes.findIndex((x) => x.id === id) < first));
   if (before) parts.push('## 바로 앞 챕터 (참고용)', `${before.title}: ${before.summary}`, '');
   parts.push(`## 장면 (${scenes[0].id}~${scenes.at(-1).id})`);
   const ids = new Set(scenes.map((x) => x.id));
@@ -1311,7 +1315,10 @@ function buildArcPrompt(store, chapters) {
   const parts = [];
   const personas = store.personas || [];
   if (personas.length) parts.push(`[사용자 캐릭터] ${personas.join(', ')}`, '');
-  const before = (store.arcs || []).at(-1);
+  // The arc just before these chapters (not one that holds them, which may be the one being made again).
+  const order = new Map((store.chapters || []).map((c, i) => [c.id, i]));
+  const first = order.get(chapters[0].id) ?? 0;
+  const before = [...(store.arcs || [])].reverse().find((a) => !a.stale && a.chapters.every((id) => (order.get(id) ?? Infinity) < first));
   if (before) parts.push('## 바로 앞 막 (참고용)', `${before.title}: ${before.summary}`, '');
   parts.push(`## 챕터 (${chapters[0].id}~${chapters.at(-1).id})`);
   for (const c of chapters) {

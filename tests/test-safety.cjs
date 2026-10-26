@@ -178,3 +178,18 @@ test('editing a scene or chapter by hand takes its old summary out until it is m
   assert.deepEqual(store.chapters[1].scenes, ['S3', 'S4']);
   assert.equal(S.nextRedo(store).kind, 'arc', 'then the arc holding it');
 });
+
+test('a summary made again is never shown its own old version as "the one before"', () => {
+  const store = S.emptyStore();
+  store.scenes = [1, 2, 3, 4].map((n) => ({ id: `S${n}`, start: n, end: n, messages: [], title: `장면 ${n}`, summary: '일.', events: [], recollections: [] }));
+  store.chapters = [
+    { id: 'C1', scenes: ['S1', 'S2'], title: '앞', summary: '앞 챕터 요약.', turns: [], keep: [] },
+    { id: 'C2', scenes: ['S3', 'S4'], title: '이별', summary: '여동생이 사망했다.', turns: [], keep: [] },
+  ];
+  store.arcs = [{ id: 'A1', chapters: ['C1', 'C2'], title: '상실', summary: '여동생이 사망했다.', turns: [], keep: [], stale: true }];
+  assert.doesNotMatch(S.buildArcPrompt(store, store.chapters)[1].content, /바로 앞 막/);
+  store.chapters[1].stale = true;
+  const chapterPrompt = S.buildChapterPrompt(store, store.scenes.slice(2))[1].content;
+  assert.match(chapterPrompt, /바로 앞 챕터 \(참고용\)\n앞: 앞 챕터 요약\./);
+  assert.doesNotMatch(chapterPrompt, /사망/);
+});

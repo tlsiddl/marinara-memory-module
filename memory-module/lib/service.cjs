@@ -434,6 +434,31 @@ function trackerClock(row, base) {
 const WEATHER_FIELD = /날씨|하늘|weather|sky/i;
 
 /**
+ * Marinara marks a tracker record as final ("committed") only for the newest reply, when the user answers it. A
+ * record added or edited by hand on an older message, that had none, stays uncommitted, yet it is what the user
+ * set: those are read too. Each lookup finds the newest such record among the messages still without one, so
+ * this costs one lookup per record of that kind (usually none or one).
+ */
+async function addLateSnapshots(e, chatId, messages, snaps) {
+  if (!e.gameStates?.getLatestForMessages) return;
+  const swipe = new Map(messages.map((m) => [m.id, m.swipe ?? 0]));
+  let rest = messages.filter((m) => !snaps.has(m.id)).map((m) => m.id);
+  for (let guard = 0; guard < 50 && rest.length; guard++) {
+    let row;
+    try {
+      row = await e.gameStates.getLatestForMessages(chatId, rest);
+    } catch {
+      return;
+    }
+    if (!row) return;
+    rest = rest.filter((x) => x !== row.messageId);
+    const want = swipe.get(row.messageId);
+    const pick = row.swipeIndex === want ? row : await e.gameStates.getByChatAndMessage?.(chatId, row.messageId, want).catch(() => null);
+    if (pick) snaps.set(row.messageId, pick);
+  }
+}
+
+/**
  * Messages without a date line of their own get the story clock from Marinara's trackers: the snapshot made for
  * that message, or else the last one before it. With no trackers, nothing is added (the order is all there is).
  */
@@ -446,6 +471,7 @@ async function addTrackerClock(e, chatId, messages) {
     return;
   }
   if (!snaps) return;
+  await addLateSnapshots(e, chatId, messages, snaps);
   // Up to the user's latest message the tracker records are final (a reply's record is committed once it is
   // answered); from there on they may still come, so "none yet" is not written down for those.
   let lastUser = -1;
@@ -467,9 +493,11 @@ async function addTrackerClock(e, chatId, messages) {
       // A tracker that lags behind (still showing the night before after the story moved on) is not followed back.
       if (!(at(last) && at(next) && clock.date && at(next) < at(last))) last = next;
     }
-    if (clock?.weather) weather = clock.weather;
+    // The weather holds for the day it was noted on: a new story day starts with no weather until one is noted.
+    if (clock?.weather) weather = { text: clock.weather, date: last?.date || null };
+    else if (weather?.date && last?.date && last.date !== weather.date) weather = null;
     if (last) m.clock = { ...last };
-    if (weather) m.weather = weather;
+    if (weather) m.weather = weather.text;
     // What the tracker said for this very message: a hand fix of its date, time or weather is a change to read again.
     if (snap && (clock?.date || clock?.time || clock?.weather)) m.trackerMark = clock.raw;
     // No record (or an empty one) is written down too, so a date or weather added later is seen as a change.
@@ -781,6 +809,11 @@ function processChat(chatId, { rebuild = false, reason = 'auto' } = {}) {
         ledger.needsRebuild = { at: new Date().toISOString(), changedAt: state.changedAt, number: changedNumber(ledger, messages, state.changedAt) };
         saveLedger(chatId, ledger);
         throw Error('예전 메시지가 수정·삭제되어 장부를 처음부터 다시 정리해야 합니다. 기억 서재의 ‘처음부터 다시 정리’나 mm start --fresh로 다시 정리해 주세요.');
+      }
+      if (ledger.needsRebuild) {
+        // The changed message was put back as it was: the ledger is right again.
+        delete ledger.needsRebuild;
+        saveLedger(chatId, ledger);
       }
       if (state.rolledBack) log(`chat ${chatId}: message ${state.changedAt + 1} changed, rolled back and re-reading`);
       const remaining = messages.slice(state.from);

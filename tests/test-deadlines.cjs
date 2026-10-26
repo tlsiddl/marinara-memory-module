@@ -174,3 +174,32 @@ test('a tracker record added later to a message that had none is a change to rea
   store.covered = [{ id: 'n1', h: a.h, c: a.c }];
   assert.equal(S.changedAt(store, [b]), 0);
 });
+
+test('a tracker record added by hand to an older message is read even though Marinara never commits it', async () => {
+  const committed = new Map();
+  const late = [{ messageId: 'u2', swipeIndex: 0, date: '2025년 7월 20일', time: '오후 3시', weather: '소나기', worldCustomFields: '[]', playerStats: null }];
+  let lookups = 0;
+  const e = {
+    gameStates: {
+      getCommittedForMessages: async () => committed,
+      getLatestForMessages: async (chatId, ids) => (lookups++, late.find((r) => ids.includes(r.messageId)) || null),
+      getByChatAndMessage: async () => null,
+    },
+  };
+  const msgs = [{ id: 'u1', role: 'assistant', content: '아침.' }, { id: 'u2', role: 'assistant', content: '오후.' }, { id: 'u3', role: 'user', content: '응.' }];
+  await T.addTrackerClock(e, 'chat', msgs);
+  assert.deepEqual(msgs.map((m) => m.weather || null), [null, '소나기', '소나기']);
+  assert.equal(msgs[1].clock.time, '15:00');
+  assert.equal(lookups, 2, 'one lookup per late record, plus the one that finds none');
+});
+
+test('the weather holds for the day it was noted on, not for the days after', async () => {
+  const snaps = new Map([['w1', { date: '2024-10-18', time: '09:00', weather: '비', worldCustomFields: '[]', playerStats: null }]]);
+  const msgs = [
+    { id: 'w1', role: 'assistant', content: '아침.' },
+    { id: 'w2', role: 'user', content: '점심.' },
+    { id: 'w3', role: 'assistant', content: '24-10-19 (토) | 08:00\n다음 날.' },
+  ];
+  await T.addTrackerClock({ gameStates: { getCommittedForMessages: async () => snaps } }, 'chat', msgs);
+  assert.deepEqual(msgs.map((m) => m.weather || null), ['비', '비', null]);
+});

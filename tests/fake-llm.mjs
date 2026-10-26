@@ -8,6 +8,7 @@ const port = Number(process.argv[2] || 9911);
 const replyFile = process.argv[3];
 const calls = { memory: 0, rp: 0 };
 let memoryDelayMs = 0;
+const memoryPrompts = [];
 let lastRpPrompt = '';
 
 function ledgerReply(user) {
@@ -95,6 +96,10 @@ http
         res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
         return res.end(lastRpPrompt);
       }
+      if (req.url === '/__prompts') {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        return res.end(JSON.stringify(memoryPrompts));
+      }
       if (req.url === '/__calls') {
         res.writeHead(200, { 'content-type': 'application/json' });
         return res.end(JSON.stringify(calls));
@@ -107,6 +112,7 @@ http
       const system = messages.find((m) => m.role === 'system')?.content || '';
       const isMemory = typeof system === 'string' && system.startsWith('너는 장기 롤플레이의 기억 관리자야');
       let content;
+      if (isMemory) memoryPrompts.push(messages.find((m) => m.role === 'user')?.content || ''), memoryPrompts.splice(0, Math.max(0, memoryPrompts.length - 40));
       if (isMemory && system.includes('지난 장면을 목차에서 골라')) {
         calls.recall = (calls.recall || 0) + 1;
         const user = messages.find((m) => m.role === 'user')?.content || '';
@@ -118,6 +124,11 @@ http
         const first = (user.match(/^(S\d+) \|/m) || [])[1] || 'S1';
         const ids = [...user.matchAll(/^(S\d+) \|/gm)].map((m) => m[1]);
         content = JSON.stringify({ end: ids[7] || ids.at(-1), title: `테스트 챕터 ${calls.chapters}`, summary: '테스트로 묶은 시기다. 여러 일이 있었다.', turns: [`${first} 테스트 전환점`] });
+      } else if (isMemory && system.includes("한 '막'으로 묶어")) {
+        calls.arcs = (calls.arcs || 0) + 1;
+        const user = messages.find((m) => m.role === 'user')?.content || '';
+        const ids = [...user.matchAll(/^(C\d+) \|/gm)].map((m) => m[1]);
+        content = JSON.stringify({ end: ids.at(-1), title: `테스트 큰 흐름 ${calls.arcs}`, summary: `${ids[0]}부터 ${ids.at(-1)}까지를 묶은 시기다. ${(user.match(/살아 있다|사망했다/) || ['특별한 일은 없었다'])[0]}.`, turns: [], keep: [] });
       } else if (isMemory && system.includes("'알게 된 사실' 목록을 정리해")) {
         calls.factMerges = (calls.factMerges || 0) + 1;
         const user = messages.find((m) => m.role === 'user')?.content || '';
