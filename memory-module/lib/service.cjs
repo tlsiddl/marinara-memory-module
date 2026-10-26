@@ -35,7 +35,10 @@ const MODEL_TIMEOUT_MS = 5 * 60_000;
 // Chats without a message limit still have one in practice (the token budget); fold past this many.
 const DEFAULT_WINDOW = Number(process.env.MEMORY_MODULE_DEFAULT_WINDOW) || 30;
 const SCENE_MIN_PENDING = 8;
-const RECALL_TIMEOUT_MS = Number(process.env.MEMORY_MODULE_RECALL_TIMEOUT_MS) || 25_000;
+/** The whole recall before a reply (meaning search + the model's pick) gets this long; then the fast pick is used. */
+const RECALL_TIMEOUT_MS = Number(process.env.MEMORY_MODULE_RECALL_TIMEOUT_MS) || 20_000;
+/** Less than this left for the model's pick: do not start it, use the fast pick. */
+const RECALL_MIN_MODEL_MS = 3_000;
 const RECALL_MODES = ['model', 'fast', 'off'];
 
 function log(message) {
@@ -271,6 +274,11 @@ function setChatEnabled(chatId, enabled) {
   const next = settings();
   next.chats = { ...next.chats, [chatId]: { ...(next.chats?.[chatId] || {}), enabled } };
   saveSettings(next);
+  if (!enabled) {
+    // Off means nothing of this chat's memory goes into a reply, including what was picked for the last turn.
+    recalls.delete(chatId);
+    replyViews.delete(chatId);
+  }
 }
 
 /** Speaker-tag repair is a separate extra, off unless turned on for the chat. */
@@ -846,28 +854,91 @@ const MEMORY_FOOTER =
   '[End of memory. Write the next reply from inside the moment, not from these notes: no recaps or explanations of the past, ' +
   'no listing what a character remembers. A memory surfaces only as a brief, natural touch when the scene truly calls for it.]';
 
-/** Synchronous: called from the {{기억}} macro while the prompt is assembled. */
+/** Upper limit for everything {{기억}} puts in (characters). The parts that matter for the next reply are kept first. */
+const MEMORY_MAX_CHARS = Number(process.env.MEMORY_MODULE_MAX_CHARS) || 40_000;
+
+/** Lines of a block, dropped from the top (the oldest) until it fits; the heading line stays. */
+function fitBlock(text, max) {
+  if (!text || text.length <= max) return text;
+  if (max < 200) return '';
+  const lines = text.split('\n');
+  const head = /^\[[^\]]+\]$/.test(lines[0]) ? lines.shift() : null;
+  while (lines.length > 1 && (head ? head.length + 1 : 0) + lines.join('\n').length > max) lines.shift();
+  const body = lines.join('\n');
+  if ((head ? head.length + 1 : 0) + body.length > max) return '';
+  return head ? `${head}\n${body}` : body;
+}
+
+/**
+ * What {{기억}} becomes for a chat. Synchronous: called from the macro while the prompt is assembled.
+ * Nothing for a chat whose memory is off. Within the size limit, in this order of need:
+ * the guidance before and after, what is still open, daily life, the story so far, the recalled scenes,
+ * the close events, the original passages. What does not fit is shortened whole scenes and lines at a time,
+ * never in the middle of a line.
+ */
 function renderLedger(chatId) {
+  if (!chatEnabled(chatId)) return '';
   const ledger = loadLedger(chatId);
-  const scenes = loadScenes(chatId);
-  const parts = [];
-  if (scenes) {
-    const text = S.renderScenes(scenes, windows.get(chatId) ?? scenes.window?.firstInside ?? null);
-    if (text) parts.push(text);
-    const amount = RECALL_AMOUNTS[settings().recallAmount] || RECALL_AMOUNTS.normal;
-    const picks = (recalls.get(chatId)?.picks || []).slice(0, amount.scenes);
-    const recalled = R.renderRecalled(scenes, picks, { maxChars: amount.sceneChars });
-    if (recalled) parts.push(recalled);
-    const near = amount.near ? R.renderNearEvents(scenes, recalls.get(chatId)?.semantic || [], picks, { max: amount.near }) : '';
-    if (near) parts.push(near);
-    const raw = R.renderRaw((recalls.get(chatId)?.raw || []).slice(0, amount.raw));
-    if (raw) parts.push(raw);
-  }
+  const scenes = scenesForReply(chatId);
   const open = ledger ? L.renderCompact(ledger) : '';
-  if (open) parts.push(`[아직 끝나지 않은 일]\n${open}`);
   const routine = ledger ? L.renderRoutine(ledger, storyNow.get(chatId) || ledger.storyTime || null) : '';
-  if (routine) parts.push(routine);
+  const fixed = [open ? `[아직 끝나지 않은 일]\n${open}` : '', routine].filter(Boolean);
+  let room = MEMORY_MAX_CHARS - MEMORY_HEADER.length - MEMORY_FOOTER.length - 40;
+  // What is still open and daily life come first; if even they are too long, their oldest lines go.
+  for (let i = 0; i < fixed.length; i++) {
+    fixed[i] = fitBlock(fixed[i], Math.max(0, Math.floor(room / (fixed.length - i))));
+    room -= fixed[i].length + 2;
+  }
+  const story = [];
+  if (scenes && room > 500) {
+    const firstInside = windows.get(chatId) ?? scenes.window?.firstInside ?? null;
+    const amount = RECALL_AMOUNTS[settings().recallAmount] || RECALL_AMOUNTS.normal;
+    const recall = recalls.get(chatId);
+    const picks = (recall?.picks || []).slice(0, amount.scenes);
+    // The story so far keeps up to its usual size, but never more than half of what is left.
+    const overviewMax = Math.min(17_500, Math.floor(room * 0.5));
+    const scale = Math.min(1, overviewMax / 17_500);
+    const overview = S.renderScenes(scenes, firstInside, { maxChars: Math.floor(9000 * scale), factChars: Math.floor(4500 * scale), chapterChars: Math.floor(4000 * scale) });
+    if (overview) {
+      story.push(overview);
+      room -= overview.length + 2;
+    }
+    const recalled = room > 500 ? R.renderRecalled(scenes, picks, { maxChars: Math.min(amount.sceneChars, room) }) : '';
+    if (recalled) {
+      story.push(recalled);
+      room -= recalled.length + 2;
+    }
+    const near = amount.near && room > 500 ? R.renderNearEvents(scenes, recall?.semantic || [], picks, { max: amount.near, maxChars: Math.min(5000, room) }) : '';
+    if (near) {
+      story.push(near);
+      room -= near.length + 2;
+    }
+    const raw = room > 300 ? fitBlock(R.renderRaw((recall?.raw || []).slice(0, amount.raw)), room) : '';
+    if (raw) story.push(raw);
+  }
+  const parts = [...story, ...fixed].filter(Boolean);
   return parts.length ? `${MEMORY_HEADER}\n\n${parts.join('\n\n')}\n\n${MEMORY_FOOTER}` : '';
+}
+
+/**
+ * Scenes as they stand for the next reply. When an old message was edited, deleted or swiped since the scenes
+ * were folded, the scenes from that message on (with their facts, chapters and who learned what there) are left
+ * out right away; folding them again happens after the reply, in the background.
+ */
+const replyViews = new Map();
+function scenesForReply(chatId) {
+  const stored = loadScenes(chatId);
+  const view = replyViews.get(chatId);
+  return view && view.base === stored ? view.store : stored;
+}
+
+function checkScenesBeforeReply(chatId, view) {
+  const stored = loadScenes(chatId);
+  if (!stored || S.changedAt(stored, view) === -1) return replyViews.delete(chatId);
+  const store = structuredClone(stored);
+  const change = S.reconcileScenes(store, view);
+  replyViews.set(chatId, { base: stored, store });
+  log(`chat ${chatId}: ${change.dropped} scene(s) no longer match the chat; left out of this reply until folded again`);
 }
 
 /* ---------- admin API ---------- */
@@ -1253,6 +1324,7 @@ async function syncBeforeReply(chatId, body) {
   if (now) storyNow.set(chatId, now);
   const window = await chatWindow(chatId);
   windows.set(chatId, S.firstInsideWindow(view, Math.max(1, window - (body?.userMessage ? 1 : 0))));
+  checkScenesBeforeReply(chatId, view);
   await recallBeforeReply(chatId, view, body?.userMessage);
 }
 
@@ -1328,7 +1400,7 @@ const storyNow = new Map();
  */
 async function recallBeforeReply(chatId, view, userMessage) {
   const mode = RECALL_MODES.includes(settings().recall) ? settings().recall : 'model';
-  const store = loadScenes(chatId);
+  const store = scenesForReply(chatId);
   if (mode === 'off' || !store) return recalls.delete(chatId);
   const firstInside = windows.get(chatId) ?? null;
   const list = R.candidates(store, firstInside);
@@ -1348,15 +1420,16 @@ async function computeRecall(chatId, store, view, userMessage, { mode, firstInsi
   const recent = view.slice(-6);
   const entry = { mode, picks: [], ms: 0, at: new Date().toISOString(), error: null, used: mode };
   const started = Date.now();
+  const left = () => RECALL_TIMEOUT_MS - (Date.now() - started);
   if (list.length) {
     const ledger = loadLedger(chatId);
     // Meaning search first (quick): scenes close in meaning even when the words differ.
-    await embeddingSource();
+    await Promise.race([embeddingSource(), new Promise((r) => setTimeout(r, Math.min(QUERY_TIMEOUT_MS, left())))]);
     const index = loadVectors(chatId);
-    if (index && Object.keys(index.items).length) {
+    if (index && Object.keys(index.items).length && left() > 1000) {
       try {
         const texts = V.queryTexts(recent, userMessage);
-        const queries = await embedTexts(texts, 'query', AbortSignal.timeout(QUERY_TIMEOUT_MS));
+        const queries = await embedTexts(texts, 'query', AbortSignal.timeout(Math.min(QUERY_TIMEOUT_MS, left())));
         entry.semantic = V.nearest(index, queries, list, 6);
         // A sentence that points back ("하준이 얘기했듯…", "그때 말했잖아") gets the scene closest to it on its own.
         entry.pointed = [];
@@ -1370,16 +1443,19 @@ async function computeRecall(chatId, store, view, userMessage, { mode, firstInsi
         entry.semanticError = String(error?.message || error);
       }
     }
-    if (mode === 'model') {
+    if (mode === 'model' && left() < RECALL_MIN_MODEL_MS) {
+      entry.error = `뜻 찾기가 오래 걸려 이번에는 빠른 방식으로 골랐습니다`;
+      entry.used = 'fast';
+    } else if (mode === 'model') {
       try {
         const model = await memoryModel();
-        model.signal = AbortSignal.timeout(RECALL_TIMEOUT_MS);
+        model.signal = AbortSignal.timeout(Math.max(1000, left()));
         const reply = await askModel(model, R.buildRecallPrompt(list, ledger, recent, userMessage, store.chapters || [], entry.semantic || []), { maxTokens: 600 });
         const parsed = L.parseJsonObject(reply);
         if (!parsed) throw Error('기억 모델의 답을 읽지 못했습니다');
         entry.picks = R.applyRecall(parsed, list, store.chapters || [], [...recent.map((m) => m.content), userMessage || ''].join(' '));
       } catch (error) {
-        entry.error = error?.name === 'TimeoutError' ? `${RECALL_TIMEOUT_MS / 1000}초 안에 답이 없어 빠른 방식으로 골랐습니다` : String(error?.message || error);
+        entry.error = error?.name === 'TimeoutError' ? `${RECALL_TIMEOUT_MS / 1000}초 안에 회상이 끝나지 않아 빠른 방식으로 골랐습니다` : String(error?.message || error);
         entry.used = 'fast';
       }
     }

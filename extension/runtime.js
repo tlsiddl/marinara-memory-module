@@ -498,7 +498,7 @@
     return `<div class="eyebrow">INJECTION · 약 ${tokens(info.rendered)} 토큰</div><h1>주입 확인</h1>
       <p class="intro">지금 프리셋의 {{기억}} 자리에 들어가는 내용 그대로입니다. 회상한 장면은 답변마다 바뀝니다.</p>
       ${recallCard()}${recallTestCard()}
-      ${info.rendered ? `<pre>${esc(info.rendered)}</pre>` : '<div class="empty">아직 들어가는 기억이 없습니다.</div>'}`;
+      ${info.rendered ? `<pre>${esc(info.rendered)}</pre>` : `<div class="empty">${info.enabled ? '아직 들어가는 기억이 없습니다.' : '이 방에서 기억 사용이 꺼져 있어 {{기억}} 자리에 아무것도 들어가지 않습니다. 저장된 기억은 그대로 남아 있습니다.'}</div>`}`;
   }
 
   /** Which scenes came up for the last reply, and why; plus what the meaning search found. */

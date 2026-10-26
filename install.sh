@@ -2,10 +2,12 @@
 # 기억 서재 (마리나라 엔진용 기억 모듈) — 설치·업데이트
 #   서버(도커):          curl -fsSL https://raw.githubusercontent.com/tlsiddl/marinara-memory-module/main/install.sh | sh
 #   그냥 실행·Termux:    마리나라 폴더에서 같은 명령
+#   이전 버전으로 되돌리기: 같은 명령 끝의 sh 를  sh -s -- rollback  으로
 # 다시 실행하면 업데이트입니다. 기억 데이터는 마리나라 데이터 폴더에 있어서 지워지지 않습니다.
 set -e
 
-BASE="${MEMORY_MODULE_BASE:-https://raw.githubusercontent.com/tlsiddl/marinara-memory-module/main}"
+REPO="tlsiddl/marinara-memory-module"
+ACTION="${1:-install}"
 FILES="memory-module/marinara-memory-runtime.cjs memory-module/memory-cli.cjs memory-module/lib/ledger.cjs memory-module/lib/service.cjs memory-module/lib/scenes.cjs memory-module/lib/recall.cjs memory-module/lib/speakers.cjs memory-module/lib/vectors.cjs"
 RUNTIME_IN_DOCKER="/app/memory-module/marinara-memory-runtime.cjs"
 
@@ -19,13 +21,59 @@ fetch() { # fetch <url> <file>
   fi
 }
 
+# Every file comes from one and the same commit, so an update can never mix two versions.
+resolve_base() {
+  if [ -n "$MEMORY_MODULE_BASE" ]; then BASE="$MEMORY_MODULE_BASE"; return; fi
+  SHA=""
+  if command -v curl >/dev/null 2>&1; then API="$(curl -fsSL -m 15 "https://api.github.com/repos/$REPO/commits/main" 2>/dev/null || true)"
+  else API="$(wget -q -T 15 -O - "https://api.github.com/repos/$REPO/commits/main" 2>/dev/null || true)"; fi
+  SHA="$(printf '%s\n' "$API" | sed -n 's/.*"sha": *"\([0-9a-f]\{40\}\)".*/\1/p' | head -n 1)"
+  BASE="https://raw.githubusercontent.com/$REPO/${SHA:-main}"
+}
+
+# All files go to a holding folder first and are checked; only then do they replace the old ones,
+# and the old ones are kept in memory-module/.prev (rollback puts them back).
 download_module() { # download_module <marinara folder>
-  mkdir -p "$1/memory-module/lib"
+  M="$1/memory-module"
+  NEW="$M/.incoming"
+  rm -rf "$NEW"
+  mkdir -p "$NEW/lib"
   for f in $FILES; do
-    fetch "$BASE/$f" "$1/$f.download" || fail "$f 를 받지 못했습니다. 인터넷 연결을 확인해 주세요."
-    mv "$1/$f.download" "$1/$f"
+    rel="${f#memory-module/}"
+    if ! fetch "$BASE/$f" "$NEW/$rel" || [ ! -s "$NEW/$rel" ]; then
+      rm -rf "$NEW"
+      fail "$f 를 받지 못했습니다. 인터넷 연결을 확인해 주세요. 기존 기억 모듈은 그대로입니다."
+    fi
   done
-  say "[1/3] 기억 모듈 파일을 받았습니다: $1/memory-module"
+  if ! grep -q "const VERSION" "$NEW/marinara-memory-runtime.cjs"; then
+    rm -rf "$NEW"
+    fail "받은 파일이 올바르지 않습니다. 잠시 뒤 다시 실행해 주세요. 기존 기억 모듈은 그대로입니다."
+  fi
+  if command -v node >/dev/null 2>&1; then
+    for f in $FILES; do
+      case "$f" in *.cjs) node --check "$NEW/${f#memory-module/}" >/dev/null 2>&1 || { rm -rf "$NEW"; fail "받은 파일($f)이 깨져 있습니다. 잠시 뒤 다시 실행해 주세요. 기존 기억 모듈은 그대로입니다."; } ;; esac
+    done
+  fi
+  if [ -f "$M/marinara-memory-runtime.cjs" ]; then
+    rm -rf "$M/.prev"
+    mkdir -p "$M/.prev/lib"
+    for f in $FILES; do rel="${f#memory-module/}"; [ -f "$M/$rel" ] && cp -p "$M/$rel" "$M/.prev/$rel"; done
+  fi
+  mkdir -p "$M/lib"
+  for f in $FILES; do rel="${f#memory-module/}"; mv -f "$NEW/$rel" "$M/$rel"; done
+  rm -rf "$NEW"
+  VER="$(sed -n "s/^const VERSION = '\([^']*\)'.*/\1/p" "$M/marinara-memory-runtime.cjs" | head -n 1)"
+  say "[1/3] 기억 모듈 v${VER:-?} 파일을 받았습니다: $M"
+  [ -d "$M/.prev" ] && say "      (이전 버전은 $M/.prev 에 남겨 두었습니다)"
+  return 0
+}
+
+restore_prev() { # restore_prev <marinara folder>
+  M="$1/memory-module"
+  [ -f "$M/.prev/marinara-memory-runtime.cjs" ] || fail "되돌릴 이전 버전이 없습니다 ($M/.prev)."
+  for f in $FILES; do rel="${f#memory-module/}"; [ -f "$M/.prev/$rel" ] && cp -p "$M/.prev/$rel" "$M/$rel"; done
+  VER="$(sed -n "s/^const VERSION = '\([^']*\)'.*/\1/p" "$M/marinara-memory-runtime.cjs" | head -n 1)"
+  say "[1/2] 이전 버전 v${VER:-?} 으로 되돌렸습니다."
 }
 
 docker_ok() { command -v docker >/dev/null 2>&1 && docker ps >/dev/null 2>&1; }
@@ -40,13 +88,40 @@ label() { docker inspect -f "{{index .Config.Labels \"$2\"}}" "$1" 2>/dev/null; 
 container_env() { docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$1" 2>/dev/null | sed -n "s/^$2=//p" | head -n 1; }
 
 install_mm() { # install_mm <folder> <container>
-  fetch "$BASE/memory-module/mm" "$1/memory-module/mm"
+  fetch "$BASE/memory-module/mm" "$1/memory-module/mm.download" || { rm -f "$1/memory-module/mm.download"; return 0; }
+  mv -f "$1/memory-module/mm.download" "$1/memory-module/mm"
   sed -i.bak "s/marinara-engine-marinara-1/$2/" "$1/memory-module/mm" 2>/dev/null && rm -f "$1/memory-module/mm.bak"
   chmod +x "$1/memory-module/mm"
   if install -m 755 "$1/memory-module/mm" /usr/local/bin/mm 2>/dev/null; then say "      짧은 명령어 mm 도 설치했습니다 (예: mm status)."; fi
 }
 
 # ---------------------------------------------------------------- 도커
+# The compose files this container was started with (from its labels), plus the override; CUSTOM=1 when
+# they are not just the default file, so the user has to name them when starting it later as well.
+compose_args() { # compose_args <config files, comma separated> <override path>
+  ARGS=""
+  CUSTOM=0
+  HAS_OVERRIDE=0
+  OLDIFS="$IFS"; IFS=','
+  for f in $1; do
+    [ -n "$f" ] || continue
+    ARGS="$ARGS -f $f"
+    [ "$f" = "$2" ] && HAS_OVERRIDE=1
+    case "$(basename "$f")" in docker-compose.yml|docker-compose.yaml|compose.yml|compose.yaml|docker-compose.override.yml) ;; *) CUSTOM=1 ;; esac
+  done
+  IFS="$OLDIFS"
+  if [ -n "$ARGS" ] && [ "$HAS_OVERRIDE" = 0 ]; then ARGS="$ARGS -f $2"; fi
+}
+
+rollback_docker() {
+  C="$1"
+  DIR="$(label "$C" com.docker.compose.project.working_dir)"
+  [ -n "$DIR" ] && [ -d "$DIR" ] || fail "컨테이너 $C 의 compose 폴더를 찾지 못했습니다."
+  restore_prev "$DIR"
+  docker restart "$C" >/dev/null
+  say "[2/2] 마리나라를 다시 켰습니다. 20초쯤 뒤에 접속해 주세요."
+}
+
 install_docker() {
   C="$1"
   DIR="$(label "$C" com.docker.compose.project.working_dir)"
@@ -67,12 +142,14 @@ install_docker() {
   esac
 
   OVERRIDE="$DIR/docker-compose.override.yml"
+  compose_args "$CONFIGS" "$OVERRIDE"
   if [ -f "$OVERRIDE" ]; then
     say ""
     say "[2/3] $OVERRIDE 파일이 이미 있어서 건드리지 않았습니다. 그 파일의 $SERVICE 서비스에 아래 두 가지를 직접 넣어 주세요:"
     say "      volumes:      - ./memory-module:/app/memory-module:ro"
     say "      environment:  NODE_OPTIONS: \"${OPTS:+$OPTS }--require=$RUNTIME_IN_DOCKER\""
-    say "      그다음 compose 폴더에서: docker compose up -d"
+    say "      그다음 아래 명령으로 다시 켜 주세요:"
+    if [ -n "$ARGS" ]; then say "      cd \"$DIR\" && docker compose$ARGS up -d"; else say "      cd \"$DIR\" && docker compose up -d"; fi
     exit 0
   fi
   # Whatever NODE_OPTIONS the container already had stays; the memory module is added at the end.
@@ -88,16 +165,6 @@ EOF
   say "[2/3] $OVERRIDE 를 만들었습니다."
 
   # Started with -f files: the override is added to the same list so this start uses it.
-  ARGS=""
-  CUSTOM=0
-  OLDIFS="$IFS"; IFS=','
-  for f in $CONFIGS; do
-    [ -n "$f" ] || continue
-    ARGS="$ARGS -f $f"
-    case "$(basename "$f")" in docker-compose.yml|docker-compose.yaml|compose.yml|compose.yaml) ;; *) CUSTOM=1 ;; esac
-  done
-  IFS="$OLDIFS"
-  if [ -n "$ARGS" ]; then ARGS="$ARGS -f $OVERRIDE"; fi
   (cd "$DIR" && docker compose $ARGS up -d) || fail "docker compose up -d 에 실패했습니다. 위 오류를 확인해 주세요."
   say "[3/3] 마리나라를 다시 켰습니다. 20초쯤 뒤에 접속해 주세요."
   if [ "$CUSTOM" = 1 ]; then
@@ -133,8 +200,30 @@ EOF
   say "      (이미 켜져 있다면 끄고 위 명령으로 다시 켜 주세요. start.sh로 켜면 기억 모듈 없이 켜집니다.)"
 }
 
+rollback_local() {
+  DIR="$(find_folder)"
+  [ -n "$DIR" ] || fail "마리나라 폴더를 찾지 못했습니다. 마리나라 폴더 안에서 실행해 주세요."
+  restore_prev "$DIR"
+  say "[2/2] 마리나라를 끄고 bash start-memory.sh 로 다시 켜 주세요."
+}
+
+case "$ACTION" in
+  install|update) ;;
+  rollback)
+    say ""
+    say "== 기억 서재 이전 버전으로 되돌리기 =="
+    if [ "$MEMORY_MODULE_MODE" != local ] && docker_ok; then
+      C="$(find_container)"
+      if [ -n "$C" ]; then rollback_docker "$C"; exit 0; fi
+    fi
+    rollback_local
+    exit 0 ;;
+  *) fail "알 수 없는 명령입니다: $ACTION (rollback 만 쓸 수 있습니다)" ;;
+esac
+
 say ""
 say "== 기억 서재 설치·업데이트 =="
+resolve_base
 if [ "$MEMORY_MODULE_MODE" != local ] && docker_ok; then
   C="$(find_container)"
   if [ -n "$C" ]; then install_docker "$C"; exit 0; fi

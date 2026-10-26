@@ -6,7 +6,7 @@
 > **비공식 모듈입니다.** Marinara Engine 및 Pasta-Devs와 관련이 없고, 그쪽의 검토나 지원을 받지 않습니다.
 > Marinara Engine **2.5.1**에서 확인했습니다. 다른 버전에서는 일부 기능이 스스로 꺼질 수 있습니다(아래 참고).
 
-지금 버전: **v0.8.1 (베타)** · 변경 내역은 [CHANGELOG.md](CHANGELOG.md)
+지금 버전: **v0.8.2 (베타)** · 변경 내역은 [CHANGELOG.md](CHANGELOG.md)
 
 ---
 
@@ -65,8 +65,8 @@ irm https://raw.githubusercontent.com/tlsiddl/marinara-memory-module/main/instal
 **설치 확인** — 마리나라 로그에 아래 줄들이 보이면 성공입니다.
 
 ```
-[memory-module] v0.8.1 applied: {{기억}} macro ready
-[memory-module] v0.8.1 applied: reply hook and admin API ready
+[memory-module] v0.8.2 applied: {{기억}} macro ready
+[memory-module] v0.8.2 applied: reply hook and admin API ready
 ```
 
 ### 2. 기억 서재 화면 (확장)
@@ -116,6 +116,20 @@ irm https://raw.githubusercontent.com/tlsiddl/marinara-memory-module/main/instal
 ## 업데이트
 
 설치할 때와 **같은 명령**을 다시 실행하고, 확장 관리에서 기억 서재도 업데이트해 주세요. 기억 데이터는 마리나라 데이터 폴더(`data/memory-module`)에 있어서 업데이트로 지워지지 않습니다.
+
+업데이트는 새 파일을 모두 받아 확인한 뒤에 한꺼번에 바꿉니다. 중간에 받기가 실패하면 기존 버전이 그대로 남고, 바꾸기 전 버전은 `memory-module/.prev`에 보관됩니다.
+
+**이전 버전으로 되돌리기** — 업데이트 뒤 문제가 생기면:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/tlsiddl/marinara-memory-module/main/install.sh | sh -s -- rollback
+```
+
+Windows(PowerShell):
+
+```powershell
+$env:MEMORY_MODULE_ACTION='rollback'; irm https://raw.githubusercontent.com/tlsiddl/marinara-memory-module/main/install.ps1 | iex
+```
 
 ## 끄기·지우기
 

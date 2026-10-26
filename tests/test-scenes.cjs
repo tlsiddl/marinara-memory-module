@@ -446,3 +446,30 @@ test('a hidden thing found out in the same scene ("도대체 언제 한 거야?"
   ] }] }, msgs, 2);
   assert.deepEqual(applied.facts[0].unaware.filter((n) => n === '하루'), []);
 });
+
+test('someone who learned a secret in a scene that is undone does not know it any more', () => {
+  const msgs = L.prepareMessages([
+    { id: 'a1', number: 1, speaker: '서아', role: 'user', content: '서아가 혼자 일기장을 숨겼다.' },
+    { id: 'a2', number: 2, speaker: '도윤', role: 'assistant', content: '도윤은 아무것도 몰랐다.' },
+    { id: 'a3', number: 3, speaker: '서아', role: 'user', content: '서아가 도윤에게 일기장 얘기를 했다.' },
+    { id: 'a4', number: 4, speaker: '도윤', role: 'assistant', content: '도윤이 놀랐다.' },
+  ]);
+  const store = S.emptyStore();
+  store.scenes.push({ id: 'S1', start: 1, end: 2, messages: ['a1', 'a2'], title: '일기장', summary: '서아가 일기장을 숨김.', events: [], recollections: [] },
+    { id: 'S2', start: 3, end: 4, messages: ['a3', 'a4'], title: '고백', summary: '서아가 털어놓음.', events: [], recollections: [] });
+  store.facts.push({ id: 'F1', about: '서아', text: '서아는 일기장을 숨겼다.', evidence: [], sceneId: 'S1', unaware: ['도윤'] },
+    { id: 'F2', about: '서아', text: '서아는 일기를 매일 쓴다.', evidence: [], sceneId: 'S1', unaware: ['도윤'], edited: true });
+  store.covered = msgs.map((m) => ({ id: m.id, h: m.h }));
+  S.applyLearned(store, [{ who: '도윤', fact: 'F1', in: 'S2', what: '일기장' }, { who: '도윤', fact: 'F2', in: 'S2', what: '일기', guess: true }]);
+  assert.deepEqual(store.facts[0].unaware, []);
+  assert.deepEqual(store.facts[1].guess, ['도윤']);
+  assert.equal(S.changedAt(store, msgs), -1);
+  // The scene where he heard it is edited away: he goes back to not knowing; a hand-edited fact keeps what the user set.
+  const edited = L.prepareMessages(msgs.map((m) => (m.id === 'a3' ? { ...m, content: '서아는 아무 말도 하지 않았다.' } : m)));
+  assert.equal(S.changedAt(store, edited), 2);
+  S.reconcileScenes(store, edited);
+  assert.equal(store.scenes.length, 1);
+  assert.deepEqual(store.facts.find((f) => f.id === 'F1').unaware, ['도윤']);
+  assert.equal(store.facts.find((f) => f.id === 'F1').knowHistory, undefined);
+  assert.deepEqual(store.facts.find((f) => f.id === 'F2').guess, ['도윤']);
+});

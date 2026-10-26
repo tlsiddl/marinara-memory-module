@@ -558,12 +558,39 @@ function attachTranslations(store, messages) {
   return changed;
 }
 
+/**
+ * Change who knows a fact, and remember what it was before and in which scene it changed, so that undoing
+ * that scene (an edit, a delete, a swipe) puts the old knowledge back.
+ */
+function setKnowing(fact, who, inScene, { unaware, guess }) {
+  const before = { who, in: inScene, unaware: !!fact.unaware?.includes(who), guess: !!fact.guess?.includes(who) };
+  if (unaware !== undefined) fact.unaware = unaware ? [...new Set([...(fact.unaware || []), who])] : (fact.unaware || []).filter((n) => n !== who);
+  if (guess !== undefined) fact.guess = guess ? [...new Set([...(fact.guess || []), who])] : (fact.guess || []).filter((n) => n !== who);
+  const after = { unaware: !!fact.unaware?.includes(who), guess: !!fact.guess?.includes(who) };
+  if (inScene && (after.unaware !== before.unaware || after.guess !== before.guess)) fact.knowHistory = [...(fact.knowHistory || []), before];
+}
+
+/** Knowledge changes made in scenes that are gone are undone, newest first. Hand-edited facts keep what the user set. */
+function undoKnowing(facts, droppedIds) {
+  for (const f of facts) {
+    if (!f.knowHistory?.length) continue;
+    const gone = f.knowHistory.filter((h) => droppedIds.has(h.in));
+    if (!gone.length) continue;
+    f.knowHistory = f.knowHistory.filter((h) => !droppedIds.has(h.in));
+    if (!f.knowHistory.length) delete f.knowHistory;
+    if (f.edited) continue;
+    for (const h of [...gone].reverse()) {
+      f.unaware = h.unaware ? [...new Set([...(f.unaware || []), h.who])] : (f.unaware || []).filter((n) => n !== h.who);
+      f.guess = h.guess ? [...new Set([...(f.guess || []), h.who])] : (f.guess || []).filter((n) => n !== h.who);
+    }
+  }
+}
+
 /** Someone heard about an earlier scene or fact: they know it from then on. */
 function applyLearned(store, learned) {
   for (const l of learned) {
     const fact = l.fact && store.facts.find((f) => f.id === l.fact);
-    if (fact?.unaware?.includes(l.who)) fact.unaware = fact.unaware.filter((n) => n !== l.who);
-    if (fact) fact.guess = l.guess ? [...new Set([...(fact.guess || []), l.who])] : (fact.guess || []).filter((n) => n !== l.who);
+    if (fact) setKnowing(fact, l.who, l.in, { unaware: false, guess: !!l.guess });
     // Seen in the text by the program, not told by the model: fix the fact quietly, no "알게 된 일" line.
     if (l.quiet) continue;
     const scene = l.scene && store.scenes.find((s) => s.id === l.scene && s.id !== l.in);
@@ -572,8 +599,7 @@ function applyLearned(store, learned) {
       // Facts that came out in that scene are now known to them as well.
       for (const f of store.facts) {
         if (f.sceneId !== scene.id || !f.unaware?.includes(l.who)) continue;
-        f.unaware = f.unaware.filter((n) => n !== l.who);
-        if (l.guess) f.guess = [...new Set([...(f.guess || []), l.who])];
+        setKnowing(f, l.who, l.in, { unaware: false, guess: l.guess ? true : undefined });
       }
     }
     const target = store.scenes.find((s) => s.id === l.in);
@@ -603,16 +629,18 @@ function commitScenes(store, applied) {
  * Keep scenes in step with the chat. A scene whose messages changed (edited, deleted, swiped) is dropped,
  * with every scene after it and their facts, so those messages are folded again.
  */
-function reconcileScenes(store, messages) {
-  let firstChanged = -1;
+/** The first folded message that no longer matches the chat (edited, deleted, swiped), or -1. */
+function changedAt(store, messages) {
   for (let i = 0; i < store.covered.length; i++) {
     const seen = store.covered[i];
     const now = messages[i];
-    if (!now || now.id !== seen.id || now.h !== seen.h) {
-      firstChanged = i;
-      break;
-    }
+    if (!now || now.id !== seen.id || now.h !== seen.h) return i;
   }
+  return -1;
+}
+
+function reconcileScenes(store, messages) {
+  const firstChanged = changedAt(store, messages);
   if (firstChanged === -1) return { dropped: 0, lostEdits: 0 };
   let coveredBefore = 0;
   let keep = 0;
@@ -625,6 +653,8 @@ function reconcileScenes(store, messages) {
   const droppedIds = new Set(dropped.map((s) => s.id));
   store.scenes = store.scenes.slice(0, keep);
   store.facts = store.facts.filter((f) => !droppedIds.has(f.sceneId));
+  // Someone who learned a secret in a dropped scene does not know it any more (until it is read again).
+  undoKnowing(store.facts, droppedIds);
   // A merged fact built from a fact that is now gone is undone: the remaining sources come back.
   for (;;) {
     const ids = new Set(store.facts.map((f) => f.id));
@@ -638,6 +668,7 @@ function reconcileScenes(store, messages) {
   // Hearing about something in a scene that is now being read again: forget that it was heard, it will be found again.
   for (const s of store.scenes) if (s.heardLater?.some((h) => droppedIds.has(h.in))) s.heardLater = s.heardLater.filter((h) => !droppedIds.has(h.in));
   for (const s of store.scenes) if (s.later?.some((x) => droppedIds.has(x.in))) s.later = s.later.filter((x) => !droppedIds.has(x.in));
+  for (const s of store.scenes) if (s.learned?.length) s.learned = s.learned.filter((x) => !droppedIds.has(x.in));
   store.covered = store.covered.slice(0, coveredBefore);
   return { dropped: dropped.length, lostEdits: dropped.filter((s) => s.edited).length };
 }
@@ -1045,5 +1076,4 @@ module.exports = {
   renderScenes,
   renderExpanded,
   cleanQuote,
-  SCENE_PROMPT,
-};
+  SCENE_PROMPT, changedAt, setKnowing, undoKnowing };
