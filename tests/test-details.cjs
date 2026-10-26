@@ -156,9 +156,10 @@ test('a line cited under the wrong scene is moved to its own scene; an event wit
   assert.ok(!r.error, r.error);
   const lines = (sc) => sc.events.flatMap((e) => e.quotes.map((q) => `${q.number}.${q.sentence}`));
   assert.deepEqual(lines(r.scenes[0]), ['1.1']);
-  assert.ok(lines(r.scenes[1]).includes('4.1'), 'the stray line is kept, in the scene it came from');
-  // Its words fit no event, but its speaker is named in exactly one: that one.
-  assert.deepEqual(r.scenes[1].events[1].quotes.map((q) => `${q.number}.${q.sentence}`), ['4.1']);
+  assert.ok([...lines(r.scenes[1]), ...(r.scenes[1].loose || []).map((q) => `${q.number}.${q.sentence}`)].includes('4.1'), 'the stray line is kept, in the scene it came from');
+  // Being named in an event is not enough to attach a line about another topic.
+  assert.deepEqual(r.scenes[1].loose.map((q) => `${q.number}.${q.sentence}`), ['4.1']);
+  assert.deepEqual(r.scenes[1].events[1].quotes.map((q) => `${q.number}.${q.sentence}`), ['4.2']);
 });
 
 test('an event with no line gets the sentence of its scene that it describes', () => {

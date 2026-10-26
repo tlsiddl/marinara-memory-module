@@ -147,9 +147,13 @@ function decodeEntities(text) {
   });
 }
 
-const said = (who, body) => {
+const said = (who, body, speech) => {
   const text = body.replace(/\s*\n\s*/g, '\n').trim();
-  return text ? `\n${who} | ${text}\n` : '';
+  if (!text) return '';
+  const line = `${who} | ${text}`;
+  // Keep the parser's speech boundary separately; the public plain-text output stays unchanged.
+  if (speech) speech.push(line);
+  return `\n${line}\n`;
 };
 
 function renderNode(n, ctx) {
@@ -161,7 +165,7 @@ function renderNode(n, ctx) {
   if (isBubble(n)) {
     // A bubble speaks as the name above it, or as the user on the user's side of the chat.
     const who = ctx.speaker || (side === 'user' ? ctx.user || '사용자' : null);
-    if (who) return said(who, renderChildren(n, { ...inner, speaker: null }));
+    if (who) return said(who, renderChildren(n, { ...inner, speaker: null }), ctx.speech);
   }
   const body = renderChildren(n, inner);
   const block = BLOCK_TAGS.has(n.tag) || ctx.flex;
@@ -196,13 +200,13 @@ function renderChildren(n, ctx) {
       }
     }
     if (quoteName && flatText(c)) {
-      out += said(quoteName, renderNode(c, { ...ctx, flex: false, speaker: null }));
+      out += said(quoteName, renderNode(c, { ...ctx, flex: false, speaker: null }), ctx.speech);
       quoteName = null;
       continue;
     }
     const who = speaker?.name ?? ctx.speaker;
     if (speaker?.plain && flatText(c) && !isBubble(c) && !hasBubble(c)) {
-      out += said(speaker.name, renderNode(c, { ...ctx, flex: false, speaker: null }));
+      out += said(speaker.name, renderNode(c, { ...ctx, flex: false, speaker: null }), ctx.speech);
       continue;
     }
     out += renderNode(c, { ...ctx, flex, speaker: who });
@@ -215,24 +219,47 @@ function renderChildren(n, ctx) {
  * styles and scripts go, blocks become lines, entities are decoded. A name above bubbles speaks every bubble
  * under it; bubbles on the user's side speak as `user`. <speaker="…"> tags stay (they name who speaks).
  */
-function htmlToText(text, { user = null } = {}) {
+function htmlToText(text, { user = null, speech = null } = {}) {
   const raw = String(text ?? '');
   if (!/<(?!\/?speaker\b)[a-z!\/][^>]*>/i.test(raw)) return raw;
   const cleaned = raw.replace(/<!--[\s\S]*?-->/g, '').replace(/<(style|script|template)\b[\s\S]*?<\/\1\s*>/gi, '');
-  return decodeEntities(renderChildren(parseHtml(cleaned), { side: null, speaker: null, user, flex: false }))
+  return tidyHtmlText(decodeEntities(renderChildren(parseHtml(cleaned), { side: null, speaker: null, user, flex: false, speech })));
+}
+
+function tidyHtmlText(text) {
+  return text
     .replace(/[ \t]+\n/g, '\n')
     .replace(/\n[ \t]+/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
 
+/** Number each identified HTML speech block once, including all its sentences and line breaks. */
+function segmentHtmlSpeech(content, speech) {
+  const sentences = [];
+  let from = 0;
+  for (const raw of speech) {
+    const line = tidyHtmlText(decodeEntities(raw));
+    const at = content.indexOf(line, from);
+    if (at < 0) continue;
+    sentences.push(...segment(content.slice(from, at)), line);
+    from = at + line.length;
+  }
+  sentences.push(...segment(content.slice(from)));
+  return sentences;
+}
+
+/** A bubble kept whole may hold line breaks: in a numbered list it stays on its own line. */
+const oneLine = (sentence) => String(sentence).replace(/\s*\n\s*/g, ' / ');
+
 function prepareMessages(rows) {
   // The fingerprint (h) is of the message as stored, so a change in how it is read never looks like an edit.
   // Bubbles drawn on the user's side of an HTML chat are the user's own character speaking.
   const user = rows.find((r) => r.role === 'user' && r.speaker)?.speaker || null;
   return rows.map((row) => {
-    const content = htmlToText(row.content, { user });
-    return { ...row, content, h: hashText(row.content), sentences: segment(content) };
+    const speech = [];
+    const content = htmlToText(row.content, { user, speech });
+    return { ...row, content, h: hashText(row.content), sentences: segmentHtmlSpeech(content, speech) };
   });
 }
 
@@ -428,7 +455,7 @@ function buildFeelingPrompt(ledger, messages, feeling, { afterChars = 20000, tai
   const write = (list) => {
     for (const message of list) {
       parts.push(`[${message.number}] ${message.speaker}:`);
-      message.sentences.forEach((sentence, index) => parts.push(`[${message.number}.${index + 1}] ${sentence}`));
+      message.sentences.forEach((sentence, index) => parts.push(`[${message.number}.${index + 1}] ${oneLine(sentence)}`));
     }
   };
   write(head);
@@ -598,7 +625,7 @@ function buildPrompt(ledger, batch, context = []) {
   parts.push('', '## 새 메시지 (번호가 붙은 문장만 근거로 쓸 수 있어)');
   for (const message of batch) {
     parts.push(`[${message.number}] ${message.speaker}:`);
-    message.sentences.forEach((sentence, index) => parts.push(`[${message.number}.${index + 1}] ${sentence}`));
+    message.sentences.forEach((sentence, index) => parts.push(`[${message.number}.${index + 1}] ${oneLine(sentence)}`));
   }
   return [
     { role: 'system', content: SYSTEM_PROMPT },

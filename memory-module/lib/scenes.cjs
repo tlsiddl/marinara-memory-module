@@ -427,21 +427,26 @@ function overlap(a, b) {
 const LINK_MIN = 0.25;
 
 /**
- * The event of `scene` a line belongs to, or null when none clearly fits: the line's own words must match the
- * event, or the line's speaker must be named in exactly one event. Never a guess.
+ * The event of `scene` whose content matches a line, or null. A shared speaker is not evidence of the topic:
+ * remove that name before comparing, and leave equally matching events unresolved.
  */
 function linkQuote(scene, quote, speakerOf) {
+  const who = quote.by || speakerOf?.(quote.number);
+  // Who speaks and who is spoken to say nothing about the topic: their names (and short forms) are left out.
+  const names = [who, quote.to].filter(Boolean).flatMap((n) => [n, ...L.nameKeys(n)]).sort((a, b) => b.length - a.length);
+  const withoutSpeaker = (text) => names.reduce((t, n) => t.split(n).join(' '), String(text || ''));
+  const words = withoutSpeaker(quote.text);
   let best = null;
   let score = 0;
+  let tied = false;
   for (const e of scene.events) {
-    const sc = overlap(e.text, quote.text);
-    if (sc > score) [best, score] = [e, sc];
+    const sc = overlap(withoutSpeaker(e.text), words);
+    if (sc > score) {
+      [best, score] = [e, sc];
+      tied = false;
+    } else if (best && sc === score) tied = true;
   }
-  if (best && score >= LINK_MIN) return best;
-  const who = quote.by || speakerOf?.(quote.number);
-  if (!who) return null;
-  const named = scene.events.filter((e) => String(e.text).includes(who));
-  return named.length === 1 ? named[0] : null;
+  return best && score >= LINK_MIN && !tied ? best : null;
 }
 
 /**
