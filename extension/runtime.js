@@ -282,7 +282,7 @@
         return `<button class="file-index ${s.id === selectedScene ? 'is-selected' : ''} ${outside ? '' : 'is-current'}" data-scene="${esc(s.id)}">
           <span class="file-code">${esc(s.id)} · ${s.start}~${s.end}</span><span class="file-spine">SCENE ${String(i + 1).padStart(3, '0')}</span>
           <h3>${esc(s.title)}</h3><span class="barcode"></span>
-          <span class="file-foot"><span>${esc((s.time || '').slice(0, 14))}</span><span>${s.edited ? '고침' : ''}</span></span></button>`;
+          <span class="file-foot"><span>${esc((s.time || '').split(/\s+/).slice(0, 2).join(' '))}</span><span>${s.edited ? '고침' : ''}</span></span></button>`;
       })
       .join('');
     const s = inGroup.find((x) => x.id === selectedScene);
@@ -387,7 +387,7 @@
     }
     if (!groups.size) return `<h1>알게 된 사실</h1><div class="empty">${icon('person')}아직 없습니다.</div>`;
     return `<div class="eyebrow">FACTS · ${store.facts.length}</div><h1>알게 된 사실</h1>
-      <p class="intro">인물마다 앞으로도 계속 유효한 설정·성격·과거·관계입니다. 오래된 것부터 기억 칸에 들어갑니다.</p>
+      <p class="intro">인물마다 앞으로도 계속 유효한 설정·성격·과거·관계입니다. 인물마다 최신 것부터 고르게 기억 칸에 들어가고, 많이 쌓이면 같은 주제끼리 합쳐집니다.</p>
       ${[...groups].map(([who, list]) => `<div class="paper"><h2>${esc(who)}</h2>${list
         .map((f) => {
           const replaced = f.replacedBy && ids.has(f.replacedBy);
