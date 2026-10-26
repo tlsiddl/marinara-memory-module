@@ -4,9 +4,9 @@
 지난 대화를 장면·사실·약속·감정으로 정리해 두었다가, 답변을 만들 때마다 지금 필요한 기억을 골라 프롬프트에 넣어 줍니다.
 
 > **비공식 모듈입니다.** Marinara Engine 및 Pasta-Devs와 관련이 없고, 그쪽의 검토나 지원을 받지 않습니다.
-> Marinara Engine **2.5.1**에서 확인했습니다. 다른 버전에서는 일부 기능이 스스로 꺼질 수 있습니다(아래 참고).
+> Marinara Engine **2.4.6 전용 호환 브랜치**입니다. 공식 2.4.6 소스와 컴파일된 연결 지점을 점검했습니다. 실제 2.4.6 서버 전체 실행 검증은 아직 하지 않았습니다. [검증 범위](COMPATIBILITY.md)를 확인해 주세요.
 
-지금 버전: **v0.10.2 (베타)** · 변경 내역은 [CHANGELOG.md](CHANGELOG.md)
+지금 버전: **v0.10.2-marinara.2.4.6.1 (호환 베타)** · 변경 내역은 [CHANGELOG.md](CHANGELOG.md)
 
 ---
 
@@ -29,7 +29,7 @@
 
 ## 준비물
 
-1. **Marinara Engine 2.5.1** (도커 서버, 그냥 실행, Termux 모두 가능)
+1. **Marinara Engine 2.4.6** (도커 서버, 그냥 실행, Termux 모두 가능)
 2. **기억 정리에 쓸 모델 연결** — 마리나라에 이미 저장된 연결 중 하나를 빌려 씁니다. 답변마다 여러 번 부르니 **저렴하고 긴 글을 잘 읽는 모델**을 추천합니다(예: DeepSeek 계열).
 3. (선택) **임베딩 모델** — 말을 바꿔 물어도 찾게 해 줍니다. 한국어라면 `Qwen/Qwen3-Embedding-8B`나 `BAAI/bge-m3`를 추천합니다. 마리나라 연결에 넣어 둔 임베딩 설정을 그대로 가져옵니다.
 
@@ -42,7 +42,7 @@
 **도커 서버 (벌처·AWS 등)** — 서버 터미널에서:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/tlsiddl/marinara-memory-module/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/tlsiddl/marinara-memory-module/marinara-2.4.6/install.sh | sh
 ```
 
 켜져 있는 마리나라 컨테이너를 찾아 `docker-compose.override.yml`을 만들고 다시 켭니다. 이미 그 파일이 있다면 건드리지 않고 넣을 내용을 알려 드립니다. compose를 `-f` 여러 개로 켜고 계셨다면, 앞으로도 마지막에 `-f docker-compose.override.yml`을 붙여 주세요.
@@ -58,7 +58,7 @@ bash start-memory.sh
 **Windows (베타 — 아직 실제 Windows에서 확인 중입니다)** — 마리나라 폴더(`start.bat`이 있는 곳)에서 PowerShell을 열고:
 
 ```powershell
-irm https://raw.githubusercontent.com/tlsiddl/marinara-memory-module/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/tlsiddl/marinara-memory-module/marinara-2.4.6/install.ps1 | iex
 ```
 
 바탕화면에 생긴 **Marinara + 기억 서재** 바로가기(또는 `start-memory.bat`)로 켜 주세요. `start.bat`이나 MarinaraLauncher로 켜면 기억 모듈 없이 켜집니다.
@@ -66,8 +66,8 @@ irm https://raw.githubusercontent.com/tlsiddl/marinara-memory-module/main/instal
 **설치 확인** — 마리나라 로그에 아래 줄들이 보이면 성공입니다.
 
 ```
-[memory-module] v0.10.2 applied: {{기억}} macro ready
-[memory-module] v0.10.2 applied: reply hook and admin API ready
+[memory-module] v0.10.2-marinara.2.4.6.1 applied: {{기억}} macro ready
+[memory-module] v0.10.2-marinara.2.4.6.1 applied: reply hook and admin API ready
 ```
 
 ### 2. 기억 서재 화면 (확장)
@@ -75,7 +75,10 @@ irm https://raw.githubusercontent.com/tlsiddl/marinara-memory-module/main/instal
 마리나라 개인 확장 관리에서 GitHub로 가져오기:
 
 - 저장소 주소: `https://github.com/tlsiddl/marinara-memory-module`
+- 브랜치: `marinara-2.4.6` (브랜치 선택을 지원하는 가져오기 화면에서)
 - 파일: `deliverable/manifest.json`
+
+브랜치 선택이 없는 화면에서는 아래 ZIP을 받아 가져와 주세요. 기본 `main` 브랜치의 확장과 혼동하지 않도록 주의해 주세요.
 
 (또는 [deliverable/memory-library-module.personal-extension.zip](deliverable/memory-library-module.personal-extension.zip)을 받아 가져오기.) **전체 페이지 접근**을 허용하고 켜면 화면 오른쪽 아래에 책 아이콘이 생깁니다. 아이콘은 끌어서 원하는 곳으로 옮길 수 있고(두 번 누르면 처음 자리로), [확장 서랍](https://github.com/boricha417/marinara-extension-drawer)을 쓰시면 서랍 안에 자동으로 담깁니다.
 
@@ -123,13 +126,13 @@ irm https://raw.githubusercontent.com/tlsiddl/marinara-memory-module/main/instal
 **이전 버전으로 되돌리기** — 업데이트 뒤 문제가 생기면:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/tlsiddl/marinara-memory-module/main/install.sh | sh -s -- rollback
+curl -fsSL https://raw.githubusercontent.com/tlsiddl/marinara-memory-module/marinara-2.4.6/install.sh | sh -s -- rollback
 ```
 
 Windows(PowerShell):
 
 ```powershell
-$env:MEMORY_MODULE_ACTION='rollback'; irm https://raw.githubusercontent.com/tlsiddl/marinara-memory-module/main/install.ps1 | iex
+$env:MEMORY_MODULE_ACTION='rollback'; irm https://raw.githubusercontent.com/tlsiddl/marinara-memory-module/marinara-2.4.6/install.ps1 | iex
 ```
 
 ## 끄기·지우기
@@ -184,3 +187,4 @@ mm report      # 상태와 기억 전체를 한 번에 (홈 폴더의 memory-rep
 ## 라이선스
 
 [MIT](LICENSE). Marinara Engine은 Pasta-Devs의 AGPL-3.0 소프트웨어이며, 이 모듈에는 Marinara Engine의 코드가 들어 있지 않습니다.
+

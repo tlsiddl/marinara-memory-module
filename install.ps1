@@ -1,8 +1,8 @@
 # 기억 서재 (마리나라 엔진용 기억 모듈) — Windows 설치·업데이트
 # 마리나라 폴더에서 PowerShell을 열고:
-#   irm https://raw.githubusercontent.com/tlsiddl/marinara-memory-module/main/install.ps1 | iex
+#   irm https://raw.githubusercontent.com/tlsiddl/marinara-memory-module/marinara-2.4.6/install.ps1 | iex
 # 이전 버전으로 되돌리기:
-#   $env:MEMORY_MODULE_ACTION='rollback'; irm https://raw.githubusercontent.com/tlsiddl/marinara-memory-module/main/install.ps1 | iex
+#   $env:MEMORY_MODULE_ACTION='rollback'; irm https://raw.githubusercontent.com/tlsiddl/marinara-memory-module/marinara-2.4.6/install.ps1 | iex
 # 다시 실행하면 업데이트입니다. 기억 데이터는 마리나라 데이터 폴더에 있어서 지워지지 않습니다.
 $ErrorActionPreference = 'Stop'
 try { [Console]::OutputEncoding = [Text.Encoding]::UTF8 } catch {}
@@ -55,9 +55,9 @@ Write-Host '== 기억 서재 설치·업데이트 (Windows) =='
 Write-Host "마리나라 폴더를 찾았습니다: $dir"
 
 # Every file from one and the same commit, so an update never mixes two versions.
-$ref = 'main'
+$ref = 'marinara-2.4.6'
 try {
-  $sha = (Invoke-RestMethod -UseBasicParsing -TimeoutSec 15 -Uri "https://api.github.com/repos/$repo/commits/main").sha
+  $sha = (Invoke-RestMethod -UseBasicParsing -TimeoutSec 15 -Uri "https://api.github.com/repos/$repo/commits/marinara-2.4.6").sha
   if ($sha -match '^[0-9a-f]{40}$') { $ref = $sha }
 } catch {}
 $base = if ($env:MEMORY_MODULE_BASE) { $env:MEMORY_MODULE_BASE } else { "https://raw.githubusercontent.com/$repo/$ref" }
@@ -126,3 +126,4 @@ try {
 Write-Host ''
 Write-Host '이제부터 마리나라를 start-memory.bat (또는 바탕화면 바로가기)로 켜 주세요.'
 Write-Host '이미 켜져 있다면 끄고 다시 켜 주세요. start.bat이나 MarinaraLauncher로 켜면 기억 모듈 없이 켜집니다.'
+

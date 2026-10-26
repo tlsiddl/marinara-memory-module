@@ -1,14 +1,4 @@
 #!/bin/sh
-# Copies the built extension (deliverable/) to the root of the "extension" branch and pushes it.
-set -e
-cd "$(dirname "$0")/.."
-TMP=$(mktemp -d)
-git fetch -q origin +extension:refs/remotes/origin/extension
-git worktree add -q "$TMP" origin/extension
-cp deliverable/manifest.json deliverable/extension.js deliverable/extension.css "$TMP/"
-cd "$TMP"
-git add -A
-git commit -qm "기억 서재 (기억 모듈판) 확장 $(sed -n 's/.*"version": "\([^"]*\)".*/\1/p' manifest.json | tail -1)" || true
-git push -q origin HEAD:extension
-cd - >/dev/null
-git worktree remove --force "$TMP"
+# This compatibility branch ships its UI in deliverable/; do not overwrite the shared extension branch.
+printf '%s\n' '2.4.6 호환판은 deliverable/ ZIP 또는 marinara-2.4.6 브랜치로 가져와 주세요. 공용 extension 브랜치에는 게시하지 않습니다.' >&2
+exit 1

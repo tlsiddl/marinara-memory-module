@@ -1,6 +1,6 @@
 #!/bin/sh
 # 기억 서재 (마리나라 엔진용 기억 모듈) — 설치·업데이트
-#   서버(도커):          curl -fsSL https://raw.githubusercontent.com/tlsiddl/marinara-memory-module/main/install.sh | sh
+#   서버(도커):          curl -fsSL https://raw.githubusercontent.com/tlsiddl/marinara-memory-module/marinara-2.4.6/install.sh | sh
 #   그냥 실행·Termux:    마리나라 폴더에서 같은 명령
 #   이전 버전으로 되돌리기: 같은 명령 끝의 sh 를  sh -s -- rollback  으로
 # 다시 실행하면 업데이트입니다. 기억 데이터는 마리나라 데이터 폴더에 있어서 지워지지 않습니다.
@@ -25,10 +25,10 @@ fetch() { # fetch <url> <file>
 resolve_base() {
   if [ -n "$MEMORY_MODULE_BASE" ]; then BASE="$MEMORY_MODULE_BASE"; return; fi
   SHA=""
-  if command -v curl >/dev/null 2>&1; then API="$(curl -fsSL -m 15 "https://api.github.com/repos/$REPO/commits/main" 2>/dev/null || true)"
-  else API="$(wget -q -T 15 -O - "https://api.github.com/repos/$REPO/commits/main" 2>/dev/null || true)"; fi
+  if command -v curl >/dev/null 2>&1; then API="$(curl -fsSL -m 15 "https://api.github.com/repos/$REPO/commits/marinara-2.4.6" 2>/dev/null || true)"
+  else API="$(wget -q -T 15 -O - "https://api.github.com/repos/$REPO/commits/marinara-2.4.6" 2>/dev/null || true)"; fi
   SHA="$(printf '%s\n' "$API" | sed -n 's/.*"sha": *"\([0-9a-f]\{40\}\)".*/\1/p' | head -n 1)"
-  BASE="https://raw.githubusercontent.com/$REPO/${SHA:-main}"
+  BASE="https://raw.githubusercontent.com/$REPO/${SHA:-marinara-2.4.6}"
 }
 
 # All files go to a holding folder first and are checked; only then do they replace the old ones,
@@ -231,3 +231,4 @@ if [ "$MEMORY_MODULE_MODE" != local ] && docker_ok; then
   say "(도커 없이 실행 중이라면 무시하고 이어서 진행합니다.)"
 fi
 install_local
+

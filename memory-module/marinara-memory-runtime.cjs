@@ -1,8 +1,9 @@
 'use strict';
 // Marinara Memory Module — runtime loader.
-// Patches two Marinara 2.5.1 files in memory only (no files are written):
+// Patches Marinara 2.4.6 files in memory only (no files are written):
 //   1. packages/shared/dist/utils/macro-engine.js → adds the {{기억}} / {{memory}} macro
 //   2. packages/server/dist/app.js               → lets the module see finished replies and add its admin API
+//   3. packages/server/dist/routes/generate.routes.js → repairs tags before streaming/reply persistence
 // Each patch fails closed on its own: if the expected line is not found exactly once, that part stays off
 // and Marinara runs unchanged.
 
@@ -12,9 +13,9 @@ const { registerHooks } = require('node:module');
 const { fileURLToPath } = require('node:url');
 
 const TAG = '[memory-module]';
-/** The Marinara version these patches were made and tested against. */
-const TESTED_MARINARA = '2.5.1';
-const VERSION = '0.10.2';
+/** Target checked against upstream source and compiled hook contracts; see COMPATIBILITY.md for test scope. */
+const TESTED_MARINARA = '2.4.6';
+const VERSION = '0.10.2-marinara.2.4.6.1';
 const NOTES_DIR = process.env.MEMORY_MODULE_NOTES_DIR || path.join(__dirname, 'notes');
 const DEFAULT_NOTE = '_default.txt';
 /** Last safety net only: the service already keeps the memory within its own limit (40,000 by default). */
@@ -38,11 +39,11 @@ const PATCHES = [
   },
   {
     name: 'speakers',
-    target: /[\\/]packages[\\/]server[\\/]dist[\\/]routes[\\/]generate[\\/]reply-text-cleanup\.js$/,
-    anchor: '    return { text: fullResponse, changed, oocMessages };',
+    target: /[\\/]packages[\\/]server[\\/]dist[\\/]routes[\\/]generate\.routes\.js$/,
+    anchor: 'const gameDraftWithCommands = fullResponse;',
     before: true,
     insert:
-      '    try { const fixed = globalThis.__marinaraMemory?.fixSpeakers?.(fullResponse, o); if (typeof fixed === "string" && fixed !== fullResponse) { fullResponse = fixed; changed = true; } } catch {}\n',
+      'try { const fixed = globalThis.__marinaraMemory?.fixSpeakers?.(fullResponse, { chatId: input.chatId, chatMode, isGroupChat, usesIndividualGroupGeneration, impersonate: input.impersonate, charInfo }); if (typeof fixed === "string" && fixed !== fullResponse) { fullResponse = fixed; contentReplaced = true; } } catch {}\n',
     ok: 'speaker tags are put back on untagged lines',
   },
 ];
@@ -185,3 +186,4 @@ else if (process.env.MEMORY_MODULE_HOOK_TEST !== '1' && !globalThis.__marinaraMe
 }
 
 module.exports = { patchSource, sanitize, render, PATCHES, VERSION, TESTED_MARINARA };
+
