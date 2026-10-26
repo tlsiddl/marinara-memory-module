@@ -10,6 +10,7 @@
   const NAV = [
     ['home', '한눈에', 'archive'],
     ['scenes', '장면', 'folder'],
+    ['search', '검색', 'search'],
     ['facts', '알게 된 사실', 'person'],
     ['ledger', '아직 끝나지 않은 일', 'note'],
     ['life', '최근 생활', 'clock'],
@@ -33,6 +34,8 @@
   /** Which shelf the scenes tab shows: a chapter id, or '' for the scenes not in a chapter yet. */
   let selectedGroup = null;
   let selectedArc = '';
+  let searchDraft = '';
+  let searchQuery = '';
   /** Folded lists the person opened (kept open when the screen is drawn again). */
   const openLists = new Set();
   let connections = [];
@@ -341,6 +344,39 @@
       <p class="intro">ON AIR 도장이 찍힌 카드는 아직 모델이 원문으로 직접 보고 있는 장면입니다(기억 칸에는 들어가지 않습니다). 카드를 누르면 아래에서 고치실 수 있습니다.${chapters.length ? ' 오래된 장면은 챕터로 묶여, 기억 칸에는 챕터 요약으로 들어갑니다.' : ''}</p>
       ${arcBar}${bar}${chapters.length ? `<div class="buttons"><button data-act="rebuildChapters" ${running() ? 'disabled' : ''}>${armed === 'chapters' ? '한 번 더 누르면 챕터를 다시 묶습니다' : '챕터만 다시 묶기'}</button><small>장면·사실·장부는 그대로 두고 챕터와 큰 흐름만 새로 묶습니다. 챕터·큰 흐름을 직접 고친 내용은 사라집니다.</small></div>` : ''}${chapter ? chapterEditor(chapter) : ''}
       <div class="file-shelf" id="shelf">${shelf || '<p class="hint">이 묶음에는 장면이 없습니다.</p>'}</div>${s ? sceneEditor(s) : ''}`;
+  }
+
+  /** Search the room's loaded records literally; punctuation is not a pattern. */
+  function searchableText(value) {
+    if (value == null) return '';
+    if (Array.isArray(value)) return value.map(searchableText).join(' ');
+    if (typeof value === 'object') return Object.values(value).map(searchableText).join(' ');
+    return String(value);
+  }
+
+  function viewSearch() {
+    if (!store) return emptyRoom();
+    const query = searchQuery.toLocaleLowerCase();
+    const groups = [
+      ['장면', 'scene', store.scenes || []],
+      ['챕터', 'chapter', store.chapters || []],
+      ['큰 흐름', 'arc', store.arcs || []],
+      ['사실', 'fact', store.facts || []],
+      ['미해결·닫힌 기록', 'thread', info?.threads || []],
+    ];
+    const results = [];
+    if (query) for (const [label, kind, records] of groups) for (const record of records) {
+      const text = searchableText(record);
+      const at = text.toLocaleLowerCase().indexOf(query);
+      if (at < 0) continue;
+      const start = Math.max(0, at - 45);
+      const excerpt = `${start ? '…' : ''}${text.slice(start, at + query.length + 110)}${text.length > at + query.length + 110 ? '…' : ''}`;
+      results.push(`<a href="#" class="record-link record-row" data-goto-${kind}="${esc(record.id)}"><span class="pill neutral">${label}</span><span class="row-main"><b>${esc(record.title || record.about || record.id)}</b><small>${esc(excerpt)}</small></span><span class="chip-arrow">›</span></a>`);
+    }
+    return `<h1>기억 검색</h1><p class="intro">이 방의 장면·챕터·큰 흐름·사실·미해결 기록과 닫힌 기록에서 입력한 글자를 찾습니다. 결과를 누르면 해당 기록으로 이동합니다.</p>
+      <form id="memorySearch" class="memory-search"><label for="memorySearchInput">검색어</label><div class="buttons"><input id="memorySearchInput" type="search" value="${esc(searchDraft)}" placeholder="이름, 대사, 장소 등" autocomplete="off"><button class="primary" type="submit">${icon('search')}검색</button><button type="button" data-act="clearSearch">초기화</button></div></form>
+      <div role="status">${query ? `${results.length}개 검색 결과` : '검색어를 입력하고 검색 버튼이나 Enter를 눌러 주세요.'}</div>
+      <div class="record-list">${results.join('') || (query ? '<p class="hint">일치하는 기억이 없습니다.</p>' : '')}</div>`;
   }
 
   function arcEditor(a) {
@@ -664,7 +700,7 @@
       <div class="rail-footer">기억 서재 · 기억 모듈판 v${VERSION}</div>`;
   }
 
-  const VIEWS = { home: viewHome, scenes: viewScenes, facts: viewFacts, ledger: viewLedger, life: viewLife, inject: viewInject, settings: viewSettings };
+  const VIEWS = { home: viewHome, scenes: viewScenes, search: viewSearch, facts: viewFacts, ledger: viewLedger, life: viewLife, inject: viewInject, settings: viewSettings };
 
   function render() {
     if (!root) return;
@@ -965,6 +1001,20 @@
     (document.body || document.documentElement).append(element);
     root.host.setAttribute('data-theme', theme);
 
+    // Shadow DOM retargets input events to our DIV at the page boundary. Keep
+    // host shortcuts from treating typing (notably '?') as a page command.
+    // Do not preventDefault: text, IME, clipboard and native controls keep working.
+    for (const type of ['keydown', 'keypress', 'keyup']) root.addEventListener(type, (e) => e.stopPropagation());
+    root.addEventListener('input', (e) => {
+      if (e.target.id === 'memorySearchInput') searchDraft = e.target.value;
+    });
+    root.addEventListener('submit', (e) => {
+      if (e.target.id !== 'memorySearch') return;
+      e.preventDefault();
+      searchDraft = root.querySelector('#memorySearchInput').value;
+      searchQuery = searchDraft.trim();
+      render();
+    });
     makeDraggable(root.querySelector('#launch'));
     root.querySelector('#launch').onclick = () => {
       open = !open;
@@ -972,6 +1022,7 @@
         const current = activeChatId();
         if (current && current !== room) {
           room = current;
+          searchDraft = searchQuery = '';
           recallTest = null;
         }
         void act(refresh);
@@ -996,6 +1047,7 @@
     };
     root.querySelector('#roomSelect').onchange = (e) => {
       room = e.target.value;
+      searchDraft = searchQuery = '';
       recallTest = null;
       selectedScene = '';
       void act(() => loadRoom(room));
@@ -1027,6 +1079,15 @@
           selectedGroup = null;
           tab = 'scenes';
           root.querySelector('#content').scrollTop = 0;
+        } else if (link.dataset.gotoChapter) {
+          selectedGroup = link.dataset.gotoChapter;
+          selectedScene = selectedArc = '';
+          tab = 'scenes';
+          root.querySelector('#content').scrollTop = 0;
+        } else if (link.dataset.gotoArc) {
+          selectedArc = link.dataset.gotoArc;
+          tab = 'scenes';
+          root.querySelector('#content').scrollTop = 0;
         } else if (link.dataset.gotoThread) {
           tab = 'ledger';
           focus = { kind: 'thread', id: link.dataset.gotoThread };
@@ -1037,6 +1098,12 @@
         return render();
       }
       const n = e.target.closest('button');
+      if (n?.dataset.act === 'clearSearch') {
+        searchDraft = searchQuery = '';
+        render();
+        root.querySelector('#memorySearchInput')?.focus();
+        return;
+      }
       if (!n || busy) return;
       if (n.dataset.tab) {
         tab = n.dataset.tab;
@@ -1076,6 +1143,7 @@
   }
 
   const EXTRA_CSS = `
+    .memory-search{margin-bottom:18px}.memory-search input{flex:1;min-width:120px}.memory-search .buttons{flex-wrap:wrap}
     #launch{position:fixed;right:18px;bottom:122px;width:64px;height:64px;padding:0;border:0;border-radius:0;place-items:center;color:inherit;
       background:transparent!important;box-shadow:none!important;filter:drop-shadow(0 3px 5px #00000040);transition:transform .18s,filter .18s}
     #launch:not(:disabled):hover{background:transparent;transform:translateY(-2px) rotate(-3deg);filter:drop-shadow(0 6px 9px #00000050)}
