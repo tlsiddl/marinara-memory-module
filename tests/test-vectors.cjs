@@ -49,11 +49,25 @@ test('vectors are made again only for changed pieces, and an old layout starts o
 test('the nearest scene in meaning stands out only when it is clearly closer than the rest', () => {
   const index = V.emptyIndex('m');
   const list = Array.from({ length: 10 }, (_, i) => scene(`S${i + 1}`, `장면 ${i + 1}`, '.'));
-  V.putVectors(index, list.map((x) => ({ key: x.id, text: '' })), list.map((_, i) => (i === 6 ? [1, 0.05, 0] : [0.1 * (i % 3), 1, 0.2 * (i % 2)])));
+  V.putVectors(index, list.map((x) => V.sceneDocs(x)[0]), list.map((_, i) => (i === 6 ? [1, 0.05, 0] : [0.1 * (i % 3), 1, 0.2 * (i % 2)])));
   const hits = V.nearest(index, [1, 0, 0], list, 3);
   assert.equal(hits[0].id, 'S7');
   assert.equal(hits[0].strong, true);
   assert.equal(hits[1].strong, false);
+});
+
+test('a scene edited by hand is not found by its old vectors before it is indexed again', () => {
+  const index = V.emptyIndex('m');
+  const umbrella = scene('S1', '우산', '도윤이 서아에게 우산을 씌워 줬다');
+  const other = scene('S2', '시장', '시장에서 케이크를 샀다');
+  const docs = [umbrella, other].flatMap(V.sceneDocs);
+  V.putVectors(index, docs, docs.map((d) => (d.key.startsWith('S1') ? [1, 0, 0] : [0, 1, 0])));
+  assert.equal(V.nearest(index, [1, 0, 0], [umbrella, other], 1)[0].id, 'S1');
+  const edited = { ...umbrella, title: '장학금', summary: '서아가 장학금 서류를 냈다', events: [{ text: '서아가 서류를 냄', quotes: [] }] };
+  assert.deepEqual(V.nearest(index, [1, 0, 0], [edited, other], 2).map((h) => h.id), ['S2'], 'the umbrella vectors no longer count');
+  const fresh = V.staleDocs(index, [edited, other]);
+  V.putVectors(index, fresh, fresh.map(() => [0, 0, 1]));
+  assert.equal(V.nearest(index, [0, 0, 1], [edited, other], 1)[0].id, 'S1');
 });
 
 test('retrieval models get the prefixes they were trained with', () => {

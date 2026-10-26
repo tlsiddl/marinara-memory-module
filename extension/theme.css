@@ -179,9 +179,10 @@ details>summary{font-family:var(--serif);font-weight:700}
 .brand .logo i{position:absolute;inset:0;background:center/contain no-repeat}
 .brand .logo .disc{background-image:var(--logo-disc);transform-origin:59% 50%;transition:transform .5s}
 .brand .logo .sleeve{background-image:var(--logo-sleeve)}
-#panel.is-running .brand .logo .disc{animation:mm-slide 2.6s ease-in-out infinite}
-@keyframes mm-slide{0%,100%{transform:translateX(0) rotate(0)}50%{transform:translateX(18%) rotate(180deg)}}
-@media (prefers-reduced-motion:reduce){#panel.is-running .brand .logo .disc{animation:none;transform:translateX(10%)}}
+/* While memory is being sorted the record slides out of its sleeve and plays, then goes back in. */
+#panel.is-running .brand .logo .disc{animation:mm-play 4s linear infinite}
+@keyframes mm-play{0%{transform:translateX(0) rotate(0)}12%{transform:translateX(18%) rotate(40deg)}88%{transform:translateX(18%) rotate(680deg)}100%{transform:translateX(0) rotate(720deg)}}
+@media (prefers-reduced-motion:reduce){#panel.is-running .brand .logo .disc{animation:mm-play 12s linear infinite}}
 @media(max-width:720px){.brand .logo{width:40px;height:40px}}
 
 /* ---- font: Marinara's own font unless the reader picked the library's ---- */

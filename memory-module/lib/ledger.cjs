@@ -11,8 +11,10 @@ const MAX_BATCHES_KEPT = 15;
 
 /** The tracker's date, time or weather for a message was changed by hand (only where it was saved before). */
 function trackerChanged(seen, now) {
-  return !!seen.c && seen.c !== (now.c || null);
+  // Only marks written the current way are compared (v0.9.7 wrote a different kind): no mass re-read on update.
+  return typeof seen.c === 'string' && seen.c.startsWith(TRACKER_MARK) && seen.c !== (now.c || null);
 }
+const TRACKER_MARK = 't2:';
 
 function hashText(text) {
   return crypto.createHash('sha1').update(String(text)).digest('hex').slice(0, 16);
@@ -266,7 +268,7 @@ function prepareMessages(rows) {
     const content = htmlToText(row.content, { user, speech });
     const { trackerMark, ...rest } = row;
     // c: the tracker's own date, time and weather for this message (not part of the text, so not in h).
-    return { ...rest, content, h: hashText(row.content), ...(trackerMark ? { c: hashText(JSON.stringify(trackerMark)) } : {}), sentences: segmentHtmlSpeech(content, speech) };
+    return { ...rest, content, h: hashText(row.content), ...(trackerMark ? { c: TRACKER_MARK + hashText(JSON.stringify(trackerMark)) } : {}), sentences: segmentHtmlSpeech(content, speech) };
   });
 }
 
@@ -1123,19 +1125,51 @@ function addDays(iso, days) {
 }
 
 /** The newest in-story date in a header like "§RP | 24-10-18 (금) | 11:15 | …§". */
-function storyDate(messages) {
+function storyDate(messages, base = null) {
   let latest = null;
   for (const m of messages || []) {
-    let found = false;
-    for (const hit of String(m.content || '').matchAll(/(\d{2,4}-\d{1,2}-\d{1,2})\s*\([월화수목금토일]\)/g)) {
-      const iso = isoDate(hit[1]);
-      if (!iso) continue;
-      found = true;
-      if (!latest || iso > latest) latest = iso;
-    }
+    const own = dateInText(m.content, latest || base);
+    const found = !!own;
+    if (own && (!latest || own.date > latest)) latest = own.date;
     if (!found && m.clock?.date && (!latest || m.clock.date > latest)) latest = m.clock.date;
   }
   return latest;
+}
+
+const WEEKDAY_WORD = /[월화수목금토일]요일|\(\s*[월화수목금토일]\s*\)|\b(?:mon|tue|wed|thu|fri|sat|sun)(?:day|sday|nesday|urday|rsday)?\b/i;
+
+/**
+ * The story date a line states, when the line is a date line ("24-10-18 (금) | 14:00", "2027년 4월 14일 수요일 |
+ * 10시 30분", "[2027.04.14 (수) 10:30 · 카페]"), not a sentence that mentions a date ("4월 14일에 보자.", a quote).
+ * A date line has a year or a weekday, is short, and is not said or written as part of a sentence.
+ */
+function dateLine(line, base = null) {
+  const raw = String(line || '').trim();
+  if (!raw || raw.length > 90 || /[.!?…。]["”’」』)]*$/.test(raw)) return null;
+  const t = raw.replace(/^[^\p{L}\p{N}"“'‘「『]+/u, '');
+  if (/["“”「」『』]/.test(t)) return null;
+  if (!/\d{4}\s*년|\d{2,4}[-./]\d{1,2}[-./]\d{1,2}/.test(t) && !WEEKDAY_WORD.test(t)) return null;
+  // "14일에", "14일까지", "18일이었다": a date inside a sentence.
+  if (/\d\s*일\s*(?:에|엔|까지|부터|쯤|께|이었|이야|이다|이라|이니|인데|로|은|는|의)/.test(t) || /요일\s*(?:에|엔|까지|부터|이었|이야|이다|인데|은|는|의)/.test(t)) return null;
+  const c = parseClock(t, base);
+  return c?.date ? c : null;
+}
+
+/** The latest date line of a message (its own story date and time), or null. */
+function dateInText(content, base = null) {
+  let best = null;
+  const take = (c) => {
+    if (c?.date && (!best || `${c.date}T${c.time || ''}` > `${best.date}T${best.time || ''}`)) best = c;
+  };
+  const text = String(content || '');
+  // A numeric date with its weekday in brackets is a header wherever it stands, even inline before a line of
+  // dialogue ("§RP | 24-10-18 (금) | 02:32 | 서재§ 하루 | …").
+  for (const hit of text.matchAll(/(\d{2,4}-\d{1,2}-\d{1,2})\s*\([월화수목금토일]\)(?:\s*\|?\s*(\d{1,2}:\d{2}))?/g)) {
+    const date = isoDate(hit[1]);
+    if (date) take({ date, time: hit[2] ? hit[2].padStart(5, '0') : null });
+  }
+  for (const line of text.split('\n')) take(dateLine(line, best?.date || base));
+  return best;
 }
 
 /**
@@ -1175,7 +1209,7 @@ function parseClock(text, base = null) {
 function clockNote(message) {
   const c = message?.clock;
   const parts = [];
-  if ((c?.date || c?.time) && !/\d{2,4}-\d{1,2}-\d{1,2}\s*\([월화수목금토일]\)/.test(String(message.content || ''))) {
+  if ((c?.date || c?.time) && !dateInText(message.content, c?.date || null)) {
     const day = c.date ? `${c.date.slice(2)} (${WEEKDAYS[new Date(`${c.date}T00:00:00Z`).getUTCDay()]})` : '';
     parts.push(`작중 ${[day, c.time].filter(Boolean).join(' ')}`);
   }
@@ -1195,15 +1229,13 @@ function notAMeal(text) {
 }
 
 /** The newest in-story date and time, "2024-10-18T11:15", from headers like "24-10-18 (금) | 11:15". */
-function storyTime(messages) {
+function storyTime(messages, base = null) {
   let latest = null;
   for (const m of messages || []) {
-    let found = false;
-    for (const hit of String(m.content || '').matchAll(/(\d{2,4}-\d{1,2}-\d{1,2})\s*\([월화수목금토일]\)\s*\|?\s*(\d{1,2}:\d{2})/g)) {
-      const iso = isoDate(hit[1]);
-      if (!iso) continue;
-      found = true;
-      const at = `${iso}T${hit[2].padStart(5, '0')}`;
+    const own = dateInText(m.content, latest?.slice(0, 10) || base);
+    const found = !!own;
+    if (own?.time) {
+      const at = `${own.date}T${own.time}`;
       if (!latest || at > latest) latest = at;
     }
     // No date line in the message: the tracker's date and time for it, when both are known.
@@ -1749,6 +1781,7 @@ module.exports = {
   parseClock,
   deadlineOf,
   deadlineList,
+  dateInText,
   trackerChanged,
   clockNote,
   personaNames,

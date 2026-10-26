@@ -146,3 +146,31 @@ test('a hand fix of a tracker date or weather is a change to read again; older s
   ledger.processed = [{ id: 't1', h: a.h, c: a.c }];
   assert.ok(L.trackerChanged(ledger.processed[0], b));
 });
+
+test('a date line in the user\'s own Korean format is the story date, and the next messages carry it', async () => {
+  const snaps = new Map([['k1', { date: '2027-04-13', time: '23:00', weather: null, worldCustomFields: '[]', playerStats: null }]]);
+  const msgs = [
+    { id: 'k1', role: 'assistant', content: '밤이 깊었다.' },
+    { id: 'k2', role: 'assistant', content: '2027년 4월 14일 수요일 | 10시 30분\n아침이 밝았다.' },
+    { id: 'k3', role: 'user', content: '"2027년 4월 13일 화요일에 만났잖아." 서아가 웃었다.' },
+  ];
+  await T.addTrackerClock({ gameStates: { getCommittedForMessages: async () => snaps } }, 'chat', msgs);
+  assert.deepEqual(msgs.map((m) => `${m.clock.date} ${m.clock.time}`), ['2027-04-13 23:00', '2027-04-14 10:30', '2027-04-14 10:30'], 'a past date said in dialogue is not a date line');
+  assert.equal(L.storyDate([{ content: msgs[1].content }]), '2027-04-14');
+  assert.equal(L.storyTime([{ content: msgs[1].content }]), '2027-04-14T10:30');
+  assert.equal(L.dateInText('4월 14일 수요일에 보자.'), null);
+});
+
+test('a tracker record added later to a message that had none is a change to read again', async () => {
+  const msgs = () => [{ id: 'n1', role: 'assistant', content: '글.' }, { id: 'n2', role: 'user', content: '답.' }, { id: 'n3', role: 'assistant', content: '새 답.' }];
+  const before = msgs();
+  await T.addTrackerClock({ gameStates: { getCommittedForMessages: async () => new Map() } }, 'chat', before);
+  assert.deepEqual(before.map((m) => m.trackerMark), [['none'], undefined, undefined], 'only settled messages are marked "none"');
+  const after = msgs();
+  await T.addTrackerClock({ gameStates: { getCommittedForMessages: async () => new Map([['n1', { date: '2024-10-18', time: null, weather: '비', worldCustomFields: '[]', playerStats: null }]]) } }, 'chat', after);
+  const [a] = L.prepareMessages([before[0]]);
+  const [b] = L.prepareMessages([after[0]]);
+  const store = S.emptyStore();
+  store.covered = [{ id: 'n1', h: a.h, c: a.c }];
+  assert.equal(S.changedAt(store, [b]), 0);
+});

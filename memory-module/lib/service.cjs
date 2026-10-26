@@ -427,7 +427,8 @@ function trackerClock(row, base) {
   }
   let weather = String(row.weather || '').trim() || null;
   for (const f of Array.isArray(world) ? world : []) if (!weather && WEATHER_FIELD.test(String(f?.name || '')) && f.value) weather = String(f.value).trim();
-  return date || time || weather ? { date, time, weather: weather ? weather.slice(0, 30) : null } : null;
+  // raw: the tracker's own words, so a change in how they are read never looks like an edit.
+  return date || time || weather ? { date, time, weather: weather ? weather.slice(0, 30) : null, raw: [...texts, weather] } : null;
 }
 
 const WEATHER_FIELD = /날씨|하늘|weather|sky/i;
@@ -444,18 +445,23 @@ async function addTrackerClock(e, chatId, messages) {
   } catch {
     return;
   }
-  if (!snaps?.size) return;
+  if (!snaps) return;
+  // Up to the user's latest message the tracker records are final (a reply's record is committed once it is
+  // answered); from there on they may still come, so "none yet" is not written down for those.
+  let lastUser = -1;
+  messages.forEach((m, i) => {
+    if (m.role === 'user') lastUser = i;
+  });
   let last = null;
   let weather = null;
   const at = (c) => (c?.date ? `${c.date}T${c.time || '00:00'}` : null);
-  for (const m of messages) {
+  for (const [i, m] of messages.entries()) {
     // A date line written in the message itself comes first, and is what the next messages carry on from.
-    const ownDate = L.storyDate([{ content: m.content }]);
-    const ownTime = L.storyTime([{ content: m.content }]);
+    const own = L.dateInText(L.htmlToText(m.content), last?.date || null);
     const snap = snaps.get(m.id);
-    const clock = trackerClock(snap, ownDate || last?.date || null);
-    if (ownDate) {
-      last = { date: ownDate, time: ownTime ? ownTime.slice(11, 16) : null };
+    const clock = trackerClock(snap, own?.date || last?.date || null);
+    if (own) {
+      last = { date: own.date, time: own.time || null };
     } else if (clock?.date || clock?.time) {
       const next = { date: clock.date || last?.date || null, time: clock.time };
       // A tracker that lags behind (still showing the night before after the story moved on) is not followed back.
@@ -465,7 +471,9 @@ async function addTrackerClock(e, chatId, messages) {
     if (last) m.clock = { ...last };
     if (weather) m.weather = weather;
     // What the tracker said for this very message: a hand fix of its date, time or weather is a change to read again.
-    if (snap && (clock?.date || clock?.time || clock?.weather)) m.trackerMark = [clock.date, clock.time, clock.weather];
+    if (snap && (clock?.date || clock?.time || clock?.weather)) m.trackerMark = clock.raw;
+    // No record (or an empty one) is written down too, so a date or weather added later is seen as a change.
+    else if (i < lastUser) m.trackerMark = ['none'];
   }
 }
 
@@ -1013,6 +1021,9 @@ function memoryHeader(style) {
   );
 }
 
+/** How long "[지난 이야기 흐름]" (chapters and their exact details) may be, in characters. */
+const CHAPTER_LENGTHS = { short: 2000, normal: 4000, long: 8000, full: 16000 };
+
 /** How much recalled memory goes in: whole scenes, close events, original passages. */
 const RECALL_AMOUNTS = {
   less: { scenes: 2, sceneChars: 6000, near: 0, raw: 1 },
@@ -1075,10 +1086,13 @@ function renderLedger(chatId) {
     const amount = RECALL_AMOUNTS[settings().recallAmount] || RECALL_AMOUNTS.normal;
     const recall = recalls.get(chatId);
     const picks = R.shownPicks(recall?.picks || [], amount.scenes);
-    // The story so far keeps up to its usual size, but never more than half of what is left.
-    const overviewMax = Math.min(17_500, Math.floor(room * 0.5));
-    const scale = Math.min(1, overviewMax / 17_500);
-    const overview = S.renderScenes(scenes, firstInside, { maxChars: Math.floor(9000 * scale), factChars: Math.floor(4500 * scale), chapterChars: Math.floor(4000 * scale), query, today });
+    // The story so far keeps up to its usual size, but never more than half of what is left (a little more when
+    // the user asked for a longer story flow).
+    const chapterChars = CHAPTER_LENGTHS[settings().chapterLength] || CHAPTER_LENGTHS.normal;
+    const total = 9000 + 4500 + chapterChars;
+    const overviewMax = Math.min(total, Math.floor(room * (chapterChars > CHAPTER_LENGTHS.normal ? 0.65 : 0.5)));
+    const scale = Math.min(1, overviewMax / total);
+    const overview = S.renderScenes(scenes, firstInside, { maxChars: Math.floor(9000 * scale), factChars: Math.floor(4500 * scale), chapterChars: Math.floor(chapterChars * scale), query, today });
     if (overview) {
       story.push(overview);
       room -= overview.length + 2;
@@ -1286,6 +1300,12 @@ async function routes(app) {
     saveSettings({ ...settings(), recallStyle: style });
     return { style };
   }));
+  app.post('/settings/chapter-length', guard(async (req) => {
+    const length = String(req.body?.length || '').trim();
+    if (!CHAPTER_LENGTHS[length]) throw Error('지난 이야기 흐름 길이는 short, normal, long, full 중 하나여야 합니다.');
+    saveSettings({ ...settings(), chapterLength: length });
+    return { length };
+  }));
   app.post('/settings/recall-amount', guard(async (req) => {
     const amount = String(req.body?.amount || '').trim();
     if (!RECALL_AMOUNTS[amount]) throw Error('회상 양은 less, normal, more 중 하나여야 합니다.');
@@ -1411,6 +1431,8 @@ async function routes(app) {
       saveScenes(chatId, store);
       // What was picked for this turn may rest on the old wording: pick again on the next reply or reroll.
       recalls.delete(chatId);
+      // Meaning search: the edited pieces are already left out; their new vectors are made in the background.
+      enqueue(`scenes:${chatId}`, () => indexScenes(chatId, loadScenes(chatId))).catch((error) => log(`chat ${chatId}: re-index after edit failed (${error?.message || error})`));
       return out;
     });
   app.patch('/chats/:id/scenes/:sceneId', guard(async (req) => {

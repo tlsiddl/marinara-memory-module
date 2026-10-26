@@ -163,17 +163,39 @@
     return info && (info.job?.state === 'running' || info.sceneJob?.state === 'running');
   }
 
+  /**
+   * While the library is open it keeps checking: every 3 seconds during a run, every 10 seconds otherwise, so a
+   * run that starts on its own after a reply (or the scene run that follows the ledger run) shows up too.
+   */
   function schedulePoll() {
     clearTimeout(pollTimer);
-    if (!open || disposed || !running()) return;
+    if (!open || disposed || !room) return;
+    const was = running();
     pollTimer = setTimeout(async () => {
       try {
-        await loadRoom(room);
-        if (!running()) notice = [info?.job?.state, info?.sceneJob?.state].includes('error') ? '정리가 멈췄습니다. 아래 오류를 확인해 주세요.' : '정리가 끝났습니다.';
-        render();
+        if (!busy) {
+          // Idle: only the small status is asked for; the whole room is loaded while a run is on and when it ends.
+          if (was) await loadRoom(room);
+          else info = await api('GET', `/chats/${encodeURIComponent(room)}`);
+          if (was && !running()) notice = [info?.job?.state, info?.sceneJob?.state].includes('error') ? '정리가 멈췄습니다. 아래 오류를 확인해 주세요.' : '정리가 끝났습니다.';
+          if (was || running()) (editing() ? renderStatus() : render());
+        }
       } catch {}
       schedulePoll();
-    }, 3000);
+    }, was ? 3000 : 10000);
+  }
+
+  /** Someone is typing in the library: a background check must not redraw the form under them. */
+  function editing() {
+    const el = root?.activeElement;
+    return Boolean(el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
+  }
+
+  /** Only the running mark and the status line, leaving the rest of the page as it is. */
+  function renderStatus() {
+    if (!root) return;
+    root.querySelector('#panel').classList.toggle('is-running', Boolean(busy || (info && running())));
+    root.querySelector('#status').textContent = running() ? '정리 중입니다… 3초마다 새로 확인합니다.' : notice;
   }
 
   async function act(fn, done) {
@@ -581,6 +603,12 @@
           <option value="less" ${serverSettings?.recallAmount === 'less' ? 'selected' : ''}>적게 — 장면 2개, 원문 1곳 (기억을 늘어놓는 느낌이 들 때)</option>
           <option value="normal" ${!serverSettings?.recallAmount || serverSettings?.recallAmount === 'normal' ? 'selected' : ''}>보통 — 장면 4개, 가까운 사건 3개, 원문 2곳</option>
           <option value="more" ${serverSettings?.recallAmount === 'more' ? 'selected' : ''}>많이 — 장면 6개, 가까운 사건 6개, 원문 2곳</option></select></label>
+        <label>지난 이야기 흐름 길이 (챕터와 '꼭 기억할 세부 사항')<select id="setChapterLength">
+          <option value="short" ${serverSettings?.chapterLength === 'short' ? 'selected' : ''}>짧게 — 2,000자 (약 1,000토큰)</option>
+          <option value="normal" ${!serverSettings?.chapterLength || serverSettings?.chapterLength === 'normal' ? 'selected' : ''}>보통 — 4,000자 (약 2,000토큰, 기본)</option>
+          <option value="long" ${serverSettings?.chapterLength === 'long' ? 'selected' : ''}>길게 — 8,000자 (약 4,000토큰)</option>
+          <option value="full" ${serverSettings?.chapterLength === 'full' ? 'selected' : ''}>아주 길게 — 16,000자 (약 8,000토큰)</option></select></label>
+        <p class="hint">길수록 오래된 챕터의 요약과 세부 사항이 더 많이 들어가지만, 답변마다 그만큼 입력이 늘어납니다. 기억 전체 한도(40,000자) 안에서 나눠 씁니다.</p>
         <label>캐릭터가 지난 일을 먼저 꺼내는 정도<select id="setRecallStyle">
           <option value="quiet" ${serverSettings?.recallStyle === 'quiet' ? 'selected' : ''}>은은하게 — 꼭 필요할 때만 살짝 (기억을 받아 적는 느낌이 들 때)</option>
           <option value="natural" ${!serverSettings?.recallStyle || serverSettings?.recallStyle === 'natural' ? 'selected' : ''}>자연스럽게 — 상황에 맞으면 묻지 않아도 먼저 꺼냄</option>
@@ -622,7 +650,7 @@
     if (!root) return;
     root.querySelector('#backdrop').hidden = !open;
     root.host.setAttribute('data-font', font);
-    root.querySelector('#panel').classList.toggle('is-running', Boolean(info && running()));
+    root.querySelector('#panel').classList.toggle('is-running', Boolean(busy || (info && running())));
     root.querySelector('#panel').hidden = !open;
     if (!open) return;
     for (const b of root.querySelectorAll('nav button')) b.classList.toggle('selected', b.dataset.tab === tab);
@@ -771,14 +799,17 @@
         });
       }
       case 'saveSettings': {
+        // Read every choice before act() redraws the page (a redraw puts the saved values back in the form).
         const connection = root.querySelector('#setConnection')?.value;
         const recall = root.querySelector('#setRecall')?.value;
+        const amount = root.querySelector('#setRecallAmount')?.value;
+        const length = root.querySelector('#setChapterLength')?.value;
+        const style = root.querySelector('#setRecallStyle')?.value;
         return act(async () => {
           if (connection) await api('POST', '/settings', { connection });
           if (recall) await api('POST', '/settings/recall', { mode: recall });
-          const amount = root.querySelector('#setRecallAmount')?.value;
           if (amount) await api('POST', '/settings/recall-amount', { amount });
-          const style = root.querySelector('#setRecallStyle')?.value;
+          if (length) await api('POST', '/settings/chapter-length', { length });
           if (style) await api('POST', '/settings/recall-style', { style });
           serverSettings = (await api('GET', '/status')).settings;
         }, '설정을 저장했습니다.');

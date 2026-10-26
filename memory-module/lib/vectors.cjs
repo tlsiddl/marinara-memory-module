@@ -138,10 +138,12 @@ function queryTexts(recent, userMessage) {
 function nearest(index, queries, list, k = 5) {
   const qs = Array.isArray(queries[0]) || queries[0] instanceof Float32Array ? queries : [queries];
   const ids = new Set(list.map((s) => s.id));
+  // Only vectors made from the text as it stands now: a piece edited since (or gone) is left out until re-indexed.
+  const current = new Map(list.flatMap(sceneDocs).map((d) => [d.key, hash(d.text)]));
   const best = new Map();
   for (const [key, item] of Object.entries(index.items)) {
     const id = key.split('#')[0];
-    if (!ids.has(id)) continue;
+    if (!ids.has(id) || current.get(key) !== item.h) continue;
     const v = unpack(item.v);
     let score = -1;
     for (const q of qs) score = Math.max(score, cosine(q, v));
