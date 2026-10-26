@@ -304,6 +304,7 @@
         <label class="full">챕터 제목<input id="cTitle" value="${esc(c.title)}"></label>
         <label class="full">챕터 요약 (기억 칸의 '지난 이야기 흐름'에 들어갑니다)<textarea id="cSummary" class="event-field" style="min-height:120px">${esc(c.summary)}</textarea></label>
         <label class="full">전환점 (한 줄에 하나)<textarea id="cTurns" class="event-field">${esc((c.turns || []).join('\n'))}</textarea></label>
+        <label class="full">꼭 기억할 세부 사항 (날짜·기한·조건 등, 한 줄에 하나)<textarea id="cKeep" class="event-field">${esc((c.keep || []).join('\n'))}</textarea></label>
       </div>
       <div class="buttons editor-actions"><button class="primary" data-act="saveChapter">이 챕터 저장</button></div>
     </div>`;
@@ -560,6 +561,11 @@
           <option value="less" ${serverSettings?.recallAmount === 'less' ? 'selected' : ''}>적게 — 장면 2개, 원문 1곳 (기억을 늘어놓는 느낌이 들 때)</option>
           <option value="normal" ${!serverSettings?.recallAmount || serverSettings?.recallAmount === 'normal' ? 'selected' : ''}>보통 — 장면 4개, 가까운 사건 3개, 원문 2곳</option>
           <option value="more" ${serverSettings?.recallAmount === 'more' ? 'selected' : ''}>많이 — 장면 6개, 가까운 사건 6개, 원문 2곳</option></select></label>
+        <label>캐릭터가 지난 일을 먼저 꺼내는 정도<select id="setRecallStyle">
+          <option value="quiet" ${serverSettings?.recallStyle === 'quiet' ? 'selected' : ''}>은은하게 — 꼭 필요할 때만 살짝 (기억을 받아 적는 느낌이 들 때)</option>
+          <option value="natural" ${!serverSettings?.recallStyle || serverSettings?.recallStyle === 'natural' ? 'selected' : ''}>자연스럽게 — 상황에 맞으면 묻지 않아도 먼저 꺼냄</option>
+          <option value="active" ${serverSettings?.recallStyle === 'active' ? 'selected' : ''}>적극적으로 — 지난 약속·했던 말을 자주 끌어옴</option></select></label>
+        <p class="hint">어느 쪽이든 지난 일을 줄줄이 설명하지는 않게 합니다.</p>
         <div class="buttons"><button class="primary" data-act="saveSettings">저장</button></div>
       </div>
       <div class="paper"><h2>뜻으로 찾기 (임베딩)</h2>
@@ -694,7 +700,7 @@
       }
       case 'saveChapter': {
         const ed = root.querySelector('#chapterEditor');
-        const body = { title: ed.querySelector('#cTitle').value, summary: ed.querySelector('#cSummary').value, turns: ed.querySelector('#cTurns').value.split('\n') };
+        const body = { title: ed.querySelector('#cTitle').value, summary: ed.querySelector('#cSummary').value, turns: ed.querySelector('#cTurns').value.split('\n'), keep: ed.querySelector('#cKeep').value.split('\n') };
         return act(() => api('PATCH', `/chats/${chat}/chapters/${encodeURIComponent(ed.dataset.id)}`, body), '챕터를 저장했습니다.');
       }
       case 'saveScene': {
@@ -752,6 +758,8 @@
           if (recall) await api('POST', '/settings/recall', { mode: recall });
           const amount = root.querySelector('#setRecallAmount')?.value;
           if (amount) await api('POST', '/settings/recall-amount', { amount });
+          const style = root.querySelector('#setRecallStyle')?.value;
+          if (style) await api('POST', '/settings/recall-style', { style });
           serverSettings = (await api('GET', '/status')).settings;
         }, '설정을 저장했습니다.');
       }

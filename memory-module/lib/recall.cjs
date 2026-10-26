@@ -269,13 +269,58 @@ function fastRecall(list, ledger, recent, userMessage) {
 
 /* ---------- rendering ---------- */
 
+/**
+ * Scenes that carry on from a recalled scene: where its real reason came out later, where someone heard about it,
+ * where someone learned of it. They come right after it (marked follow) so the whole thread is remembered together.
+ * Only scenes from `list` (outside what the reply model already sees).
+ */
+function withFollowUps(store, picks, list) {
+  const allowed = new Set(list.map((s) => s.id));
+  const out = [];
+  const taken = new Set(picks.map((p) => p.id));
+  for (const pick of picks) {
+    out.push(pick);
+    if (pick.follow) continue;
+    const scene = store.scenes.find((s) => s.id === pick.id);
+    if (!scene) continue;
+    const ids = [
+      ...(scene.later || []).map((x) => x.in),
+      ...(scene.heardLater || []).map((x) => x.in),
+      ...store.scenes.filter((s) => s.learned?.some((l) => l.scene === scene.id)).map((s) => s.id),
+    ];
+    for (const id of [...new Set(ids)]) {
+      if (!id || taken.has(id) || !allowed.has(id)) continue;
+      taken.add(id);
+      out.push({ id, why: `${scene.id}에 이어진 일`, follow: true, from: scene.id });
+    }
+  }
+  return out;
+}
+
+/** Picks as shown: up to `max` chosen scenes, each followed by its follow-ups (at most half as many in all). */
+function shownPicks(picks, max) {
+  const main = picks.filter((p) => !p.follow).slice(0, max);
+  const ids = new Set(main.map((p) => p.id));
+  let room = Math.max(1, Math.ceil(max / 2));
+  const out = [];
+  for (const p of main) {
+    out.push(p);
+    for (const f of picks.filter((x) => x.follow && x.from === p.id && ids.has(x.from))) {
+      if (room-- <= 0) break;
+      out.push(f);
+    }
+  }
+  return out;
+}
+
 function renderRecalled(store, picks, { maxChars = 16000 } = {}) {
   const blocks = [];
   let used = 0;
   for (const pick of picks) {
     const index = store.scenes.findIndex((s) => s.id === pick.id);
     if (index < 0) continue;
-    const block = S.renderExpanded(store.scenes[index], index, store.personas || [], S.castOf(store));
+    const body = S.renderExpanded(store.scenes[index], index, store.personas || [], S.castOf(store));
+    const block = pick.follow ? `(${pick.from}에 이어진 장면)\n${body}` : body;
     if (used + block.length > maxChars) break;
     blocks.push(block);
     used += block.length;
@@ -307,4 +352,4 @@ function renderNearEvents(store, semantic, picks, { max = 6, maxChars = 5000 } =
   return blocks.length ? `[뜻이 가까운 지난 사건]\n${blocks.join('\n')}` : '';
 }
 
-module.exports = { MAX_PICKS, renderNearEvents, buildToc, rawHits, renderRaw, latestUser, directHit, withDirectHit, MAX_RECALL, RECALL_PROMPT, candidates, buildRecallPrompt, applyRecall, fastRecall, renderRecalled, words };
+module.exports = { MAX_PICKS, renderNearEvents, buildToc, rawHits, renderRaw, latestUser, directHit, withDirectHit, MAX_RECALL, RECALL_PROMPT, candidates, buildRecallPrompt, applyRecall, fastRecall, renderRecalled, words, withFollowUps, shownPicks };

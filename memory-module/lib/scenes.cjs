@@ -9,7 +9,7 @@ const L = require('./ledger.cjs');
 const SCENES_VERSION = 1;
 const REMEMBERS = ['full', 'partial', 'none'];
 const MAX_EVENTS = 8;
-const MAX_QUOTES_PER_EVENT = 3;
+const MAX_QUOTES_PER_EVENT = 6;
 const MAX_UNCITED = 5;
 
 function emptyStore() {
@@ -39,6 +39,8 @@ function nextSlice(store, messages, window, { maxChars = 20000, lookahead = 6, l
     size += cost;
   }
   if (!slice.length) slice.push(messages[from]);
+  // A user message is read together with the reply to it: a slice does not end between them.
+  while (slice.length > 1 && slice.at(-1).role === 'user') slice.pop();
   const lastToFold = messages[foldLine - 1];
   const reachesLine = slice.includes(lastToFold);
   // A slice that stops short of the fold line may end its last scene anywhere after 60% of it; the rest comes next time.
@@ -59,6 +61,7 @@ const SCENE_PROMPT = `너는 장기 롤플레이의 기억 관리자야. 지나�
 장면 나누기:
 - 작중 시간이 크게 건너뛰거나, 장소가 바뀌거나, 상황의 흐름이 바뀌는 곳에서 나눠. 한 장면은 보통 메시지 2~8개. 긴 흐름은 화제가 바뀌는 곳에서 더 잘게 나눠(장면 하나에 사건은 최대 8개라서, 너무 길면 세부가 빠져).
 - 장면은 첫 메시지부터 빈틈없이 이어져. 각 장면은 끝 메시지 번호(end)만 적으면 돼.
+- 사용자 메시지와 그에 대한 캐릭터의 답은 같은 장면에 둬. 장면을 사용자 메시지에서 끝내지 마(질문만 있고 답이 다음 장면으로 넘어가면 안 돼).
 - 마지막 장면은 반드시 [필수 끝 번호] 이상에서 끝나야 해. 그 뒤 메시지는 장면이 거기서 자연스럽게 끝날 때만 포함해.
 
 장면마다 적을 것:
@@ -66,15 +69,17 @@ const SCENE_PROMPT = `너는 장기 롤플레이의 기억 관리자야. 지나�
 - place: 장소. 없으면 null.
 - title: 짧은 제목.
 - summary: 1~2문장. 무슨 일이 있었고 무엇이 바뀌었는지.
-- events: 중요한 일 3~6개를 순서대로. 각 사건은 한 문장(text)과, 그 순간을 보여 주는 대사나 문장(quotes) 1~2개.
+- events: 중요한 일 3~6개를 순서대로. 각 사건은 한두 문장(text)과, 그 순간을 보여 주는 대사나 문장(quotes) 1~4개.
+  날짜·기한·시각·금액·횟수·장소·조건("~하면 ~하기로")이 나오면 사건 text에 빠뜨리지 말고 그대로 적어. 예) "하준이 서아에게 원서 접수가 7월 20일 마감이라고 알려 줌".
   대사가 있으면 대사를 우선해. 고백, 약속, 폭로, 결정적인 말은 꼭 대사로 남겨.
-  [사용자 캐릭터]의 말도 요약하지 말고 대사 그대로 남겨. 나중에 다른 인물이 "너 그때 이렇게 말했잖아"라고 꺼낼 수 있어야 해. 특히 부탁, 약속, 고백, 질문, 변명, 감정을 드러낸 말, 그 장면을 움직인 말. 그 말에 대한 다른 인물의 대답이 있으면 같은 사건에 함께 넣어(사건 하나에 대사 최대 3개).
+  [사용자 캐릭터]의 말도 요약하지 말고 대사 그대로 남겨. 나중에 다른 인물이 "너 그때 이렇게 말했잖아"라고 꺼낼 수 있어야 해. 특히 부탁, 약속, 고백, 질문, 변명, 감정을 드러낸 말, 그 장면을 움직인 말. 그 말에 대한 다른 인물의 대답이 있으면 같은 사건에 함께 넣어. 묻고 답하는 대화는 질문과 대답을 모두 인용해(사건 하나에 대사 최대 6개).
   사용자 캐릭터의 대사가 있는 장면이면 적어도 한두 개는 꼭 인용해.
   대사마다 by(말한 사람)와 to(들은 사람, 여럿이면 "도윤·하준")를 적어. 서술 문장이면 둘 다 null.
-  사건 text는 '누가 누구에게 무엇을 어떻게 했는지'가 드러나게 써. 그 일이 일어난 작중 시각이 보이면 time에, 그렇게 한 이유나 계기가 원문에 있으면 why에 짧게 적어(없으면 null, 짐작 금지).
+  사건 text는 '누가 누구에게 무엇을 어떻게 했는지'가 드러나게 써. 그 일이 일어난 작중 시각이 보이면 time에, 그렇게 한 이유나 계기가 원문에 있으면 why에 적어(없으면 null, 짐작 금지). 이유에 조건이나 날짜가 있으면 줄이지 마.
+  인용은 그 장면 안의 메시지에서만 골라. 다른 장면의 대사를 붙이지 마.
   장면 안의 모든 메시지가 사건 몇 개로든 다뤄져야 해. 인용 없이 넘어간 메시지가 몇 개씩 이어지면 안 돼.
   사건마다 importance를 적어: critical(관계나 이야기가 바뀌는 일: 고백, 폭로, 결정적 약속, 처음 있는 일), major(나중에 다시 꺼낼 만한 일), minor(그 장면 안의 일).
-- present: 장면에 실제로 있던 인물 모두(사용자 캐릭터 포함). 전화·문자로만 이어진 사람도 넣되, 그 사람이 보거나 듣지 못한 일은 아래 unaware로 따로 적어.
+- present: 장면에 실제로 있던 인물 모두(사용자 캐릭터 포함, [등장인물]에 없는 주변 인물도 이름이나 호칭 그대로). 전화·문자로만 이어진 사람도 넣되, 그 사람이 보거나 듣지 못한 일은 아래 unaware로 따로 적어.
 - recollections: 장면에 실제로 있었던 인물마다 1~2문장. 그 인물 입장에서 이 장면이 어떻게 남았는지, 그때 무엇을 느꼈고 무엇이 마음에 걸렸는지.
   그 인물이 보지 못한 일, 다른 인물의 속마음은 넣지 마. 속마음은 이 장면 본문에 드러난 것만 써. 뒤에서 밝혀질 진짜 이유를 앞 장면 회상에 미리 넣지 마.
   remembers: full(온전히 기억) / partial(흐릿하게) / none(기억 못 함). 잠들었거나, 정신을 잃었거나, 술·열·약 등으로 기억이 흐려지는 상태였다면 partial이나 none으로 하고 why에 이유를 적어.
@@ -143,7 +148,7 @@ const splitNames = (value) =>
 function castNames(value, cast) {
   const out = [];
   for (const raw of splitNames(value)) {
-    const hit = cast.find((n) => raw === n || raw.startsWith(n));
+    const hit = L.matchName(raw, cast);
     if (hit && !out.includes(hit)) out.push(hit);
   }
   return out;
@@ -368,9 +373,15 @@ function applyScenes(store, result, slice, required, now = new Date().toISOStrin
       endAt = below ? byNumber.get(below.number) : undefined;
     }
     if (endAt === undefined || endAt < startAt) continue;
+    // A scene never ends on a user message whose reply follows: the question and its answer stay together.
+    if (slice[endAt]?.role === 'user' && slice[endAt + 1] && slice[endAt + 1].role !== 'user') endAt += 1;
     const messages = slice.slice(startAt, endAt + 1);
+    const lo = messages[0].number;
+    const hi = messages.at(-1).number;
+    // Lines and evidence come from this scene's own messages only (a line from the next scene does not belong here).
+    const inScene = (p) => p.number >= lo && p.number <= hi;
     const events = (Array.isArray(item.events) ? item.events : [])
-      .map((e) => ({ text: cleanText(e?.text, 200), time: cleanText(e?.time, 40), why: cleanText(e?.why, 120), importance: ['critical', 'major', 'minor'].includes(e?.importance) ? e.importance : 'major', quotes: resolveQuotes(e?.quotes, index, slice).slice(0, MAX_QUOTES_PER_EVENT) }))
+      .map((e) => ({ text: cleanText(e?.text, 500), time: cleanText(e?.time, 40), why: cleanText(e?.why, 300), importance: ['critical', 'major', 'minor'].includes(e?.importance) ? e.importance : 'major', quotes: resolveQuotes(e?.quotes, index, slice).filter(inScene).slice(0, MAX_QUOTES_PER_EVENT) }))
       .filter((e) => e.text)
       .slice(0, MAX_EVENTS);
     const recollections = (Array.isArray(item.recollections) ? item.recollections : [])
@@ -393,10 +404,10 @@ function applyScenes(store, result, slice, required, now = new Date().toISOStrin
       time: cleanText(item.time, 60),
       place: cleanText(item.place, 60),
       title: cleanText(item.title, 60) || '(제목 없음)',
-      summary: cleanText(item.summary, 400) || '',
+      summary: cleanText(item.summary, 600) || '',
       events,
       recollections,
-      present: [...new Set([...castNames(item.present, cast), ...splitNames(item.present).filter((n) => personas.includes(n))])],
+      present: [...new Set([...castNames(item.present, cast), ...splitNames(item.present).filter((n) => personas.includes(n) || !castNames([n], cast).length)])],
       heardLater: [],
       edited: false,
       createdAt: now,
@@ -405,14 +416,15 @@ function applyScenes(store, result, slice, required, now = new Date().toISOStrin
     });
     for (const f of Array.isArray(item.facts) ? item.facts : []) {
       const about = cleanText(f?.about, 40);
-      let text = stripAbout(cleanText(f?.text, 200), about);
-      const evidence = L.resolveEvidence(f?.evidence, index);
+      let text = stripAbout(cleanText(f?.text, 400), about);
+      const evidence = L.resolveEvidence(f?.evidence, index).filter(inScene);
       if (!text || !evidence.length) continue;
       // "이 장면에서" means nothing once the fact is read on its own: name the scene instead.
       text = text.replace(/이\s*장면(에서|에)\s*/g, `${item.time ? `${String(item.time).split(/[~]/)[0].trim()} ` : ''}'${cleanText(item.title, 40) || '그 장면'}'에서 `);
       // The user's own character: an inner state not said aloud is only a guess.
       if (about && personas.includes(about) && INNER.test(text) && !/추정|보인다|듯하다/.test(text) && !evidence.some((e) => isSpoken(parseLine(e.text).text))) text = `${text.replace(/[.。]\s*$/, '')} (추정)`;
-      if ([...liveFacts(store), ...newFacts].some((known) => sameFact(known.text, text))) continue;
+      // The same words about two different people are two facts.
+      if ([...liveFacts(store), ...newFacts].some((known) => (known.about || '') === (about || '') && sameFact(known.text, text))) continue;
       const replaces = typeof f.replaces === 'string' && store.facts.some((k) => k.id === f.replaces.trim()) ? f.replaces.trim() : null;
       // Something true only for now ("곧 열이 오를 것 같다") is not a lasting fact.
       if (FLEETING.test(text)) continue;
@@ -433,7 +445,7 @@ function applyScenes(store, result, slice, required, now = new Date().toISOStrin
     }
     for (const l of Array.isArray(item.learned) ? item.learned : []) {
       const who = castNames([l?.who], cast)[0];
-      const what = cleanText(l?.what, 200);
+      const what = cleanText(l?.what, 300);
       if (!who || !what) continue;
       const sceneRef = String(l?.scene ?? '').trim().toUpperCase().replace(/^(\d+)$/, 'S$1') || null;
       const factRef = String(l?.fact ?? '').trim().toUpperCase().replace(/^(\d+)$/, 'F$1') || null;
@@ -448,7 +460,7 @@ function applyScenes(store, result, slice, required, now = new Date().toISOStrin
     }
     for (const x of Array.isArray(item.later) ? item.later : []) {
       const scene = String(x?.scene ?? '').trim().toUpperCase().replace(/^(\d+)$/, 'S$1');
-      const what = cleanText(x?.what, 240);
+      const what = cleanText(x?.what, 400);
       if (!what || !store.scenes.some((old) => old.id === scene)) continue;
       later.push({ scene, what, by: cleanText(x?.by, 40), in: id, when: cleanText(item.time, 60) });
     }
@@ -791,7 +803,7 @@ function pickFacts(list, max, chars) {
 
 /* ---------- chapters: old scenes told as one stretch of the story ---------- */
 
-const CHAPTER_MIN = 5;
+const CHAPTER_MIN = 2;
 const CHAPTER_MAX = 20;
 const CHAPTER_KEEP = 30;
 
@@ -811,8 +823,9 @@ const CHAPTER_PROMPT = `너는 장기 롤플레이의 기억 관리자야. 이�
 - title: 그 시기를 대표하는 짧은 제목.
 - summary: 3~5문장. 무슨 일이 있었고, 인물 사이의 관계·감정·상황이 어떻게 바뀌었는지 시간 순서대로. 이름·물건·장소는 구체적으로.
 - turns: 이야기가 바뀐 결정적인 일 최대 5개. 각각 장면 번호로 시작하는 한 문장(누가 누구에게 무엇을). 예) "S14 도윤이 서아에게 진통제를 끊겠다고 약속함".
+- keep: 이 시기의 세부 사항 가운데 나중에도 정확히 맞아야 하는 것 최대 8개. 날짜·기한·접수 기간·시각·금액·주소·약속의 조건("~하면 ~하기로")·규칙 같은 것. 각각 한 문장, 숫자와 조건은 원문 그대로. 없으면 [].
 - 장면에 없는 내용은 지어내지 마. [사용자 캐릭터]의 속마음은 원문에 드러난 것만 쓰고, 아니면 "~로 보인다(추정)".
-출력 형식: {"end":"S12","title":"…","summary":"…","turns":["S4 …"]}`;
+출력 형식: {"end":"S12","title":"…","summary":"…","turns":["S4 …"],"keep":["…"]}`;
 
 function buildChapterPrompt(store, scenes) {
   const parts = [];
@@ -824,7 +837,7 @@ function buildChapterPrompt(store, scenes) {
   const ids = new Set(scenes.map((x) => x.id));
   for (const sc of scenes) {
     parts.push(`${sc.id} | ${[sc.time, sc.place].filter(Boolean).join(' · ')} | ${sc.title}: ${sc.summary}${memoryNote(sc, castOf(store))}`);
-    for (const e of sc.events.filter((x) => x.importance !== 'minor')) parts.push(`  - ${e.importance === 'critical' ? '★ ' : ''}${e.text}`);
+    for (const e of sc.events.filter((x) => x.importance !== 'minor' || /\d/.test(x.text))) parts.push(`  - ${e.importance === 'critical' ? '★ ' : ''}${e.text}${e.why ? ` (계기: ${e.why})` : ''}`);
     for (const x of sc.later || []) parts.push(`  - 나중에 밝혀짐: ${x.what}`);
   }
   const facts = liveFacts(store).filter((f) => ids.has(f.sceneId));
@@ -839,7 +852,8 @@ function applyChapter(store, result, offered, now = new Date().toISOString()) {
   // Where the model said the stretch ends; a missing or out-of-range answer falls back to a middle cut.
   const endId = String(result?.end ?? '').trim().toUpperCase().replace(/^(\d+)$/, 'S$1');
   let cut = offered.findIndex((x) => x.id === endId);
-  if (cut < 0) cut = Math.min(offered.length, 12) - 1;
+  // No usable answer: cut where the story's date changes the most often, near the middle; else take all offered.
+  if (cut < 0) cut = naturalCut(offered);
   cut = Math.max(Math.min(CHAPTER_MIN, offered.length) - 1, cut);
   const scenes = offered.slice(0, cut + 1);
   const title = cleanText(result?.title, 60);
@@ -851,6 +865,10 @@ function applyChapter(store, result, offered, now = new Date().toISOString()) {
     .map((t) => cleanText(typeof t === 'string' ? t : t?.text, 200))
     .filter((t) => t && (!/^S\d+/.test(t) || inside.has(t.match(/^S\d+/)[0])))
     .slice(0, 5);
+  const keep = (Array.isArray(result?.keep) ? result.keep : [])
+    .map((t) => cleanText(typeof t === 'string' ? t : t?.text, 240))
+    .filter(Boolean)
+    .slice(0, 8);
   const first = String(scenes[0].time || '').split('~')[0].trim();
   const lastTime = String(scenes.at(-1).time || '');
   let last = lastTime.split('~').pop().trim();
@@ -869,10 +887,22 @@ function applyChapter(store, result, offered, now = new Date().toISOString()) {
       title,
       summary,
       turns,
+      keep,
       edited: false,
       createdAt: now,
     },
   };
+}
+
+/** Where a stretch of scenes most likely ends: the last scene before a new story day closest to the middle. */
+function naturalCut(scenes) {
+  const day = (s) => (String(s.time || '').match(/\d{2}-\d{1,2}-\d{1,2}/) || [null])[0];
+  const mid = (scenes.length - 1) / 2;
+  let best = -1;
+  for (let i = CHAPTER_MIN - 1; i < scenes.length - 1; i++) {
+    if (day(scenes[i]) && day(scenes[i + 1]) && day(scenes[i]) !== day(scenes[i + 1]) && (best < 0 || Math.abs(i - mid) < Math.abs(best - mid))) best = i;
+  }
+  return best >= 0 ? best : scenes.length - 1;
 }
 
 function commitChapter(store, chapter) {
@@ -884,8 +914,10 @@ function commitChapter(store, chapter) {
 function renderChapters(store, maxChars = 4000) {
   const list = store.chapters || [];
   if (!list.length) return '';
-  const full = (c) => [`${c.id} ${c.time ? `${c.time} — ` : ''}${c.title}: ${c.summary}`, ...c.turns.map((t) => `  · ${t}`)].join('\n');
-  const short = (c) => `${c.id} ${c.time ? `${c.time} — ` : ''}${c.title}: ${String(c.summary).split(/(?<=[.다])\s/)[0]}`;
+  const full = (c) => [`${c.id} ${c.time ? `${c.time} — ` : ''}${c.title}: ${c.summary}`, ...c.turns.map((t) => `  · ${t}`), ...(c.keep || []).map((t) => `  ※ ${t}`)].join('\n');
+  // Details that must stay exact (deadlines, conditions) are kept even when the chapter is shortened.
+  const keepLines = (c) => (c.keep || []).map((t) => `  ※ ${t}`).join('\n');
+  const short = (c) => [`${c.id} ${c.time ? `${c.time} — ` : ''}${c.title}: ${String(c.summary).split(/(?<=[.다])\s/)[0]}`, keepLines(c)].filter(Boolean).join('\n');
   const tiny = (c) => `${c.id} ${c.title}`;
   const lines = list.map(tiny);
   let used = lines.join('\n').length;

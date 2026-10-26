@@ -829,18 +829,48 @@ async function startTrial(chatId, from, to) {
 
 /* ---------- prompt ---------- */
 
-const MEMORY_HEADER =
-  '[Memory: what the characters remember from earlier in this story, beyond the recent messages. ' +
-  'This is background the characters already carry, not material to retell: the reader has already read all of it. ' +
-  'Let it shape what they know, feel, assume and react to. Do not summarize, explain or narrate past events or backstory from it, ' +
-  'and do not copy its numbers, dates or details into the prose just because they are listed here. ' +
-  'When a memory matters to this moment, let it show briefly and in character — a short line, a look, a choice — one passing touch, not a recap. ' +
-  'Most memories should stay unspoken. Quoted lines are verbatim from the story. ' +
-  'A character marked as not remembering a scene does not know what happened in it; one marked as remembering it only dimly holds just what "남은 기억" says, ' +
-  'even though "그때" records what they really said and did. Others may remind them. ' +
-  'Each character knows only what they saw, heard or were told: "모름: X" or "자리에 없어 모름" means X does not know it — X must not mention it, hint at it or act on it until X learns it in the story, even while others who know it are in the same scene. "짐작만: X" means X suspects it without the details. ' +
-  'Lines are quoted here in a short form for memory only; keep writing the story in its own usual format. ' +
-  '"최근 생활" says when each person last ate, washed and slept: keep daily life believable, and do not repeat a meal or bath that just happened unless the story calls for it.]';
+/**
+ * How readily characters bring the past up themselves (settings().recallStyle):
+ *   quiet — memories mostly stay unspoken; natural — brought up on their own when the moment calls for it;
+ *   active — shared history is part of how they talk to each other. Never a recap in any style.
+ */
+const RECALL_STYLES = {
+  quiet: {
+    voice:
+      'When a memory matters to this moment, let it show briefly and in character — a short line, a look, a choice — one passing touch, not a recap. ' +
+      'Most memories should stay unspoken. ',
+    end: 'A memory surfaces only as a brief, natural touch when the scene truly calls for it.',
+  },
+  natural: {
+    voice:
+      'When something from the past bears on this moment, characters bring it up on their own, without waiting to be asked, the way people who share a past do: ' +
+      'a remark, a callback to something once said, a question, a choice made differently because of what happened. Keep it in their own voice and short; never recite it. ',
+    end: 'Let what they remember show the way people show it: in what they say, notice and choose, on their own initiative when it fits.',
+  },
+  active: {
+    voice:
+      'Characters actively live with their shared past: on their own initiative they bring up earlier promises, things once said, unresolved feelings and how things have changed, ' +
+      'tease or press about them, and let them steer what they do — whenever it fits the moment, in their own voice, never as a summary. ',
+    end: 'Their shared history should be felt in this reply: callbacks, kept or broken promises, old words brought back, in their own voice.',
+  },
+};
+
+function memoryHeader(style) {
+  return (
+    '[Memory: what the characters remember from earlier in this story, beyond the recent messages. ' +
+    'This is background the characters already carry, not material to retell: the reader has already read all of it. ' +
+    'Let it shape what they know, feel, assume and react to. Do not summarize, explain or narrate past events or backstory from it, ' +
+    'and do not copy its numbers, dates or details into the prose just because they are listed here. ' +
+    (RECALL_STYLES[style] || RECALL_STYLES.natural).voice +
+    'Quoted lines are verbatim from the story. ' +
+    'A character marked as not remembering a scene does not know what happened in it; one marked as remembering it only dimly holds just what "남은 기억" says, ' +
+    'even though "그때" records what they really said and did. Others may remind them. ' +
+    'Each character knows only what they saw, heard or were told: "모름: X" or "자리에 없어 모름" means X does not know it — X must not mention it, hint at it or act on it until X learns it in the story, even while others who know it are in the same scene. "짐작만: X" means X suspects it without the details. ' +
+    'Lines are quoted here in a short form for memory only; keep writing the story in its own usual format. ' +
+    '"최근 생활" says when each person last ate, washed and slept: keep daily life believable, and do not repeat a meal or bath that just happened unless the story calls for it. ' +
+    '"※" lines under a chapter are details that must stay exact (dates, deadlines, conditions).]'
+  );
+}
 
 /** How much recalled memory goes in: whole scenes, close events, original passages. */
 const RECALL_AMOUNTS = {
@@ -850,9 +880,13 @@ const RECALL_AMOUNTS = {
 };
 
 /** Said again at the end: the last thing read before the story weighs the most. */
-const MEMORY_FOOTER =
-  '[End of memory. Write the next reply from inside the moment, not from these notes: no recaps or explanations of the past, ' +
-  'no listing what a character remembers. A memory surfaces only as a brief, natural touch when the scene truly calls for it.]';
+function memoryFooter(style) {
+  return (
+    '[End of memory. Write the next reply from inside the moment, not from these notes: no recaps or explanations of the past, no listing what a character remembers. ' +
+    (RECALL_STYLES[style] || RECALL_STYLES.natural).end +
+    ']'
+  );
+}
 
 /** Upper limit for everything {{기억}} puts in (characters). The parts that matter for the next reply are kept first. */
 const MEMORY_MAX_CHARS = Number(process.env.MEMORY_MODULE_MAX_CHARS) || 40_000;
@@ -883,7 +917,10 @@ function renderLedger(chatId) {
   const open = ledger ? L.renderCompact(ledger) : '';
   const routine = ledger ? L.renderRoutine(ledger, storyNow.get(chatId) || ledger.storyTime || null) : '';
   const fixed = [open ? `[아직 끝나지 않은 일]\n${open}` : '', routine].filter(Boolean);
-  let room = MEMORY_MAX_CHARS - MEMORY_HEADER.length - MEMORY_FOOTER.length - 40;
+  const style = settings().recallStyle;
+  const header = memoryHeader(style);
+  const footer = memoryFooter(style);
+  let room = MEMORY_MAX_CHARS - header.length - footer.length - 40;
   // What is still open and daily life come first; if even they are too long, their oldest lines go.
   for (let i = 0; i < fixed.length; i++) {
     fixed[i] = fitBlock(fixed[i], Math.max(0, Math.floor(room / (fixed.length - i))));
@@ -894,7 +931,7 @@ function renderLedger(chatId) {
     const firstInside = windows.get(chatId) ?? scenes.window?.firstInside ?? null;
     const amount = RECALL_AMOUNTS[settings().recallAmount] || RECALL_AMOUNTS.normal;
     const recall = recalls.get(chatId);
-    const picks = (recall?.picks || []).slice(0, amount.scenes);
+    const picks = R.shownPicks(recall?.picks || [], amount.scenes);
     // The story so far keeps up to its usual size, but never more than half of what is left.
     const overviewMax = Math.min(17_500, Math.floor(room * 0.5));
     const scale = Math.min(1, overviewMax / 17_500);
@@ -917,7 +954,7 @@ function renderLedger(chatId) {
     if (raw) story.push(raw);
   }
   const parts = [...story, ...fixed].filter(Boolean);
-  return parts.length ? `${MEMORY_HEADER}\n\n${parts.join('\n\n')}\n\n${MEMORY_FOOTER}` : '';
+  return parts.length ? `${header}\n\n${parts.join('\n\n')}\n\n${footer}` : '';
 }
 
 /**
@@ -1089,6 +1126,12 @@ async function routes(app) {
       throw Error(`임베딩을 쓰지 못했습니다: ${error?.message || error}`);
     }
   }));
+  app.post('/settings/recall-style', guard(async (req) => {
+    const style = String(req.body?.style || '').trim();
+    if (!RECALL_STYLES[style]) throw Error('기억을 드러내는 정도는 quiet, natural, active 중 하나여야 합니다.');
+    saveSettings({ ...settings(), recallStyle: style });
+    return { style };
+  }));
   app.post('/settings/recall-amount', guard(async (req) => {
     const amount = String(req.body?.amount || '').trim();
     if (!RECALL_AMOUNTS[amount]) throw Error('회상 양은 less, normal, more 중 하나여야 합니다.');
@@ -1256,6 +1299,7 @@ async function routes(app) {
       if (!chapter) throw Error('해당 챕터를 찾지 못했습니다.');
       for (const field of ['title', 'summary']) if (typeof req.body?.[field] === 'string' && req.body[field].trim()) chapter[field] = req.body[field].trim();
       if (Array.isArray(req.body?.turns)) chapter.turns = req.body.turns.map((t) => String(t).trim()).filter(Boolean).slice(0, 8);
+      if (Array.isArray(req.body?.keep)) chapter.keep = req.body.keep.map((t) => String(t).trim()).filter(Boolean).slice(0, 12);
       chapter.edited = true;
       return chapter;
     });
@@ -1474,6 +1518,8 @@ async function computeRecall(chatId, store, view, userMessage, { mode, firstInsi
     // Lines from old messages (outside the window) that the newest message names, for details a summary dropped.
     entry.raw = R.rawHits(view.filter((m) => firstInside != null && m.number < firstInside), latest);
     if (wordHit) entry.direct = { id: wordHit.id, hits: wordHit.hits.slice(0, 5) };
+    // What came of a recalled scene later (its real reason, who heard of it) comes along with it.
+    entry.picks = R.withFollowUps(store, entry.picks, list);
   }
   entry.ms = Date.now() - started;
   return entry;

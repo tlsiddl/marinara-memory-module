@@ -377,9 +377,15 @@ test('long story: old scenes become a chapter, cut where the model says one stre
   assert.match(text, /\[지난 이야기 흐름\]\nC1 24-10-11 01:00 ~ 24-10-11 09:30 — 첫 열흘: 셋이 함께 지내기 시작했다\. 약을 끊기로 했다\.\n  · S5 하루가 약을 끊기로 함/);
   assert.doesNotMatch(text, /장면 3 요약/, 'scenes in a chapter are told by the chapter');
   assert.match(text, /장면 10 요약/);
-  // No end, or one too early: a sensible cut instead.
-  assert.equal(S.applyChapter(store, { title: 't', summary: 's' }, offered).chapter.scenes.length, 12);
-  assert.equal(S.applyChapter(store, { end: 'S2', title: 't', summary: 's' }, offered).chapter.scenes.length, 5);
+  // No usable end: cut before a new story day, near the middle. A short chapter (2 scenes) is allowed.
+  const guessed = S.applyChapter(store, { title: 't', summary: 's' }, offered).chapter.scenes;
+  const dayOf = (id) => offered.find((x) => x.id === id).time.slice(0, 8);
+  const next = offered[guessed.length];
+  assert.notEqual(dayOf(guessed.at(-1)), dayOf(next.id), 'the cut falls where the story day changes');
+  assert.deepEqual(S.applyChapter(store, { end: 'S2', title: 't', summary: 's' }, offered).chapter.scenes, ['S1', 'S2']);
+  // Details that must stay exact are kept with the chapter and shown even when it is shortened.
+  const kept = S.applyChapter(store, { end: 'S9', title: '접수', summary: '원서를 준비했다.', keep: ['원서 접수는 7월 20일 18시 마감', ''] }, offered).chapter;
+  assert.deepEqual(kept.keep, ['원서 접수는 7월 20일 18시 마감']);
   // A scene inside the chapter changes underneath: the chapter is made again later.
   store.covered = store.scenes.flatMap((x) => [{ id: `m${x.start}`, h: 'a' }, { id: `m${x.start + 1}`, h: 'a' }, { id: `m${x.end}`, h: 'a' }]);
   store.scenes.forEach((x, i) => (x.messages = store.covered.slice(i * 3, i * 3 + 3)));

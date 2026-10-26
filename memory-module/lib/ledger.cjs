@@ -65,8 +65,42 @@ function splitSentences(paragraph) {
 }
 
 /** rows: [{id, number, speaker, content}] → same with `sentences` and `h` (content hash). */
+const ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', ldquo: '“', rdquo: '”', lsquo: '‘', rsquo: '’', hellip: '…', middot: '·' };
+
+/**
+ * Messages written as HTML (styled speech bubbles, status cards) read as plain text: tags, styles and scripts
+ * go, line-breaking tags become line breaks, entities are decoded. <speaker="…"> tags stay (they name who speaks).
+ */
+function htmlToText(text) {
+  const raw = String(text ?? '');
+  if (!/<(?!\/?speaker\b)[a-z!\/][^>]*>/i.test(raw)) return raw;
+  return raw
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/<(style|script|template)\b[\s\S]*?<\/\1\s*>/gi, '')
+    // A short name in its own element right before a quoted line is who says it: "도윤 | “…”".
+    .replace(/<(span|b|strong|em|div|p|h[1-6]|label|small)\b[^>]*>\s*([^<>"“「『|\n]{1,20}?)\s*<\/\1\s*>\s*(?:<(?!\/?speaker\b)[^>]+>\s*)*(["“「『]|&ldquo;|&quot;|&#8220;|&#34;)/gi, '\n$2 | $3')
+    .replace(/<(p|div|li|tr|h[1-6]|blockquote|section|article|header|footer|details|summary|table)\b[^>]*>/gi, '\n')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|li|tr|h[1-6]|blockquote|section|article|header|footer|details|summary|table)\s*>/gi, '\n')
+    .replace(/<(?!\/?speaker\b)\/?[a-z][^>]*>/gi, '')
+    .replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m, e) => {
+      if (e[0] === '#') {
+        const code = e[1] === 'x' || e[1] === 'X' ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10);
+        return Number.isFinite(code) && code > 0 && code < 0x110000 ? String.fromCodePoint(code) : m;
+      }
+      return ENTITIES[e.toLowerCase()] ?? m;
+    })
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 function prepareMessages(rows) {
-  return rows.map((row) => ({ ...row, h: hashText(row.content), sentences: segment(row.content) }));
+  // The fingerprint (h) is of the message as stored, so a change in how it is read never looks like an edit.
+  return rows.map((row) => {
+    const content = htmlToText(row.content);
+    return { ...row, content, h: hashText(row.content), sentences: segment(content) };
+  });
 }
 
 function messageChars(message) {
@@ -81,9 +115,11 @@ function planBatches(messages, maxChars = 24000) {
   for (const message of messages) {
     const chars = messageChars(message);
     if (current.length && size + chars > maxChars) {
+      // A user message goes with the reply to it, into the next batch.
+      const carry = current.length > 1 && current.at(-1).role === 'user' ? [current.pop()] : [];
       batches.push(current);
-      current = [];
-      size = 0;
+      current = carry;
+      size = carry.reduce((n, m) => n + messageChars(m), 0);
     }
     current.push(message);
     size += chars;
@@ -307,12 +343,32 @@ function groupCast(ledger) {
 }
 
 /** Names the model wrote, matched to the cast ("하준이" → "하준"); unknown names are dropped. */
+/** Shorter names a person may be called by: the given name without the family name (서재민 → 재민), the first word of a spaced name. */
+function nameKeys(name) {
+  const n = String(name || '').trim();
+  const keys = [];
+  if (/^[가-힣]{3}$/.test(n)) keys.push(n.slice(1));
+  if (/^[가-힣]{4}$/.test(n)) keys.push(n.slice(2), n.slice(1));
+  if (/\s/.test(n)) keys.push(n.split(/\s+/)[0]);
+  return keys.filter((k) => k.length >= 2);
+}
+
+/** A name as written ("재민이", "재민아", "Dan") matched to one person of the cast; null when unknown or ambiguous. */
+function matchName(raw, cast) {
+  const text = String(raw || '').trim();
+  if (!text) return null;
+  const exact = cast.find((n) => text === n || text.startsWith(n));
+  if (exact) return exact;
+  const hits = cast.filter((n) => nameKeys(n).some((k) => text === k || text.startsWith(k)));
+  return hits.length === 1 ? hits[0] : null;
+}
+
 function castNames(value, cast) {
   const list = Array.isArray(value) ? value : typeof value === 'string' ? value.split(/[,·、/]/) : [];
   const out = [];
   for (const raw of list) {
     const name = String(raw ?? '').trim();
-    const hit = name && cast.find((n) => name === n || name.startsWith(n));
+    const hit = name && matchName(name, cast);
     if (hit && !out.includes(hit)) out.push(hit);
   }
   return out;
@@ -1407,5 +1463,4 @@ module.exports = {
   render,
   faded,
   lastSeen,
-  SYSTEM_PROMPT,
-};
+  SYSTEM_PROMPT, matchName, nameKeys, htmlToText };

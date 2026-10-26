@@ -6,7 +6,7 @@
 > **비공식 모듈입니다.** Marinara Engine 및 Pasta-Devs와 관련이 없고, 그쪽의 검토나 지원을 받지 않습니다.
 > Marinara Engine **2.5.1**에서 확인했습니다. 다른 버전에서는 일부 기능이 스스로 꺼질 수 있습니다(아래 참고).
 
-지금 버전: **v0.8.2 (베타)** · 변경 내역은 [CHANGELOG.md](CHANGELOG.md)
+지금 버전: **v0.9.0 (베타)** · 변경 내역은 [CHANGELOG.md](CHANGELOG.md)
 
 ---
 
@@ -65,8 +65,8 @@ irm https://raw.githubusercontent.com/tlsiddl/marinara-memory-module/main/instal
 **설치 확인** — 마리나라 로그에 아래 줄들이 보이면 성공입니다.
 
 ```
-[memory-module] v0.8.2 applied: {{기억}} macro ready
-[memory-module] v0.8.2 applied: reply hook and admin API ready
+[memory-module] v0.9.0 applied: {{기억}} macro ready
+[memory-module] v0.9.0 applied: reply hook and admin API ready
 ```
 
 ### 2. 기억 서재 화면 (확장)
@@ -145,7 +145,10 @@ $env:MEMORY_MODULE_ACTION='rollback'; irm https://raw.githubusercontent.com/tlsi
 하는 일이 겹쳐서 같은 내용이 두 번 들어갑니다. 기억 모듈을 켠 방에서는 끄는 것을 추천합니다(요약이 숨긴 메시지도 기억 모듈은 계속 읽습니다).
 
 **답변이 기억을 늘어놓듯 과거를 설명해요.**
-설정 → **회상 양**을 **적게**로 내려 보세요.
+설정 → **회상 양**을 **적게**로, **캐릭터가 지난 일을 먼저 꺼내는 정도**를 **은은하게**로 내려 보세요.
+
+**캐릭터가 지난 일을 먼저 꺼내지 않아요.**
+설정 → **캐릭터가 지난 일을 먼저 꺼내는 정도**를 **적극적으로**로 올려 보세요(기본은 '자연스럽게'). 어느 쪽이든 지난 일을 줄줄이 설명하지는 않게 합니다.
 
 **예전 일을 물었는데 기억을 못 끌어와요.**
 주입 확인 탭의 **회상 시험**에 그 메시지를 넣어 보세요. 어떤 장면이 왜 떠오르는지(또는 안 떠오르는지) 보입니다. 임베딩을 켜 두면 말을 바꿔 물어도 잘 찾습니다.
