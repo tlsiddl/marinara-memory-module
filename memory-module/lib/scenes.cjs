@@ -549,7 +549,7 @@ function applyScenes(store, result, slice, required, now = new Date().toISOStrin
       id,
       start: messages[0].number,
       end: messages.at(-1).number,
-      messages: messages.map((m) => ({ id: m.id, h: m.h })),
+      messages: messages.map((m) => ({ id: m.id, h: m.h, ...(m.c ? { c: m.c } : {}) })),
       time: cleanText(item.time, 60),
       place: cleanText(item.place, 60),
       weather: cleanText(item.weather, 30) || mostOften(messages.map((m) => m.weather)),
@@ -638,12 +638,12 @@ function applyScenes(store, result, slice, required, now = new Date().toISOStrin
   }
   if (partial && bad >= 0) {
     const kept = new Set(made.map((x) => x.id));
-    return { scenes: made, facts: newFacts, learned: learned.filter((l) => kept.has(l.in)), later: later.filter((l) => kept.has(l.in)), covered: slice.slice(0, startAt).map((m) => ({ id: m.id, h: m.h })), partial: true };
+    return { scenes: made, facts: newFacts, learned: learned.filter((l) => kept.has(l.in)), later: later.filter((l) => kept.has(l.in)), covered: slice.slice(0, startAt).map((m) => ({ id: m.id, h: m.h, ...(m.c ? { c: m.c } : {}) })), partial: true };
   }
   const reached = made.at(-1).end;
-  if (reached < required && partial) return { scenes: made, facts: newFacts, learned, later, covered: slice.slice(0, startAt).map((m) => ({ id: m.id, h: m.h })), partial: true };
+  if (reached < required && partial) return { scenes: made, facts: newFacts, learned, later, covered: slice.slice(0, startAt).map((m) => ({ id: m.id, h: m.h, ...(m.c ? { c: m.c } : {}) })), partial: true };
   if (reached < required) return { error: `장면이 ${reached}번에서 끝나 필수 끝 번호 ${required}까지 닿지 않았습니다` };
-  return { scenes: made, facts: newFacts, learned, later, covered: slice.slice(0, startAt).map((m) => ({ id: m.id, h: m.h })) };
+  return { scenes: made, facts: newFacts, learned, later, covered: slice.slice(0, startAt).map((m) => ({ id: m.id, h: m.h, ...(m.c ? { c: m.c } : {}) })) };
 }
 
 /**
@@ -852,7 +852,7 @@ function changedAt(store, messages) {
   for (let i = 0; i < store.covered.length; i++) {
     const seen = store.covered[i];
     const now = messages[i];
-    if (!now || now.id !== seen.id || now.h !== seen.h) return i;
+    if (!now || now.id !== seen.id || now.h !== seen.h || L.trackerChanged(seen, now)) return i;
   }
   return -1;
 }

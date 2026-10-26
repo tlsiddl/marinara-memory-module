@@ -102,3 +102,47 @@ test('a scene keeps the weather the text or the tracker gives, and shows it in i
   assert.equal(told.scenes[0].weather, '첫눈', 'what the text says comes first');
   assert.match(S.buildScenePrompt ? JSON.stringify(S.buildScenePrompt(S.emptyStore(), msgs, 2)) : '날씨: 비', /날씨: 비/);
 });
+
+test('a date written in a message moves the story on; the next messages carry it, a lagging tracker does not pull it back', async () => {
+  const snaps = new Map([
+    ['d1', { date: '2024-10-18', time: '23:30', weather: '비', worldCustomFields: '[]', playerStats: null }],
+    ['d4', { date: '2024-10-18', time: '23:50', weather: null, worldCustomFields: '[]', playerStats: null }],
+  ]);
+  const msgs = [
+    { id: 'd1', content: '밤이 깊었다.' },
+    { id: 'd2', content: '24-10-19 (토) | 09:00\n아침이 밝았다.' },
+    { id: 'd3', content: '둘은 밥을 먹었다.' },
+    { id: 'd4', content: '설거지를 했다.' },
+  ];
+  await T.addTrackerClock({ gameStates: { getCommittedForMessages: async () => snaps } }, 'chat', msgs);
+  assert.deepEqual(msgs.map((m) => `${m.clock.date} ${m.clock.time}`), ['2024-10-18 23:30', '2024-10-19 09:00', '2024-10-19 09:00', '2024-10-19 09:00']);
+});
+
+test('the memory text and the deadline list count days from the same story date', () => {
+  const ledger = ledgerWith([{ kind: 'pending', title: '서류 제출', due: { date: '2024-10-19', time: null } }], { storyDate: '2024-10-18' });
+  T.storyDays.set('room', '2024-10-19');
+  const today = T.storyToday('room', ledger);
+  assert.equal(today, '2024-10-19', 'the chat already shows the next day while the ledger has not read it yet');
+  assert.match(L.renderCompact(ledger, { today }), /기한: .*오늘/);
+  assert.equal(L.deadlineList(ledger, today)[0].state, 'today');
+  T.storyDays.set('room', '2024-10-01');
+  assert.equal(T.storyToday('room', ledger), '2024-10-18', 'never earlier than what the ledger has read');
+});
+
+test('a hand fix of a tracker date or weather is a change to read again; older saves without it are left alone', () => {
+  const [a, b] = L.prepareMessages([
+    { id: 't1', number: 1, content: '같은 글.', trackerMark: ['2024-10-18', '21:00', '비'] },
+    { id: 't2', number: 2, content: '같은 글.', trackerMark: ['2024-10-18', '21:00', '맑음'] },
+  ]);
+  assert.equal(a.h, b.h, 'the text fingerprint is unchanged');
+  assert.notEqual(a.c, b.c);
+  const store = S.emptyStore();
+  store.covered = [{ id: 't1', h: a.h, c: a.c }];
+  assert.equal(S.changedAt(store, [{ ...b, id: 't1' }]), 0);
+  assert.equal(S.changedAt(store, [a]), -1);
+  store.covered = [{ id: 't1', h: a.h }];
+  assert.equal(S.changedAt(store, [{ ...b, id: 't1' }]), -1, 'saved before this version: no mass re-read');
+  const ledger = L.emptyLedger();
+  ledger.processed = [{ id: 't1', h: a.h, c: a.c }];
+  assert.ok(L.trackerChanged(ledger.processed[0], b));
+});

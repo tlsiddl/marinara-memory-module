@@ -447,13 +447,25 @@ async function addTrackerClock(e, chatId, messages) {
   if (!snaps?.size) return;
   let last = null;
   let weather = null;
+  const at = (c) => (c?.date ? `${c.date}T${c.time || '00:00'}` : null);
   for (const m of messages) {
-    const base = last?.date || L.storyDate([m]) || null;
-    const clock = trackerClock(snaps.get(m.id), base);
-    if (clock?.date || clock?.time) last = { date: clock.date || last?.date || null, time: clock.time };
+    // A date line written in the message itself comes first, and is what the next messages carry on from.
+    const ownDate = L.storyDate([{ content: m.content }]);
+    const ownTime = L.storyTime([{ content: m.content }]);
+    const snap = snaps.get(m.id);
+    const clock = trackerClock(snap, ownDate || last?.date || null);
+    if (ownDate) {
+      last = { date: ownDate, time: ownTime ? ownTime.slice(11, 16) : null };
+    } else if (clock?.date || clock?.time) {
+      const next = { date: clock.date || last?.date || null, time: clock.time };
+      // A tracker that lags behind (still showing the night before after the story moved on) is not followed back.
+      if (!(at(last) && at(next) && clock.date && at(next) < at(last))) last = next;
+    }
     if (clock?.weather) weather = clock.weather;
     if (last) m.clock = { ...last };
     if (weather) m.weather = weather;
+    // What the tracker said for this very message: a hand fix of its date, time or weather is a change to read again.
+    if (snap && (clock?.date || clock?.time || clock?.weather)) m.trackerMark = [clock.date, clock.time, clock.weather];
   }
 }
 
@@ -1044,7 +1056,8 @@ function renderLedger(chatId) {
   const ledger = loadLedger(chatId);
   const scenes = scenesForReply(chatId);
   const query = turnQuery.get(chatId) || '';
-  const open = ledger ? L.renderCompact(ledger, { query }) : '';
+  const today = storyToday(chatId, ledger);
+  const open = ledger ? L.renderCompact(ledger, { query, today }) : '';
   const routine = ledger ? L.renderRoutine(ledger, storyNow.get(chatId) || ledger.storyTime || null) : '';
   const fixed = [open ? `[아직 끝나지 않은 일]\n${open}` : '', routine].filter(Boolean);
   const style = settings().recallStyle;
@@ -1065,7 +1078,7 @@ function renderLedger(chatId) {
     // The story so far keeps up to its usual size, but never more than half of what is left.
     const overviewMax = Math.min(17_500, Math.floor(room * 0.5));
     const scale = Math.min(1, overviewMax / 17_500);
-    const overview = S.renderScenes(scenes, firstInside, { maxChars: Math.floor(9000 * scale), factChars: Math.floor(4500 * scale), chapterChars: Math.floor(4000 * scale), query, today: (storyNow.get(chatId) || '').slice(0, 10) || ledger?.storyDate || null });
+    const overview = S.renderScenes(scenes, firstInside, { maxChars: Math.floor(9000 * scale), factChars: Math.floor(4500 * scale), chapterChars: Math.floor(4000 * scale), query, today });
     if (overview) {
       story.push(overview);
       room -= overview.length + 2;
@@ -1340,8 +1353,8 @@ async function routes(app) {
       summary: summary(ledger),
       scenes: { count: scenes?.scenes.length || 0, chapters: scenes?.chapters?.length || 0, facts: scenes ? S.liveFacts(scenes).length : 0, coveredThrough: scenes?.scenes.at(-1)?.end ?? null, firstInside: windows.get(chatId) ?? scenes?.window?.firstInside ?? null },
       threads: ledger?.threads || [],
-      storyDate: (storyNow.get(chatId) || '').slice(0, 10) || ledger?.storyDate || null,
-      deadlines: ledger ? L.deadlineList(ledger, (storyNow.get(chatId) || '').slice(0, 10) || ledger.storyDate || null) : [],
+      storyDate: storyToday(chatId, ledger),
+      deadlines: ledger ? L.deadlineList(ledger, storyToday(chatId, ledger)) : [],
       lastNumber: ledger?.lastNumber ?? null,
       rendered: renderLedger(chatId),
     };
@@ -1518,6 +1531,8 @@ async function syncBeforeReply(chatId, body) {
   // The reply is generated after `view`, plus the new user turn when there is one.
   const now = L.storyTime(view.slice(-4));
   if (now) storyNow.set(chatId, now);
+  const day = L.storyDate(view);
+  if (day) storyDays.set(chatId, day);
   const window = await chatWindow(chatId);
   windows.set(chatId, S.firstInsideWindow(view, Math.max(1, window - (body?.userMessage ? 1 : 0))));
   checkScenesBeforeReply(chatId, view);
@@ -1588,6 +1603,17 @@ function fixSpeakers(text, o) {
 
 const recalls = new Map();
 const turnQuery = new Map();
+const storyDays = new Map();
+
+/**
+ * The story's "today", one value for everything that counts days (the memory text, the deadline list): the
+ * latest date the chat itself shows (date lines, trackers) as of the last reply, else what the ledger has read.
+ */
+function storyToday(chatId, ledger) {
+  const day = storyDays.get(chatId) || null;
+  const read = ledger?.storyDate || null;
+  return day && (!read || day >= read) ? day : read;
+}
 const storyNow = new Map();
 
 /**
@@ -1711,4 +1737,4 @@ function attach(app) {
   log('admin API ready at /api/memory-module');
 }
 
-module.exports = { fixSpeakers, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock } };
+module.exports = { fixSpeakers, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays } };

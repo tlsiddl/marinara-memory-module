@@ -9,6 +9,11 @@ const KIND_LABEL = { promise: '약속', emotion: '풀리지 않은 감정', secr
 const LEDGER_VERSION = 1;
 const MAX_BATCHES_KEPT = 15;
 
+/** The tracker's date, time or weather for a message was changed by hand (only where it was saved before). */
+function trackerChanged(seen, now) {
+  return !!seen.c && seen.c !== (now.c || null);
+}
+
 function hashText(text) {
   return crypto.createHash('sha1').update(String(text)).digest('hex').slice(0, 16);
 }
@@ -259,7 +264,9 @@ function prepareMessages(rows) {
   return rows.map((row) => {
     const speech = [];
     const content = htmlToText(row.content, { user, speech });
-    return { ...row, content, h: hashText(row.content), sentences: segmentHtmlSpeech(content, speech) };
+    const { trackerMark, ...rest } = row;
+    // c: the tracker's own date, time and weather for this message (not part of the text, so not in h).
+    return { ...rest, content, h: hashText(row.content), ...(trackerMark ? { c: hashText(JSON.stringify(trackerMark)) } : {}), sentences: segmentHtmlSpeech(content, speech) };
   });
 }
 
@@ -1506,7 +1513,7 @@ function beginBatch(ledger, firstIndex) {
 }
 
 function commitBatch(ledger, batch) {
-  for (const message of batch) ledger.processed.push({ id: message.id, h: message.h });
+  for (const message of batch) ledger.processed.push({ id: message.id, h: message.h, ...(message.c ? { c: message.c } : {}) });
   const date = storyDate(batch);
   if (date && (!ledger.storyDate || date > ledger.storyDate)) ledger.storyDate = date;
   const time = storyTime(batch);
@@ -1540,7 +1547,7 @@ function reconcile(ledger, current) {
   for (let i = 0; i < ledger.processed.length; i++) {
     const seen = ledger.processed[i];
     const now = current[i];
-    if (!now || now.id !== seen.id || now.h !== seen.h) {
+    if (!now || now.id !== seen.id || now.h !== seen.h || trackerChanged(seen, now)) {
       firstChanged = i;
       break;
     }
@@ -1663,7 +1670,7 @@ function sharedPairs(a, b) {
   return n / Math.min(ga.size, gb.size);
 }
 
-function compactLine(ledger, t, kind) {
+function compactLine(ledger, t, kind, today = ledger.storyDate) {
   const who = [t.who, t.toward].filter(Boolean).join('→');
   // A feeling reads with its cause, so "what was hidden" is never left to guessing.
   const tail =
@@ -1674,7 +1681,7 @@ function compactLine(ledger, t, kind) {
         : '';
   // A promise reads as what was said, and when.
   const said = t.kind === 'promise' && t.detail ? ` — ${shortQuote(t.detail, 100)}` : '';
-  const when = t.kind === 'emotion' ? '' : t.due ? ` [${t.kind === 'pending' ? '기한' : '약속한 때'}: ${formatDue(t.due, ledger.storyDate)}]` : t.period ? ` [${formatPeriod(t.period, ledger.storyDate)}]` : t.kind === 'promise' && t.since ? ` [${t.since}]` : '';
+  const when = t.kind === 'emotion' ? '' : t.due ? ` [${t.kind === 'pending' ? '기한' : '약속한 때'}: ${formatDue(t.due, today)}]` : t.period ? ` [${formatPeriod(t.period, today)}]` : t.kind === 'promise' && t.since ? ` [${t.since}]` : '';
   const said2 = t.kind === 'state' && t.detail ? ` — ${shortQuote(t.detail, 100)}` : '';
   const marks = groupCast(ledger).length ? [t.unaware?.length ? `모름: ${t.unaware.join('·')}` : null, t.guess?.length ? `짐작만: ${t.guess.join('·')}` : null].filter(Boolean) : [];
   const unaware = marks.length ? ` [${marks.join(' / ')}]` : '';
@@ -1687,10 +1694,9 @@ function compactLine(ledger, t, kind) {
  * mentioned; an overdue one nobody mentions any more is shelved and comes back when the talk touches it (`query`).
  * Without a story date, dated items keep their order and are never shelved.
  */
-function renderCompact(ledger, { maxChars = 2400, query = '' } = {}) {
+function renderCompact(ledger, { maxChars = 2400, query = '', today = ledger?.storyDate || null } = {}) {
   const threads = ledger?.threads || [];
   const lastNumber = ledger?.lastNumber ?? Math.max(0, ...threads.map(lastSeen));
-  const today = ledger?.storyDate || null;
   const lines = [];
   let used = 0;
   const open = threads.filter((t) => t.status === 'open');
@@ -1704,7 +1710,7 @@ function renderCompact(ledger, { maxChars = 2400, query = '' } = {}) {
     : [];
   const shown = new Set([...due, ...asked]);
   for (const t of [...due, ...asked]) {
-    const line = compactLine(ledger, t, t.kind) + (asked.includes(t) ? ' (기한이 지나고 한동안 말이 없던 일)' : '');
+    const line = compactLine(ledger, t, t.kind, today) + (asked.includes(t) ? ' (기한이 지나고 한동안 말이 없던 일)' : '');
     if (used + line.length + 1 > maxChars) break;
     lines.push(line);
     used += line.length + 1;
@@ -1715,7 +1721,7 @@ function renderCompact(ledger, { maxChars = 2400, query = '' } = {}) {
       .sort((a, b) => lastSeen(b) - lastSeen(a))
       .slice(0, COMPACT_LIMIT[kind]);
     for (const t of items) {
-      const line = compactLine(ledger, t, kind);
+      const line = compactLine(ledger, t, kind, today);
       if (used + line.length + 1 > maxChars) break;
       lines.push(line);
       used += line.length + 1;
@@ -1743,6 +1749,7 @@ module.exports = {
   parseClock,
   deadlineOf,
   deadlineList,
+  trackerChanged,
   clockNote,
   personaNames,
   renderCompact,
