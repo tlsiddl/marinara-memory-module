@@ -258,6 +258,7 @@
       <h1>${esc(roomName())}</h1>
       <p class="intro">지나간 대화를 장면·사실·장부로 정리해, 답변할 때마다 필요한 기억을 넣어 주는 서버 기억 모듈입니다. 이 방에서 기억을 켜 두면 답변마다 자동으로 정리되며, 여기서 고친 내용은 다음 답변부터 반영됩니다.</p>
       ${healthNote()}
+      ${info.summary?.needsRebuild ? `<div class="note">예전 메시지가 수정·삭제되어 장부(아직 끝나지 않은 일·최근 생활)를 처음부터 다시 정리해야 합니다. ${info.summary.rebuildFrom ? `다시 정리하기 전까지는 ${esc(info.summary.rebuildFrom)}번 메시지 전에 정리된 내용만 기억 칸에 넣습니다.` : '다시 정리하기 전까지는 장부 내용을 기억 칸에 넣지 않습니다.'} 아래 '처음부터 다시 정리'를 눌러 주세요(장면 기억은 영향이 없습니다).</div>` : ''}
       <div class="metric-row">
         <div class="metric"><strong>${info.scenes?.count ?? 0}</strong><small>장면 · 메시지 ${info.scenes?.coveredThrough ?? '-'}번까지</small></div>
         ${info.scenes?.chapters ? `<div class="metric"><strong>${info.scenes.chapters}</strong><small>챕터</small></div>` : ''}

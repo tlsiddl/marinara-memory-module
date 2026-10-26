@@ -648,6 +648,30 @@ async function foldScenes(chatId, store, messages, window, model, job, { minPend
  */
 async function condense(chatId, store, model, job, { maxCalls = 6, chaptersOnly = false } = {}) {
   let calls = 0;
+  // Summaries a hand edit made out of date are made again first (a chapter before the arc that holds it).
+  while (calls < maxCalls && !job?.cancel) {
+    const redo = S.nextRedo(store);
+    if (!redo) break;
+    if (redo.kind.startsWith('drop')) {
+      S.applyRedo(store, redo);
+      saveScenes(chatId, store);
+      continue;
+    }
+    const label = redo.kind === 'chapter' ? '챕터' : '큰 흐름';
+    if (job) job.stage = `고친 내용으로 ${label} 다시 요약 (${redo.target.id})`;
+    calls++;
+    try {
+      const prompt = redo.kind === 'chapter' ? S.buildChapterPrompt(store, redo.parts) : S.buildArcPrompt(store, redo.parts);
+      const parsed = L.parseJsonObject(await askModel(model, prompt, { maxTokens: 2000 }));
+      const made = S.applyRedo(store, redo, parsed);
+      if (made.error) throw Error(made.error);
+      saveScenes(chatId, store);
+      log(`chat ${chatId}: ${redo.kind} ${redo.target.id} summarized again after a hand edit`);
+    } catch (error) {
+      log(`chat ${chatId}: summarizing ${redo.target.id} again failed, will try again later (${error?.message || error})`);
+      break;
+    }
+  }
   while (calls < maxCalls && !job?.cancel) {
     const scenes = S.nextChapter(store);
     if (!scenes) break;
@@ -754,7 +778,7 @@ function processChat(chatId, { rebuild = false, reason = 'auto' } = {}) {
       L.tidyKnowledge(ledger);
       const state = L.reconcile(ledger, messages);
       if (state.rebuild) {
-        ledger.needsRebuild = { at: new Date().toISOString(), changedAt: state.changedAt };
+        ledger.needsRebuild = { at: new Date().toISOString(), changedAt: state.changedAt, number: changedNumber(ledger, messages, state.changedAt) };
         saveLedger(chatId, ledger);
         throw Error('예전 메시지가 수정·삭제되어 장부를 처음부터 다시 정리해야 합니다. 기억 서재의 ‘처음부터 다시 정리’나 mm start --fresh로 다시 정리해 주세요.');
       }
@@ -861,7 +885,7 @@ function processScenes(chatId, { rebuild = false, reason = 'auto' } = {}) {
           job.calls += await foldScenes(chatId, store, messages, window, await getModel(), job, { minPending: rebuild ? 1 : SCENE_MIN_PENDING });
         }
         // A long story: old scenes become chapters, and facts that piled up about one person are merged.
-        if (S.nextChapter(store) || S.nextFactMerge(store)) job.calls += await condense(chatId, store, await getModel(), job);
+        if (S.nextRedo(store) || S.nextChapter(store) || S.nextArc(store) || S.nextFactMerge(store)) job.calls += await condense(chatId, store, await getModel(), job);
         await indexScenes(chatId, store, job);
       } while (job.again && !job.cancel);
       job.state = 'done';
@@ -1083,9 +1107,25 @@ function fitBlock(text, max) {
  * the close events, the original passages. What does not fit is shortened whole scenes and lines at a time,
  * never in the middle of a line.
  */
+/**
+ * The message number where the ledger stopped matching the chat: the changed message itself, or (when it was
+ * deleted) the one now in its place. null when unknown.
+ */
+function changedNumber(ledger, messages, index) {
+  const n = messages[index]?.number;
+  return typeof n === 'number' ? n : null;
+}
+
+function ledgerForReply(chatId) {
+  const stored = loadLedger(chatId);
+  return stored?.needsRebuild ? L.verifiedBefore(stored, stored.needsRebuild.number) : stored;
+}
+
 function renderLedger(chatId) {
   if (!chatEnabled(chatId)) return '';
-  const ledger = loadLedger(chatId);
+  // A ledger that must be read again from the start (an old message changed past what can be undone) only gives
+  // what it learned before that message; with no such point known, none of it goes in until it is read again.
+  const ledger = ledgerForReply(chatId);
   const scenes = scenesForReply(chatId);
   const query = turnQuery.get(chatId) || '';
   const today = storyToday(chatId, ledger);
@@ -1188,6 +1228,7 @@ function summary(ledger) {
     open: { promise: count('promise'), emotion: count('emotion'), state: count('state'), secret: count('secret'), pending: count('pending') },
     closed: threads.filter((t) => t.status === 'closed').length,
     needsRebuild: Boolean(ledger?.needsRebuild),
+    rebuildFrom: ledger?.needsRebuild?.number ?? null,
     lastTidy: ledger?.lastTidy || null,
     updatedAt: ledger?.updatedAt || null,
   };
@@ -1454,6 +1495,8 @@ async function routes(app) {
       recalls.delete(chatId);
       // Meaning search: the edited pieces are already left out; their new vectors are made in the background.
       enqueue(`scenes:${chatId}`, () => indexScenes(chatId, loadScenes(chatId))).catch((error) => log(`chat ${chatId}: re-index after edit failed (${error?.message || error})`));
+      // Summaries the edit made out of date are made again in the background.
+      if (S.nextRedo(store) && chatEnabled(chatId)) processScenes(chatId, { reason: 'edit' }).catch(() => {});
       return out;
     });
   app.patch('/chats/:id/scenes/:sceneId', guard(async (req) => {
@@ -1462,6 +1505,8 @@ async function routes(app) {
       const scene = store.scenes.find((x) => x.id === req.params.sceneId);
       if (!scene) throw Error('해당 장면을 찾지 못했습니다.');
       for (const field of ['title', 'summary', 'time', 'place', 'weather']) if (typeof req.body?.[field] === 'string') scene[field] = req.body[field].trim();
+      // The chapter (and arc) that summarized this scene no longer says what it says now.
+      S.markStale(store, { scene: scene.id });
       if (req.body?.present !== undefined) scene.present = nameList(req.body.present);
       const str = (v) => (typeof v === 'string' && v.trim() ? v.trim() : null);
       if (Array.isArray(req.body?.events))
@@ -1505,6 +1550,9 @@ async function routes(app) {
       if (Array.isArray(req.body?.turns)) chapter.turns = req.body.turns.map((t) => String(t).trim()).filter(Boolean).slice(0, 8);
       if (Array.isArray(req.body?.keep)) chapter.keep = req.body.keep.map((t) => String(t).trim()).filter(Boolean).slice(0, 12);
       chapter.edited = true;
+      delete chapter.stale;
+      // The arc that summarized this chapter is made again; until then the chapter itself goes in.
+      S.markStale(store, { chapter: chapter.id });
       return chapter;
     });
   }));
@@ -1574,7 +1622,14 @@ async function syncBeforeReply(chatId, body) {
       const ledger = structuredClone(stored || L.emptyLedger());
       const state = L.reconcile(ledger, settled(view));
       if (state.rebuild) {
-        ledger.needsRebuild = { at: new Date().toISOString(), changedAt: state.changedAt };
+        const number = changedNumber(ledger, settled(view), state.changedAt);
+        if (!ledger.needsRebuild || ledger.needsRebuild.number !== number) {
+          ledger.needsRebuild = { at: new Date().toISOString(), changedAt: state.changedAt, number };
+          saveLedger(chatId, ledger);
+        }
+      } else if (ledger.needsRebuild) {
+        // The old message was put back as it was: the ledger is right again.
+        delete ledger.needsRebuild;
         saveLedger(chatId, ledger);
       } else if (state.rolledBack) {
         saveLedger(chatId, ledger);
@@ -1707,7 +1762,7 @@ async function computeRecall(chatId, store, view, userMessage, { mode, firstInsi
   const started = Date.now();
   const left = () => RECALL_TIMEOUT_MS - (Date.now() - started);
   if (list.length) {
-    const ledger = loadLedger(chatId);
+    const ledger = ledgerForReply(chatId);
     // Meaning search first (quick): scenes close in meaning even when the words differ.
     await Promise.race([embeddingSource(), new Promise((r) => setTimeout(r, Math.min(QUERY_TIMEOUT_MS, left())))]);
     const index = loadVectors(chatId);

@@ -1565,6 +1565,39 @@ function commitBatch(ledger, batch) {
   if (typeof last === 'number' && last > (ledger.lastNumber || 0)) ledger.lastNumber = last;
 }
 
+/** Every message a thread points at: where it began, its lines and clues, its latest change, its end. */
+function threadNumbers(t) {
+  return [
+    ...(t.evidence || []),
+    ...(t.clues || []),
+    ...(t.closed?.evidence || []),
+    t.latest,
+    t.openedAt,
+    t.reopened?.at,
+  ]
+    .map((p) => p?.number)
+    .filter((n) => typeof n === 'number');
+}
+
+/**
+ * The part of a ledger that rests only on messages before `number` (the first one changed): items that nothing
+ * at or after it touched, and daily-life entries from before it. Without a number, nothing (null).
+ */
+function verifiedBefore(ledger, number) {
+  if (!ledger || typeof number !== 'number') return null;
+  const before = (t) => {
+    const ns = threadNumbers(t);
+    return ns.length > 0 && Math.max(...ns) < number;
+  };
+  return {
+    ...ledger,
+    threads: (ledger.threads || []).filter(before),
+    routine: (ledger.routine || []).filter((r) => typeof r.number === 'number' && r.number < number),
+    lastNumber: number - 1,
+    verifiedBefore: number,
+  };
+}
+
 /** The last message where this thread came up. */
 function lastSeen(t) {
   const numbers = [...t.evidence, ...t.clues].map((p) => p.number).filter((n) => typeof n === 'number');
@@ -1798,6 +1831,7 @@ module.exports = {
   parseClock,
   deadlineOf,
   deadlineList,
+  verifiedBefore,
   dateInText,
   trackerChanged,
   clockNote,

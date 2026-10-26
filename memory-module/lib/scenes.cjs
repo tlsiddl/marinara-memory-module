@@ -1134,12 +1134,14 @@ function commitChapter(store, chapter) {
 
 /** "[지난 이야기 흐름]": newest chapters whole, older ones shorter, the oldest just their titles, in order. */
 function renderChapters(store, limit = 4000, query = '', today = null) {
-  const all = store.chapters || [];
+  // A chapter or arc whose parts were changed by hand is left out until it is summarized again: its scenes (or
+  // chapters) are shown instead, so the hand fix is what goes in, never the old summary.
+  const all = (store.chapters || []).filter((c) => !c.stale);
   if (!all.length) return '';
   const HEAD = '[지난 이야기 흐름]\n';
   // The oldest part of the story is told by its arcs, so it always has a line; the chapters inside an arc come
   // in on their own only when the talk touches them or they hold a date still ahead.
-  const arcs = (store.arcs || []).filter((a) => a.chapters?.length);
+  const arcs = (store.arcs || []).filter((a) => a.chapters?.length && !a.stale);
   const arced = new Set(arcs.flatMap((a) => a.chapters));
   const arcText = arcs.length ? arcLines(arcs, Math.floor((limit - HEAD.length) * 0.35)) : [];
   const pinned = new Set();
@@ -1243,6 +1245,52 @@ const ARC_MAX = 12;
 const ARC_KEEP = 10;
 
 /** The oldest chapters the next arc may take, once enough have piled up behind the newest ones. */
+/**
+ * A hand edit makes what summarizes it out of date: a scene edit marks its chapter (and that chapter's arc), a
+ * chapter edit marks its arc. Marked ones are left out of the memory until they are summarized again.
+ */
+function markStale(store, { scene = null, chapter = null } = {}) {
+  const chapters = (store.chapters || []).filter((c) => (scene && c.scenes.includes(scene)) || (chapter && c.id === chapter));
+  for (const c of chapters) if (scene) c.stale = true;
+  const ids = new Set(chapters.map((c) => c.id));
+  for (const a of store.arcs || []) if (a.chapters.some((id) => ids.has(id))) a.stale = true;
+  return chapters.length;
+}
+
+/** The next summary to make again: a marked chapter first (its arc depends on it), then a marked arc. */
+function nextRedo(store) {
+  const chapter = (store.chapters || []).find((c) => c.stale);
+  if (chapter) {
+    const scenes = store.scenes.filter((x) => chapter.scenes.includes(x.id));
+    return scenes.length ? { kind: 'chapter', target: chapter, parts: scenes } : { kind: 'drop-chapter', target: chapter };
+  }
+  const arc = (store.arcs || []).find((a) => a.stale);
+  if (arc) {
+    const chapters = (store.chapters || []).filter((c) => arc.chapters.includes(c.id));
+    return chapters.length === arc.chapters.length ? { kind: 'arc', target: arc, parts: chapters } : { kind: 'drop-arc', target: arc };
+  }
+  return null;
+}
+
+/** Put a summary made again in place of the marked one (same id, same parts). */
+function applyRedo(store, redo, result, now = new Date().toISOString()) {
+  if (redo.kind === 'drop-chapter') {
+    store.chapters = store.chapters.filter((c) => c !== redo.target);
+    return {};
+  }
+  if (redo.kind === 'drop-arc') {
+    store.arcs = store.arcs.filter((a) => a !== redo.target);
+    return {};
+  }
+  const last = redo.parts.at(-1).id;
+  const made = redo.kind === 'chapter' ? applyChapter(store, { ...result, end: last }, redo.parts, now) : applyArc(store, { ...result, end: last }, redo.parts, now);
+  if (made.error) return made;
+  const fresh = made.chapter || made.arc;
+  const list = redo.kind === 'chapter' ? store.chapters : store.arcs;
+  list[list.indexOf(redo.target)] = { ...fresh, id: redo.target.id, redoneAt: now };
+  return { done: redo.target.id };
+}
+
 function nextArc(store, { max = ARC_MAX, keep = ARC_KEEP } = {}) {
   const done = new Set((store.arcs || []).flatMap((a) => a.chapters));
   const open = (store.chapters || []).filter((c) => !done.has(c.id));
@@ -1444,7 +1492,8 @@ function applyFactMerge(store, about, facts, result, now = new Date().toISOStrin
  */
 function renderScenes(store, firstInside, { maxChars = 9000, maxSummaries = 40, expand = 2, maxFacts = 70, factChars = 4500, chapterChars = 4000, query = '', today = null } = {}) {
   // Scenes already folded into a chapter are told by the chapter.
-  const chaptered = new Set((store.chapters || []).flatMap((c) => c.scenes));
+  // (a chapter waiting to be summarized again after a hand edit does not count: its scenes speak for themselves)
+  const chaptered = new Set((store.chapters || []).filter((c) => !c.stale).flatMap((c) => c.scenes));
   const outside = store.scenes.filter((s) => (firstInside == null || s.start < firstInside) && !chaptered.has(s.id));
   const out = [];
   const flow = renderChapters(store, chapterChars, query, today);
@@ -1498,6 +1547,9 @@ function renderScenes(store, firstInside, { maxChars = 9000, maxSummaries = 40, 
 }
 
 module.exports = {
+  markStale,
+  nextRedo,
+  applyRedo,
   nextArc,
   buildArcPrompt,
   applyArc,

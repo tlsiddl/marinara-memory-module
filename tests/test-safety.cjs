@@ -126,3 +126,55 @@ test('exact details of old chapters still come through, those about the current 
   const asked = S.renderChapters(store, 4000, '서아: 장학금 서류 마감이 언제였지?');
   assert.match(asked, /C3 챕터 3\n {2}※ 장학금 서류 마감은 3월 2일 정오, 원본 두 부 제출/);
 });
+
+const L = require('../memory-module/lib/ledger.cjs');
+
+test('a ledger that must be read again only gives what rests on messages before the change', () => {
+  const ledger = L.emptyLedger();
+  ledger.threads = [
+    { id: 'T1', kind: 'promise', status: 'open', title: '바다 가기', evidence: [{ number: 3 }], clues: [] },
+    { id: 'T2', kind: 'promise', status: 'open', title: '반지 맞추기', evidence: [{ number: 10 }], clues: [] },
+    { id: 'T3', kind: 'pending', status: 'open', title: '빚 갚기', evidence: [{ number: 2 }], clues: [], latest: { number: 14, text: '절반 갚음' } },
+  ];
+  ledger.routine = [{ who: '서아', what: 'meal', number: 4 }, { who: '서아', what: 'sleep', number: 12 }];
+  const part = L.verifiedBefore(ledger, 10);
+  assert.deepEqual(part.threads.map((t) => t.id), ['T1'], 'the promise from the changed message and anything touched after it are out');
+  assert.deepEqual(part.routine.map((r) => r.number), [4]);
+  assert.match(L.renderCompact(part), /바다 가기/);
+  assert.doesNotMatch(L.renderCompact(part), /반지/);
+  assert.equal(L.verifiedBefore(ledger, null), null, 'no known point: nothing goes in');
+});
+
+test('editing a scene or chapter by hand takes its old summary out until it is made again', () => {
+  const store = S.emptyStore();
+  store.scenes = [1, 2, 3, 4].map((n) => ({ id: `S${n}`, start: n, end: n, messages: [], title: `장면 ${n}`, summary: n === 2 ? '여동생이 살아 있다.' : '일상.', events: [], recollections: [] }));
+  store.chapters = [
+    { id: 'C1', scenes: ['S1', 'S2'], title: '이별', summary: '여동생이 사망했다.', turns: [], keep: [] },
+    { id: 'C2', scenes: ['S3', 'S4'], title: '그 뒤', summary: '조용히 지냈다.', turns: [], keep: [] },
+  ];
+  store.arcs = [{ id: 'A1', chapters: ['C1', 'C2'], title: '상실', summary: '여동생이 사망했다.', turns: [], keep: [] }];
+  // A chapter fixed by hand: its arc is out, the fixed chapter goes in.
+  store.chapters[0].summary = '여동생이 살아 있다.';
+  S.markStale(store, { chapter: 'C1' });
+  let text = S.renderChapters(store, 4000);
+  assert.doesNotMatch(text, /사망/);
+  assert.match(text, /C1 .*여동생이 살아 있다/);
+  let redo = S.nextRedo(store);
+  assert.equal(redo.kind, 'arc');
+  S.applyRedo(store, redo, { title: '되찾음', summary: '여동생이 살아 있음을 알게 됐다.' });
+  assert.equal(store.arcs[0].id, 'A1');
+  assert.deepEqual(store.arcs[0].chapters, ['C1', 'C2']);
+  assert.equal(store.arcs[0].stale, undefined);
+  assert.match(S.renderChapters(store, 4000), /A1 .*되찾음/);
+  // A scene fixed by hand: its chapter and arc are out, the scenes themselves are told.
+  S.markStale(store, { scene: 'S3' });
+  text = S.renderScenes(store, 99);
+  assert.doesNotMatch(text, /조용히 지냈다/);
+  assert.match(text, /장면 3/);
+  redo = S.nextRedo(store);
+  assert.equal(redo.kind, 'chapter');
+  assert.deepEqual(redo.parts.map((x) => x.id), ['S3', 'S4']);
+  S.applyRedo(store, redo, { title: '새 그 뒤', summary: '다시 연락했다.' });
+  assert.deepEqual(store.chapters[1].scenes, ['S3', 'S4']);
+  assert.equal(S.nextRedo(store).kind, 'arc', 'then the arc holding it');
+});
