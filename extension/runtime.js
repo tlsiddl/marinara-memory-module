@@ -285,7 +285,7 @@
         const i = store.scenes.indexOf(s);
         const outside = firstInside == null || s.start < firstInside;
         return `<button class="file-index ${s.id === selectedScene ? 'is-selected' : ''} ${outside ? '' : 'is-current'}" data-scene="${esc(s.id)}">
-          <span class="file-code">${esc(s.id)} · ${s.start}~${s.end}</span><span class="file-spine">SCENE ${String(i + 1).padStart(3, '0')}</span>
+          <span class="file-code">${esc(s.id)}<span class="file-range">메시지 ${s.start}~${s.end}</span></span><span class="file-spine">SCENE ${String(i + 1).padStart(3, '0')}</span>
           <h3>${esc(s.title)}</h3><span class="barcode"></span>
           <span class="file-foot"><span>${esc((s.time || '').split(/\s+/).slice(0, 2).join(' '))}</span><span>${s.edited ? '고침' : ''}</span></span></button>`;
       })

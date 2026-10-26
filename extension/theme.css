@@ -114,7 +114,8 @@ button:not(.primary):not(.file-index):not(.chapter-chip):not(#launch){border-rad
 .record-row,.event-row,.fact-row,.routine-row{border-color:var(--t-line)!important}
 a.record-link,.record-link{color:var(--t-ink)!important;background:transparent!important;border:1px solid var(--t-ink)!important;border-radius:2px!important;font-family:var(--mono);font-size:11px!important;text-decoration:none!important}
 .chip,.chip-wrap .chip{border-radius:2px!important;border:1px solid var(--t-ink)!important;background:transparent!important;color:var(--t-ink)!important}
-blockquote,.quote-card{border-left:3px solid var(--t-ink)!important;background:var(--im-subtle)!important;font-family:var(--serif)}
+.quote-card{border-left:3px solid var(--t-ink)!important;background:var(--im-subtle)!important;padding:12px 16px!important}
+.quote-card blockquote{border:0!important;background:none!important;margin:6px 0 0!important;padding:0!important}
 .note{background:var(--im-subtle)!important;border:1px dashed var(--t-ink)!important;border-radius:3px!important;color:var(--t-ink)!important}
 #status{font-family:var(--mono);font-size:11px;letter-spacing:.3px}
 details>summary{font-family:var(--serif);font-weight:700}
@@ -186,3 +187,29 @@ details>summary{font-family:var(--serif);font-weight:700}
 /* ---- font: Marinara's own font unless the reader picked the library's ---- */
 :host([data-font=own]){--serif:"Nanum Myeongjo","Noto Serif KR","AppleMyungjo","Batang",Georgia,serif}
 :host([data-font=own]) #panel{font-family:"Pretendard","Noto Sans KR","Apple SD Gothic Neo",system-ui,sans-serif}
+
+/* ---- one font everywhere: Marinara's (or the library's own); typewriter only for short Latin labels ---- */
+:host{--body-font:var(--font-y2k,"Pretendard","Noto Sans KR",system-ui,sans-serif)}
+:host([data-font=own]){--body-font:"Pretendard","Noto Sans KR","Apple SD Gothic Neo",system-ui,sans-serif}
+#panel,#panel *:not(svg):not(svg *){font-family:var(--body-font)!important}
+#panel :is(h1,h2,h3,.paper-toolbar h2,details>summary,.file-index h3,.metric strong,.rail-stat b,.chapter-chip,.quote-card blockquote,.brand>div){font-family:var(--serif)!important}
+#panel :is(.eyebrow,.nav-label,.brand small,.file-code,.file-spine,.chip-id,.event-no,.editor-number,code){font-family:var(--mono)!important}
+.rail-title{letter-spacing:1px!important;text-transform:none!important}
+.pill{letter-spacing:.5px!important}
+a.record-link,.record-link{font-size:13px!important}
+#status{letter-spacing:0}
+pre{font-size:12.5px!important;line-height:1.85!important}
+
+/* ---- scene tickets: code on one line, title above the tear line, date below ---- */
+.file-index{display:flex!important;flex-direction:column;min-height:240px!important;padding:18px 14px 0 30px!important}
+.file-index .file-code{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:9px!important;letter-spacing:.6px!important}
+.file-index h3{font-size:16px!important;line-height:1.45!important;margin:14px 0 0!important;-webkit-line-clamp:4!important;max-height:calc(1.45em * 4);word-break:keep-all;overflow-wrap:anywhere}
+.file-index .barcode{display:none!important}
+.file-index:after{top:auto!important;bottom:52px!important}
+.file-index .file-foot{position:absolute!important;left:30px!important;right:12px!important;bottom:18px!important;top:auto!important;padding:0!important}
+.file-index.is-current:before{top:8px!important;right:8px!important;width:40px!important;height:40px!important}
+.chapter-chip{max-width:300px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:none}
+.file-index{-webkit-mask:radial-gradient(circle at 0 calc(100% - 52px),#0000 7px,#000 7.5px) left/51% 100% no-repeat,radial-gradient(circle at 100% calc(100% - 52px),#0000 7px,#000 7.5px) right/51% 100% no-repeat!important;
+  mask:radial-gradient(circle at 0 calc(100% - 52px),#0000 7px,#000 7.5px) left/51% 100% no-repeat,radial-gradient(circle at 100% calc(100% - 52px),#0000 7px,#000 7.5px) right/51% 100% no-repeat!important}
+.file-index .file-code{letter-spacing:0!important;font-size:8.5px!important}
+.file-index .file-code{white-space:normal!important;overflow:visible!important;line-height:1.5}.file-index .file-range{display:block;opacity:.75;font-family:var(--body-font)!important;font-size:10px}.file-index .file-range{white-space:nowrap}
