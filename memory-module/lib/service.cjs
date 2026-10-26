@@ -105,7 +105,18 @@ function readJson(file, fallback, { replaceable = false } = {}) {
   }
 }
 
-function markBroken(file, error, fallback, replaceable) {
+/**
+ * A memory file in a data format this version does not know (made by a newer module, or a future change):
+ * not empty memory. It is kept and reported like a broken file, and not written over.
+ */
+function supported(file, stored, version) {
+  if (!stored) return null;
+  if (stored.version === version) return stored;
+  markBroken(file, Error(`지원하지 않는 데이터 버전(${stored.version ?? '없음'}, 이 모듈은 ${version})`), null, false, 'version');
+  return null;
+}
+
+function markBroken(file, error, fallback, replaceable, reason = 'broken') {
   const old = brokenFiles.get(file);
   if (old) return fallback;
   let backup = null;
@@ -115,7 +126,7 @@ function markBroken(file, error, fallback, replaceable) {
   } catch {
     backup = null;
   }
-  brokenFiles.set(file, { file, backup, error: String(error?.message || error).slice(0, 200), at: new Date().toISOString(), replaceable });
+  brokenFiles.set(file, { file, backup, reason, error: String(error?.message || error).slice(0, 200), at: new Date().toISOString(), replaceable });
   log(`could not read ${file}: ${error?.message || error}${backup ? ` (copy kept at ${backup})` : ''}${replaceable ? '' : '; it will not be written over'}`);
   return fallback;
 }
@@ -123,7 +134,7 @@ function markBroken(file, error, fallback, replaceable) {
 function writeJson(file, value) {
   const broken = brokenFiles.get(file);
   if (broken && !broken.replaceable && fs.existsSync(file)) {
-    throw Error(`기억 파일(${path.basename(file)})이 손상되어 읽지 못했습니다. 덮어쓰지 않도록 저장을 멈췄습니다.${broken.backup ? ` 원본 복사본: ${broken.backup}.` : ''} 파일을 고치거나 지운 뒤 다시 시도해 주세요.`);
+    throw Error(`기억 파일(${path.basename(file)})을 ${broken.reason === 'version' ? '이 버전의 모듈이 모르는 형식이라' : '손상되어'} 읽지 못했습니다. 덮어쓰지 않도록 저장을 멈췄습니다.${broken.backup ? ` 원본 복사본: ${broken.backup}.` : ''} 파일을 고치거나 지운 뒤 다시 시도해 주세요.`);
   }
   brokenFiles.delete(file);
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -142,8 +153,8 @@ const cache = new Map();
 
 function loadLedger(chatId) {
   if (cache.has(chatId)) return cache.get(chatId);
-  const stored = readJson(ledgerFile(chatId), null);
-  const ledger = stored && stored.version === L.LEDGER_VERSION ? stored : null;
+  const stored = supported(ledgerFile(chatId), readJson(ledgerFile(chatId), null), L.LEDGER_VERSION);
+  const ledger = stored;
   cache.set(chatId, ledger);
   return ledger;
 }
@@ -160,8 +171,7 @@ const sceneCache = new Map();
 
 function loadScenes(chatId) {
   if (sceneCache.has(chatId)) return sceneCache.get(chatId);
-  const stored = readJson(scenesFile(chatId), null);
-  const store = stored && stored.version === S.SCENES_VERSION ? stored : null;
+  const store = supported(scenesFile(chatId), readJson(scenesFile(chatId), null), S.SCENES_VERSION);
   sceneCache.set(chatId, store);
   return store;
 }
@@ -622,7 +632,7 @@ function checkFiles(chatId) {
   loadScenes(chatId);
   for (const file of [ledgerFile(chatId), scenesFile(chatId), SETTINGS_FILE]) {
     const broken = brokenFiles.get(file);
-    if (broken && !broken.replaceable) throw Error(`기억 파일(${path.basename(file)})이 손상되어 정리를 멈췄습니다.${broken.backup ? ` 원본 복사본: ${broken.backup}.` : ''} 파일을 고치거나 지운 뒤 다시 시도해 주세요.`);
+    if (broken && !broken.replaceable) throw Error(`기억 파일(${path.basename(file)})을 ${broken.reason === 'version' ? '이 버전의 모듈이 모르는 형식이라' : '손상되어'} 읽지 못해 정리를 멈췄습니다.${broken.backup ? ` 원본 복사본: ${broken.backup}.` : ''} 파일을 고치거나 지운 뒤 다시 시도해 주세요.`);
   }
 }
 
@@ -987,7 +997,7 @@ function renderLedger(chatId) {
     // The story so far keeps up to its usual size, but never more than half of what is left.
     const overviewMax = Math.min(17_500, Math.floor(room * 0.5));
     const scale = Math.min(1, overviewMax / 17_500);
-    const overview = S.renderScenes(scenes, firstInside, { maxChars: Math.floor(9000 * scale), factChars: Math.floor(4500 * scale), chapterChars: Math.floor(4000 * scale) });
+    const overview = S.renderScenes(scenes, firstInside, { maxChars: Math.floor(9000 * scale), factChars: Math.floor(4500 * scale), chapterChars: Math.floor(4000 * scale), query: turnQuery.get(chatId) || '' });
     if (overview) {
       story.push(overview);
       room -= overview.length + 2;
@@ -1044,7 +1054,7 @@ function health() {
   const m = globalThis.__marinaraMemory || {};
   const patches = m.patches || {};
   const failed = Object.entries(patches).filter(([, v]) => v === 'failed').map(([k]) => k);
-  const broken = [...brokenFiles.values()].filter((b) => !b.replaceable).map((b) => ({ file: path.basename(b.file), backup: b.backup, error: b.error, at: b.at }));
+  const broken = [...brokenFiles.values()].filter((b) => !b.replaceable).map((b) => ({ file: path.basename(b.file), backup: b.backup, reason: b.reason, error: b.error, at: b.at }));
   return { marinara: marinaraVersion, tested: m.testedMarinara || null, patches, failed, broken };
 }
 
@@ -1496,6 +1506,7 @@ function fixSpeakers(text, o) {
 /* ---------- recall ---------- */
 
 const recalls = new Map();
+const turnQuery = new Map();
 const storyNow = new Map();
 
 /**
@@ -1508,6 +1519,8 @@ function recallFingerprint(s) {
 }
 
 async function recallBeforeReply(chatId, view, userMessage) {
+  // What is being talked about now: old chapters' details that touch it are shown first.
+  turnQuery.set(chatId, [...view.slice(-3).map((m) => m.content), userMessage || ''].join('\n').slice(-4000));
   const mode = RECALL_MODES.includes(settings().recall) ? settings().recall : 'model';
   const store = scenesForReply(chatId);
   if (mode === 'off' || !store) return recalls.delete(chatId);

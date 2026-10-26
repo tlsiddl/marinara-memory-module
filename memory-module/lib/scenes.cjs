@@ -770,8 +770,11 @@ function editFact(fact, { text, about, unaware, guess }) {
 
 /** Knowledge changes made in scenes that are gone are undone, newest first, except for people the user set by hand. */
 function undoKnowing(facts, droppedIds) {
+  const changed = new Set();
+  const state = (f) => JSON.stringify([[...(f.unaware || [])].sort(), [...(f.guess || [])].sort()]);
   for (const f of facts) {
     if (!f.knowHistory?.length) continue;
+    const was = state(f);
     const gone = f.knowHistory.filter((h) => droppedIds.has(h.in));
     if (!gone.length) continue;
     f.knowHistory = f.knowHistory.filter((h) => !droppedIds.has(h.in));
@@ -784,6 +787,18 @@ function undoKnowing(facts, droppedIds) {
       f.unaware = h.unaware ? [...new Set([...(f.unaware || []), h.who])] : (f.unaware || []).filter((n) => n !== h.who);
       f.guess = h.guess ? [...new Set([...(f.guess || []), h.who])] : (f.guess || []).filter((n) => n !== h.who);
     }
+    if (state(f) !== was) changed.add(f.id);
+  }
+  // Facts merged before they carried their sources' history: worked out again from the sources (in order, so a
+  // merge of merges follows). Anyone who does not know a part does not know the whole.
+  const byId = new Map(facts.map((f) => [f.id, f]));
+  for (const f of facts) {
+    if (f.knowInherited || !f.sources?.some((id) => changed.has(id))) continue;
+    const parts = f.sources.map((id) => byId.get(id)).filter(Boolean);
+    const unaware = [...new Set(parts.flatMap((x) => x.unaware || []))];
+    f.unaware = unaware;
+    f.guess = [...new Set(parts.flatMap((x) => x.guess || []))].filter((n) => !unaware.includes(n));
+    changed.add(f.id);
   }
 }
 
@@ -1104,7 +1119,7 @@ function commitChapter(store, chapter) {
 }
 
 /** "[지난 이야기 흐름]": newest chapters whole, older ones shorter, the oldest just their titles, in order. */
-function renderChapters(store, maxChars = 4000) {
+function renderChapters(store, maxChars = 4000, query = '') {
   const list = store.chapters || [];
   if (!list.length) return '';
   const full = (c) => [`${c.id} ${c.time ? `${c.time} — ` : ''}${c.title}: ${c.summary}`, ...c.turns.map((t) => `  · ${t}`), ...(c.keep || []).map((t) => `  ※ ${t}`)].join('\n');
@@ -1114,6 +1129,22 @@ function renderChapters(store, maxChars = 4000) {
   const tiny = (c) => `${c.id} ${c.title}`;
   const lines = list.map(tiny);
   let used = lines.join('\n').length;
+  // Exact details of old chapters (deadlines, amounts, conditions) are not lost with their summary: they get a
+  // share of their own, first the ones that touch what is being talked about now, then the newest.
+  const detailRoom = Math.floor(maxChars * 0.3);
+  let detailUsed = 0;
+  const details = list
+    .flatMap((c, i) => (c.keep || []).map((t, k) => ({ i, k, text: t, score: query ? overlap(t, query) : 0 })))
+    .sort((a, b) => (b.score >= 0.3) - (a.score >= 0.3) || (a.score >= 0.3 ? b.score - a.score : 0) || b.i - a.i || a.k - b.k);
+  const picked = new Map();
+  for (const d of details) {
+    const cost = d.text.length + 5;
+    if (detailUsed + cost > detailRoom || used + cost > maxChars) continue;
+    detailUsed += cost;
+    used += cost;
+    picked.set(d.i, [...(picked.get(d.i) || []), d]);
+  }
+  for (const [i, ds] of picked) lines[i] = [tiny(list[i]), ...ds.sort((a, b) => a.k - b.k).map((d) => `  ※ ${d.text}`)].join('\n');
   for (const make of [short, full]) {
     for (let i = list.length - 1; i >= 0; i--) {
       const next = make(list[i]);
@@ -1164,6 +1195,19 @@ function buildFactMergePrompt(store, about, facts) {
   ];
 }
 
+function inheritKnowing(sources) {
+  const seen = new Set();
+  const knowHistory = [];
+  for (const h of sources.flatMap((f) => f.knowHistory || [])) {
+    const key = `${h.who}\u0000${h.in}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    knowHistory.push({ ...h });
+  }
+  const knowSet = [...new Set(sources.flatMap((f) => f.knowSet || []))];
+  return { ...(knowHistory.length ? { knowHistory } : {}), ...(knowSet.length ? { knowSet } : {}), knowInherited: true };
+}
+
 const sameSet = (a, b) => JSON.stringify([...(a || [])].sort()) === JSON.stringify([...(b || [])].sort());
 
 /** Apply a merge: each new fact replaces its sources. Bad items (unknown ids, mixed marks) are skipped. */
@@ -1192,6 +1236,8 @@ function applyFactMerge(store, about, facts, result, now = new Date().toISOStrin
       when: whens.length === 1 ? whens[0] : null,
       unaware: [...(sources[0].unaware || [])],
       guess: [...(sources[0].guess || [])],
+      // Who learned it in which scene comes along, so undoing that scene undoes it on the merged fact as well.
+      ...inheritKnowing(sources),
       sources: sources.map((f) => f.id),
       edited: false,
       createdAt: now,
@@ -1211,12 +1257,12 @@ function applyFactMerge(store, about, facts, result, now = new Date().toISOStrin
  * The memory text for scenes that have left the context window (start before `firstInside`).
  * All of them get a one-line summary (newest `maxSummaries`); the newest `expand` get events and recollections.
  */
-function renderScenes(store, firstInside, { maxChars = 9000, maxSummaries = 40, expand = 2, maxFacts = 70, factChars = 4500, chapterChars = 4000 } = {}) {
+function renderScenes(store, firstInside, { maxChars = 9000, maxSummaries = 40, expand = 2, maxFacts = 70, factChars = 4500, chapterChars = 4000, query = '' } = {}) {
   // Scenes already folded into a chapter are told by the chapter.
   const chaptered = new Set((store.chapters || []).flatMap((c) => c.scenes));
   const outside = store.scenes.filter((s) => (firstInside == null || s.start < firstInside) && !chaptered.has(s.id));
   const out = [];
-  const flow = renderChapters(store, chapterChars);
+  const flow = renderChapters(store, chapterChars, query);
   if (flow) out.push(flow);
   if (outside.length) {
     const shown = outside.slice(-maxSummaries);

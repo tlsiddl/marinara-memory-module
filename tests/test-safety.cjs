@@ -77,3 +77,52 @@ test('a broken memory file is kept, reported, and never written over; a missing 
   T.saveScenes('room', S.emptyStore());
   assert.ok(JSON.parse(fs.readFileSync(file, 'utf8')).scenes, 'once the user removes it, saving works again');
 });
+
+test('after facts are merged, undoing the scene where someone learned them undoes it on the merged fact too', () => {
+  const store = S.emptyStore();
+  store.scenes = [{ id: 'S1' }, { id: 'S2' }];
+  store.facts = [
+    { id: 'F1', about: '서아', text: '서아는 다음 달에 이사한다', unaware: ['도윤'], evidence: [], sceneId: 'S1' },
+    { id: 'F2', about: '서아', text: '서아는 이사 비용을 모으고 있다', unaware: ['도윤'], evidence: [], sceneId: 'S1' },
+  ];
+  store.nextFact = 3;
+  for (const f of store.facts) S.setKnowing(f, '도윤', 'S2', { unaware: false });
+  assert.equal(S.applyFactMerge(store, '서아', store.facts.slice(), { merged: [{ text: '서아는 다음 달 이사를 앞두고 비용을 모으고 있다', from: ['F1', 'F2'] }] }), 1);
+  const merged = store.facts.find((f) => f.id === 'F3');
+  assert.deepEqual(merged.unaware, []);
+  S.undoKnowing(store.facts, new Set(['S2']));
+  assert.deepEqual(merged.unaware, ['도윤'], 'the fact that goes into replies is back to not known');
+  // A merge saved by an older version (no history carried): worked out again from its sources.
+  const old = structuredClone(store);
+  for (const f of old.facts) S.setKnowing(f, '도윤', 'S3', { unaware: false });
+  const m = old.facts.find((f) => f.id === 'F3');
+  delete m.knowHistory;
+  delete m.knowInherited;
+  S.undoKnowing(old.facts, new Set(['S3']));
+  assert.deepEqual(m.unaware, ['도윤']);
+});
+
+test('a memory file in a data version this module does not know is kept, reported and not written over', () => {
+  const chats = path.join(dir, 'memory-module', 'chats');
+  const file = path.join(chats, 'future.scenes.json');
+  const body = JSON.stringify({ version: 2, scenes: [{ id: 'S1', title: '미래 형식' }] });
+  fs.writeFileSync(file, body);
+  assert.equal(T.loadScenes('future'), null);
+  const b = T.health().broken.find((x) => x.file === 'future.scenes.json');
+  assert.equal(b.reason, 'version');
+  assert.throws(() => T.saveScenes('future', S.emptyStore()), /모르는 형식/);
+  assert.equal(fs.readFileSync(file, 'utf8'), body);
+});
+
+test('exact details of old chapters still come through, those about the current talk first', () => {
+  const store = S.emptyStore();
+  store.chapters = Array.from({ length: 100 }, (_, i) => ({ id: `C${i + 1}`, title: `챕터 ${i + 1}`, summary: '여러 일이 있었다. '.repeat(8), turns: ['전환점'], keep: [`${i + 1}번 약속의 기한은 ${(i % 12) + 1}월 ${(i % 28) + 1}일이다`], scenes: [] }));
+  store.chapters[2].keep = ['장학금 서류 마감은 3월 2일 정오, 원본 두 부 제출'];
+  const plain = S.renderChapters(store, 4000);
+  assert.ok(plain.length <= 4000 + 20);
+  const withDetails = plain.split('\n').filter((l) => l.startsWith('  ※')).length;
+  assert.ok(withDetails >= 40, `old chapters keep their details too (${withDetails})`);
+  assert.doesNotMatch(plain, /장학금/, 'an old detail nobody talks about may wait');
+  const asked = S.renderChapters(store, 4000, '서아: 장학금 서류 마감이 언제였지?');
+  assert.match(asked, /C3 챕터 3\n {2}※ 장학금 서류 마감은 3월 2일 정오, 원본 두 부 제출/);
+});
