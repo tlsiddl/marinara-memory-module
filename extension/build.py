@@ -23,6 +23,7 @@ manifest = {
 }
 js = (root / 'runtime.js').read_text()
 js = js.replace("/*__UI_CSS__*/ ''", "/*__UI_CSS__*/ " + json.dumps((root / 'ui.css').read_text(), ensure_ascii=False))
+js = js.replace("/*__THEME_CSS__*/ ''", "/*__THEME_CSS__*/ " + json.dumps((root / 'theme.css').read_text(), ensure_ascii=False))
 js = js.replace("'/*__VERSION__*/'", json.dumps(version))
 (out / 'extension.js').write_text('/* 기억 서재 · 마리나라 엔진용 기억 모듈 (비공식) */\n' + js)
 (out / 'extension.css').write_text('/* UI styles live in an isolated ShadowRoot. */\n')

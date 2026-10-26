@@ -60,7 +60,8 @@ function emptyIndex(model) {
 
 /** An index made by another model or an older layout starts over. */
 function usable(index, model) {
-  return index && index.model === model && index.v === INDEX_VERSION;
+  // Model names differ in case between providers' lists ("Qwen/…" vs "qwen/…"); the vectors are the same.
+  return index && String(index.model).toLowerCase() === String(model).toLowerCase() && index.v === INDEX_VERSION;
 }
 
 /** Pieces whose vector is missing or stale (the text changed). */

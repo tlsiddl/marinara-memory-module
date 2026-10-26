@@ -6,7 +6,7 @@
 > **비공식 모듈입니다.** Marinara Engine 및 Pasta-Devs와 관련이 없고, 그쪽의 검토나 지원을 받지 않습니다.
 > Marinara Engine **2.5.1**에서 확인했습니다. 다른 버전에서는 일부 기능이 스스로 꺼질 수 있습니다(아래 참고).
 
-지금 버전: **v0.7.2 (베타)** · 변경 내역은 [CHANGELOG.md](CHANGELOG.md)
+지금 버전: **v0.8.0 (베타)** · 변경 내역은 [CHANGELOG.md](CHANGELOG.md)
 
 ---
 
@@ -30,7 +30,7 @@
 
 1. **Marinara Engine 2.5.1** (도커 서버, 그냥 실행, Termux 모두 가능)
 2. **기억 정리에 쓸 모델 연결** — 마리나라에 이미 저장된 연결 중 하나를 빌려 씁니다. 답변마다 여러 번 부르니 **저렴하고 긴 글을 잘 읽는 모델**을 추천합니다(예: DeepSeek 계열).
-3. (선택) **임베딩 모델** — 말을 바꿔 물어도 찾게 해 줍니다. 한국어라면 `Qwen/Qwen3-Embedding-8B`나 `BAAI/bge-m3`를 추천합니다. 위 연결과 같은 곳(예: NanoGPT)에서 부릅니다.
+3. (선택) **임베딩 모델** — 말을 바꿔 물어도 찾게 해 줍니다. 한국어라면 `Qwen/Qwen3-Embedding-8B`나 `BAAI/bge-m3`를 추천합니다. 마리나라 연결에 넣어 둔 임베딩 설정을 그대로 가져옵니다.
 
 ---
 
@@ -65,8 +65,8 @@ irm https://raw.githubusercontent.com/tlsiddl/marinara-memory-module/main/instal
 **설치 확인** — 마리나라 로그에 아래 줄들이 보이면 성공입니다.
 
 ```
-[memory-module] v0.7.2 applied: {{기억}} macro ready
-[memory-module] v0.7.2 applied: reply hook and admin API ready
+[memory-module] v0.8.0 applied: {{기억}} macro ready
+[memory-module] v0.8.0 applied: reply hook and admin API ready
 ```
 
 ### 2. 기억 서재 화면 (확장)
@@ -84,7 +84,7 @@ irm https://raw.githubusercontent.com/tlsiddl/marinara-memory-module/main/instal
 2. 쓰는 프롬프트 프리셋에 새 섹션(역할: 시스템)을 하나 만들고 내용에 `{{기억}}`을 적습니다. 채팅 기록 바로 위에 두는 것을 추천합니다. **이걸 빠뜨리면 기억이 만들어져도 답변에 들어가지 않습니다.** (아래 '프리셋 예시' 참고)
 3. 기억을 쓸 채팅방을 열고, 기억 서재 왼쪽 아래 **이 방에서 기억 사용**을 켭니다.
 4. **기억 보관함** 탭에서 **이어서 정리**를 누릅니다. 처음에는 지난 대화 전체를 정리합니다.
-5. (선택) 설정 → **뜻으로 찾기**에 임베딩 모델 이름을 넣고 **임베딩 저장·연결 확인**.
+5. (선택) **뜻으로 찾기(임베딩)** — 마리나라 연결 설정의 **시맨틱 검색(임베딩)**에 모델을 넣어 두셨다면 그대로 가져와 씁니다(임베딩 연결을 따로 정해 두셨다면 그 연결도 따라갑니다). 따로 쓰고 싶으시면 설정 → 뜻으로 찾기에서 직접 입력하실 수 있습니다. 마리나라 내장 로컬 임베딩(MiniLM)은 영어 전용이라 쓰지 않습니다.
 
 그다음부터는 답변마다 자동으로 정리됩니다. 기억을 켠 방만 비용이 듭니다.
 

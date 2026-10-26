@@ -139,8 +139,70 @@ const EMBED_BATCH = 32;
 const EMBED_MAX_PER_RUN = 800;
 const QUERY_TIMEOUT_MS = 8000;
 
+/**
+ * Where vectors come from. settings().embedding:
+ *   missing or { source: 'connection' } — the embedding model set on the memory connection in Marinara
+ *     (its own model, base URL and "embedding connection"), when it has one;
+ *   { model } — a model typed in the library, called through the memory connection;
+ *   null — off.
+ */
+const LOCAL_SIDECAR = '__local_sidecar__';
+const EMBED_SOURCE_TTL_MS = 60_000;
+let embedSource = { key: '', at: 0, value: null, error: null };
+
+function embeddingMode() {
+  const e = settings().embedding;
+  if (e === null) return 'off';
+  if (e?.model) return 'manual';
+  return 'connection';
+}
+
+const trimmed = (v) => String(v || '').trim();
+
+/** The memory connection's own embedding setting, the way Marinara reads it for its memory recall. */
+async function connectionEmbedding() {
+  const e = await engine();
+  const wanted = settings().connection;
+  if (!wanted) return null;
+  const list = await e.connections.list();
+  const row = list.find((c) => c.id === wanted) || list.find((c) => c.name === wanted);
+  if (!row) return null;
+  const conn = await e.connections.getWithKey(row.id);
+  const viaId = trimmed(conn.embeddingConnectionId);
+  if (viaId === LOCAL_SIDECAR) throw Error(`연결 "${row.name}"의 임베딩이 마리나라 내장 로컬 모델(영어 전용)로 되어 있어 쓰지 않습니다. 한국어 임베딩 모델을 연결에 넣거나 여기서 직접 입력해 주세요.`);
+  const src = (viaId && (await e.connections.getWithKey(viaId).catch(() => null))) || conn;
+  const model = trimmed(src.embeddingModel) || trimmed(conn.embeddingModel);
+  if (!model) return null;
+  const baseUrl = trimmed(src.embeddingBaseUrl) || (src === conn ? trimmed(conn.embeddingBaseUrl) : '') || e.resolveBaseUrl(src);
+  if (!baseUrl) throw Error(`연결 "${src.name}"에 임베딩 주소(base URL)가 없습니다.`);
+  const provider = e.createLLMProvider(src.provider, baseUrl, src.apiKey, src.maxContext, src.openrouterProvider, null,
+    src.claudeFastMode === 'true', src.treatAsLocalEndpoint === 'true', src.defaultParameters);
+  return { model, provider, label: src === conn ? `연결 "${row.name}"` : `연결 "${row.name}" → 임베딩 연결 "${src.name}"` };
+}
+
+/** The current embedding source (cached for a minute); null when meaning search is off or not set up. */
+async function embeddingSource(force = false) {
+  const mode = embeddingMode();
+  const key = JSON.stringify([mode, settings().embedding, settings().connection]);
+  if (!force && embedSource.key === key && Date.now() - embedSource.at < EMBED_SOURCE_TTL_MS) return embedSource.value;
+  let value = null;
+  let error = null;
+  try {
+    if (mode === 'manual') {
+      const m = await memoryModel();
+      value = { model: trimmed(settings().embedding.model), provider: m.provider, label: `연결 "${m.name}"` };
+    } else if (mode === 'connection') value = await connectionEmbedding();
+  } catch (e) {
+    error = String(e?.message || e);
+  }
+  embedSource = { key, at: Date.now(), value, error };
+  return value;
+}
+
+/** The model name for vectors already resolved (sync; call embeddingSource() first). */
 function embeddingModel() {
-  return String(settings().embedding?.model || '').trim() || null;
+  if (embeddingMode() === 'manual') return trimmed(settings().embedding.model) || null;
+  return embeddingMode() === 'connection' ? embedSource.value?.model || null : null;
 }
 
 function loadVectors(chatId) {
@@ -159,18 +221,19 @@ function saveVectors(chatId, index) {
 
 /** Vectors for texts with the memory connection; kind 'query' or 'doc' picks the model's prefix. */
 async function embedTexts(texts, kind, signal) {
-  const model = embeddingModel();
-  if (!model) throw Error('임베딩 모델이 정해지지 않았습니다.');
-  const m = await memoryModel();
-  if (typeof m.provider.embed !== 'function') throw Error(`연결 "${m.name}"은(는) 임베딩을 지원하지 않습니다.`);
+  const src = await embeddingSource();
+  if (!src) throw Error(embedSource.error || '임베딩 모델이 정해지지 않았습니다.');
+  if (typeof src.provider.embed !== 'function') throw Error(`${src.label}은(는) 임베딩을 지원하지 않습니다.`);
+  const model = src.model;
   const prefix = V.prefixes(model)[kind === 'query' ? 'query' : 'doc'];
-  const out = await m.provider.embed(texts.map((t) => `${prefix}${t}`), model, signal);
+  const out = await src.provider.embed(texts.map((t) => `${prefix}${t}`), model, signal);
   if (!Array.isArray(out) || out.length !== texts.length) throw Error('임베딩 응답의 개수가 맞지 않습니다.');
   return out;
 }
 
 /** Give new or changed scenes their vectors. A failure is logged and left for the next run. */
 async function indexScenes(chatId, store, job) {
+  await embeddingSource();
   const index = loadVectors(chatId);
   if (!index || !store?.scenes.length) return 0;
   V.prune(index, store.scenes);
@@ -901,7 +964,13 @@ async function routes(app) {
     const file = path.join(CHAT_DIR, `${safeChatId(req.params.id)}.scene-error.txt`);
     return { text: fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null };
   }));
-  app.get('/status', guard(async () => ({ version: globalThis.__marinaraMemory?.version || null, settings: settings(), dataDir: DATA_DIR, health: health() })));
+  app.get('/status', guard(async () => {
+    const src = await embeddingSource();
+    return {
+      version: globalThis.__marinaraMemory?.version || null, settings: settings(), dataDir: DATA_DIR, health: health(),
+      embedding: { mode: embeddingMode(), model: src?.model || null, label: src?.label || null, error: src ? null : embedSource.error },
+    };
+  }));
   // "What would come up if I sent this?" — the recall without a reply, nothing saved.
   app.post('/chats/:id/recall-test', guard(async (req) => {
     const chatId = safeChatId(req.params.id);
@@ -926,25 +995,27 @@ async function routes(app) {
       raw: (entry.raw || []).map((r) => ({ number: r.number, text: r.text })),
       candidates: list.length,
       alreadyShown: shown.length ? `${shown[0]}~${shown.at(-1)}` : null,
-      vectors: !!loadVectors(chatId),
+      vectors: !!(await embeddingSource(), loadVectors(chatId)),
     };
   }));
   app.post('/settings/embedding', guard(async (req) => {
+    const mode = String(req.body?.mode || (req.body?.model ? 'manual' : 'off')).trim();
     const model = String(req.body?.model || '').trim();
-    if (!model) {
-      saveSettings({ ...settings(), embedding: null });
-      vectorCache.clear();
-      return { model: null };
-    }
+    if (!['connection', 'manual', 'off'].includes(mode)) throw Error('임베딩 방식은 connection, manual, off 중 하나여야 합니다.');
+    if (mode === 'manual' && !model) throw Error('직접 입력하실 임베딩 모델 이름을 적어 주세요.');
     const before = settings().embedding;
-    saveSettings({ ...settings(), embedding: { model } });
+    saveSettings({ ...settings(), embedding: mode === 'off' ? null : mode === 'manual' ? { model } : { source: 'connection' } });
+    vectorCache.clear();
+    if (mode === 'off') return { mode, model: null };
     try {
+      const src = await embeddingSource(true);
+      if (!src) throw Error(embedSource.error || '기억용 연결에 임베딩 모델이 설정되어 있지 않습니다. 마리나라 연결 설정의 ‘시맨틱 검색(임베딩)’에 모델을 넣어 주세요.');
       const [vector] = await embedTexts(['임베딩 연결 확인'], 'doc', AbortSignal.timeout(20000));
-      vectorCache.clear();
-      return { model, dimensions: vector.length };
+      return { mode, model: src.model, label: src.label, dimensions: vector.length };
     } catch (error) {
-      saveSettings({ ...settings(), embedding: before || null });
-      throw Error(`임베딩 모델 "${model}"을(를) 쓰지 못했습니다: ${error?.message || error}`);
+      saveSettings({ ...settings(), embedding: before === undefined ? undefined : before });
+      await embeddingSource(true);
+      throw Error(`임베딩을 쓰지 못했습니다: ${error?.message || error}`);
     }
   }));
   app.post('/settings/recall-amount', guard(async (req) => {
@@ -983,6 +1054,7 @@ async function routes(app) {
     }));
   }));
   app.get('/chats/:id', guard(async (req) => {
+    await embeddingSource();
     const chatId = safeChatId(req.params.id);
     const ledger = loadLedger(chatId);
     const { cancel: _cancel, abort: _abort, cancelReason: _reason, ...job } = jobStatus(chatId);
@@ -1279,6 +1351,7 @@ async function computeRecall(chatId, store, view, userMessage, { mode, firstInsi
   if (list.length) {
     const ledger = loadLedger(chatId);
     // Meaning search first (quick): scenes close in meaning even when the words differ.
+    await embeddingSource();
     const index = loadVectors(chatId);
     if (index && Object.keys(index.items).length) {
       try {

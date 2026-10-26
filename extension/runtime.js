@@ -4,10 +4,11 @@
   // All memory lives on the server; this only shows it and sends the user's changes back.
   const VERSION = '/*__VERSION__*/';
   const UI_CSS = /*__UI_CSS__*/ '';
+  const THEME_CSS = /*__THEME_CSS__*/ '';
   const host = typeof marinara === 'object' ? marinara : globalThis.marinara || {};
   const BASE = '/api/memory-module';
   const NAV = [
-    ['home', '기억 보관함', 'archive'],
+    ['home', '한눈에', 'archive'],
     ['scenes', '장면', 'folder'],
     ['facts', '알게 된 사실', 'person'],
     ['ledger', '아직 끝나지 않은 일', 'note'],
@@ -34,6 +35,7 @@
   /** Folded lists the person opened (kept open when the screen is drawn again). */
   const openLists = new Set();
   let connections = [];
+  let serverEmbedding = null;
   let serverSettings = null;
   let notice = '';
   let lastError = '';
@@ -42,6 +44,8 @@
   let armed = '';
   let disposed = false;
   let theme = 'light';
+  /** 'marinara' follows the font set in Marinara; 'own' uses the library's Myeongjo/sans pair. */
+  let font = 'marinara';
   /** A record to jump to after the next render: { kind: 'thread' | 'fact', id }. */
   let focus = null;
   /** A group story (two or more characters): who-knows-what fields are shown. */
@@ -49,6 +53,7 @@
   try {
     const saved = localStorage.getItem('memory-module-theme');
     theme = ['light', 'dark'].includes(saved) ? saved : window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    font = localStorage.getItem('memory-module-font') === 'own' ? 'own' : 'marinara';
   } catch {}
 
   const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -287,7 +292,7 @@
       .join('');
     const s = inGroup.find((x) => x.id === selectedScene);
     return `<div class="eyebrow">SCENES · ${store.scenes.length}${chapters.length ? ` · CHAPTERS · ${chapters.length}` : ''}</div><h1>장면</h1>
-      <p class="intro">보라색 카드는 아직 모델이 원문으로 직접 보고 있는 장면입니다(기억 칸에는 들어가지 않습니다). 카드를 누르면 아래에서 고치실 수 있습니다.${chapters.length ? ' 오래된 장면은 챕터로 묶여, 기억 칸에는 챕터 요약으로 들어갑니다.' : ''}</p>
+      <p class="intro">ON AIR 도장이 찍힌 카드는 아직 모델이 원문으로 직접 보고 있는 장면입니다(기억 칸에는 들어가지 않습니다). 카드를 누르면 아래에서 고치실 수 있습니다.${chapters.length ? ' 오래된 장면은 챕터로 묶여, 기억 칸에는 챕터 요약으로 들어갑니다.' : ''}</p>
       ${bar}${chapters.length ? `<div class="buttons"><button data-act="rebuildChapters" ${running() ? 'disabled' : ''}>${armed === 'chapters' ? '한 번 더 누르면 챕터를 다시 묶습니다' : '챕터만 다시 묶기'}</button><small>장면·사실·장부는 그대로 두고 챕터만 새로 묶습니다. 챕터를 직접 고친 내용은 사라집니다.</small></div>` : ''}${chapter ? chapterEditor(chapter) : ''}
       <div class="file-shelf" id="shelf">${shelf || '<p class="hint">이 묶음에는 장면이 없습니다.</p>'}</div>${s ? sceneEditor(s) : ''}`;
   }
@@ -535,6 +540,12 @@
     const current = serverSettings?.connection || '';
     const recall = serverSettings?.recall || 'model';
     return `<div class="eyebrow">SETTINGS</div><h1>설정</h1>
+      <div class="paper"><h2>화면</h2>
+        <label>글꼴<select id="setFont">
+          <option value="marinara" ${font === 'marinara' ? 'selected' : ''}>마리나라에서 쓰는 글꼴 따라가기</option>
+          <option value="own" ${font === 'own' ? 'selected' : ''}>기억 서재 기본 글꼴 (제목 명조 · 본문 고딕)</option></select></label>
+        <p class="hint">이 기기에서만 바뀝니다. 밝기는 오른쪽 위 해·달 버튼으로 바꿉니다.</p>
+      </div>
       <div class="paper"><h2>이 방</h2>
         <label class="setting-switch"><span>기억 사용<small>켜면 답변마다 장부와 장면을 자동으로 갱신합니다.</small></span><input type="checkbox" id="setEnabled" ${info.enabled ? 'checked' : ''}></label>
         <label class="setting-switch"><span>말풍선 태그 되살리기<small>화자 색상이 켜진 '합쳐서' 그룹 채팅에서, 빠진 &lt;speaker&gt; 태그를 다시 붙입니다.</small></span><input type="checkbox" id="setTags" ${info.speakerTags ? 'checked' : ''}></label>
@@ -552,13 +563,19 @@
         <div class="buttons"><button class="primary" data-act="saveSettings">저장</button></div>
       </div>
       <div class="paper"><h2>뜻으로 찾기 (임베딩)</h2>
-        <p class="hint">말을 바꿔 물어도 비슷한 내용의 지난 장면을 찾습니다. 위의 ‘기억 정리에 쓸 연결’로 임베딩 모델을 부릅니다. 비워 두면 꺼집니다.</p>
-        <label>임베딩 모델<input id="setEmbedding" list="embeddingModels" value="${esc(serverSettings?.embedding?.model || '')}" placeholder="예: Qwen/Qwen3-Embedding-8B"></label>
+        <p class="hint">말을 바꿔 물어도 비슷한 내용의 지난 장면을 찾습니다. 한국어라면 Qwen3-Embedding이나 bge-m3 같은 다국어 임베딩 모델을 추천합니다.</p>
+        <label>임베딩 모델을 어디서 가져올까요<select id="setEmbedMode">
+          <option value="connection" ${embedMode() === 'connection' ? 'selected' : ''}>마리나라 연결의 임베딩 설정 그대로 쓰기 (추천)</option>
+          <option value="manual" ${embedMode() === 'manual' ? 'selected' : ''}>여기서 직접 입력</option>
+          <option value="off" ${embedMode() === 'off' ? 'selected' : ''}>끄기</option></select></label>
+        <p class="hint">‘그대로 쓰기’는 위의 ‘기억 정리에 쓸 연결’에서 마리나라 연결 설정의 <b>시맨틱 검색(임베딩)</b> 모델·주소·임베딩 연결을 그대로 가져옵니다.</p>
+        <label>직접 입력할 임베딩 모델<input id="setEmbedding" list="embeddingModels" value="${esc(serverSettings?.embedding?.model || '')}" placeholder="예: Qwen/Qwen3-Embedding-8B"></label>
         <datalist id="embeddingModels"><option value="Qwen/Qwen3-Embedding-8B"><option value="BAAI/bge-m3"><option value="Qwen/Qwen3-Embedding-0.6B"></datalist>
+        <p class="hint">지금: ${serverEmbedding?.model ? `<b>${esc(serverEmbedding.model)}</b> · ${esc(serverEmbedding.label || '')}` : serverEmbedding?.error ? esc(serverEmbedding.error) : embedMode() === 'off' ? '꺼져 있습니다.' : '임베딩 모델을 찾지 못했습니다. 마리나라 연결 설정에 임베딩 모델을 넣거나 직접 입력해 주세요.'}</p>
         ${info.vectors ? `<p class="hint">이 방: 장면 ${info.vectors.total}개 중 ${info.vectors.indexed}개 색인됨${info.vectors.indexed < info.vectors.total ? ' (다음 정리 때 이어서 만듭니다)' : ''}</p>` : ''}
         <div class="buttons"><button data-act="saveEmbedding">임베딩 저장·연결 확인</button></div>
       </div>
-      <p class="hint">기억 모듈 업데이트는 서버 터미널에서 해 주세요: curl … update.sh | sh</p>`;
+      <p class="hint">기억 모듈 업데이트는 설치할 때와 같은 명령을 다시 실행하시면 됩니다.</p>`;
   }
 
   function inspector() {
@@ -578,6 +595,8 @@
   function render() {
     if (!root) return;
     root.querySelector('#backdrop').hidden = !open;
+    root.host.setAttribute('data-font', font);
+    root.querySelector('#panel').classList.toggle('is-running', Boolean(info && running()));
     root.querySelector('#panel').hidden = !open;
     if (!open) return;
     for (const b of root.querySelectorAll('nav button')) b.classList.toggle('selected', b.dataset.tab === tab);
@@ -715,11 +734,14 @@
         return act(() => api('POST', `/chats/${chat}/threads/${encodeURIComponent(id)}/close`, { how: '직접 닫음' }), `${id} 항목을 닫았습니다.`);
       case 'saveEmbedding': {
         const model = root.querySelector('#setEmbedding')?.value.trim() || '';
+        const mode = root.querySelector('#setEmbedMode')?.value || 'connection';
         return act(async () => {
-          const r = await api('POST', '/settings/embedding', { model });
-          serverSettings = (await api('GET', '/status')).settings;
-          if (model && info?.enabled) await api('POST', `/chats/${chat}/start`, {}).catch(() => {});
-          notice = model ? `임베딩 모델을 연결했습니다 (${r.dimensions}차원). 장면 색인을 시작합니다.` : '뜻으로 찾기를 껐습니다.';
+          const r = await api('POST', '/settings/embedding', { mode, model });
+          const st = await api('GET', '/status');
+          serverSettings = st.settings;
+          serverEmbedding = st.embedding || null;
+          if (mode !== 'off' && info?.enabled) await api('POST', `/chats/${chat}/start`, {}).catch(() => {});
+          notice = mode === 'off' ? '뜻으로 찾기를 껐습니다.' : `임베딩을 연결했습니다: ${r.model} (${r.dimensions}차원). 새로 만들 색인이 있으면 이어서 만듭니다.`;
         });
       }
       case 'saveSettings': {
@@ -737,10 +759,17 @@
     }
   }
 
+  function embedMode() {
+    const e = serverSettings?.embedding;
+    if (e === null) return 'off';
+    return e?.model ? 'manual' : 'connection';
+  }
+
   async function openSettings() {
     try {
       const [status, list] = await Promise.all([api('GET', '/status'), api('GET', '/api/connections').catch(() => [])]);
       serverSettings = status.settings;
+      serverEmbedding = status.embedding || null;
       connections = (Array.isArray(list) ? list : list?.connections || []).map((c) => ({ id: c.id, name: c.name, model: c.model }));
     } catch (error) {
       lastError = error.message;
@@ -829,11 +858,11 @@
     const element = document.createElement('div');
     element.id = 'memory-module-library';
     root = element.attachShadow({ mode: 'open' });
-    root.innerHTML = `<style>${UI_CSS}${EXTRA_CSS}</style>
+    root.innerHTML = `<style>${UI_CSS}${EXTRA_CSS}${THEME_CSS}</style>
       <button id="launch" aria-label="기억 서재 열기" title="기억 서재 (끌어서 옮길 수 있습니다)">${LAUNCH_ICON}</button>
       <div id="backdrop" hidden></div>
       <section id="panel" role="dialog" aria-label="기억 서재" aria-modal="true" hidden>
-        <aside class="sidebar"><div class="brand">${icon('book')}<div>기억 서재<small>MEMORY MODULE</small></div></div>
+        <aside class="sidebar"><div class="brand"><span class="logo" aria-hidden="true"><i class="disc"></i><i class="sleeve"></i></span><div>기억 서재<small>MEMORY MODULE</small></div></div>
           <div class="nav-label">YOUR MEMORIES</div>
           <nav>${NAV.map(([id, label, i]) => `<button data-tab="${id}">${icon(i)}<span>${label}</span></button>`).join('')}</nav>
           <div class="side-bottom"><label class="room-switch"><span id="enabledLabel">이 방에서 사용 안 함</span><input id="roomEnabled" type="checkbox" role="switch" aria-label="이 방에서 기억 사용"></label>
@@ -892,6 +921,13 @@
       void act(() => api('POST', `/chats/${encodeURIComponent(room)}/${on ? 'enable' : 'disable'}`), on ? '이 방에서 기억을 켰습니다. 처음 켜셨다면 ‘이어서 정리’를 눌러 주세요.' : '이 방의 기억 갱신을 껐습니다.');
     };
     root.addEventListener('change', (e) => {
+      if (e.target.id === 'setFont') {
+        font = e.target.value === 'own' ? 'own' : 'marinara';
+        try {
+          localStorage.setItem('memory-module-font', font);
+        } catch {}
+        return render();
+      }
       if (e.target.id === 'setTags') {
         const on = e.target.checked;
         void act(() => api('POST', `/chats/${encodeURIComponent(room)}/speaker-tags`, { on }), on ? '말풍선 태그 되살리기를 켰습니다.' : '말풍선 태그 되살리기를 껐습니다.');

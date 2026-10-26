@@ -1,0 +1,188 @@
+/* 기억 서재 — 종이 티켓과 LP 테마 (ui.css 위에 덮어씀) */
+:host{--vinyl:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20100%20100%22%3E%3Cg%20transform%3D%22translate(9%200)%22%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2239%22%20fill%3D%22%23111%22%20stroke%3D%22%23f2efe8%22%20stroke-width%3D%222%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2214%22%20fill%3D%22none%22%20stroke%3D%22%233a3a3a%22%20stroke-width%3D%22.7%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2217%22%20fill%3D%22none%22%20stroke%3D%22%233a3a3a%22%20stroke-width%3D%22.7%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2220%22%20fill%3D%22none%22%20stroke%3D%22%233a3a3a%22%20stroke-width%3D%22.7%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2223%22%20fill%3D%22none%22%20stroke%3D%22%233a3a3a%22%20stroke-width%3D%22.7%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2226%22%20fill%3D%22none%22%20stroke%3D%22%233a3a3a%22%20stroke-width%3D%22.7%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2229%22%20fill%3D%22none%22%20stroke%3D%22%233a3a3a%22%20stroke-width%3D%22.7%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2232%22%20fill%3D%22none%22%20stroke%3D%22%233a3a3a%22%20stroke-width%3D%22.7%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2235%22%20fill%3D%22none%22%20stroke%3D%22%233a3a3a%22%20stroke-width%3D%22.7%22%2F%3E%3Cpolygon%20points%3D%2268.07%2C16.57%2069.91%2C17.63%2065.91%2C22.45%22%20fill%3D%22%23f2efe8%22%2F%3E%3Cpolygon%20points%3D%2270.95%2C18.30%2073.11%2C19.83%2067.38%2C25.59%22%20fill%3D%22%23f2efe8%22%2F%3E%3Cpolygon%20points%3D%2273.66%2C20.26%2076.07%2C22.35%2068.25%2C28.94%22%20fill%3D%22%23f2efe8%22%2F%3E%3Cpolygon%20points%3D%2276.19%2C22.46%2078.75%2C25.15%2067.71%2C33.11%22%20fill%3D%22%23f2efe8%22%2F%3E%3Cpolygon%20points%3D%2278.51%2C24.88%2081.13%2C28.21%2066.40%2C37.10%22%20fill%3D%22%23f2efe8%22%2F%3E%3Cpolygon%20points%3D%2280.61%2C27.49%2083.19%2C31.50%2065.90%2C39.78%22%20fill%3D%22%23f2efe8%22%2F%3E%3Cpolygon%20points%3D%2282.62%2C30.50%2084.80%2C34.74%2062.65%2C43.48%22%20fill%3D%22%23f2efe8%22%2F%3E%3Cpolygon%20points%3D%2284.43%2C33.93%2086.01%2C37.87%2068.63%2C42.54%22%20fill%3D%22%23f2efe8%22%2F%3E%3Cpolygon%20points%3D%2285.89%2C37.53%2086.94%2C41.09%2071.35%2C43.73%22%20fill%3D%22%23f2efe8%22%2F%3E%3Cpolygon%20points%3D%2286.98%2C41.25%2087.58%2C44.38%2074.46%2C45.29%22%20fill%3D%22%23f2efe8%22%2F%3E%3Cpolygon%20points%3D%2287.68%2C45.07%2087.93%2C47.71%2080.65%2C47.07%22%20fill%3D%22%23f2efe8%22%2F%3E%3Cpolygon%20points%3D%2287.99%2C48.94%2087.99%2C51.06%2082.92%2C50.00%22%20fill%3D%22%23f2efe8%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2210%22%20fill%3D%22%23f2efe8%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%221.8%22%20fill%3D%22%23111%22%2F%3E%3C%2Fg%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%224%22%20y%3D%2210%22%20width%3D%2258%22%20height%3D%2280%22%20rx%3D%222%22%20fill%3D%22%23f2efe8%22%20stroke%3D%22%23111%22%20stroke-width%3D%222.4%22%2F%3E%0A%20%20%20%20%20%20%3Cpath%20d%3D%22M12%2024h28M12%2030h18%22%20stroke%3D%22%23111%22%20stroke-width%3D%221.6%22%2F%3E%0A%20%20%20%20%20%20%3Ctext%20x%3D%2233%22%20y%3D%2278%22%20text-anchor%3D%22middle%22%20font-family%3D%22Georgia%2Cserif%22%20font-size%3D%229%22%20font-weight%3D%22700%22%20fill%3D%22%23111%22%3EMEMORY%3C%2Ftext%3E%3C%2Fsvg%3E");--vinyl-label:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20100%20100%22%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2249%22%20fill%3D%22%23111%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2225.0%22%20fill%3D%22none%22%20stroke%3D%22%232c2c2c%22%20stroke-width%3D%22.7%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2227.4%22%20fill%3D%22none%22%20stroke%3D%22%232c2c2c%22%20stroke-width%3D%22.7%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2229.8%22%20fill%3D%22none%22%20stroke%3D%22%232c2c2c%22%20stroke-width%3D%22.7%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2232.2%22%20fill%3D%22none%22%20stroke%3D%22%232c2c2c%22%20stroke-width%3D%22.7%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2234.6%22%20fill%3D%22none%22%20stroke%3D%22%232c2c2c%22%20stroke-width%3D%22.7%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2237.0%22%20fill%3D%22none%22%20stroke%3D%22%232c2c2c%22%20stroke-width%3D%22.7%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2239.4%22%20fill%3D%22none%22%20stroke%3D%22%232c2c2c%22%20stroke-width%3D%22.7%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2241.8%22%20fill%3D%22none%22%20stroke%3D%22%232c2c2c%22%20stroke-width%3D%22.7%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2244.2%22%20fill%3D%22none%22%20stroke%3D%22%232c2c2c%22%20stroke-width%3D%22.7%22%2F%3E%3Cpath%20d%3D%22M50%204.5A45.5%2045.5%200%200%201%2092.5%2034%22%20fill%3D%22none%22%20stroke%3D%22%23f2efe8%22%20stroke-width%3D%222.4%22%20stroke-linecap%3D%22round%22%20opacity%3D%22.85%22%2F%3E%3Cpath%20d%3D%22M50%2012A38%2038%200%200%201%2084%2032%22%20fill%3D%22none%22%20stroke%3D%22%23f2efe8%22%20stroke-width%3D%221.3%22%20stroke-linecap%3D%22round%22%20opacity%3D%22.55%22%2F%3E%3Cpath%20d%3D%22M50%2095.5A45.5%2045.5%200%200%201%207.5%2066%22%20fill%3D%22none%22%20stroke%3D%22%23f2efe8%22%20stroke-width%3D%222.4%22%20stroke-linecap%3D%22round%22%20opacity%3D%22.85%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2222%22%20fill%3D%22%23f2efe8%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2219.5%22%20fill%3D%22none%22%20stroke%3D%22%23111%22%20stroke-width%3D%22.5%22%20opacity%3D%22.35%22%2F%3E%3C%2Fsvg%3E")}
+/* ===== 티켓·LP 테마 시안 ===== */
+:host{
+  --t-ink:#151515; --t-paper:#f4f1ea; --t-paper2:#ebe7dd; --t-muted:#6d685f; --t-line:#15151526; --t-hair:#15151514;
+  --serif:var(--font-y2k,"Nanum Myeongjo","Noto Serif KR",Georgia,serif); --mono:ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
+  --im-canvas:var(--t-paper2); --im-paper:var(--t-paper); --im-field:#faf8f3; --im-field-border:#1515153a; --im-ink:var(--t-ink); --im-muted:var(--t-muted);
+  --im-line:var(--t-line); --im-soft:#e4dfd3; --im-subtle:#ece8df; --im-selected:#e0dbcf; --im-accent:var(--t-ink); --im-accent-hover:#000; --im-accent-active:#000;
+  --im-button-hover:#e4dfd3; --im-button-active:#d6d0c2;
+  --grain:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .09 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+:host([data-theme=dark]){
+  --t-ink:#ece8df; --t-paper:#1b1a18; --t-paper2:#131312; --t-muted:#a39d92; --t-line:#ece8df2b; --t-hair:#ece8df14;
+  --im-canvas:var(--t-paper2); --im-paper:var(--t-paper); --im-field:#222120; --im-field-border:#ece8df40; --im-ink:var(--t-ink); --im-muted:var(--t-muted);
+  --im-line:var(--t-line); --im-soft:#2a2826; --im-subtle:#201f1d; --im-selected:#2e2c29; --im-accent:var(--t-ink); --im-accent-hover:#fff; --im-accent-active:#fff;
+  --im-button-hover:#2a2826; --im-button-active:#33312e;
+}
+#backdrop{background:#0a0a0a8c;backdrop-filter:grayscale(1)}
+#panel{background:var(--grain),var(--t-paper);color:var(--t-ink);border-radius:6px;border:1.5px solid var(--t-ink);box-shadow:0 30px 90px #0007;font-family:var(--font-y2k,"Pretendard","Noto Sans KR",system-ui,sans-serif)}
+.workspace,.topbar,#content{background:transparent!important}
+h1{font-family:var(--serif)!important;font-weight:800!important;letter-spacing:-.5px;color:var(--t-ink)!important}
+h2,h3{font-family:var(--serif);font-weight:700;color:var(--t-ink)}
+.eyebrow{font-family:var(--mono)!important;letter-spacing:3px!important;color:var(--t-ink)!important;opacity:.75;display:flex;align-items:center;gap:10px}
+.eyebrow:after{content:"";flex:1;max-width:220px;border-top:1px dashed currentColor;opacity:.6}
+.intro,.hint{color:var(--t-muted)!important}
+
+/* sidebar = ticket stub (dark) with perforation */
+.sidebar{background:var(--grain),#151515!important;color:#ece8df!important;border:0!important;position:relative;box-shadow:none!important}
+:host([data-theme=dark]) .sidebar{background:var(--grain),#0c0c0b!important}
+.sidebar:after{content:"";position:absolute;top:10px;bottom:10px;right:-1px;border-right:2px dashed #ece8df55}
+.brand{color:#ece8df!important;font-family:var(--serif)!important;align-items:center}
+.brand>svg.icon{display:none}
+.brand:before{content:"";flex:none;width:46px;height:46px;border-radius:50%;margin-right:4px;
+  background:radial-gradient(circle,#ece8df 0 2px,#151515 2.5px 5px,#e9e4d8 5.5px 11px,#151515 11.5px),
+  repeating-radial-gradient(circle,#1d1d1d 0 1px,#2b2b2b 1.4px 2.2px);
+  box-shadow:0 0 0 1.5px #ece8df44,inset 0 0 0 1px #000;
+  -webkit-mask:radial-gradient(circle,#000 70%,#000);animation:spin 6s linear infinite paused}
+#panel.is-running .brand:before{animation-play-state:running}
+@keyframes spin{to{transform:rotate(360deg)}}
+.brand small{font-family:var(--mono);letter-spacing:2.5px;color:#ece8df99!important}
+.nav-label{font-family:var(--mono);color:#ece8df80!important;letter-spacing:3px}
+.sidebar nav button{color:#ece8dfcc!important;background:transparent!important;border:1px solid transparent!important;border-radius:3px!important;font-weight:500}
+.sidebar nav button:hover{background:#ece8df14!important;color:#fff!important}
+.sidebar nav button.selected{background:#ece8df!important;color:#151515!important;border-color:#ece8df!important;font-weight:700;
+  -webkit-mask:radial-gradient(circle at 0 50%,#0000 6px,#000 6.5px) left/51% 100% no-repeat,radial-gradient(circle at 100% 50%,#0000 6px,#000 6.5px) right/51% 100% no-repeat}
+.side-bottom,.side-bottom small,.room-switch{color:#ece8dfaa!important}
+.side-bottom button{background:transparent!important;color:#ece8df!important;border:1px solid #ece8df55!important;border-radius:3px!important}
+.room-switch input{accent-color:#ece8df}
+
+/* inspector = record shelf */
+.inspector{background:transparent!important;border-left:1.5px solid var(--t-ink)!important}
+.rail-title{font-family:var(--mono);letter-spacing:2px;text-transform:uppercase;color:var(--t-ink)!important}
+.rail-stat{background:transparent!important;border:0!important;box-shadow:none!important;padding:8px 0!important;display:flex!important;align-items:center;gap:14px}
+.rail-stat b{flex:none;width:64px!important;height:64px!important;border-radius:50%!important;display:grid!important;place-items:center;font:700 15px var(--serif)!important;color:#151515!important;border:0!important;
+  background:radial-gradient(circle,#151515 0 1.6px,#f4f1ea 2.2px 14px,#151515 14.5px 15.5px,#0000 16px),repeating-radial-gradient(circle,#151515 0 1.1px,#2a2a2a 1.5px 2.4px)!important;
+  box-shadow:0 3px 8px #0004;transition:transform .6s}
+.rail-stat:hover b{transform:rotate(200deg)}
+.rail-stat small{font-size:12px;color:var(--t-ink)!important}
+.rail-divider{height:0!important;background:none!important;border:0!important;border-top:1.5px dashed var(--t-line)!important}
+.inspector .icon,.rail-note svg{color:var(--t-ink)!important}
+
+/* topbar */
+.topbar{border-bottom:1.5px solid var(--t-ink)!important}
+#roomSelect,select,input:not([type=checkbox]),textarea{border-radius:3px!important;background:var(--im-field)!important;border:1px solid var(--im-field-border)!important;color:var(--t-ink)!important}
+#themeToggle,#close{border-radius:50%!important;border:1px solid var(--t-ink)!important;background:transparent!important;color:var(--t-ink)!important}
+
+/* metrics = admission stubs */
+.metric-row{gap:12px!important}
+.metric{position:relative;background:var(--grain),var(--t-paper)!important;border:0!important;border-radius:0!important;box-shadow:none!important;padding:18px 16px 26px!important;
+  outline:1.5px solid var(--t-ink);outline-offset:-6px;
+  -webkit-mask:radial-gradient(circle at 0 50%,#0000 7px,#000 7.5px) left/51% 100% no-repeat,radial-gradient(circle at 100% 50%,#0000 7px,#000 7.5px) right/51% 100% no-repeat;
+  mask:radial-gradient(circle at 0 50%,#0000 7px,#000 7.5px) left/51% 100% no-repeat,radial-gradient(circle at 100% 50%,#0000 7px,#000 7.5px) right/51% 100% no-repeat}
+.metric:after{content:"";position:absolute;left:14px;right:14px;bottom:10px;height:7px;opacity:.35;background:repeating-linear-gradient(90deg,currentColor 0 1px,#0000 1px 3px,currentColor 3px 5px,#0000 5px 7px)}
+:host .metric{filter:drop-shadow(0 2px 3px #0002)}
+.metric strong{font:800 26px var(--serif)!important;color:var(--t-ink)!important}
+.metric small{font-size:11px!important;color:var(--t-muted)!important}
+
+/* paper sections = tickets */
+.paper{background:var(--grain),var(--t-paper)!important;border:1.5px solid var(--t-ink)!important;border-radius:4px!important;box-shadow:4px 4px 0 var(--t-ink)!important;position:relative}
+.paper-toolbar h2,.paper>h2{font-family:var(--serif)}
+.pill{font-family:var(--mono)!important;font-size:10px!important;letter-spacing:1.5px;text-transform:uppercase;border:1px solid var(--t-ink)!important;border-radius:2px!important;background:transparent!important;color:var(--t-ink)!important;transform:rotate(-2deg)}
+button.primary,.primary{background:var(--t-ink)!important;color:var(--t-paper)!important;border:1.5px solid var(--t-ink)!important;border-radius:3px!important;font-weight:700;letter-spacing:.3px}
+button.primary:hover{filter:none;background:#000!important}
+:host([data-theme=dark]) button.primary:hover{background:#fff!important}
+button:not(.primary):not(.file-index):not(.chapter-chip):not(#launch){border-radius:3px}
+.paper button:not(.primary):not(.file-index):not(.chapter-chip){background:transparent;border:1.5px solid var(--t-ink);color:var(--t-ink)}
+.paper button:not(.primary):not(.file-index):not(.chapter-chip):hover{background:var(--im-button-hover)}
+
+/* chapter chips = small tickets */
+.chapter-chip{border-radius:2px!important;border:1.5px solid var(--t-ink)!important;background:var(--t-paper)!important;color:var(--t-ink)!important;font-family:var(--serif);font-weight:700;
+  -webkit-mask:radial-gradient(circle at 0 50%,#0000 5px,#000 5.5px) left/51% 100% no-repeat,radial-gradient(circle at 100% 50%,#0000 5px,#000 5.5px) right/51% 100% no-repeat;padding-left:16px!important;padding-right:16px!important}
+.chapter-chip .chip-id{font-family:var(--mono);background:transparent!important;color:inherit!important;border-right:1px dashed currentColor;padding-right:8px;margin-right:6px;border-radius:0!important}
+.chapter-chip.is-selected{background:var(--t-ink)!important;color:var(--t-paper)!important}
+
+/* scene cards = admission tickets */
+.file-shelf{gap:14px!important;padding-top:16px!important}
+.file-index{margin-left:0!important;border-radius:3px!important;background:var(--grain),var(--t-paper)!important;color:var(--t-ink)!important;border:1.5px solid var(--t-ink)!important;box-shadow:3px 3px 0 var(--t-ink)!important;
+  -webkit-mask:radial-gradient(circle at 0 72%,#0000 7px,#000 7.5px) left/51% 100% no-repeat,radial-gradient(circle at 100% 72%,#0000 7px,#000 7.5px) right/51% 100% no-repeat;
+  padding:22px 14px 18px 26px!important}
+.file-index:before{display:none!important}
+.file-index:after{content:"";position:absolute;left:9px;right:9px;top:72%;border-top:1.5px dashed var(--t-ink);opacity:.55}
+.file-index:nth-child(n){background-color:var(--t-paper)!important}
+.file-index.is-current{background:var(--grain),var(--t-ink)!important;color:var(--t-paper)!important}
+.file-index.is-current:after{border-color:var(--t-paper)}
+.file-index.is-selected{transform:translateY(-6px) rotate(-1.2deg)!important;box-shadow:5px 6px 0 var(--t-ink)!important}
+.file-index:not(:disabled):hover{background:var(--grain),var(--im-button-hover)!important;color:var(--t-ink)!important}
+.file-index.is-current:not(:disabled):hover{background:var(--grain),#000!important;color:var(--t-paper)!important}
+.file-index h3{font-family:var(--serif)!important;font-weight:800!important;font-size:17px!important}
+.file-code,.file-spine{font-family:var(--mono)!important;opacity:.8!important}
+.file-index .barcode{opacity:.8!important;width:56px!important;height:16px!important}
+.file-foot{border-top:0!important;font-family:var(--mono);font-size:9.5px!important;top:auto}
+
+/* record rows, links, chips */
+.record-row,.event-row,.fact-row,.routine-row{border-color:var(--t-line)!important}
+a.record-link,.record-link{color:var(--t-ink)!important;background:transparent!important;border:1px solid var(--t-ink)!important;border-radius:2px!important;font-family:var(--mono);font-size:11px!important;text-decoration:none!important}
+.chip,.chip-wrap .chip{border-radius:2px!important;border:1px solid var(--t-ink)!important;background:transparent!important;color:var(--t-ink)!important}
+blockquote,.quote-card{border-left:3px solid var(--t-ink)!important;background:var(--im-subtle)!important;font-family:var(--serif)}
+.note{background:var(--im-subtle)!important;border:1px dashed var(--t-ink)!important;border-radius:3px!important;color:var(--t-ink)!important}
+#status{font-family:var(--mono);font-size:11px;letter-spacing:.3px}
+details>summary{font-family:var(--serif);font-weight:700}
+.empty{border:1.5px dashed var(--t-line)!important;border-radius:3px!important;background:transparent!important}
+
+@media(max-width:720px){
+  .sidebar:after{top:auto;left:10px;right:10px;bottom:0;border-right:0;border-bottom:2px dashed #ece8df55}
+  .brand:before{width:34px;height:34px}
+  #panel{border:0;border-radius:0}
+}
+
+
+/* ---- ticket stocks: neighbours never share a colour ---- */
+.file-index:nth-child(4n+1){--stock:#f4f1ea}
+.file-index:nth-child(4n+2){--stock:#dcdad4}
+.file-index:nth-child(4n+3){--stock:#e6d8bf}
+.file-index:nth-child(4n+4){--stock:#cfd6d2}
+.file-index,.file-index:nth-child(n){background:var(--grain),var(--stock,#f4f1ea)!important;color:#151515!important}
+.file-index:not(:disabled):hover{background:var(--grain),var(--stock,#f4f1ea)!important;filter:brightness(.96)}
+.file-index.is-current,.file-index.is-current:not(:disabled):hover{background:var(--grain),var(--stock,#f4f1ea)!important;color:#151515!important}
+.file-index.is-current:after{border-color:#151515}
+.file-index.is-current:before{content:"ON AIR"!important;display:grid!important;place-items:center;position:absolute!important;top:12px!important;right:12px!important;left:auto!important;width:44px!important;height:44px!important;z-index:2!important;background:none!important;border:1.5px solid #151515;border-radius:50%!important;font:700 8px var(--mono);letter-spacing:1px;color:#151515;transform:rotate(-14deg);opacity:.75}
+.file-index.is-selected{outline:2.5px solid #151515!important;outline-offset:-6px}
+.chapter-chip:nth-child(3n+1){--stock:#f4f1ea}.chapter-chip:nth-child(3n+2){--stock:#e6d8bf}.chapter-chip:nth-child(3n+3){--stock:#dcdad4}
+.chapter-chip:last-child{--stock:#cfd6d2}
+.chapter-chip{background:var(--grain),var(--stock,#f4f1ea)!important;color:#151515!important}
+.chapter-chip.is-selected{background:var(--grain),#151515!important;color:#f4f1ea!important;transform:translateY(-2px)}
+
+/* ---- dark: the same paper tickets laid on a black table ---- */
+:host([data-theme=dark]){--t-ink:#ece8df;--t-paper:#121212;--t-paper2:#0b0b0b;--t-muted:#9d978c}
+:host([data-theme=dark]) #panel{background:var(--grain),#121212;border-color:#ece8df55}
+:host([data-theme=dark]) .sidebar{background:var(--grain),#1d1c1a!important}
+:host([data-theme=dark]) .topbar{border-bottom-color:#ece8df33!important}
+:host([data-theme=dark]) .inspector{border-left-color:#ece8df33!important}
+:host([data-theme=dark]) :is(.paper,.metric,.empty,.file-index,.chapter-chip){
+  --t-ink:#151515;--t-paper:#ece8df;--t-muted:#5f5a51;--t-line:#15151526;--im-field:#f7f4ee;--im-field-border:#1515153a;--im-ink:#151515;--im-muted:#5f5a51;
+  --im-line:#15151526;--im-subtle:#e2ddd2;--im-button-hover:#ddd7ca;color:#151515}
+:host([data-theme=dark]) .paper{box-shadow:0 10px 28px #000c!important;border-color:#ece8df!important}
+:host([data-theme=dark]) .metric{filter:drop-shadow(0 6px 12px #000c)}
+:host([data-theme=dark]) .file-index{box-shadow:0 8px 20px #000c!important;border-color:#ece8df!important}
+:host([data-theme=dark]) .paper button.primary{background:#151515!important;color:#ece8df!important;border-color:#151515!important}
+:host([data-theme=dark]) .chapter-chip{border-color:#ece8df!important}
+:host([data-theme=dark]) .chapter-chip.is-selected{background:var(--grain),#ece8df!important;color:#151515!important;outline:2px solid #151515;outline-offset:-5px}
+:host([data-theme=dark]) .rail-stat b{box-shadow:0 0 0 1px #ece8df30,0 6px 14px #000c!important;
+  background:radial-gradient(circle,#151515 0 1.6px,#ece8df 2.2px 14px,#0000 14.5px),repeating-radial-gradient(circle,#191919 0 1.1px,#2c2b29 1.5px 2.4px)!important}
+:host([data-theme=dark]) .brand:before{box-shadow:0 0 0 1.5px #ece8df44}
+:host([data-theme=dark]) #roomSelect{background:#1d1c1a!important;color:#ece8df!important;border-color:#ece8df44!important}
+
+/* ---- printed records with light reflections ---- */
+.brand:before,:host([data-theme=dark]) .brand:before{background:var(--vinyl) center/contain no-repeat!important;box-shadow:none!important;width:48px;height:48px}
+:host([data-theme=dark]) .brand:before{outline:0}
+.rail-stat b,:host([data-theme=dark]) .rail-stat b{background:var(--vinyl-label) center/contain no-repeat!important;color:#151515!important;width:70px!important;height:70px!important;font-size:16px!important;box-shadow:0 4px 10px #0003!important}
+:host([data-theme=dark]) .rail-stat b{box-shadow:0 0 0 1.5px #ece8df40,0 6px 14px #000c!important}
+
+.brand:before{border-radius:0!important;width:52px!important;height:52px!important;animation:none!important}
+
+/* ---- logo: a record in its sleeve; it slides out and turns while memories are being sorted ---- */
+:host{--logo-disc:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20100%20100%22%3E%3Cg%20transform%3D%22translate(9%200)%22%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2239%22%20fill%3D%22%23111%22%20stroke%3D%22%23f2efe8%22%20stroke-width%3D%222%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2214%22%20fill%3D%22none%22%20stroke%3D%22%233a3a3a%22%20stroke-width%3D%22.7%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2217%22%20fill%3D%22none%22%20stroke%3D%22%233a3a3a%22%20stroke-width%3D%22.7%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2220%22%20fill%3D%22none%22%20stroke%3D%22%233a3a3a%22%20stroke-width%3D%22.7%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2223%22%20fill%3D%22none%22%20stroke%3D%22%233a3a3a%22%20stroke-width%3D%22.7%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2226%22%20fill%3D%22none%22%20stroke%3D%22%233a3a3a%22%20stroke-width%3D%22.7%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2229%22%20fill%3D%22none%22%20stroke%3D%22%233a3a3a%22%20stroke-width%3D%22.7%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2232%22%20fill%3D%22none%22%20stroke%3D%22%233a3a3a%22%20stroke-width%3D%22.7%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2235%22%20fill%3D%22none%22%20stroke%3D%22%233a3a3a%22%20stroke-width%3D%22.7%22%2F%3E%3Cpolygon%20points%3D%2268.07%2C16.57%2069.91%2C17.63%2065.91%2C22.45%22%20fill%3D%22%23f2efe8%22%2F%3E%3Cpolygon%20points%3D%2270.95%2C18.30%2073.11%2C19.83%2067.38%2C25.59%22%20fill%3D%22%23f2efe8%22%2F%3E%3Cpolygon%20points%3D%2273.66%2C20.26%2076.07%2C22.35%2068.25%2C28.94%22%20fill%3D%22%23f2efe8%22%2F%3E%3Cpolygon%20points%3D%2276.19%2C22.46%2078.75%2C25.15%2067.71%2C33.11%22%20fill%3D%22%23f2efe8%22%2F%3E%3Cpolygon%20points%3D%2278.51%2C24.88%2081.13%2C28.21%2066.40%2C37.10%22%20fill%3D%22%23f2efe8%22%2F%3E%3Cpolygon%20points%3D%2280.61%2C27.49%2083.19%2C31.50%2065.90%2C39.78%22%20fill%3D%22%23f2efe8%22%2F%3E%3Cpolygon%20points%3D%2282.62%2C30.50%2084.80%2C34.74%2062.65%2C43.48%22%20fill%3D%22%23f2efe8%22%2F%3E%3Cpolygon%20points%3D%2284.43%2C33.93%2086.01%2C37.87%2068.63%2C42.54%22%20fill%3D%22%23f2efe8%22%2F%3E%3Cpolygon%20points%3D%2285.89%2C37.53%2086.94%2C41.09%2071.35%2C43.73%22%20fill%3D%22%23f2efe8%22%2F%3E%3Cpolygon%20points%3D%2286.98%2C41.25%2087.58%2C44.38%2074.46%2C45.29%22%20fill%3D%22%23f2efe8%22%2F%3E%3Cpolygon%20points%3D%2287.68%2C45.07%2087.93%2C47.71%2080.65%2C47.07%22%20fill%3D%22%23f2efe8%22%2F%3E%3Cpolygon%20points%3D%2287.99%2C48.94%2087.99%2C51.06%2082.92%2C50.00%22%20fill%3D%22%23f2efe8%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2210%22%20fill%3D%22%23f2efe8%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%221.8%22%20fill%3D%22%23111%22%2F%3E%3C%2Fg%3E%3C%2Fsvg%3E");--logo-sleeve:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20100%20100%22%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%224%22%20y%3D%2210%22%20width%3D%2258%22%20height%3D%2280%22%20rx%3D%222%22%20fill%3D%22%23f2efe8%22%20stroke%3D%22%23111%22%20stroke-width%3D%222.4%22%2F%3E%0A%20%20%20%20%20%20%3Cpath%20d%3D%22M12%2024h28M12%2030h18%22%20stroke%3D%22%23111%22%20stroke-width%3D%221.6%22%2F%3E%0A%20%20%20%20%20%20%3Ctext%20x%3D%2233%22%20y%3D%2278%22%20text-anchor%3D%22middle%22%20font-family%3D%22Georgia%2Cserif%22%20font-size%3D%229%22%20font-weight%3D%22700%22%20fill%3D%22%23111%22%3EMEMORY%3C%2Ftext%3E%3C%2Fsvg%3E")}
+.brand:before{display:none!important}
+.brand .logo{position:relative;flex:none;width:56px;height:56px;margin-right:2px}
+.brand .logo i{position:absolute;inset:0;background:center/contain no-repeat}
+.brand .logo .disc{background-image:var(--logo-disc);transform-origin:59% 50%;transition:transform .5s}
+.brand .logo .sleeve{background-image:var(--logo-sleeve)}
+#panel.is-running .brand .logo .disc{animation:mm-slide 2.6s ease-in-out infinite}
+@keyframes mm-slide{0%,100%{transform:translateX(0) rotate(0)}50%{transform:translateX(18%) rotate(180deg)}}
+@media (prefers-reduced-motion:reduce){#panel.is-running .brand .logo .disc{animation:none;transform:translateX(10%)}}
+@media(max-width:720px){.brand .logo{width:40px;height:40px}}
+
+/* ---- font: Marinara's own font unless the reader picked the library's ---- */
+:host([data-font=own]){--serif:"Nanum Myeongjo","Noto Serif KR","AppleMyungjo","Batang",Georgia,serif}
+:host([data-font=own]) #panel{font-family:"Pretendard","Noto Sans KR","Apple SD Gothic Neo",system-ui,sans-serif}
