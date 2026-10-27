@@ -15,7 +15,7 @@ const { fileURLToPath } = require('node:url');
 const TAG = '[memory-module]';
 /** Target checked against upstream source and compiled hook contracts; see COMPATIBILITY.md for test scope. */
 const TESTED_MARINARA = '2.4.6';
-const VERSION = '0.10.2-marinara.2.4.6.1';
+const VERSION = '0.10.2-marinara.2.4.6.2';
 const NOTES_DIR = process.env.MEMORY_MODULE_NOTES_DIR || path.join(__dirname, 'notes');
 const DEFAULT_NOTE = '_default.txt';
 /** Last safety net only: the service already keeps the memory within its own limit (40,000 by default). */
@@ -40,7 +40,7 @@ const PATCHES = [
   {
     name: 'speakers',
     target: /[\\/]packages[\\/]server[\\/]dist[\\/]routes[\\/]generate\.routes\.js$/,
-    anchor: 'const gameDraftWithCommands = fullResponse;',
+    anchor: 'if (contentReplaced) {',
     before: true,
     insert:
       'try { const fixed = globalThis.__marinaraMemory?.fixSpeakers?.(fullResponse, { chatId: input.chatId, chatMode, isGroupChat, usesIndividualGroupGeneration, impersonate: input.impersonate, charInfo }); if (typeof fixed === "string" && fixed !== fullResponse) { fullResponse = fixed; contentReplaced = true; } } catch {}\n',
@@ -58,6 +58,7 @@ function count(haystack, needle) {
 
 /** Returns the patched source, or null when this file is not the expected version. */
 function patchSource(source, patch = PATCHES[0]) {
+  if (patch.skipIf?.test(source)) return source;
   if (source.includes('__marinaraMemory')) return source;
   if (count(source, patch.anchor) !== 1) return null;
   return source.replace(patch.anchor, patch.before ? patch.insert + patch.anchor : patch.anchor + patch.insert);
@@ -152,6 +153,7 @@ function install() {
           : Buffer.isBuffer(result.source) || result.source instanceof Uint8Array
             ? Buffer.from(result.source).toString('utf8')
             : String(result.source);
+      if (patch.skipIf?.test(source)) return result;
       const patched = patchSource(source, patch);
       if (patched == null) {
         patches[patch.name] = 'failed';

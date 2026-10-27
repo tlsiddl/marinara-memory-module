@@ -23,7 +23,7 @@ test('inline hook passes the 2.4.6 context and marks corrected replies for the e
   const options = { chatId: 'room', chatMode: 'roleplay', isGroupChat: true, usesIndividualGroupGeneration: false, impersonate: false, charInfo: [{ name: '하준' }, { name: '하루' }] };
   const run = fixSpeakers => {
     const context = { fullResponse: original, contentReplaced: false, input: { chatId: options.chatId, impersonate: false }, ...options, __marinaraMemory: { fixSpeakers } };
-    vm.runInNewContext(patchSource(speaker.anchor, speaker), context);
+    vm.runInNewContext(patchSource(speaker.anchor + '}\n', speaker), context);
     return context;
   };
   const fixed = run((text, o) => {
@@ -37,7 +37,7 @@ test('inline hook passes the 2.4.6 context and marks corrected replies for the e
     assert.equal(unchanged.fullResponse, original);
     assert.equal(unchanged.contentReplaced, false);
   }
-  const patched = patchSource(speaker.anchor, speaker);
+  const patched = patchSource(speaker.anchor + '}\n', speaker);
   assert.equal(patchSource(patched, speaker), patched);
 });
 
