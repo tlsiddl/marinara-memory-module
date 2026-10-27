@@ -14,7 +14,7 @@ const { fileURLToPath } = require('node:url');
 const TAG = '[memory-module]';
 /** The Marinara version these patches were made and tested against. */
 const TESTED_MARINARA = '2.5.1';
-const VERSION = '0.10.4';
+const VERSION = '0.10.5';
 const NOTES_DIR = process.env.MEMORY_MODULE_NOTES_DIR || path.join(__dirname, 'notes');
 const DEFAULT_NOTE = '_default.txt';
 /** Last safety net only: the service already keeps the memory within its own limit (40,000 by default). */
@@ -45,6 +45,17 @@ const PATCHES = [
       '    try { const fixed = globalThis.__marinaraMemory?.fixSpeakers?.(fullResponse, o); if (typeof fixed === "string" && fixed !== fullResponse) { fullResponse = fixed; changed = true; } } catch {}\n',
     ok: 'speaker tags are put back on untagged lines',
   },
+  {
+    // Older engines keep reply cleanup inside the generation route. Newer ones
+    // call the separately patched cleanGeneratedReply; do not repair twice.
+    name: 'speakers',
+    target: /[\\/]packages[\\/]server[\\/]dist[\\/]routes[\\/]generate\.routes\.js$/,
+    skipIf: /\bcleanGeneratedReply\s*\(/,
+    anchor: 'if (contentReplaced) {',
+    before: true,
+    insert: 'try { const fixed = globalThis.__marinaraMemory?.fixSpeakers?.(fullResponse, { chatId: input.chatId, chatMode, isGroupChat, usesIndividualGroupGeneration, impersonate: input.impersonate, charInfo }); if (typeof fixed === "string" && fixed !== fullResponse) { fullResponse = fixed; contentReplaced = true; } } catch {}\n',
+    ok: 'speaker tags are put back before reply streaming and saving (legacy route)',
+  },
 ];
 
 function log(message) {
@@ -57,6 +68,7 @@ function count(haystack, needle) {
 
 /** Returns the patched source, or null when this file is not the expected version. */
 function patchSource(source, patch = PATCHES[0]) {
+  if (patch.skipIf?.test(source)) return source;
   if (source.includes('__marinaraMemory')) return source;
   if (count(source, patch.anchor) !== 1) return null;
   return source.replace(patch.anchor, patch.before ? patch.insert + patch.anchor : patch.anchor + patch.insert);
@@ -151,6 +163,7 @@ function install() {
           : Buffer.isBuffer(result.source) || result.source instanceof Uint8Array
             ? Buffer.from(result.source).toString('utf8')
             : String(result.source);
+      if (patch.skipIf?.test(source)) return result;
       const patched = patchSource(source, patch);
       if (patched == null) {
         patches[patch.name] = 'failed';
