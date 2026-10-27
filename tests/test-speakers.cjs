@@ -46,3 +46,15 @@ test('the reply-cleanup patch fits Marinara 2.5.1 and puts the call right before
   assert.ok(out);
   assert.match(out, /fixSpeakers\?\.\(fullResponse, o\)[^\n]*\n    return \{ text: fullResponse, changed, oocMessages \};/);
 });
+
+test('generation guidance uses native exact-name tags without visible name prefixes or speech guessing', () => {
+  const instruction = SP.speakerInstructions(['하준', '하루', '하준']);
+  assert.match(instruction, /Canonical speaker names: \["하준","하루"\]/);
+  assert.match(instruction, /<speaker="Exact Name">"Dialogue"<\/speaker>/);
+  assert.match(instruction, /quote-only dialogue with no visible name prefix/);
+  assert.match(instruction, /lowercase speaker, a double-quoted name/);
+  assert.match(instruction, /original-language dialogue and its parenthetical translation together/);
+  assert.equal(SP.speakerInstructions([]), '');
+  const plain = '하준이 말했다.\n"안녕."\n\n하루가 말했다.\n"반가워."';
+  assert.equal(SP.restoreSpeakerTags(plain, names), plain, 'post-processing does not guess a speaker from prose');
+});

@@ -19,6 +19,9 @@ try {
     macro: 'packages/shared/src/utils/macro-engine.ts',
     app: 'packages/server/src/app.ts',
     speakers: 'packages/server/src/routes/generate.routes.ts',
+    speakerPrompt: 'packages/server/src/routes/generate.routes.ts',
+    speakerPreview: 'packages/server/src/routes/chats.routes.ts',
+    speakerDryRun: 'packages/server/src/routes/generate/dry-run-route.ts',
   };
   for (const patch of runtime.PATCHES) {
     const source = ts.transpileModule(read(files[patch.name]), {
