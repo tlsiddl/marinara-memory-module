@@ -188,6 +188,137 @@ function saveScenes(chatId, store) {
   sceneCache.set(chatId, store);
 }
 
+/* ---------- branch inheritance ---------- */
+
+/**
+ * Copy only the common prefix. Identity and evidence use chat-local message IDs / row numbers,
+ * so every pointer (including rollback snapshots) must follow the new messages. Never edit the source.
+ */
+function branchMemory(ledger, scenes, source, target, messageIds) {
+  const prefix = [];
+  const ids = new Map();
+  const numbers = new Map();
+  for (let i = 0; i < source.length && i < target.length; i++) {
+    const a = source[i], b = target[i];
+    if (messageIds.get(a.id) !== b.id || a.h !== b.h || a.role !== b.role || a.speaker !== b.speaker || L.trackerChanged(a, b)) break;
+    prefix.push(a);
+    ids.set(a.id, b.id);
+    numbers.set(a.number, b.number);
+  }
+  const remap = (value) => {
+    if (Array.isArray(value)) return value.map(remap);
+    if (!value || typeof value !== 'object') return value;
+    const out = {};
+    for (const [key, val] of Object.entries(value)) {
+      if (key === 'number' && typeof val === 'number') {
+        if (!numbers.has(val)) throw Error('기억의 원문 참조가 분기 범위를 벗어났습니다.');
+        out[key] = numbers.get(val);
+      } else if ((key === 'messageId' || key === 'id') && ids.has(val)) out[key] = ids.get(val);
+      else out[key] = remap(val);
+    }
+    return out;
+  };
+  let nextLedger = ledger ? structuredClone(ledger) : null;
+  let ledgerReset = false;
+  if (nextLedger) {
+    const change = L.reconcile(nextLedger, prefix);
+    // An old fork can predate the bounded undo history. Re-read that ledger rather than inherit future events.
+    if (change.rebuild) { nextLedger = L.emptyLedger(); ledgerReset = true; }
+    delete nextLedger.needsRebuild;
+    delete nextLedger.verifiedBefore;
+    nextLedger = remap(nextLedger);
+    nextLedger.lastNumber = numbers.get(nextLedger.lastNumber) ?? null;
+    nextLedger.storyDate = L.storyDate(prefix.slice(0, nextLedger.processed.length)) || null;
+    nextLedger.storyTime = L.storyTime(prefix.slice(0, nextLedger.processed.length)) || null;
+  }
+  let nextScenes = scenes ? structuredClone(scenes) : null;
+  if (nextScenes) {
+    S.reconcileScenes(nextScenes, prefix);
+    const factIds = new Set(nextScenes.facts.map((f) => f.id));
+    for (const f of nextScenes.facts) if (f.replacedBy && !factIds.has(f.replacedBy)) delete f.replacedBy;
+    // `start` is a message number on scenes/chapters, but an array offset on ledger snapshots.
+    for (const x of [...nextScenes.scenes, ...(nextScenes.chapters || [])]) {
+      if (!numbers.has(x.start) || !numbers.has(x.end)) throw Error('장면의 원문 범위를 분기에 연결하지 못했습니다.');
+      x.start = numbers.get(x.start);
+      x.end = numbers.get(x.end);
+    }
+    nextScenes.window = null;
+    nextScenes = remap(nextScenes);
+  }
+  return { ledger: nextLedger, scenes: nextScenes, matched: prefix.length, ledgerReset };
+}
+
+async function inheritBranch(sourceId, targetId) {
+  safeChatId(sourceId); safeChatId(targetId);
+  if (sourceId === targetId) throw Error('원본 방에 분기 기억을 쓸 수 없습니다.');
+  return enqueue(targetId, async () => {
+    const files = [ledgerFile(targetId), scenesFile(targetId), vectorsFile(targetId)];
+    // This also makes a repeated hook harmless and protects an existing/broken destination file.
+    if (files.some((file) => fs.existsSync(file)) || settings().chats?.[targetId]) return { skipped: true };
+    checkFiles(sourceId);
+    checkFiles(targetId);
+    const e = await engine();
+    const sourceRows = await e.chats.listMessages(sourceId);
+    const targetRows = await e.chats.listMessages(targetId);
+    if (targetRows.length > sourceRows.length) throw Error('분기 메시지 수가 원본보다 많습니다.');
+    const ids = new Map();
+    for (let i = 0; i < targetRows.length; i++) {
+      const a = sourceRows[i], b = targetRows[i];
+      // Interrupted messages can legitimately differ on a prefix branch. The prepared-prefix check
+      // below stops there; do not associate a different speaker/role with an old memory.
+      if (a.role !== b.role || a.characterId !== b.characterId) break;
+      ids.set(a.id, b.id);
+    }
+    const source = await chatMessages(sourceId);
+    const target = await chatMessages(targetId);
+    const result = branchMemory(loadLedger(sourceId), loadScenes(sourceId), source, target, ids);
+    const next = settings();
+    const sourceSettings = next.chats?.[sourceId];
+    const vectors = vectorCache.get(sourceId) || readJson(vectorsFile(sourceId), null, { replaceable: true });
+    let copiedVectors = null;
+    if (result.scenes && vectors?.v === V.INDEX_VERSION && vectors.items) {
+      copiedVectors = structuredClone(vectors);
+      V.prune(copiedVectors, result.scenes.scenes);
+    }
+    const written = [];
+    try {
+      if (result.ledger) { saveLedger(targetId, result.ledger); written.push(files[0]); }
+      if (result.scenes) { saveScenes(targetId, result.scenes); written.push(files[1]); }
+      if (copiedVectors) { saveVectors(targetId, copiedVectors); written.push(files[2]); }
+      if (sourceSettings) {
+        next.chats = { ...next.chats, [targetId]: structuredClone(sourceSettings) };
+        saveSettings(next);
+      }
+    } catch (error) {
+      for (const file of written) fs.rmSync(file, { force: true });
+      cache.delete(targetId); sceneCache.delete(targetId); vectorCache.delete(targetId);
+      throw error;
+    }
+    log(`branch ${sourceId} -> ${targetId}: inherited ${result.matched} message(s), ${result.scenes?.scenes.length || 0} scene(s)${result.ledgerReset ? '; old fork: ledger will be read again' : ''}`);
+    return result;
+  });
+}
+
+/** onSend is awaited before the new branch reaches the browser (onResponse would race the first reply). */
+async function branchOnSend(req, reply, payload) {
+  const url = String(req.raw?.url || '').split('?')[0];
+  const match = /^\/api\/chats\/([A-Za-z0-9_-]{1,128})\/branch\/?$/.exec(url);
+  if (req.method !== 'POST' || !match || reply.statusCode < 200 || reply.statusCode >= 300) return payload;
+  let targetId;
+  try {
+    const chat = typeof payload === 'string' || Buffer.isBuffer(payload) ? JSON.parse(String(payload)) : payload;
+    targetId = chat?.id;
+    if (typeof targetId !== 'string') return payload;
+    await inheritBranch(match[1], targetId);
+  } catch (error) {
+    log(`branch inheritance failed: ${error?.message || error}`);
+    if (typeof targetId === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(targetId)) {
+      jobs.set(targetId, { state: 'error', error: `분기 기억을 넘기지 못했습니다: ${error?.message || error}. 기억 서재에서 정리해 주세요.` });
+    }
+  }
+  return payload;
+}
+
 /* ---------- meaning search (embeddings) ---------- */
 
 const vectorsFile = (chatId) => path.join(CHAT_DIR, `${safeChatId(chatId)}.vectors.json`);
@@ -1892,6 +2023,7 @@ async function computeRecall(chatId, store, view, userMessage, { mode, firstInsi
 
 function attach(app) {
   app.register(routes, { prefix: '/api/memory-module' });
+  app.addHook('onSend', branchOnSend);
   app.addHook('preHandler', async (req) => {
     try {
       const url = String(req.raw?.url || '').split('?')[0];
@@ -1916,5 +2048,5 @@ function attach(app) {
   log('admin API ready at /api/memory-module');
 }
 
-module.exports = { fixSpeakers, speakerInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays } };
+module.exports = { fixSpeakers, speakerInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays } };
 
