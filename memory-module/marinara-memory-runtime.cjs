@@ -15,7 +15,7 @@ const { fileURLToPath } = require('node:url');
 const TAG = '[memory-module]';
 /** The Marinara version these patches were made and tested against. */
 const TESTED_MARINARA = '2.4.6';
-const VERSION = '0.10.2-marinara.2.4.6.4';
+const VERSION = '0.10.2-marinara.2.4.6.5';
 const NOTES_DIR = process.env.MEMORY_MODULE_NOTES_DIR || path.join(__dirname, 'notes');
 const DEFAULT_NOTE = '_default.txt';
 /** Last safety net only: the service already keeps the memory within its own limit (40,000 by default). */
@@ -25,7 +25,7 @@ const PATCHES = [
   {
     name: 'macro',
     target: /[\\/]packages[\\/]shared[\\/]dist[\\/]utils[\\/]macro-engine\.js$/,
-    anchor: '    result = result.replace(/\\{\\{chatId\\}\\}/gi, ctx.chatId ?? "");',
+    anchor: 'result = result.replace(/\\{\\{chatId\\}\\}/gi, ctx.chatId ?? "");',
     insert:
       '\n    result = result.replace(/\\{\\{(?:기억|memory)\\}\\}/gi, () => { try { return globalThis.__marinaraMemory?.render?.(ctx) ?? ""; } catch { return ""; } });',
     ok: '{{기억}} macro ready',
@@ -33,7 +33,7 @@ const PATCHES = [
   {
     name: 'app',
     target: /[\\/]packages[\\/]server[\\/]dist[\\/]app\.js$/,
-    anchor: '    app.decorate("db", db);',
+    anchor: 'app.decorate("db", db);',
     insert: '\n    try { globalThis.__marinaraMemory?.attach?.(app); } catch (error) { process.stderr.write("[memory-module] attach failed: " + (error?.message || error) + "\\n"); }',
     ok: 'reply hook and admin API ready',
   },
@@ -220,5 +220,6 @@ else if (process.env.MEMORY_MODULE_HOOK_TEST !== '1' && !globalThis.__marinaraMe
 }
 
 module.exports = { patchSource, sanitize, render, PATCHES, VERSION, TESTED_MARINARA };
+
 
 

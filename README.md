@@ -6,7 +6,7 @@
 > **비공식 모듈입니다.** Marinara Engine 및 Pasta-Devs와 관련이 없고, 그쪽의 검토나 지원을 받지 않습니다.
 > Marinara Engine **2.4.6 전용 호환 브랜치**입니다. 공식 2.4.6 소스와 컴파일된 연결 지점을 점검했습니다. 실제 2.4.6 서버 전체 실행 검증은 아직 하지 않았습니다. [검증 범위](COMPATIBILITY.md)를 확인해 주세요.
 
-지금 버전: **v0.10.2-marinara.2.4.6.4 (호환 베타)** · 변경 내역은 [CHANGELOG.md](CHANGELOG.md)
+지금 버전: **v0.10.2-marinara.2.4.6.5 (호환 베타)** · 변경 내역은 [CHANGELOG.md](CHANGELOG.md)
 
 ---
 
@@ -69,8 +69,8 @@ irm https://raw.githubusercontent.com/tlsiddl/marinara-memory-module/marinara-2.
 **설치 확인** — 마리나라 로그에 아래 줄들이 보이면 성공입니다.
 
 ```
-[memory-module] v0.10.2-marinara.2.4.6.4 applied: {{기억}} macro ready
-[memory-module] v0.10.2-marinara.2.4.6.4 applied: reply hook and admin API ready
+[memory-module] v0.10.2-marinara.2.4.6.5 applied: {{기억}} macro ready
+[memory-module] v0.10.2-marinara.2.4.6.5 applied: reply hook and admin API ready
 ```
 
 ### 2. 기억 서재 화면 (확장)
@@ -190,5 +190,6 @@ mm report      # 상태와 기억 전체를 한 번에 (홈 폴더의 memory-rep
 ## 라이선스
 
 [MIT](LICENSE). Marinara Engine은 Pasta-Devs의 AGPL-3.0 소프트웨어이며, 이 모듈에는 Marinara Engine의 코드가 들어 있지 않습니다.
+
 
 

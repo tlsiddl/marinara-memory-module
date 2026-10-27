@@ -1,6 +1,18 @@
 # Marinara Engine 2.4.6 호환판
 
-이 브랜치는 기억 모듈 **v0.10.2-marinara.2.4.6.4**입니다. 마리나라 자체의 버전 번호는 변경하지 않습니다.
+이 브랜치는 기억 모듈 **v0.10.2-marinara.2.4.6.5**입니다. 마리나라 자체의 버전 번호는 변경하지 않습니다.
+
+## Termux 연결 재현 및 수정 (.5)
+
+공식 2.4.6의 `packages/server/scripts/build.mjs`는 Android에서 esbuild를 사용합니다. 이 빌드는 `app.decorate("db", db);` 앞에 공백 두 개를 출력하며, PC용 tsc는 네 개를 출력합니다. 이전 모듈은 공백 네 개를 포함한 문자열을 찾았으므로 Termux 빌드에 API를 붙이지 못했습니다. .5에서는 앞쪽 공백 의존만 제거했고 정확히 한 번 일치해야 한다는 조건은 유지합니다.
+
+`tests/check-termux-build.cjs`는 공식 소스의 여섯 연결을 tsc/esbuild 양쪽으로 검사합니다. 별도의 격리 실행에서는 실제 Node 로더·기억 서비스·Fastify를 사용하고 저장소만 시험용으로 대체했습니다. 기존 공백 조건에서는 `/api/memory-module/chats`가 404였고 수정 후에는 200과 빈 목록을 반환했습니다. 전체 자동 시험은 157개 통과했습니다. 실제 Android 기기나 Termux 앱을 실행한 시험은 아닙니다.
+
+```sh
+node tests/check-termux-build.cjs /path/to/Marinara-Engine-2.4.6 /path/to/tools/node_modules
+```
+
+도구 폴더에는 TypeScript 5.9.3, esbuild 0.28.1, Fastify 5.12.1이 필요합니다.
 
 ## 기준 소스
 
@@ -57,3 +69,4 @@ sh -n install.sh update.sh extension/publish-branch.sh
 ## 반복 서술 억제
 
 일반판 v0.10.8과 같은 기억 표현 지침을 적용합니다. 저장된 기억·회상 후보는 지우지 않고, 최근에 이미 표현한 기억은 공유된 전제로 두도록 안내합니다. 재질문·정정 및 새 상황에 필요한 재언급은 허용합니다. 실제 모델의 지침 준수는 별도입니다.
+
