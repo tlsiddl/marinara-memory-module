@@ -102,9 +102,14 @@ if (Test-Path $prev) { Write-Host "      (이전 버전은 $prev 에 남겨 두�
 $bat = @'
 @echo off
 rem Starts Marinara Engine with the memory module (memory library). Use this instead of start.bat.
+setlocal DisableDelayedExpansion
 cd /d "%~dp0"
-set "NODE_OPTIONS=--require="%~dp0memory-module\marinara-memory-runtime.cjs" %NODE_OPTIONS%"
+rem NODE_OPTIONS treats backslashes inside quotes as escapes. Use forward slashes.
+set "MEMORY_MODULE_ROOT=%~dp0"
+set "MEMORY_MODULE_ROOT=%MEMORY_MODULE_ROOT:\=/%"
+set "NODE_OPTIONS=--require="%MEMORY_MODULE_ROOT%memory-module/marinara-memory-runtime.cjs" %NODE_OPTIONS%"
 call "%~dp0start.bat" %*
+endlocal & exit /b %errorlevel%
 '@
 $batPath = Join-Path $dir 'start-memory.bat'
 Set-Content -Path $batPath -Value $bat -Encoding Ascii
@@ -126,4 +131,5 @@ try {
 Write-Host ''
 Write-Host '이제부터 마리나라를 start-memory.bat (또는 바탕화면 바로가기)로 켜 주세요.'
 Write-Host '이미 켜져 있다면 끄고 다시 켜 주세요. start.bat이나 MarinaraLauncher로 켜면 기억 모듈 없이 켜집니다.'
+
 

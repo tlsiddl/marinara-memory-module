@@ -14,6 +14,14 @@ node tests/check-termux-build.cjs /path/to/Marinara-Engine-2.4.6 /path/to/tools/
 
 도구 폴더에는 TypeScript 5.9.3, esbuild 0.28.1, Fastify 5.12.1이 필요합니다.
 
+## PC 서버 및 Windows 실행 경로 추가 검사
+
+공식 2.4.6을 PC용 tsc로 빌드한 뒤 Linux에서 실제 서버를 실행했습니다. 모듈을 뺀 실행에서는 채팅방 API가 404였고, .5 모듈을 연결하면 200과 실제 API로 생성한 방이 조회됐습니다. 저장소는 시험용 가짜가 아닌 엔진의 실제 저장소를 사용했습니다. 샌드박스가 금지한 `os.networkInterfaces()` 조회만 빈 목록으로 대체했습니다.
+
+2.4.6 Windows 설치기의 배치 파일에는 일반판의 경로 보정이 누락되어 있었습니다. Node의 실제 NODE_OPTIONS 해석 시험에서 따옴표 안 역슬래시가 사라지는 문제와, 슬래시로 정규화하면 경로가 보존되는 것을 확인했습니다. 생성 배치 파일에 이 보정을 반영했습니다. Windows cmd.exe·PowerShell 전체 실행이나 미응답 사용자의 원인 확정까지 의미하지 않습니다.
+
+설치기만 변경했으므로 서버·확장 버전은 .5를 유지합니다. Windows 사용자는 설치기를 다시 실행해 start-memory.bat을 재생성해야 합니다.
+
 ## 기준 소스
 
 - 기억 모듈: `441f0973acaec4b4860f55f4e2415b8fd449e9c3` (v0.10.2)
