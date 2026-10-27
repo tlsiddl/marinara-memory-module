@@ -6,7 +6,7 @@
 > **비공식 모듈입니다.** Marinara Engine 및 Pasta-Devs와 관련이 없고, 그쪽의 검토나 지원을 받지 않습니다.
 > Marinara Engine **2.4.6 전용 호환 브랜치**입니다. 공식 2.4.6 소스와 컴파일된 연결 지점을 점검했습니다. 실제 2.4.6 서버 전체 실행 검증은 아직 하지 않았습니다. [검증 범위](COMPATIBILITY.md)를 확인해 주세요.
 
-지금 버전: **v0.10.2-marinara.2.4.6.3 (호환 베타)** · 변경 내역은 [CHANGELOG.md](CHANGELOG.md)
+지금 버전: **v0.10.2-marinara.2.4.6.4 (호환 베타)** · 변경 내역은 [CHANGELOG.md](CHANGELOG.md)
 
 ---
 
@@ -22,6 +22,9 @@
 - **단체방: 누가 무엇을 아는지** — 그 자리에 없던 인물은 그 일을 모르는 것으로, 짐작만 하는 인물은 짐작만 하는 것으로 기억합니다.
 - **말풍선 태그 되살리기** (선택) — '합쳐서' 단체 롤플레이에서 마리나라의 원래 `<speaker="캐릭터명">대사</speaker>` 생성 지침을 보강합니다. 대사 앞에 보이는 이름표가 없어도 모델이 숨은 태그를 출력하도록 정확한 캐릭터 이름·형식·번역 포함 규칙을 전달합니다. 기존 태그와 `이름 | 대사`의 복구도 유지합니다. 지문을 분석해 화자를 추측하는 기능은 아닙니다.
 - **기억 서재 화면** — 마리나라 개인 확장으로 넣는 화면입니다. 기억을 보고 직접 고치고, 정리와 회상을 설정하고, "이 메시지를 보내면 뭐가 떠오를지" 미리 시험할 수 있습니다.
+
+
+최근 대화에서 이미 표현한 기억은 공유된 전제로 유지하고, 대사·지문·속마음에서 반복 설명하지 않도록 안내합니다. 재질문·정정 요청이나 새로운 상황에 필요한 재언급은 허용합니다. 실제 반복 억제 정도는 사용하는 모델과 다른 생성 지침에 따라 달라집니다.
 
 원본 마리나라 파일은 건드리지 않습니다. 서버가 켜질 때 메모리에서만 끼어들고, 버전이 맞지 않으면 그 부분만 스스로 꺼져서 마리나라는 원래대로 돌아갑니다.
 
@@ -66,8 +69,8 @@ irm https://raw.githubusercontent.com/tlsiddl/marinara-memory-module/marinara-2.
 **설치 확인** — 마리나라 로그에 아래 줄들이 보이면 성공입니다.
 
 ```
-[memory-module] v0.10.2-marinara.2.4.6.3 applied: {{기억}} macro ready
-[memory-module] v0.10.2-marinara.2.4.6.3 applied: reply hook and admin API ready
+[memory-module] v0.10.2-marinara.2.4.6.4 applied: {{기억}} macro ready
+[memory-module] v0.10.2-marinara.2.4.6.4 applied: reply hook and admin API ready
 ```
 
 ### 2. 기억 서재 화면 (확장)
@@ -187,4 +190,5 @@ mm report      # 상태와 기억 전체를 한 번에 (홈 폴더의 memory-rep
 ## 라이선스
 
 [MIT](LICENSE). Marinara Engine은 Pasta-Devs의 AGPL-3.0 소프트웨어이며, 이 모듈에는 Marinara Engine의 코드가 들어 있지 않습니다.
+
 
