@@ -6,7 +6,7 @@
 > **비공식 모듈입니다.** Marinara Engine 및 Pasta-Devs와 관련이 없고, 그쪽의 검토나 지원을 받지 않습니다.
 > Marinara Engine **2.5.1**에서 확인했습니다. 다른 버전에서는 일부 기능이 스스로 꺼질 수 있습니다(아래 참고).
 
-지금 버전: **v0.10.8 (베타)** · 변경 내역은 [CHANGELOG.md](CHANGELOG.md)
+지금 버전: **v0.10.9 (베타)** · 변경 내역은 [CHANGELOG.md](CHANGELOG.md)
 
 ---
 
@@ -192,4 +192,5 @@ mm report      # 상태와 기억 전체를 한 번에 (홈 폴더의 memory-rep
 ## 라이선스
 
 [MIT](LICENSE). Marinara Engine은 Pasta-Devs의 AGPL-3.0 소프트웨어이며, 이 모듈에는 Marinara Engine의 코드가 들어 있지 않습니다.
+
 

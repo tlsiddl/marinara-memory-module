@@ -28,6 +28,11 @@ test('all recall styles retain the same memory while discouraging repeated expre
     assert.match(rendered, /목요일부터 다시 일하기로 했다/);
     assert.match(rendered, /do not retell, paraphrase or re-explain them in narration, inner thoughts or dialogue/);
     assert.match(rendered, /explicit question or requested correction/);
+    assert.match(rendered, /specific answer the user asked to hear again/);
+    assert.match(rendered, /Correct or restate that answer only; do not replay its already explained background, origin story or supporting anecdote in narration, inner thoughts or dialogue/);
+    assert.match(rendered, /Unless the user explicitly asks to revisit that past event itself/);
+    assert.match(rendered, /remain implicit in tone, familiarity, choices and reactions/);
+    assert.match(rendered.split('[End of memory.')[1], /A requested correction is not permission to retell its background/);
     assert.match(rendered, /new development that changes their meaning/);
     assert.match(rendered, /decision that directly needs that detail now/);
     assert.match(rendered, /Do not repeatedly use the same remembered fact as the same rationale/);
@@ -46,3 +51,4 @@ test('all recall styles retain the same memory while discouraging repeated expre
   saveSettings({ chats: { empty: { enabled: true } } });
   assert.equal(service.renderLedger('empty'), '', 'no instruction-only injection without memory');
 });
+

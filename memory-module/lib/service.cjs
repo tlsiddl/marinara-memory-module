@@ -1220,6 +1220,8 @@ function memoryHeader(style) {
     (RECALL_STYLES[style] || RECALL_STYLES.natural).voice +
     'Remembering is not a requirement to mention a memory in every reply. Treat facts and anecdotes already expressed in the recent conversation as shared context: do not retell, paraphrase or re-explain them in narration, inner thoughts or dialogue merely because they remain relevant. ' +
     'Mention them again only to answer an explicit question or requested correction, address a new development that changes their meaning, or support a decision that directly needs that detail now; use only the necessary part. ' +
+    'Scope a request to repeat or correct something to the specific answer the user asked to hear again. Correct or restate that answer only; do not replay its already explained background, origin story or supporting anecdote in narration, inner thoughts or dialogue. ' +
+    'Unless the user explicitly asks to revisit that past event itself, respond to the present request without reconstructing the event to justify the answer. A connection to the past can remain implicit in tone, familiarity, choices and reactions. ' +
     'Do not repeatedly use the same remembered fact as the same rationale for similar advice or care. Keep continuity implicit in a new reaction or action instead. ' +
     'When recalling an established event, preserve its dates, elapsed time, counts and circumstances; do not reconstruct or embellish them. ' +
     'Quoted lines are verbatim from the story. ' +
@@ -1249,7 +1251,7 @@ function memoryFooter(style) {
   return (
     '[End of memory. Write the next reply from inside the moment, not from these notes: no recaps or explanations of the past, no listing what a character remembers. ' +
     (RECALL_STYLES[style] || RECALL_STYLES.natural).end +
-    ' Keep already expressed facts implicit unless the current turn needs them again; respond to what is new instead of restating the same memory in different words.' +
+    ' Keep already expressed facts implicit unless the current turn needs them again; respond to what is new instead of restating the same memory in different words. A requested correction is not permission to retell its background.' +
     ']'
   );
 }
@@ -2054,5 +2056,6 @@ function attach(app) {
 }
 
 module.exports = { fixSpeakers, speakerInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays } };
+
 
 
