@@ -48,4 +48,19 @@ function needsSpeakerTags(text, names) {
   return restoreSpeakerTags(text, names) !== text;
 }
 
-module.exports = { restoreSpeakerTags, needsSpeakerTags, isTranslationLine };
+/** Match Marinara's native hidden speaker-tag protocol at generation time. */
+function speakerInstructions(names) {
+  const list = [...new Set((names || []).filter((n) => typeof n === 'string').map((n) => n.trim()).filter((n) => n && !/[<>"\r\n]/.test(n)))];
+  if (!list.length) return '';
+  return [
+    'Native Marinara speaker-tag format (metadata, not visible name labels):',
+    `Canonical speaker names: ${JSON.stringify(list)}. Use the exact name, including spelling and case, inside each speaker tag; no aliases.`,
+    'Write every character dialogue in <speaker="Exact Name">"Dialogue"</speaker>, including quote-only dialogue with no visible name prefix. Use lowercase speaker, a double-quoted name, and a matching </speaker>.',
+    'The interface hides these tags and uses them for character dialogue colors. A request for dialogue in quotation marks without character-name labels still permits these hidden tags.',
+    'Keep narration outside the tags. Do not nest tags or add story content to explain them. Keep any required original-language dialogue and its parenthetical translation together inside the same tag, preserving the requested bilingual format.',
+    'Do not add visible Name: or Name | labels unless the requested dialogue style already uses them. Keep all existing valid speaker tags.',
+    `Format example only: <speaker="${list[0]}">"…"</speaker>`,
+  ].join('\n');
+}
+
+module.exports = { restoreSpeakerTags, needsSpeakerTags, isTranslationLine, speakerInstructions };

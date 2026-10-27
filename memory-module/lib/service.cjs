@@ -1764,6 +1764,11 @@ async function chatCharacterNames(e, chat) {
   return names;
 }
 
+/** The host calls this only inside its native merged-roleplay speaker-color condition. */
+function speakerInstructions(chatId, names) {
+  return speakerTagsOn(chatId) ? SP.speakerInstructions(names) : '';
+}
+
 /** From Marinara's reply cleanup (synchronous): merged roleplay group replies in chats that color speakers. */
 function fixSpeakers(text, o) {
   if (!o || o.chatMode !== 'roleplay' || !o.isGroupChat || o.usesIndividualGroupGeneration || o.impersonate) return text;
@@ -1911,5 +1916,5 @@ function attach(app) {
   log('admin API ready at /api/memory-module');
 }
 
-module.exports = { fixSpeakers, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays } };
+module.exports = { fixSpeakers, speakerInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays } };
 

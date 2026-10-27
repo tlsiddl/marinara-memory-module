@@ -52,7 +52,19 @@ function sceneReply(user) {
 }
 
 function rpReply() {
-  if (replyFile && fs.existsSync(replyFile)) return fs.readFileSync(replyFile, 'utf8');
+  if (replyFile && fs.existsSync(replyFile)) {
+    const text = fs.readFileSync(replyFile, 'utf8');
+    // Opt-in protocol fixture: the model, not the memory post-processor, emits tags.
+    if (process.env.MEMORY_TEST_NATIVE_SPEAKERS === '1') {
+      const prompt = JSON.parse(lastRpPrompt || '[]').map((m) => typeof m.content === 'string' ? m.content : '').join('\n');
+      const match = prompt.match(/Canonical speaker names: (\[[^\n]*\])\./);
+      if (prompt.includes('Native Marinara speaker-tag format') && match) {
+        const names = JSON.parse(match[1]);
+        return text.split(/\n\s*\n/).map((block, i) => names[i] ? `<speaker="${names[i]}">${block}</speaker>` : block).join('\n\n');
+      }
+    }
+    return text;
+  }
   return '하루가 웃었다. "약속할게, 내일 같이 달빛호수 가자."';
 }
 

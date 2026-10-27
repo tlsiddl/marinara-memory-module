@@ -1,8 +1,9 @@
 'use strict';
 // Marinara Memory Module — runtime loader.
-// Patches two Marinara 2.5.1 files in memory only (no files are written):
-//   1. packages/shared/dist/utils/macro-engine.js → adds the {{기억}} / {{memory}} macro
-//   2. packages/server/dist/app.js               → lets the module see finished replies and add its admin API
+// Patches supported Marinara files in memory only (no engine files are written):
+//   - macro-engine.js: {{기억}} / {{memory}}
+//   - app.js: reply hooks and memory API
+//   - generation cleanup and native speaker-tag instructions (live and previews)
 // Each patch fails closed on its own: if the expected line is not found exactly once, that part stays off
 // and Marinara runs unchanged.
 
@@ -14,7 +15,7 @@ const { fileURLToPath } = require('node:url');
 const TAG = '[memory-module]';
 /** The Marinara version these patches were made and tested against. */
 const TESTED_MARINARA = '2.5.1';
-const VERSION = '0.10.5';
+const VERSION = '0.10.6';
 const NOTES_DIR = process.env.MEMORY_MODULE_NOTES_DIR || path.join(__dirname, 'notes');
 const DEFAULT_NOTE = '_default.txt';
 /** Last safety net only: the service already keeps the memory within its own limit (40,000 by default). */
@@ -56,6 +57,28 @@ const PATCHES = [
     insert: 'try { const fixed = globalThis.__marinaraMemory?.fixSpeakers?.(fullResponse, { chatId: input.chatId, chatMode, isGroupChat, usesIndividualGroupGeneration, impersonate: input.impersonate, charInfo }); if (typeof fixed === "string" && fixed !== fullResponse) { fullResponse = fixed; contentReplaced = true; } } catch {}\n',
     ok: 'speaker tags are put back before reply streaming and saving (legacy route)',
   },
+  {
+    name: 'speakerPrompt',
+    target: /[\\/]packages[\\/]server[\\/]dist[\\/]routes[\\/]generate\.routes\.js$/,
+    anchor: 'const charNames = charInfo.map((c) => c.name);',
+    insert: '\ntry { const memorySpeakerInstruction = globalThis.__marinaraMemory?.speakerInstructions?.(input.chatId, charNames); if (memorySpeakerInstruction && chatMode === "roleplay" && !input.impersonate) groupInstructions.push(memorySpeakerInstruction); } catch {}',
+    ok: 'native speaker-tag instructions include exact names and quote-only dialogue',
+  },
+  {
+    name: 'speakerPreview',
+    target: /[\\/]packages[\\/]server[\\/]dist[\\/]routes[\\/]chats\.routes\.js$/,
+    anchor: 'injectIntoOutputFormatOrLastUser(assembled.messages, instructionBlock, { indent: true });',
+    insert: '\ntry { const memorySpeakerInstruction = globalThis.__marinaraMemory?.speakerInstructions?.(req.params.id, charNames); if (memorySpeakerInstruction && chatMode === "roleplay") injectIntoOutputFormatOrLastUser(assembled.messages, memorySpeakerInstruction, { indent: true }); } catch {}',
+    ok: 'prompt preview uses the same native speaker-tag instructions',
+  },
+  {
+    name: 'speakerDryRun',
+    target: /[\\/]packages[\\/]server[\\/]dist[\\/]routes[\\/]generate[\\/]dry-run-route\.js$/,
+    anchor: 'if (wrapLastMessage && !usePromptParts) {',
+    before: true,
+    insert: 'try { if (chatMode === "roleplay" && allCharacterIds.length > 1 && dryRunGroupChatMode === "merged" && chatMeta.groupSpeakerColors === true && !impersonate) { const memorySpeakerNames = await resolveCharacterNameMap(promptCharacterIds, (id) => chars.getById(id)); const memorySpeakerInstruction = globalThis.__marinaraMemory?.speakerInstructions?.(chatId, promptCharacterIds.map((id) => memorySpeakerNames.get(id)).filter(Boolean)); if (memorySpeakerInstruction) { const memorySpeakerUtils = await import("./generate-route-utils.js"); memorySpeakerUtils.injectIntoOutputFormatOrLastUser(finalMessages, memorySpeakerInstruction, { indent: true }); } } } catch {}\n',
+    ok: 'dry-run preview carries the native speaker-tag protocol',
+  },
 ];
 
 function log(message) {
@@ -69,7 +92,7 @@ function count(haystack, needle) {
 /** Returns the patched source, or null when this file is not the expected version. */
 function patchSource(source, patch = PATCHES[0]) {
   if (patch.skipIf?.test(source)) return source;
-  if (source.includes('__marinaraMemory')) return source;
+  if (source.includes(patch.insert)) return source;
   if (count(source, patch.anchor) !== 1) return null;
   return source.replace(patch.anchor, patch.before ? patch.insert + patch.anchor : patch.anchor + patch.insert);
 }
@@ -132,6 +155,10 @@ function fixSpeakers(text, o) {
   return loadService()?.fixSpeakers?.(text, o) ?? text;
 }
 
+function speakerInstructions(chatId, names) {
+  return loadService()?.speakerInstructions?.(chatId, names) || '';
+}
+
 function attach(app) {
   const s = loadService();
   if (s) s.attach(app);
@@ -144,7 +171,7 @@ function install() {
   }
   // What happened to each patch: 'ok', 'failed' (this Marinara version differs), or missing (file not loaded yet).
   const patches = {};
-  globalThis.__marinaraMemory = { version: VERSION, testedMarinara: TESTED_MARINARA, patches, render, attach, fixSpeakers };
+  globalThis.__marinaraMemory = { version: VERSION, testedMarinara: TESTED_MARINARA, patches, render, attach, fixSpeakers, speakerInstructions };
   registerHooks({
     load(url, context, nextLoad) {
       if (!url.startsWith('file:')) return nextLoad(url, context);
@@ -154,8 +181,8 @@ function install() {
       } catch {
         return nextLoad(url, context);
       }
-      const patch = PATCHES.find((p) => p.target.test(filename));
-      if (!patch) return nextLoad(url, context);
+      const matching = PATCHES.filter((p) => p.target.test(filename));
+      if (!matching.length) return nextLoad(url, context);
       const result = nextLoad(url, context);
       const source =
         result.source == null
@@ -163,16 +190,20 @@ function install() {
           : Buffer.isBuffer(result.source) || result.source instanceof Uint8Array
             ? Buffer.from(result.source).toString('utf8')
             : String(result.source);
-      if (patch.skipIf?.test(source)) return result;
-      const patched = patchSource(source, patch);
-      if (patched == null) {
-        patches[patch.name] = 'failed';
-        log(`fail closed (${patch.name}): this Marinara version does not match; that part is off, Marinara unchanged`);
-        return result;
+      let output = source;
+      for (const patch of matching) {
+        if (patch.skipIf?.test(source)) continue;
+        const patched = patchSource(output, patch);
+        if (patched == null) {
+          patches[patch.name] = 'failed';
+          log(`fail closed (${patch.name}): this Marinara version does not match; that part is off, Marinara unchanged`);
+          continue;
+        }
+        patches[patch.name] = 'ok';
+        output = patched;
+        log(`v${VERSION} applied: ${patch.ok}`);
       }
-      patches[patch.name] = 'ok';
-      log(`v${VERSION} applied: ${patch.ok}`);
-      return { ...result, source: patched, shortCircuit: true };
+      return output === source ? result : { ...result, source: output, shortCircuit: true };
     },
   });
   log(`v${VERSION} hook registered (no Marinara files changed)`);

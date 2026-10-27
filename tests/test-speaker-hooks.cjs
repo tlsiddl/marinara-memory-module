@@ -67,3 +67,28 @@ test('real Node loader installs the legacy hook and reports success', () => {
     execFileSync(process.execPath,['-e',code],{env:{...process.env,MEMORY_MODULE_ANY_PROCESS:'1',MEMORY_MODULE_HOOK_TEST:'0'},stdio:'pipe'});
   } finally {fs.rmSync(dir,{recursive:true,force:true});}
 });
+
+test('generation instruction and legacy reply patches compose in the same route, with per-patch idempotence', () => {
+  const prompt = RT.PATCHES.find(p=>p.name==='speakerPrompt');
+  const original=source+'\nconst charNames = charInfo.map((c) => c.name);';
+  const first=RT.patchSource(original,legacy);const both=RT.patchSource(first,prompt);
+  assert.notEqual(both,first);assert.ok(both.includes(legacy.insert)&&both.includes(prompt.insert));
+  assert.equal(RT.patchSource(both,legacy),both);assert.equal(RT.patchSource(both,prompt),both);
+});
+
+test('preview passes the route chat id and exact names to the same helper', () => {
+  const preview=RT.PATCHES.find(p=>p.name==='speakerPreview');
+  const messages=[];const req={params:{id:'room'}};const names=['하준','하루'];
+  const patched=RT.patchSource(preview.anchor,preview);
+  vm.runInNewContext(patched,{req,chatMode:'roleplay',charNames:names,assembled:{messages},instructionBlock:'original',injectIntoOutputFormatOrLastUser:(rows,text)=>rows.push(text),__marinaraMemory:{speakerInstructions:(id,got)=>{assert.equal(id,'room');assert.equal(got,names);return 'extra';}}});
+  assert.deepEqual(messages,['original','extra']);
+});
+
+test('native guidance remains scoped to roleplay and never directs impersonated replies', () => {
+  const patch=RT.PATCHES.find(p=>p.name==='speakerPrompt');
+  const source='function run(chatMode, input) { const groupInstructions=[]; const charInfo=[{name:"하준"},{name:"하루"}]; const charNames = charInfo.map((c) => c.name); return groupInstructions; }';
+  const run=vm.runInNewContext(RT.patchSource(source,patch)+'; run',{__marinaraMemory:{speakerInstructions:()=> 'native'}});
+  assert.equal(run('roleplay',{chatId:'room',impersonate:false}).length,1);
+  for(const mode of ['conversation','game'])assert.equal(run(mode,{chatId:'room',impersonate:false}).length,0);
+  assert.equal(run('roleplay',{chatId:'room',impersonate:true}).length,0);
+});
