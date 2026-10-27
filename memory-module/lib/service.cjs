@@ -1200,14 +1200,14 @@ const RECALL_STYLES = {
   natural: {
     voice:
       'When something from the past bears on this moment, characters bring it up on their own, without waiting to be asked, the way people who share a past do: ' +
-      'a remark, a callback to something once said, a question, a choice made differently because of what happened. Keep it in their own voice and short; never recite it. ',
+      'a brief remark, a question, or a choice made differently because of what happened. Let shared knowledge remain implicit when it has already been expressed; no callback is required. ',
     end: 'Let what they remember show the way people show it: in what they say, notice and choose, on their own initiative when it fits.',
   },
   active: {
     voice:
-      'Characters actively live with their shared past: on their own initiative they bring up earlier promises, things once said, unresolved feelings and how things have changed, ' +
-      'tease or press about them, and let them steer what they do — whenever it fits the moment, in their own voice, never as a summary. ',
-    end: 'Their shared history should be felt in this reply: callbacks, kept or broken promises, old words brought back, in their own voice.',
+      'Characters readily act on their shared past and may initiate a relevant question, follow through on a promise, or respond to changed circumstances without waiting to be asked. ' +
+      'This can stay implicit in their choices and reactions; active remembering does not require spoken callbacks or another telling of an old incident. ',
+    end: 'Let relevant shared history inform a fresh response or action; leave already expressed memories implicit unless there is a new reason to mention them.',
   },
 };
 
@@ -1218,6 +1218,10 @@ function memoryHeader(style) {
     'Let it shape what they know, feel, assume and react to. Do not summarize, explain or narrate past events or backstory from it, ' +
     'and do not copy its numbers, dates or details into the prose just because they are listed here. ' +
     (RECALL_STYLES[style] || RECALL_STYLES.natural).voice +
+    'Remembering is not a requirement to mention a memory in every reply. Treat facts and anecdotes already expressed in the recent conversation as shared context: do not retell, paraphrase or re-explain them in narration, inner thoughts or dialogue merely because they remain relevant. ' +
+    'Mention them again only to answer an explicit question or requested correction, address a new development that changes their meaning, or support a decision that directly needs that detail now; use only the necessary part. ' +
+    'Do not repeatedly use the same remembered fact as the same rationale for similar advice or care. Keep continuity implicit in a new reaction or action instead. ' +
+    'When recalling an established event, preserve its dates, elapsed time, counts and circumstances; do not reconstruct or embellish them. ' +
     'Quoted lines are verbatim from the story. ' +
     'A character marked as not remembering a scene does not know what happened in it; one marked as remembering it only dimly holds just what "남은 기억" says, ' +
     'even though "그때" records what they really said and did. Others may remind them. ' +
@@ -1245,6 +1249,7 @@ function memoryFooter(style) {
   return (
     '[End of memory. Write the next reply from inside the moment, not from these notes: no recaps or explanations of the past, no listing what a character remembers. ' +
     (RECALL_STYLES[style] || RECALL_STYLES.natural).end +
+    ' Keep already expressed facts implicit unless the current turn needs them again; respond to what is new instead of restating the same memory in different words.' +
     ']'
   );
 }
@@ -2049,4 +2054,5 @@ function attach(app) {
 }
 
 module.exports = { fixSpeakers, speakerInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays } };
+
 
