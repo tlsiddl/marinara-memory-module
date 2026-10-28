@@ -15,7 +15,7 @@ const { fileURLToPath } = require('node:url');
 const TAG = '[memory-module]';
 /** The Marinara version these patches were made and tested against. */
 const TESTED_MARINARA = '2.5.1';
-const VERSION = '0.10.9';
+const VERSION = '0.10.10';
 const NOTES_DIR = process.env.MEMORY_MODULE_NOTES_DIR || path.join(__dirname, 'notes');
 const DEFAULT_NOTE = '_default.txt';
 /** Last safety net only: the service already keeps the memory within its own limit (40,000 by default). */
@@ -93,8 +93,12 @@ function count(haystack, needle) {
 function patchSource(source, patch = PATCHES[0]) {
   if (patch.skipIf?.test(source)) return source;
   if (source.includes(patch.insert)) return source;
-  if (count(source, patch.anchor) !== 1) return null;
-  return source.replace(patch.anchor, patch.before ? patch.insert + patch.anchor : patch.anchor + patch.insert);
+  // Leading indentation differs between TypeScript and Android's esbuild output.
+  // Match the complete statement regardless of indentation, while retaining the
+  // exact-once safety check and all other characters of the anchor.
+  const anchor = patch.anchor.trimStart();
+  if (count(source, anchor) !== 1) return null;
+  return source.replace(anchor, patch.before ? patch.insert + anchor : anchor + patch.insert);
 }
 
 /** Memory text must never become new macros or prompt markup. */
