@@ -6,7 +6,7 @@ const { Window } = await import(process.env.HAPPY_DOM_MODULE || 'happy-dom');
 const window = new Window({url:'http://library.test',settings:{enableJavaScriptEvaluation:true}});
 const { document } = window;
 const scene = {id:'S1',title:'호텔 만남',start:1,end:4,summary:'어디로 갈까?',events:[],recollections:[],present:[],loose:[]};
-const records = {scenes:[scene],chapters:[{id:'C1',title:'첫 만남',summary:'호텔에서',scenes:['S1']}],arcs:[{id:'A1',title:'호텔 시절',summary:'지난 만남',chapters:['C1']}],facts:[{id:'F1',about:'서래',text:'홍차를 좋아한다'}]};
+const records = {scenes:[scene],chapters:[{id:'C1',title:'첫 만남',summary:'호텔에서',scenes:['S1']}],arcs:[{id:'A1',title:'호텔 시절',summary:'지난 만남',chapters:['C1']}],facts:[{id:'F1',about:'서아',text:'홍차를 좋아한다'}]};
 const info = {enabled:true,threads:[{id:'T1',title:'호텔 약속',kind:'promise',status:'closed',text:'다시 만나기',evidence:[]}],scenes:{count:1},cast:[]};
 window.localStorage.setItem('marinara-active-chat-id','room1');
 window.fetch = async path => ({ok:true,status:200,text:async()=>JSON.stringify(path.endsWith('/scenes')?records:path.endsWith('/chats')?[{id:'room1',name:'시험 방'}]:info)});
@@ -23,7 +23,7 @@ const search=(text,submit=true)=>{
  if(submit) q('#memorySearch').dispatchEvent(new window.Event('submit',{bubbles:true,cancelable:true}));
 };
 try {
- click('#launch');
+ document.querySelector('#memory-module-launcher').click();
  for(let i=0;i<10;i++) await new Promise(r=>setTimeout(r,0));
  click('[data-tab="search"]');
  const input=q('#memorySearchInput');

@@ -6,7 +6,7 @@
 > **비공식 모듈입니다.** Marinara Engine 및 Pasta-Devs와 관련이 없고, 그쪽의 검토나 지원을 받지 않습니다.
 > Marinara Engine **2.5.1**에서 확인했습니다. 다른 버전에서는 일부 기능이 스스로 꺼질 수 있습니다(아래 참고).
 
-지금 버전: **v0.11.7 (베타)** · 변경 내역은 [CHANGELOG.md](CHANGELOG.md)
+지금 버전: **v0.11.8 (베타)** · 변경 내역은 [CHANGELOG.md](CHANGELOG.md)
 
 ---
 
@@ -74,8 +74,8 @@ irm https://raw.githubusercontent.com/tlsiddl/marinara-memory-module/main/instal
 **설치 확인** — 마리나라 로그에 아래 줄들이 보이면 성공입니다.
 
 ```
-[memory-module] v0.11.7 applied: {{기억}} macro ready
-[memory-module] v0.11.7 applied: reply hook and admin API ready
+[memory-module] v0.11.8 applied: {{기억}} macro ready
+[memory-module] v0.11.8 applied: reply hook and admin API ready
 ```
 
 ### 2. 기억 서재 화면 (확장)
@@ -173,6 +173,9 @@ $env:MEMORY_MODULE_ACTION='rollback'; irm https://raw.githubusercontent.com/tlsi
 영어로 진행되는 방은 기억 자체를 영어로 정리하고, 기억 서재 화면에서 한국어 번역을 함께 보여 줍니다.
 
 ## 자주 묻는 질문
+
+**확장 서랍 같은 다른 확장과 같이 쓸 수 있나요?**
+네. 기억 서재를 여는 버튼은 `body` 바로 아래의 `<button id="memory-module-launcher" data-drawer-launcher>`입니다. 서랍 확장이 이 버튼을 담아 두고 눌러서(click) 열 수 있고, Esc로 닫힙니다. 스크립트에서는 `window.memoryModuleLibrary.open()` / `.close()` / `.toggle()`을 쓰셔도 됩니다.
 
 **DeepSeek를 기억용 연결로 써도 되나요?**
 됩니다. DeepSeek 공식 API는 기본으로 생각(추론) 모드가 켜져 있어 긴 정리에서 답이 비거나 잘릴 수 있는데, 기억 모듈이 기억 정리·번역 요청에서는 생각 모드를 끄고 보냅니다(롤플레이 답변에는 영향 없음). 다른 사이트를 거쳐 쓰는 생각 모델에서 "빈 답" 오류가 나면 연결 설정에서 생각 모드를 끄거나 다른 모델을 골라 주세요.
