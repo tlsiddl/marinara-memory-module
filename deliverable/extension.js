@@ -835,7 +835,7 @@
     switch (actName) {
       case 'refresh':
         rooms = [];
-        return act(refresh, '새로 불러왔습니다.');
+        return act(refresh, '새로 불러왔습니다.', { reload: false });
       case 'start':
         return act(() => api('POST', `/chats/${chat}/start`, { fresh: false }), '정리를 시작했습니다.');
       case 'fresh':
@@ -1129,7 +1129,7 @@
       searchDraft = searchQuery = '';
       recallTest = null;
     }
-    void act(refresh);
+    void act(refresh, null, { reload: false });
     if (tab === 'settings') void openSettings();
     render();
     launcher?.setAttribute('aria-expanded', 'true');
@@ -1218,7 +1218,7 @@
       searchDraft = searchQuery = '';
       recallTest = null;
       selectedScene = '';
-      void act(() => loadRoom(room));
+      void act(() => loadRoom(room), null, { reload: false });
     };
     root.querySelector('#roomEnabled').onchange = (e) => {
       const on = e.target.checked;
