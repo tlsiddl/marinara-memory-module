@@ -124,8 +124,22 @@ http
       const system = messages.find((m) => m.role === 'system')?.content || '';
       const isMemory = typeof system === 'string' && system.startsWith('너는 장기 롤플레이의 기억 관리자야');
       let content;
+      // Translation of memory lines: each line comes back marked with the target language.
+      const isTranslation = typeof system === 'string' && (system.startsWith('You translate the memory notes') || system.startsWith('너는 장기 롤플레이 기억 메모를'));
+      if (isTranslation) {
+        calls.translations = (calls.translations || 0) + 1;
+        const tag = system.startsWith('You') ? 'EN' : 'KO';
+        let lines = [];
+        try {
+          lines = JSON.parse(messages.find((m) => m.role === 'user')?.content || '{}').lines || [];
+        } catch {}
+        calls.translatedLines = (calls.translatedLines || 0) + lines.length;
+        content = JSON.stringify({ lines: lines.map((l) => `${tag}: ${l}`) });
+      }
       if (isMemory) memoryPrompts.push(messages.find((m) => m.role === 'user')?.content || ''), memoryPrompts.splice(0, Math.max(0, memoryPrompts.length - 40));
-      if (isMemory && system.includes('지난 장면을 목차에서 골라')) {
+      if (isTranslation) {
+        // answered above
+      } else if (isMemory && system.includes('지난 장면을 목차에서 골라')) {
         calls.recall = (calls.recall || 0) + 1;
         const user = messages.find((m) => m.role === 'user')?.content || '';
         const first = (user.match(/^(S\d+) \|/m) || [])[1];
