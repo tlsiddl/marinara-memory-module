@@ -691,7 +691,21 @@ async function memoryModel(wanted = settings().connection) {
     conn.treatAsLocalEndpoint === 'true',
     conn.defaultParameters,
   );
-  return { provider, model: conn.model, name: row.name };
+  return { provider, model: conn.model, name: row.name, extra: memoryCallOptions(conn, baseUrl) };
+}
+
+/**
+ * Options added to every memory call for this connection. DeepSeek's own API thinks before answering unless told
+ * not to, and that thinking counts against the answer's length: a long scene answer ran out of room and came back
+ * empty or cut off. Memory work is reading and filing, so thinking is turned off there, unless the connection's own
+ * custom parameters already say how to think.
+ */
+function memoryCallOptions(conn, baseUrl) {
+  const host = String(baseUrl || '').replace(/^https?:\/\//, '').split('/')[0].toLowerCase();
+  const deepseek = conn.provider === 'deepseek' || /(^|\.)deepseek\.com(:\d+)?$/.test(host) || (process.env.MEMORY_MODULE_TEST_DEEPSEEK_HOST && host === process.env.MEMORY_MODULE_TEST_DEEPSEEK_HOST);
+  const own = JSON.stringify(conn.defaultParameters ?? '');
+  if (!deepseek || /thinking|reasoning/i.test(own)) return {};
+  return { customParameters: { thinking: { type: 'disabled' } } };
 }
 
 /** The connection that translates memory: its own when one is set, else the memory connection. */
@@ -726,13 +740,18 @@ function withLanguage(messages, lang) {
 async function askModel(model, messages, { maxTokens = 4096 } = {}) {
   messages = withLanguage(messages, model.lang);
   const signal = model.signal ? AbortSignal.any([AbortSignal.timeout(MODEL_TIMEOUT_MS), model.signal]) : AbortSignal.timeout(MODEL_TIMEOUT_MS);
-  const base = { model: model.model, maxTokens, temperature: 0.2, signal };
+  const base = { model: model.model, maxTokens, temperature: 0.2, signal, ...(model.extra || {}) };
+  let content;
   try {
-    return (await model.provider.chatComplete(messages, { ...base, responseFormat: { type: 'json_object' } })).content;
+    content = (await model.provider.chatComplete(messages, { ...base, responseFormat: { type: 'json_object' } })).content;
   } catch (error) {
     if (!/response_format|json_object|responseFormat/i.test(String(error?.message))) throw error;
-    return (await model.provider.chatComplete(messages, base)).content;
+    content = (await model.provider.chatComplete(messages, base)).content;
   }
+  if (!String(content ?? '').trim()) {
+    throw Error(`모델(${model.name || model.model || '기억용 연결'})이 빈 답을 보냈습니다. 생각(추론) 모드가 켜진 모델은 생각하느라 답 쓸 자리를 다 쓰는 경우가 있습니다. 연결 설정에서 생각 모드를 끄거나 다른 모델을 골라 주세요.`);
+  }
+  return content;
 }
 
 /** Read one batch; an unreadable reply is retried once, then the batch is halved. */
@@ -2385,7 +2404,7 @@ function attach(app) {
   log('admin API ready at /api/memory-module');
 }
 
-module.exports = { fixSpeakers, speakerInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, loadTranslations, saveTranslations, chatLangs, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, jobs, writeLanguage } };
+module.exports = { fixSpeakers, speakerInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, loadTranslations, saveTranslations, chatLangs, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, jobs, writeLanguage, memoryCallOptions } };
 
 
 
