@@ -149,10 +149,11 @@
     }
     try {
       const t = await api('GET', `/chats/${encodeURIComponent(id)}/translations`);
+      if (room !== id || disposed) return;
       trMap = t.items || {};
       trPending = t.missing || 0;
     } catch {
-      trPending = 0;
+      if (room === id) trPending = 0;
     }
   }
 
@@ -1146,6 +1147,8 @@
       room = current;
       store = null;
       storeRoom = '';
+      trMap = {};
+      trPending = 0;
       searchDraft = searchQuery = '';
       recallTest = null;
     }
