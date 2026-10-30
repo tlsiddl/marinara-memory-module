@@ -1316,9 +1316,46 @@ function changedNumber(ledger, messages, index) {
   return typeof n === 'number' ? n : null;
 }
 
+/**
+ * While the ledger is being read, the check before a reply cannot save its result (the read would overwrite it),
+ * so what the reply should see is kept here instead: the ledger with an edited or deleted message undone, or
+ * only its part before the change. Used only while that read is still running.
+ */
+const replyLedgers = new Map();
+
 function ledgerForReply(chatId) {
+  const held = replyLedgers.get(chatId);
+  if (held) {
+    if (jobs.get(chatId)?.state === 'running') return held.ledger;
+    replyLedgers.delete(chatId);
+  }
   const stored = loadLedger(chatId);
   return stored?.needsRebuild ? L.verifiedBefore(stored, stored.needsRebuild.number) : stored;
+}
+
+/**
+ * The check before a reply while the ledger is being read: the same comparison with the chat, on a copy that is
+ * not saved. The read under way keeps going; once it ends, the next reply's check saves the result as usual.
+ */
+function holdReplyLedger(chatId, view) {
+  replyLedgers.delete(chatId);
+  const stored = loadLedger(chatId);
+  if (!stored) return;
+  const messages = settled(view);
+  const ledger = structuredClone(stored);
+  const state = L.reconcile(ledger, messages);
+  if (state.rebuild) {
+    const number = changedNumber(ledger, messages, state.changedAt);
+    replyLedgers.set(chatId, { ledger: L.verifiedBefore(ledger, number) });
+    log(`chat ${chatId}: message ${number ?? '?'} changed while the ledger is being read; this reply gets only the part before it`);
+  } else if (state.rolledBack) {
+    replyLedgers.set(chatId, { ledger });
+    log(`chat ${chatId}: message ${state.changedAt + 1} changed while the ledger is being read; this reply gets the ledger without it`);
+  } else if (stored.needsRebuild) {
+    // Marked earlier, and the message was put back as it was.
+    delete ledger.needsRebuild;
+    replyLedgers.set(chatId, { ledger });
+  }
 }
 
 /* ---------- translations (memory in another language) ---------- */
@@ -2004,9 +2041,11 @@ async function syncBeforeReply(chatId, body) {
   if (replaced >= 0) view = view.slice(0, replaced);
   const running = jobs.get(chatId);
   if (running?.state === 'running') {
-    // The ledger only reads messages the user has already answered, so a read under way stays valid; never wait for it.
-    log(`chat ${chatId}: ledger is still reading earlier messages, prompt uses the current ledger`);
+    // Never wait for the read under way, but still check for edited or deleted messages: the reply gets a copy
+    // of the ledger without them (not saved; the read would overwrite it).
+    holdReplyLedger(chatId, view);
   } else {
+    replyLedgers.delete(chatId);
     await enqueue(chatId, async () => {
       const stored = loadLedger(chatId);
       // A broken ledger file is left alone (and shown in the memory library); the reply goes on without it.
@@ -2246,7 +2285,7 @@ function attach(app) {
   log('admin API ready at /api/memory-module');
 }
 
-module.exports = { fixSpeakers, speakerInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, loadTranslations, saveTranslations, chatLangs, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource } };
+module.exports = { fixSpeakers, speakerInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, loadTranslations, saveTranslations, chatLangs, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, jobs } };
 
 
 
