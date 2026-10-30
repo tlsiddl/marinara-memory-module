@@ -68,7 +68,7 @@ test('a translation answer is only used when it lines up with what was sent', ()
 
 test('a chat written in English gets its memory written in English; other chats are asked nothing new', () => {
   const msgs = [{ role: 'system', content: 'rules' }, { role: 'user', content: 'messages' }];
-  assert.match(X.withLanguage(msgs, 'en')[1].content, /\[기록 언어\] 이 채팅은 영어로 진행돼/);
+  assert.match(X.withLanguage(msgs, 'en')[1].content, /\[기록 언어\] 네가 새로 쓰는 모든 글.*영어로 써/);
   assert.equal(X.withLanguage(msgs, 'ko'), msgs);
   assert.equal(msgs[1].content, 'messages', 'the prompt itself is not changed');
 });
@@ -131,4 +131,23 @@ test('English dates are read as the story date; a sentence that mentions a date 
   assert.equal(L.dateInText('We met on October 18, 2024.'), null);
   assert.equal(L.dateInText('We met on October 18 2024 at the park near my old house'), null);
   assert.equal(L.parseClock('may I come in'), null);
+});
+
+test('memory set to be written in English: a Korean chat gets English notes, goes in as written, shows Korean in the library', () => {
+  X.saveSettings({ connection: null, chats: { 'room-write': { enabled: true } }, writeLanguage: 'en', memoryLanguage: 'auto' });
+  X.chatLangs.set('room-write', 'ko');
+  assert.equal(X.writeLanguage('room-write'), 'en', 'written in English even though the chat is Korean');
+  assert.equal(X.memoryLanguage('room-write'), 'en', 'goes in as written: no translation back to Korean');
+  assert.match(X.withLanguage([{ role: 'user', content: 'x' }], X.writeLanguage('room-write'))[0].content, /채팅이 한국어여도 마찬가지야/);
+  const store = S.emptyStore();
+  store.scenes = [{ id: 'S1', start: 1, end: 1, messages: [], title: 'The beach promise', summary: '셋이 바다에 가기로 약속한다.', events: [], recollections: [] }];
+  X.saveScenes('room-write', store);
+  const texts = X.displayTranslationTexts('room-write');
+  assert.ok(texts.includes('The beach promise'), 'English memory gets a Korean note in the library');
+  assert.ok(!texts.includes('셋이 바다에 가기로 약속한다.'), 'memory already in Korean (written before the switch) needs none');
+  // An earlier Korean line goes in translated into English, like any line not yet in the language it goes in.
+  assert.ok(X.injectionLines('room-write', 'en').includes('셋이 바다에 가기로 약속한다.'));
+  X.saveSettings({ ...X.settings(), writeLanguage: 'auto' });
+  assert.equal(X.writeLanguage('room-write'), 'ko');
+  assert.equal(X.memoryLanguage('room-write'), 'ko');
 });
