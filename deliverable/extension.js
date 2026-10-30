@@ -225,7 +225,10 @@
           }
           else {
             const wasPreparing = info?.translationPrep?.working;
-            info = await api('GET', `/chats/${encodeURIComponent(room)}`);
+            const polledRoom = room;
+            const polledInfo = await api('GET', `/chats/${encodeURIComponent(polledRoom)}`);
+            if (polledRoom !== room || disposed) { schedulePoll(); return; }
+            info = polledInfo;
             if ((wasPreparing || info?.translationPrep?.working) && tab === 'settings' && !editing()) render();
             if (trPending) {
               const before = trPending;
@@ -1161,6 +1164,7 @@
   function closeLibrary() {
     if (!open) return;
     open = false;
+    clearTimeout(pollTimer);
     render();
     launcher?.setAttribute('aria-expanded', 'false');
     // Back to the button that opened it, unless it sits hidden in a drawer.
@@ -1288,6 +1292,7 @@
           tab = 'facts';
           focus = { kind: 'fact', id: link.dataset.gotoFact };
         }
+        if (needsScenes() && (!store || storeRoom !== room)) void act(() => loadRoom(room), null, { reload: false });
         return render();
       }
       const n = e.target.closest('button');
