@@ -381,11 +381,21 @@
   }
 
   /** Search the room's loaded records literally; punctuation is not a pattern. */
+  // Only what a person wrote or reads: titles, summaries, events, lines, names, places. Ids, message numbers,
+  // fingerprints and internal marks ("critical", "m12") are not searched or shown.
+  const SEARCH_TEXT = new Set(['title', 'summary', 'text', 'why', 'time', 'place', 'weather', 'what', 'kept', 'detail', 'cause', 'need', 'about', 'who', 'toward', 'by', 'to', 'how', 'turns', 'keep', 'present']);
+  const SEARCH_NESTED = new Set(['events', 'quotes', 'loose', 'recollections', 'later', 'learned', 'latest', 'closed', 'evidence', 'clues']);
   function searchableText(value) {
     if (value == null) return '';
-    if (Array.isArray(value)) return value.map(searchableText).join(' ');
-    if (typeof value === 'object') return Object.values(value).map(searchableText).join(' ');
-    return String(value);
+    if (Array.isArray(value)) return value.map(searchableText).filter(Boolean).join(' ');
+    if (typeof value !== 'object') return String(value);
+    const parts = [];
+    for (const [k, v] of Object.entries(value)) {
+      if (v == null) continue;
+      if (SEARCH_TEXT.has(k)) parts.push(Array.isArray(v) ? v.filter((x) => typeof x === 'string').join(' ') : typeof v === 'string' ? v : '');
+      else if (SEARCH_NESTED.has(k)) parts.push(searchableText(v));
+    }
+    return parts.filter(Boolean).join(' ').replace(/\s+/g, ' ');
   }
 
   function viewSearch() {
