@@ -1456,6 +1456,64 @@ async function translateAfterRun(chatId, job) {
   return translateMissing(chatId, target, todo);
 }
 
+/**
+ * Getting a chat's whole memory ready in the language it goes in, right away (when the language setting changes,
+ * or when a room is opened that still has lines to translate), instead of a few lines before each reply.
+ * The stored memory is not changed; only the translation cache is filled. Status per chat for the library.
+ */
+const preparing = new Map();
+const PREPARE_RETRY_MS = 2 * 60_000;
+
+function prepareStatus(chatId) {
+  const p = preparing.get(chatId);
+  return p ? { target: p.target, total: p.total, left: p.left, working: p.working, error: p.error } : null;
+}
+
+function prepareTranslation(chatId) {
+  const current = preparing.get(chatId);
+  const target = memoryLanguage(chatId);
+  if (current?.working && current.target === target) return current.run;
+  const entry = { target, total: 0, left: 0, working: true, error: null, at: Date.now() };
+  preparing.set(chatId, entry);
+  entry.run = (async () => {
+    const todo = () => injectionLines(chatId, target).filter((l) => translationLookup(chatId, target)(l) == null);
+    let left = todo();
+    entry.total = injectionLines(chatId, target).length;
+    entry.left = left.length;
+    if (left.length) log(`chat ${chatId}: getting ${left.length} memory line(s) ready in ${target}`);
+    while (left.length) {
+      const done = await translateMissing(chatId, target, left);
+      left = todo();
+      entry.left = left.length;
+      if (!done) break; // nothing came back: try again later instead of looping
+    }
+  })()
+    .catch((error) => {
+      entry.error = String(error?.message || error).slice(0, 300);
+      log(`chat ${chatId}: translation failed (${entry.error})`);
+    })
+    .finally(() => {
+      entry.working = false;
+      entry.at = Date.now();
+    });
+  return entry.run;
+}
+
+/** Start getting a chat ready when its memory goes in another language and something is still untranslated. */
+function maybePrepareTranslation(chatId) {
+  if (!chatEnabled(chatId) || !settings().connection) return;
+  const p = preparing.get(chatId);
+  const target = memoryLanguage(chatId);
+  if (p && p.target === target && (p.working || Date.now() - p.at < PREPARE_RETRY_MS)) return;
+  const lines = injectionLines(chatId, target);
+  const lookup = translationLookup(chatId, target);
+  if (!lines.some((l) => lookup(l) == null)) {
+    preparing.set(chatId, { target, total: lines.length, left: 0, working: false, error: null, at: Date.now() });
+    return;
+  }
+  prepareTranslation(chatId);
+}
+
 /** What the memory library shows in Korean: memory written in another language, and (when on) quoted lines. */
 function displayTranslationTexts(chatId) {
   const quotes = settings().translateQuotes === true;
@@ -1770,6 +1828,16 @@ async function routes(app) {
     if (req.body?.translateConnection !== undefined) next.translateConnection = String(req.body.translateConnection || '').trim() || null;
     if (req.body?.translateQuotes !== undefined) next.translateQuotes = req.body.translateQuotes === true;
     saveSettings(next);
+    // Get every room that uses memory ready in its (new) language now, one room after another, in the background.
+    preparing.clear();
+    (async () => {
+      for (const id of Object.keys(settings().chats || {})) {
+        if (!chatEnabled(id)) continue;
+        await chatLanguage(id).catch(() => null);
+        maybePrepareTranslation(id);
+        await preparing.get(id)?.run;
+      }
+    })().catch(() => {});
     return { memoryLanguage: next.memoryLanguage || 'auto', translateConnection: next.translateConnection || null, translateQuotes: next.translateQuotes === true };
   }));
   // Korean for what the library shows, when the memory is in another language. Missing ones are made in the
@@ -1843,6 +1911,7 @@ async function routes(app) {
       enabled: chatEnabled(chatId),
       chatLang: chatLangs.get(chatId) || null,
       memoryLanguage: memoryLanguage(chatId),
+      translationPrep: (maybePrepareTranslation(chatId), prepareStatus(chatId)),
       job,
       sceneJob,
       speakerTags: speakerTagsOn(chatId),

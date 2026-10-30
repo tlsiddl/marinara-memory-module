@@ -208,7 +208,9 @@
           // Idle: only the small status is asked for; the whole room is loaded while a run is on and when it ends.
           if (was) await loadRoom(room);
           else {
+            const wasPreparing = info?.translationPrep?.working;
             info = await api('GET', `/chats/${encodeURIComponent(room)}`);
+            if ((wasPreparing || info?.translationPrep?.working) && tab === 'settings' && !editing()) render();
             if (trPending) {
               const before = trPending;
               await loadTranslations(room);
@@ -220,7 +222,7 @@
         }
       } catch {}
       schedulePoll();
-    }, was ? 3000 : 10000);
+    }, was || info?.translationPrep?.working ? 3000 : 10000);
   }
 
   /** Someone is typing in the library: a background check must not redraw the form under them. */
@@ -270,6 +272,17 @@
   }
 
   /** A warning when this Marinara is not the version the module was tested on, or a patch could not go in. */
+  /** Where this room's memory stands in the language it goes in (the library's settings, under 기억 언어). */
+  function prepNote() {
+    const p = info?.translationPrep;
+    if (!p || !p.total) return '';
+    const name = p.target === 'en' ? '영어' : '한국어';
+    if (p.working) return `<p class="hint"><b>이 방 기억을 ${name}로 옮기는 중입니다</b> — ${p.total - p.left} / ${p.total}줄. 창을 닫아도 서버에서 계속합니다.</p>`;
+    if (p.error) return `<p class="hint"><b>번역하지 못했습니다.</b> 남은 ${p.left}줄은 원래 언어로 들어가고, 잠시 뒤 다시 시도합니다. (${esc(p.error)})</p>`;
+    if (p.left) return `<p class="hint">이 방 기억 ${p.total}줄 중 ${p.left}줄이 아직 번역되지 않았습니다. 잠시 뒤 다시 시도합니다.</p>`;
+    return `<p class="hint"><b>이 방 기억은 ${name}로 넣을 준비가 끝났습니다</b> (${p.total}줄).</p>`;
+  }
+
   function healthNote() {
     const h = info?.health;
     if (!h) return '';
@@ -717,7 +730,9 @@
         <div class="buttons"><button class="primary" data-act="saveSettings">저장</button></div>
       </div>
       <div class="paper"><h2>기억 언어</h2>
-        <p class="hint">${info?.chatLang ? `이 방은 <b>${info.chatLang === 'en' ? '영어' : '한국어'}</b>로 진행되는 것으로 보입니다(최근 메시지 기준, 자동). 기억은 채팅 언어로 정리하고, 필요한 만큼만 번역합니다.` : '기억은 채팅 언어로 정리하고, 필요한 만큼만 번역합니다.'}</p>
+        <p class="hint">기억 서재에 저장된 기억은 그대로 두고, <b>답변에 넣을 때만</b> 고른 언어로 바꿉니다. 이미 정리된 장면이 많아도 <b>다시 정리할 필요가 없습니다</b>. 바꾸면 이 방의 기억을 바로 뒤에서 번역해 두고, 그다음부터는 번역해 둔 것을 씁니다.</p>
+        ${info?.chatLang ? `<p class="hint">이 방은 <b>${info.chatLang === 'en' ? '영어' : '한국어'}</b>로 진행되는 것으로 보입니다(최근 메시지 기준, 자동).</p>` : ''}
+        ${prepNote()}
         <label>기억을 넣을 언어<select id="setMemLang">
           <option value="auto" ${!serverSettings?.memoryLanguage || serverSettings?.memoryLanguage === 'auto' ? 'selected' : ''}>채팅 언어와 같게 (기본 · 번역 없음)</option>
           <option value="ko" ${serverSettings?.memoryLanguage === 'ko' ? 'selected' : ''}>한국어</option>
@@ -726,7 +741,7 @@
           <option value="" ${!serverSettings?.translateConnection ? 'selected' : ''}>기억 정리 연결 그대로</option>
           ${connections.map((c) => `<option value="${esc(c.id)}" ${c.id === serverSettings?.translateConnection ? 'selected' : ''}>${esc(c.name)}${c.model ? ` · ${esc(c.model)}` : ''}</option>`).join('')}</select></label>
         <label class="setting-switch"><span>영어 대사도 한국어로 보기<small>이 화면에서 영어로 된 대사 아래에 한국어 번역을 함께 보여 줍니다. 번역 호출이 조금 더 듭니다. 기억 칸에 들어가는 대사는 늘 원문 그대로입니다.</small></span><input type="checkbox" id="setTrQuotes" ${serverSettings?.translateQuotes ? 'checked' : ''}></label>
-        <p class="hint">기억을 다른 언어로 넣으면, 정리할 때마다 새 기억을 번역 연결로 옮겨 둡니다(짧은 글이라 정리보다 훨씬 쌉니다). 아직 번역되지 않은 줄은 원래 언어로 들어갑니다. 영어로 정리된 기억은 이 화면에서 한국어 번역이 함께 보입니다.</p>
+        <p class="hint">번역이 끝나기 전에 답변을 만들면, 아직 번역되지 않은 줄만 원래 언어로 들어갑니다(기억이 빠지지는 않습니다). 새로 정리되는 기억도 정리가 끝날 때마다 이어서 번역합니다. 대사 인용과 이름은 늘 원문 그대로 넣습니다. 영어로 정리된 기억은 이 화면에서 한국어 번역이 함께 보입니다.</p>
         <div class="buttons"><button class="primary" data-act="saveLanguage">저장</button></div>
       </div>
       <div class="paper"><h2>뜻으로 찾기 (임베딩)</h2>
@@ -923,7 +938,8 @@
         return act(async () => {
           await api('POST', '/settings/language', { memoryLanguage, translateConnection, translateQuotes });
           serverSettings = (await api('GET', '/status')).settings;
-        }, '기억 언어를 저장했습니다.');
+          if (room) info = await api('GET', `/chats/${encodeURIComponent(room)}`).catch(() => info);
+        }, memoryLanguage === 'auto' ? '기억 언어를 저장했습니다.' : '기억 언어를 저장했습니다. 다시 정리할 필요 없이, 이 방의 기억을 바로 번역해 둡니다.');
       }
       case 'saveSettings': {
         // Read every choice before act() redraws the page (a redraw puts the saved values back in the form).
