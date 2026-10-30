@@ -239,7 +239,7 @@
     root.querySelector('#status').textContent = running() ? '정리 중입니다… 3초마다 새로 확인합니다.' : notice;
   }
 
-  async function act(fn, done) {
+  async function act(fn, done, options = {}) {
     if (busy) return;
     busy = true;
     lastError = '';
@@ -248,7 +248,7 @@
     try {
       await fn();
       if (done) notice = done;
-      await loadRoom(room);
+      if (options.reload !== false) await loadRoom(room);
     } catch (error) {
       lastError = error?.message || String(error);
     } finally {
@@ -962,14 +962,22 @@
         const amount = root.querySelector('#setRecallAmount')?.value;
         const length = root.querySelector('#setChapterLength')?.value;
         const style = root.querySelector('#setRecallStyle')?.value;
+        // Only send changed settings. These endpoints update shared server settings,
+        // so keep writes sequential and refresh their authoritative values afterward.
+        const changes = [];
+        if (connection && connection !== (serverSettings?.connection || '')) changes.push(['/settings', { connection }]);
+        if (recall && recall !== (serverSettings?.recall || 'model')) changes.push(['/settings/recall', { mode: recall }]);
+        if (amount && amount !== (serverSettings?.recallAmount || 'normal')) changes.push(['/settings/recall-amount', { amount }]);
+        if (length && length !== (serverSettings?.chapterLength || 'normal')) changes.push(['/settings/chapter-length', { length }]);
+        if (style && style !== (serverSettings?.recallStyle || 'natural')) changes.push(['/settings/recall-style', { style }]);
+        if (!changes.length) {
+          notice = '변경된 설정이 없습니다.';
+          return render();
+        }
         return act(async () => {
-          if (connection) await api('POST', '/settings', { connection });
-          if (recall) await api('POST', '/settings/recall', { mode: recall });
-          if (amount) await api('POST', '/settings/recall-amount', { amount });
-          if (length) await api('POST', '/settings/chapter-length', { length });
-          if (style) await api('POST', '/settings/recall-style', { style });
+          for (const [path, body] of changes) await api('POST', path, body);
           serverSettings = (await api('GET', '/status')).settings;
-        }, '설정을 저장했습니다.');
+        }, '설정을 저장했습니다.', { reload: false });
       }
       default:
     }
