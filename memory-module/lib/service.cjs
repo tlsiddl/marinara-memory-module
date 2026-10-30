@@ -10,6 +10,7 @@ const S = require('./scenes.cjs');
 const R = require('./recall.cjs');
 const V = require('./vectors.cjs');
 const SP = require('./speakers.cjs');
+const T = require('./translate.cjs');
 
 /**
  * Marinara's own data folder, found the way Marinara finds it: DATA_DIR (relative to the server package) if set,
@@ -527,7 +528,16 @@ async function chatMessages(chatId) {
   }
   await addTrackerClock(e, chatId, out);
   for (const m of out) delete m.swipe;
-  return L.prepareMessages(out);
+  const prepared = L.prepareMessages(out);
+  if (prepared.length) chatLangs.set(chatId, T.chatLanguage(prepared));
+  return prepared;
+}
+
+/** The language each chat is written in, as last read. */
+const chatLangs = new Map();
+async function chatLanguage(chatId) {
+  if (!chatLangs.has(chatId)) await chatMessages(chatId).catch(() => null);
+  return chatLangs.get(chatId) || 'ko';
 }
 
 const CLOCK_FIELD = /날짜|일자|date|day|시간|시각|time|작중|게임 ?내|in-?game/i;
@@ -661,9 +671,8 @@ async function chatWindow(chatId) {
 
 /* ---------- memory model ---------- */
 
-async function memoryModel() {
+async function memoryModel(wanted = settings().connection) {
   const e = await engine();
-  const wanted = settings().connection;
   if (!wanted) throw Error('기억용 연결이 정해지지 않았습니다. 기억 서재 설정이나 mm connection "<연결 이름>"으로 정해 주세요.');
   const list = await e.connections.list();
   const row = list.find((c) => c.id === wanted) || list.find((c) => c.name === wanted);
@@ -685,7 +694,25 @@ async function memoryModel() {
   return { provider, model: conn.model, name: row.name };
 }
 
+/** The connection that translates memory: its own when one is set, else the memory connection. */
+function translateModel() {
+  return memoryModel(settings().translateConnection || settings().connection);
+}
+
+/** A chat written in English gets its memory written in English too (quotes and names stay as written). */
+const LANGUAGE_NOTE = {
+  en: '\n\n[기록 언어] 이 채팅은 영어로 진행돼. 네가 새로 쓰는 모든 글(제목·요약·사건·사실·이유·메모)은 영어로 써. 인용(q)과 이름은 원문 그대로 둬.',
+};
+
+function withLanguage(messages, lang) {
+  const note = LANGUAGE_NOTE[lang];
+  if (!note || !Array.isArray(messages) || !messages.length) return messages;
+  const last = messages.at(-1);
+  return [...messages.slice(0, -1), { ...last, content: `${last.content}${note}` }];
+}
+
 async function askModel(model, messages, { maxTokens = 4096 } = {}) {
+  messages = withLanguage(messages, model.lang);
   const signal = model.signal ? AbortSignal.any([AbortSignal.timeout(MODEL_TIMEOUT_MS), model.signal]) : AbortSignal.timeout(MODEL_TIMEOUT_MS);
   const base = { model: model.model, maxTokens, temperature: 0.2, signal };
   try {
@@ -955,7 +982,7 @@ function processChat(chatId, { rebuild = false, reason = 'auto' } = {}) {
         job.state = 'done';
         return;
       }
-      const model = { ...(await memoryModel()), signal: job.abort.signal };
+      const model = { ...(await memoryModel()), signal: job.abort.signal, lang: await chatLanguage(chatId) };
       for (const batch of batches) {
         if (job.cancel) throw Error('중단했습니다. 다시 시작하면 이어서 정리합니다.');
         const at = messages.indexOf(batch[0]);
@@ -1044,13 +1071,15 @@ function processScenes(chatId, { rebuild = false, reason = 'auto' } = {}) {
           log(`chat ${chatId}: added the translation to ${translated} saved line(s)`);
         }
         let model = null;
-        const getModel = async () => (model ||= { ...(await memoryModel()), signal: job.abort.signal });
+        const getModel = async () => (model ||= { ...(await memoryModel()), signal: job.abort.signal, lang: await chatLanguage(chatId) });
         if (S.nextSlice(store, messages, window, { minPending: rebuild ? 1 : SCENE_MIN_PENDING })) {
           job.calls += await foldScenes(chatId, store, messages, window, await getModel(), job, { minPending: rebuild ? 1 : SCENE_MIN_PENDING });
         }
         // A long story: old scenes become chapters, and facts that piled up about one person are merged.
         if (S.nextRedo(store) || S.nextChapter(store) || S.nextArc(store) || S.nextFactMerge(store)) job.calls += await condense(chatId, store, await getModel(), job);
         await indexScenes(chatId, store, job);
+        // Memory in another language: the lines it may need next are translated now, not at reply time.
+        await translateAfterRun(chatId, job).catch((error) => log(`chat ${chatId}: translation failed, will try again later (${error?.message || error})`));
       } while (job.again && !job.cancel);
       job.state = 'done';
     } catch (error) {
@@ -1078,7 +1107,7 @@ function rebuildChapters(chatId) {
       store.arcs = [];
       store.nextArc = 1;
       saveScenes(chatId, store);
-      const model = { ...(await memoryModel()), signal: job.abort.signal };
+      const model = { ...(await memoryModel()), signal: job.abort.signal, lang: await chatLanguage(chatId) };
       job.calls = await condense(chatId, store, model, job, { maxCalls: Infinity, chaptersOnly: true });
       if (job.cancel) throw Error('중단했습니다.');
       log(`chat ${chatId}: chapters rebuilt (${before} → ${(store.chapters || []).length})`);
@@ -1104,7 +1133,7 @@ function tidyChat(chatId) {
       if (!cached) throw Error('아직 장부가 없습니다. 먼저 정리를 시작해 주세요.');
       const ledger = structuredClone(cached);
       const before = ledger.threads.filter((t) => t.status === 'open').length;
-      const tidy = await tidyLedger(await memoryModel(), ledger, await chatMessages(chatId));
+      const tidy = await tidyLedger({ ...(await memoryModel()), lang: await chatLanguage(chatId) }, ledger, await chatMessages(chatId));
       saveLedger(chatId, ledger);
       job.result = { before, after: ledger.threads.filter((t) => t.status === 'open').length, ...tidy };
       job.done = 1;
@@ -1132,7 +1161,7 @@ async function startTrial(chatId, from, to) {
   const slice = messages.filter((m) => m.number >= from && m.number <= to);
   if (!slice.length) throw Error(`${from}~${to}번 사이에 읽을 메시지가 없습니다.`);
   if (slice.length > TRIAL_MAX_MESSAGES) throw Error(`구간 시험은 메시지 ${TRIAL_MAX_MESSAGES}개까지만 할 수 있습니다. 범위를 줄여 주세요.`);
-  const model = await memoryModel();
+  const model = { ...(await memoryModel()), lang: chatLangs.get(chatId) || 'ko' };
   const batches = L.planBatches(slice, REBUILD_BATCH_CHARS);
   const trial = { state: 'running', from, to, messages: slice.length, done: 0, total: batches.length, startedAt: new Date().toISOString(), result: null, error: null };
   trials.set(chatId, trial);
@@ -1292,7 +1321,135 @@ function ledgerForReply(chatId) {
   return stored?.needsRebuild ? L.verifiedBefore(stored, stored.needsRebuild.number) : stored;
 }
 
+/* ---------- translations (memory in another language) ---------- */
+
+const translationsFile = (chatId) => path.join(CHAT_DIR, `${safeChatId(chatId)}.translations.json`);
+const translationCache = new Map();
+const TRANSLATIONS_KEPT = 30_000;
+const TRANSLATE_REPLY_MS = Number(process.env.MEMORY_MODULE_TRANSLATE_MS) || 8_000;
+const TRANSLATE_MAX_PER_RUN = 400;
+
+function loadTranslations(chatId) {
+  if (!translationCache.has(chatId)) {
+    const stored = readJson(translationsFile(chatId), null, { replaceable: true });
+    translationCache.set(chatId, stored?.v === 1 && stored.items ? stored : { v: 1, items: {} });
+  }
+  return translationCache.get(chatId);
+}
+
+function saveTranslations(chatId, data) {
+  const keys = Object.keys(data.items);
+  // Oldest first out when the cache grows past its limit (memory edited many times over leaves old lines behind).
+  if (keys.length > TRANSLATIONS_KEPT) for (const k of keys.slice(0, keys.length - TRANSLATIONS_KEPT)) delete data.items[k];
+  writeJson(translationsFile(chatId), data);
+  translationCache.set(chatId, data);
+}
+
+function translationLookup(chatId, target) {
+  const items = loadTranslations(chatId).items;
+  return (text) => items[T.key(target, text)] ?? null;
+}
+
+const translating = new Map();
+
+/**
+ * Translate the texts not translated yet (at most `max`), in batches, into the cache. One run per chat and
+ * language at a time; a second request waits for it. Returns how many were translated.
+ */
+function translateMissing(chatId, target, texts, { max = TRANSLATE_MAX_PER_RUN } = {}) {
+  const runKey = `${chatId}:${target}`;
+  if (translating.has(runKey)) return translating.get(runKey);
+  const run = (async () => {
+    const lookup = translationLookup(chatId, target);
+    const todo = [...new Set(texts)].filter((t) => t && lookup(t) == null).slice(0, max);
+    if (!todo.length) return 0;
+    const model = await translateModel();
+    let done = 0;
+    for (const part of T.batches(todo)) {
+      const parsed = L.parseJsonObject(await askModel(model, T.buildTranslatePrompt(part, target), { maxTokens: 6000 }));
+      const out = T.readTranslation(parsed, part);
+      if (!out) {
+        log(`chat ${chatId}: translation reply did not line up, will try again later`);
+        continue;
+      }
+      const data = loadTranslations(chatId);
+      part.forEach((src, i) => {
+        if (out[i]) {
+          data.items[T.key(target, src)] = out[i];
+          done++;
+        }
+      });
+      saveTranslations(chatId, data);
+    }
+    if (done) log(`chat ${chatId}: translated ${done} memory line(s) into ${target}`);
+    return done;
+  })().finally(() => translating.delete(runKey));
+  translating.set(runKey, run);
+  return run;
+}
+
+/** The memory lines that may go into a reply: what goes in now, and every scene as it is shown when recalled. */
+function injectionLines(chatId, target) {
+  const lines = [];
+  const add = (text) => lines.push(...T.translateText(text, target, () => null).missing);
+  add(renderMemorySource(chatId));
+  const store = scenesForReply(chatId);
+  if (store) {
+    const cast = S.castOf(store);
+    store.scenes.forEach((scene, i) => add(S.renderExpanded(scene, i, store.personas || [], cast)));
+  }
+  return [...new Set(lines)];
+}
+
+/** Before a reply: translate what goes in now, for a few seconds at most (the rest goes on in the background). */
+async function translateBeforeReply(chatId) {
+  const target = memoryLanguage(chatId);
+  const missing = T.translateText(renderMemorySource(chatId), target, translationLookup(chatId, target)).missing;
+  if (!missing.length) return;
+  const run = translateMissing(chatId, target, missing).catch((error) => log(`chat ${chatId}: translation failed (${error?.message || error})`));
+  await Promise.race([run, new Promise((r) => setTimeout(r, TRANSLATE_REPLY_MS))]);
+}
+
+/** After a memory run: translate what the memory may need next, in the background. */
+async function translateAfterRun(chatId, job) {
+  const target = memoryLanguage(chatId);
+  const todo = injectionLines(chatId, target).filter((l) => translationLookup(chatId, target)(l) == null);
+  if (!todo.length) return 0;
+  if (job) job.stage = `기억 번역 (${Math.min(todo.length, TRANSLATE_MAX_PER_RUN)}줄)`;
+  return translateMissing(chatId, target, todo);
+}
+
+/** What the memory library shows in Korean: memory written in another language, and (when on) quoted lines. */
+function displayTranslationTexts(chatId) {
+  const quotes = settings().translateQuotes === true;
+  if (chatLangs.get(chatId) !== 'en' && !quotes) return [];
+  return T.displayTexts(loadScenes(chatId), loadLedger(chatId), { quotes }).filter((t) => T.textLanguage(t) === 'en');
+}
+
+/** Which language the memory goes in for this chat: the setting, or (auto) the language the chat is written in. */
+function memoryLanguage(chatId) {
+  const set = settings().memoryLanguage;
+  return T.LANGS.includes(set) ? set : chatLangs.get(chatId) || 'ko';
+}
+
+/**
+ * The memory text for the next reply, in the language set for it. Lines not translated yet stay as they are; the
+ * translation fills in before the reply when it can and in the background otherwise.
+ */
 function renderLedger(chatId) {
+  const source = renderMemorySource(chatId);
+  if (!source) return '';
+  const target = memoryLanguage(chatId);
+  const { text } = T.translateText(source, target, translationLookup(chatId, target));
+  if (target !== 'en') return text;
+  // The labels the notes use in English, so the reply model reads them the same way.
+  return text.replace(
+    /\]\n\n/,
+    ' Labels in English: "unaware" = does not know, "suspects only" = suspects without the details, "remembers" = what is still remembered, "then" = what they did and felt at the time, "※" lines = details that must stay exact.]\n\n',
+  );
+}
+
+function renderMemorySource(chatId) {
   if (!chatEnabled(chatId)) return '';
   // A ledger that must be read again from the start (an old message changed past what can be undone) only gives
   // what it learned before that message; with no such point known, none of it goes in until it is read again.
@@ -1564,6 +1721,37 @@ async function routes(app) {
     saveSettings({ ...settings(), recallStyle: style });
     return { style };
   }));
+  // Memory language: which language goes into replies (auto = the chat's own), which connection translates,
+  // and whether quoted English lines are shown in Korean in the library too.
+  app.post('/settings/language', guard(async (req) => {
+    const next = settings();
+    if (req.body?.memoryLanguage !== undefined) {
+      const lang = String(req.body.memoryLanguage || 'auto');
+      if (lang !== 'auto' && !T.LANGS.includes(lang)) throw Error('기억을 넣을 언어는 auto, ko, en 중 하나여야 합니다.');
+      next.memoryLanguage = lang;
+    }
+    if (req.body?.translateConnection !== undefined) next.translateConnection = String(req.body.translateConnection || '').trim() || null;
+    if (req.body?.translateQuotes !== undefined) next.translateQuotes = req.body.translateQuotes === true;
+    saveSettings(next);
+    return { memoryLanguage: next.memoryLanguage || 'auto', translateConnection: next.translateConnection || null, translateQuotes: next.translateQuotes === true };
+  }));
+  // Korean for what the library shows, when the memory is in another language. Missing ones are made in the
+  // background (the library asks again on its next check).
+  app.get('/chats/:id/translations', guard(async (req) => {
+    const chatId = safeChatId(req.params.id);
+    await chatLanguage(chatId);
+    const texts = displayTranslationTexts(chatId);
+    const lookup = translationLookup(chatId, 'ko');
+    const items = {};
+    const missing = [];
+    for (const t of texts) {
+      const done = lookup(t);
+      if (done != null) items[t] = done;
+      else missing.push(t);
+    }
+    if (missing.length && settings().connection) translateMissing(chatId, 'ko', missing).catch((error) => log(`chat ${chatId}: translation failed (${error?.message || error})`));
+    return { chatLang: chatLangs.get(chatId) || 'ko', items, missing: missing.length, working: translating.has(`${chatId}:ko`) };
+  }));
   app.post('/settings/chapter-length', guard(async (req) => {
     const length = String(req.body?.length || '').trim();
     if (!CHAPTER_LENGTHS[length]) throw Error('지난 이야기 흐름 길이는 short, normal, long, full 중 하나여야 합니다.');
@@ -1616,6 +1804,8 @@ async function routes(app) {
       version: globalThis.__marinaraMemory?.version || null,
       health: health(),
       enabled: chatEnabled(chatId),
+      chatLang: chatLangs.get(chatId) || null,
+      memoryLanguage: memoryLanguage(chatId),
       job,
       sceneJob,
       speakerTags: speakerTagsOn(chatId),
@@ -1849,6 +2039,7 @@ async function syncBeforeReply(chatId, body) {
   windows.set(chatId, S.firstInsideWindow(view, Math.max(1, window - (body?.userMessage ? 1 : 0))));
   checkScenesBeforeReply(chatId, view);
   await recallBeforeReply(chatId, view, body?.userMessage);
+  await translateBeforeReply(chatId).catch(() => {});
 }
 
 /* ---------- speaker tags ---------- */
@@ -2055,7 +2246,7 @@ function attach(app) {
   log('admin API ready at /api/memory-module');
 }
 
-module.exports = { fixSpeakers, speakerInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays } };
+module.exports = { fixSpeakers, speakerInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, loadTranslations, saveTranslations, chatLangs, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource } };
 
 
 

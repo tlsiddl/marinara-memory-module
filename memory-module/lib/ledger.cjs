@@ -1159,9 +1159,11 @@ function dateLine(line, base = null) {
   if (!raw || raw.length > 90 || /[.!?…。]["”’」』)]*$/.test(raw)) return null;
   const t = raw.replace(/^[^\p{L}\p{N}"“'‘「『]+/u, '');
   if (/["“”「」『』]/.test(t)) return null;
-  if (!/\d{4}\s*년|\d{2,4}[-./]\d{1,2}[-./]\d{1,2}/.test(t) && !WEEKDAY_WORD.test(t)) return null;
+  if (!/\d{4}\s*년|\d{2,4}[-./]\d{1,2}[-./]\d{1,2}|\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2}(?:st|nd|rd|th)?,?\s*\d{4}|\b\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?,?\s*\d{4}/i.test(t) && !WEEKDAY_WORD.test(t)) return null;
   // "14일에", "14일까지", "18일이었다": a date inside a sentence.
   if (/\d\s*일\s*(?:에|엔|까지|부터|쯤|께|이었|이야|이다|이라|이니|인데|로|은|는|의)/.test(t) || /요일\s*(?:에|엔|까지|부터|이었|이야|이다|인데|은|는|의)/.test(t)) return null;
+  // An English line with many words around the date is a sentence that mentions it, not a date line.
+  if ((t.match(/\b[a-z]{2,}\b/g) || []).filter((w) => !/^(?:am|pm|at|of|the|on|and|in|st|nd|rd|th)$/.test(w)).length > 4) return null;
   const c = parseClock(t, base);
   return c?.date ? c : null;
 }
@@ -1188,12 +1190,22 @@ function dateInText(content, base = null) {
  * "10월 18일" or "10/18" (year from `base`), "14:30", "오후 2시 30분", "2:30 PM". Returns { date, time } or null.
  * "Day 3" or "3일차" is not a calendar date: null (the story then keeps order only).
  */
+const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+
 function parseClock(text, base = null) {
   const raw = String(text || '').trim();
   if (!raw) return null;
   let date = null;
   const ko = raw.match(/(?:(\d{2}|\d{4})\s*년\s*)?(\d{1,2})\s*월\s*(\d{1,2})\s*일(?!\s*차)/);
   if (ko) date = isoDate(`${ko[1] ? `${ko[1]}-` : ''}${ko[2]}-${ko[3]}`, base);
+  if (!date) {
+    // English: "October 18, 2024", "Oct 18th", "18 October 2024", "Fri, Oct 18 2024".
+    const month = (m) => MONTHS.findIndex((x) => m.toLowerCase().startsWith(x)) + 1;
+    const mdy = raw.match(/\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?\b(?:,?\s*(\d{4}))?/i);
+    const dmy = raw.match(/\b(\d{1,2})(?:st|nd|rd|th)?\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?(?:,?\s*(\d{4}))?/i);
+    if (mdy) date = isoDate(`${mdy[3] ? `${mdy[3]}-` : ''}${month(mdy[1])}-${mdy[2]}`, base);
+    else if (dmy) date = isoDate(`${dmy[3] ? `${dmy[3]}-` : ''}${month(dmy[2])}-${dmy[1]}`, base);
+  }
   if (!date) {
     const num = raw.match(/(?<![\d:])(?:(\d{4}|\d{2})[-./]\s*)?(\d{1,2})[-./]\s*(\d{1,2})(?![\d:])/);
     if (num) date = isoDate(`${num[1] ? `${num[1]}-` : ''}${num[2]}-${num[3]}`, base);

@@ -8,7 +8,7 @@ set -e
 
 REPO="tlsiddl/marinara-memory-module"
 ACTION="${1:-install}"
-FILES="memory-module/marinara-memory-runtime.cjs memory-module/memory-cli.cjs memory-module/lib/ledger.cjs memory-module/lib/service.cjs memory-module/lib/scenes.cjs memory-module/lib/recall.cjs memory-module/lib/speakers.cjs memory-module/lib/vectors.cjs"
+FILES="memory-module/marinara-memory-runtime.cjs memory-module/memory-cli.cjs memory-module/lib/ledger.cjs memory-module/lib/service.cjs memory-module/lib/scenes.cjs memory-module/lib/recall.cjs memory-module/lib/speakers.cjs memory-module/lib/vectors.cjs memory-module/lib/translate.cjs"
 RUNTIME_IN_DOCKER="/app/memory-module/marinara-memory-runtime.cjs"
 
 say() { printf '%s\n' "$*"; }

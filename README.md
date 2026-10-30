@@ -6,7 +6,7 @@
 > **비공식 모듈입니다.** Marinara Engine 및 Pasta-Devs와 관련이 없고, 그쪽의 검토나 지원을 받지 않습니다.
 > Marinara Engine **2.5.1**에서 확인했습니다. 다른 버전에서는 일부 기능이 스스로 꺼질 수 있습니다(아래 참고).
 
-지금 버전: **v0.10.10 (베타)** · 변경 내역은 [CHANGELOG.md](CHANGELOG.md)
+지금 버전: **v0.11.0 (베타)** · 변경 내역은 [CHANGELOG.md](CHANGELOG.md)
 
 ---
 
@@ -74,8 +74,8 @@ irm https://raw.githubusercontent.com/tlsiddl/marinara-memory-module/main/instal
 **설치 확인** — 마리나라 로그에 아래 줄들이 보이면 성공입니다.
 
 ```
-[memory-module] v0.10.2 applied: {{기억}} macro ready
-[memory-module] v0.10.2 applied: reply hook and admin API ready
+[memory-module] v0.11.0 applied: {{기억}} macro ready
+[memory-module] v0.11.0 applied: reply hook and admin API ready
 ```
 
 ### 2. 기억 서재 화면 (확장)
@@ -147,6 +147,16 @@ $env:MEMORY_MODULE_ACTION='rollback'; irm https://raw.githubusercontent.com/tlsi
 - **완전히 지우기**: 위처럼 끈 뒤 마리나라 폴더의 `memory-module` 폴더와 데이터 폴더의 `memory-module` 폴더를 지웁니다.
 
 ---
+
+## 기억 언어 (한국어 / 영어)
+
+설정 → **기억 언어**에서 정합니다.
+
+- **기억을 넣을 언어** — 기본은 *채팅 언어와 같게*입니다. 한국어로 진행되는 방은 한국어로, 영어로 진행되는 방은 영어로 정리하고 그대로 넣습니다(번역 없음). *영어*를 고르면 한국어 방의 기억도 영어로 번역해서 넣습니다. 대사 인용과 이름은 늘 원문 그대로입니다.
+- **번역에 쓸 연결** — 기본은 기억 정리 연결입니다. 더 저렴한 모델을 따로 고를 수 있습니다. 번역은 줄마다 한 번만 하고 저장해 다시 씁니다.
+- **영어 대사도 한국어로 보기** — 기억 서재 화면에서 영어 대사 아래에 한국어 번역을 함께 보여 줍니다.
+
+영어로 정리된 기억은 기억 서재 화면에서 한국어 번역이 함께 보입니다. 아직 번역되지 않은 줄은 원래 언어로 들어가고, 다음 정리나 답변 직전에 채워집니다.
 
 ## 자주 묻는 질문
 

@@ -41,6 +41,9 @@
   let connections = [];
   let serverEmbedding = null;
   let serverSettings = null;
+  // Korean for memory written in another language (and for quoted lines, when that setting is on).
+  let trMap = {};
+  let trPending = 0;
   let notice = '';
   let lastError = '';
   let busy = false;
@@ -124,9 +127,33 @@
     const [i, s] = await Promise.all([api('GET', `/chats/${encodeURIComponent(id)}`), api('GET', `/chats/${encodeURIComponent(id)}/scenes`)]);
     info = i;
     store = s;
+    await loadTranslations(id);
     if (selectedScene && !store.scenes.some((x) => x.id === selectedScene)) selectedScene = '';
     if (!selectedScene && selectedGroup === null) selectedScene = store.scenes.at(-1)?.id || '';
   }
+
+  async function loadTranslations(id) {
+    if (info?.chatLang !== 'en' && serverSettings?.translateQuotes !== true) {
+      trMap = {};
+      trPending = 0;
+      return;
+    }
+    try {
+      const t = await api('GET', `/chats/${encodeURIComponent(id)}/translations`);
+      trMap = t.items || {};
+      trPending = t.missing || 0;
+    } catch {
+      trPending = 0;
+    }
+  }
+
+  /** The Korean for a memory text, when there is one and it differs. */
+  function ko(text) {
+    const t = trMap[String(text ?? '').trim()];
+    return t && t !== text ? t : null;
+  }
+  const trNote = (text) => (ko(text) ? `<p class="tr-note full"><span>한국어</span>${esc(ko(text))}</p>` : '');
+  const shown = (text) => ko(text) || text || '';
 
   async function refresh() {
     lastError = '';
@@ -180,7 +207,14 @@
         if (!busy) {
           // Idle: only the small status is asked for; the whole room is loaded while a run is on and when it ends.
           if (was) await loadRoom(room);
-          else info = await api('GET', `/chats/${encodeURIComponent(room)}`);
+          else {
+            info = await api('GET', `/chats/${encodeURIComponent(room)}`);
+            if (trPending) {
+              const before = trPending;
+              await loadTranslations(room);
+              if (trPending !== before && !editing()) render();
+            }
+          }
           if (was && !running()) notice = [info?.job?.state, info?.sceneJob?.state].includes('error') ? '정리가 멈췄습니다. 아래 오류를 확인해 주세요.' : '정리가 끝났습니다.';
           if (was || running()) (editing() ? renderStatus() : render());
         }
@@ -302,7 +336,7 @@
       d.state === 'shelved' ? `${-d.days}일 지남 · 보관 중` : d.state === 'overdue' ? `${-d.days}일 지남` : d.state === 'today' ? '오늘' : d.state === 'ahead' ? `D-${d.days}` : '작중 날짜 모름';
     return `<div class="paper">
         <div class="paper-toolbar"><h2>기한</h2>${info.storyDate ? `<span class="pill neutral">작중 오늘 ${esc(info.storyDate)}</span>` : ''}</div>
-        ${list.map((d) => `<p class="deadline ${esc(d.state)}"><span class="pill ${d.state === 'ahead' || d.state === 'unknown' ? 'neutral' : ''}">${esc(label(d))}</span> <b>${esc(d.title)}</b><br><small>${esc(d.id)} · ${esc(d.date)}${d.time ? ` ${esc(d.time)}` : ''}${d.who ? ` · ${esc(d.who)}` : ''}</small></p>`).join('')}
+        ${list.map((d) => `<p class="deadline ${esc(d.state)}"><span class="pill ${d.state === 'ahead' || d.state === 'unknown' ? 'neutral' : ''}">${esc(label(d))}</span> <b title="${esc(d.title)}">${esc(shown(d.title))}</b><br><small>${esc(d.id)} · ${esc(d.date)}${d.time ? ` ${esc(d.time)}` : ''}${d.who ? ` · ${esc(d.who)}` : ''}</small></p>`).join('')}
         <small>기한이 가까운 것부터 답변마다 들어갑니다. 기한이 지나고 50개 메시지 동안 언급이 없으면 '보관 중'이 되어, 관련 이야기가 나올 때만 들어갑니다. 날짜는 장부 탭에서 고칠 수 있습니다.</small>
       </div>`;
   }
@@ -322,7 +356,7 @@
     const chapter = chapters.find((c) => c.id === selectedGroup) || null;
     const inGroup = chapter ? store.scenes.filter((x) => chapter.scenes.includes(x.id)) : store.scenes.filter((x) => !chapterOf(x.id));
     const bar = chapters.length
-      ? `<div class="chapter-bar">${chapters.map((c) => `<button class="chapter-chip ${c.id === selectedGroup ? 'is-selected' : ''}" data-group="${esc(c.id)}"><span class="chip-id">${esc(c.id)}</span>${esc(c.title)}</button>`).join('')}<button class="chapter-chip ${selectedGroup === '' ? 'is-selected' : ''}" data-group=""><span class="chip-id">NOW</span>최근 장면</button></div>`
+      ? `<div class="chapter-bar">${chapters.map((c) => `<button class="chapter-chip ${c.id === selectedGroup ? 'is-selected' : ''}" data-group="${esc(c.id)}"><span class="chip-id">${esc(c.id)}</span>${esc(shown(c.title))}</button>`).join('')}<button class="chapter-chip ${selectedGroup === '' ? 'is-selected' : ''}" data-group=""><span class="chip-id">NOW</span>최근 장면</button></div>`
       : '';
     const shelf = inGroup
       .map((s) => {
@@ -330,7 +364,7 @@
         const outside = firstInside == null || s.start < firstInside;
         return `<button class="file-index ${s.id === selectedScene ? 'is-selected' : ''} ${outside ? '' : 'is-current'}" data-scene="${esc(s.id)}">
           <span class="file-code">${esc(s.id)}<span class="file-range">메시지 ${s.start}~${s.end}</span></span><span class="file-spine">SCENE ${String(i + 1).padStart(3, '0')}</span>
-          <h3>${esc(s.title)}</h3><span class="barcode"></span>
+          <h3 title="${esc(s.title)}">${esc(shown(s.title))}</h3><span class="barcode"></span>
           <span class="file-foot"><span>${esc((s.time || '').split(/\s+/).slice(0, 2).join(' '))}</span><span>${s.edited ? '고침' : ''}</span></span></button>`;
       })
       .join('');
@@ -383,8 +417,8 @@
     return `<div class="paper chapter-paper" id="arcEditor" data-id="${esc(a.id)}">
       <div class="paper-toolbar"><h2>${esc(a.id)} · ${esc(a.chapters[0])}~${esc(a.chapters.at(-1))}${a.time ? ` · ${esc(a.time)}` : ''}</h2>${a.edited ? '<span class="pill">직접 고침</span>' : ''}</div>
       <div class="form-grid">
-        <label class="full">큰 흐름 제목<input id="aTitle" value="${esc(a.title)}"></label>
-        <label class="full">요약<textarea id="aSummary" class="event-field" style="min-height:110px">${esc(a.summary)}</textarea></label>
+        <label class="full">큰 흐름 제목<input id="aTitle" value="${esc(a.title)}"></label>${trNote(a.title)}
+        <label class="full">요약<textarea id="aSummary" class="event-field" style="min-height:110px">${esc(a.summary)}</textarea></label>${trNote(a.summary)}
         <label class="full">그 시기를 바꾼 일 (한 줄에 하나)<textarea id="aTurns" class="event-field">${esc((a.turns || []).join('\n'))}</textarea></label>
         <label class="full">지금까지 영향을 주는 세부 사항 (한 줄에 하나)<textarea id="aKeep" class="event-field">${esc((a.keep || []).join('\n'))}</textarea></label>
       </div>
@@ -396,8 +430,8 @@
     return `<div class="paper chapter-paper" id="chapterEditor" data-id="${esc(c.id)}">
       <div class="paper-toolbar"><h2>${esc(c.id)} · ${esc(c.scenes[0])}~${esc(c.scenes.at(-1))}${c.time ? ` · ${esc(c.time)}` : ''}</h2>${c.edited ? '<span class="pill">직접 고침</span>' : ''}</div>
       <div class="form-grid">
-        <label class="full">챕터 제목<input id="cTitle" value="${esc(c.title)}"></label>
-        <label class="full">챕터 요약 (기억 칸의 '지난 이야기 흐름'에 들어갑니다)<textarea id="cSummary" class="event-field" style="min-height:120px">${esc(c.summary)}</textarea></label>
+        <label class="full">챕터 제목<input id="cTitle" value="${esc(c.title)}"></label>${trNote(c.title)}
+        <label class="full">챕터 요약 (기억 칸의 '지난 이야기 흐름'에 들어갑니다)<textarea id="cSummary" class="event-field" style="min-height:120px">${esc(c.summary)}</textarea></label>${trNote(c.summary)}
         <label class="full">전환점 (한 줄에 하나)<textarea id="cTurns" class="event-field">${esc((c.turns || []).join('\n'))}</textarea></label>
         <label class="full">꼭 기억할 세부 사항 (날짜·기한·조건 등, 한 줄에 하나)<textarea id="cKeep" class="event-field">${esc((c.keep || []).join('\n'))}</textarea></label>
       </div>
@@ -410,15 +444,15 @@
     const events = s.events
       .map((e, i) => `<article data-event="${i}">
         <div class="form-grid">
-          <label class="full">사건 (누가 누구에게 무엇을 어떻게)<textarea class="event-field" data-f="text">${esc(e.text)}</textarea></label>
+          <label class="full">사건 (누가 누구에게 무엇을 어떻게)<textarea class="event-field" data-f="text">${esc(e.text)}</textarea></label>${trNote(e.text)}
           <label>작중 시각<input data-f="time" value="${esc(e.time || '')}" placeholder="예: 02:22"></label>
           <label>중요도<select data-f="importance">${Object.entries(IMPORTANCE).map(([k, v]) => `<option value="${k}" ${(e.importance || 'major') === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
-          <label class="full">계기 (원문에 있을 때만)<input data-f="why" value="${esc(e.why || '')}"></label>
+          <label class="full">계기 (원문에 있을 때만)<input data-f="why" value="${esc(e.why || '')}"></label>${trNote(e.why)}
         </div>
-        ${e.quotes.map((q) => { const l = quoteLine(q); return `<div class="quote-card"><small>${esc(l.who)} · #${q.number}.${q.sentence}</small><blockquote>${esc(l.text)}</blockquote></div>`; }).join('')}
+        ${e.quotes.map((q) => { const l = quoteLine(q); return `<div class="quote-card"><small>${esc(l.who)} · #${q.number}.${q.sentence}</small><blockquote>${esc(l.text)}</blockquote>${trNote(q.text)}</div>`; }).join('')}
       </article>`)
       .join('');
-    const loose = (s.loose || []).map((q) => { const l = quoteLine(q); return `<div class="quote-card loose"><small>${esc(l.who)} · #${q.number}.${q.sentence} · 연결 미확정</small><blockquote>${esc(l.text)}</blockquote></div>`; }).join('');
+    const loose = (s.loose || []).map((q) => { const l = quoteLine(q); return `<div class="quote-card loose"><small>${esc(l.who)} · #${q.number}.${q.sentence} · 연결 미확정</small><blockquote>${esc(l.text)}</blockquote>${trNote(q.text)}</div>`; }).join('');
     const recs = s.recollections
       .map((r, i) => {
         const persona = personas.includes(r.who);
@@ -427,7 +461,7 @@
             <label>인물<input data-f="who" value="${esc(r.who)}"></label>
             <label>기억 정도<select data-f="remembers">${Object.entries(REMEMBERS).map(([k, v]) => `<option value="${k}" ${r.remembers === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
             <label class="full">이유 (잠, 열, 술 등)<input data-f="why" value="${esc(r.why || '')}"></label>
-            ${persona ? '<p class="full hint">사용자 캐릭터는 속마음을 적지 않습니다. 한 말과 행동은 사건에 기록되어 있습니다.</p>' : `<label class="full">그때 (그 인물이 실제로 한 말·행동·느낌)<textarea class="event-field" data-f="text">${esc(r.text || '')}</textarea></label>`}
+            ${persona ? '<p class="full hint">사용자 캐릭터는 속마음을 적지 않습니다. 한 말과 행동은 사건에 기록되어 있습니다.</p>' : `<label class="full">그때 (그 인물이 실제로 한 말·행동·느낌)<textarea class="event-field" data-f="text">${esc(r.text || '')}</textarea></label>${trNote(r.text)}`}
             <label class="full">남은 기억 (흐릿하게만 기억할 때)<input data-f="kept" value="${esc(r.kept || '')}"></label>
           </div></article>`;
       })
@@ -435,15 +469,15 @@
     return `<div class="paper" id="sceneEditor" data-id="${esc(s.id)}">
       <div class="paper-toolbar"><h2>${esc(s.id)} · 메시지 ${s.start}~${s.end}번</h2>${s.edited ? '<span class="pill">직접 고침</span>' : ''}</div>
       <div class="form-grid">
-        <label class="full">제목<input id="sTitle" value="${esc(s.title)}"></label>
+        <label class="full">제목<input id="sTitle" value="${esc(s.title)}"></label>${trNote(s.title)}
         <label>작중 시간<input id="sTime" value="${esc(s.time || '')}"></label>
         <label>장소<input id="sPlace" value="${esc(s.place || '')}"></label>
         <label>날씨<input id="sWeather" value="${esc(s.weather || '')}" placeholder="예: 비, 첫눈 / 모르면 비워 두세요"></label>
-        <label class="full">요약<textarea id="sSummary" style="min-height:110px">${esc(s.summary)}</textarea></label>
+        <label class="full">요약<textarea id="sSummary" style="min-height:110px">${esc(s.summary)}</textarea></label>${trNote(s.summary)}
         ${group() ? `<label class="full">그 자리에 있던 사람 (쉼표로 구분 · 없던 인물은 이 장면 일을 모르는 것으로 기억합니다)<input id="sPresent" value="${esc((s.present || []).join(', '))}" placeholder="예: 서아, 도윤"></label>
         ${(s.heardLater || []).length ? `<p class="full hint">나중에 들은 사람: ${s.heardLater.map((h) => `${esc(h.who)}${h.from ? `(${esc(h.from)}에게)` : ''}`).join(', ')}</p>` : ''}` : ''}
       </div>
-      ${(s.later || []).length ? `<h3>나중에 밝혀진 것</h3>${s.later.map((x) => `<p>${x.when ? `<small>${esc(x.when)}</small><br>` : ''}${esc(x.what)}${x.by ? ` <small>(${esc(x.by)})</small>` : ''}</p>`).join('')}` : ''}
+      ${(s.later || []).length ? `<h3>나중에 밝혀진 것</h3>${s.later.map((x) => `<p>${x.when ? `<small>${esc(x.when)}</small><br>` : ''}${esc(shown(x.what))}${x.by ? ` <small>(${esc(x.by)})</small>` : ''}</p>`).join('')}` : ''}
       ${(() => {
         const facts = store.facts.filter((f) => f.sceneId === s.id);
         const threads = threadsIn(s);
@@ -496,7 +530,7 @@
           const replaced = f.replacedBy && ids.has(f.replacedBy);
           return `<div class="fact-row" data-fact="${esc(f.id)}"><label>${esc(f.id)}${f.unaware?.length ? ` · 모름: ${esc(f.unaware.join('·'))}` : ''}${f.guess?.length ? ` · 짐작만: ${esc(f.guess.join('·'))}` : ''}${f.edited || f.knowSet?.length ? ' · 직접 고침' : ''}${replaced ? ` · ${esc(f.replacedBy)}로 바뀜(기억 칸에서 제외)` : ''}</label>
             ${f.sceneId ? `<p class="record-links">${sceneLink(store.scenes.find((x) => x.id === f.sceneId), '에서 알게 됨')}</p>` : ''}
-            <textarea class="event-field">${esc(f.text)}</textarea>
+            <textarea class="event-field">${esc(f.text)}</textarea>${trNote(f.text)}
             ${group() ? `<div class="form-grid"><label>아직 모르는 인물 (쉼표로 구분)<input data-f="unaware" value="${esc((f.unaware || []).join(', '))}" placeholder="모두 알면 비워 두세요"></label><label>짐작만 하는 인물<input data-f="guess" value="${esc((f.guess || []).join(', '))}" placeholder="없으면 비워 두세요"></label></div>` : ''}
             <div class="buttons"><button data-act="saveFact" data-id="${esc(f.id)}">저장</button><button class="ghost" data-act="deleteFact" data-id="${esc(f.id)}">${armed === `fact:${f.id}` ? '한 번 더 누르면 삭제됩니다' : '삭제'}</button></div></div>`;
         })
@@ -507,11 +541,11 @@
     const who = [t.who, t.toward].filter(Boolean).join(' → ');
     const when = t.due ? `약속한 때 ${[t.due.date, t.due.time].filter(Boolean).join(' ')}` : t.period ? `기간 ${day(t.period.from)}~${day(t.period.to)}` : '';
     const closed = t.status !== 'open';
-    return `<details class="event-row" data-tid="${esc(t.id)}"><summary><span class="event-no">${esc(t.id)}</span><span class="event-main"><b>${esc(t.title)}</b><small>${esc(who)}${when ? ` · ${esc(when)}` : ''}${t.unaware?.length ? ` · 모름: ${esc(t.unaware.join('·'))}` : ''}${t.guess?.length ? ` · 짐작만: ${esc(t.guess.join('·'))}` : ''}${closed ? ` · 닫힘: ${esc(t.closed?.how || '')}` : ''}</small></span><span class="pill ${closed ? 'neutral' : ''}">${KIND[t.kind] || t.kind}</span></summary>
+    return `<details class="event-row" data-tid="${esc(t.id)}"><summary><span class="event-no">${esc(t.id)}</span><span class="event-main"><b title="${esc(t.title)}">${esc(shown(t.title))}</b><small>${esc(who)}${when ? ` · ${esc(when)}` : ''}${t.unaware?.length ? ` · 모름: ${esc(t.unaware.join('·'))}` : ''}${t.guess?.length ? ` · 짐작만: ${esc(t.guess.join('·'))}` : ''}${closed ? ` · 닫힘: ${esc(t.closed?.how || '')}` : ''}</small></span><span class="pill ${closed ? 'neutral' : ''}">${KIND[t.kind] || t.kind}</span></summary>
       <div class="event-body">
         <div class="form-grid" data-thread="${esc(t.id)}">
-          <label class="full">제목<input data-f="title" value="${esc(t.title)}"></label>
-          <label class="full">설명<textarea class="event-field" data-f="detail">${esc(t.detail || '')}</textarea></label>
+          <label class="full">제목<input data-f="title" value="${esc(t.title)}"></label>${trNote(t.title)}
+          <label class="full">설명<textarea class="event-field" data-f="detail">${esc(t.detail || '')}</textarea></label>${trNote(t.detail)}
           ${t.kind === 'emotion' ? `<label class="full">풀리려면<input data-f="need" value="${esc(t.need || '')}"></label>` : ''}
           ${['promise', 'pending'].includes(t.kind) ? `<label>기한 날짜 (작중)<input data-f="dueDate" value="${esc(t.due?.date || '')}" placeholder="예: 24-10-20 / 비우면 기한 없음"></label><label>기한 시각<input data-f="dueTime" value="${esc(t.due?.time || '')}" placeholder="예: 17:00"></label>` : ''}
           ${group() ? `<label>아직 모르는 인물 (쉼표로 구분)<input data-f="unaware" value="${esc((t.unaware || []).join(', '))}" placeholder="모두 알면 비워 두세요"></label><label>짐작만 하는 인물<input data-f="guess" value="${esc((t.guess || []).join(', '))}" placeholder="없으면 비워 두세요"></label>` : ''}
@@ -671,6 +705,19 @@
           <option value="active" ${serverSettings?.recallStyle === 'active' ? 'selected' : ''}>적극적으로 — 지난 약속·했던 말을 자주 끌어옴</option></select></label>
         <p class="hint">어느 쪽이든 지난 일을 줄줄이 설명하지는 않게 합니다.</p>
         <div class="buttons"><button class="primary" data-act="saveSettings">저장</button></div>
+      </div>
+      <div class="paper"><h2>기억 언어</h2>
+        <p class="hint">${info?.chatLang ? `이 방은 <b>${info.chatLang === 'en' ? '영어' : '한국어'}</b>로 진행되는 것으로 보입니다(최근 메시지 기준, 자동). 기억은 채팅 언어로 정리하고, 필요한 만큼만 번역합니다.` : '기억은 채팅 언어로 정리하고, 필요한 만큼만 번역합니다.'}</p>
+        <label>기억을 넣을 언어<select id="setMemLang">
+          <option value="auto" ${!serverSettings?.memoryLanguage || serverSettings?.memoryLanguage === 'auto' ? 'selected' : ''}>채팅 언어와 같게 (기본 · 번역 없음)</option>
+          <option value="ko" ${serverSettings?.memoryLanguage === 'ko' ? 'selected' : ''}>한국어</option>
+          <option value="en" ${serverSettings?.memoryLanguage === 'en' ? 'selected' : ''}>영어 (한국어 채팅이면 영어로 번역해서 넣음)</option></select></label>
+        <label>번역에 쓸 연결<select id="setTrConn">
+          <option value="" ${!serverSettings?.translateConnection ? 'selected' : ''}>기억 정리 연결 그대로</option>
+          ${connections.map((c) => `<option value="${esc(c.id)}" ${c.id === serverSettings?.translateConnection ? 'selected' : ''}>${esc(c.name)}${c.model ? ` · ${esc(c.model)}` : ''}</option>`).join('')}</select></label>
+        <label class="setting-switch"><span>영어 대사도 한국어로 보기<small>이 화면에서 영어로 된 대사 아래에 한국어 번역을 함께 보여 줍니다. 번역 호출이 조금 더 듭니다. 기억 칸에 들어가는 대사는 늘 원문 그대로입니다.</small></span><input type="checkbox" id="setTrQuotes" ${serverSettings?.translateQuotes ? 'checked' : ''}></label>
+        <p class="hint">기억을 다른 언어로 넣으면, 정리할 때마다 새 기억을 번역 연결로 옮겨 둡니다(짧은 글이라 정리보다 훨씬 쌉니다). 아직 번역되지 않은 줄은 원래 언어로 들어갑니다. 영어로 정리된 기억은 이 화면에서 한국어 번역이 함께 보입니다.</p>
+        <div class="buttons"><button class="primary" data-act="saveLanguage">저장</button></div>
       </div>
       <div class="paper"><h2>뜻으로 찾기 (임베딩)</h2>
         <p class="hint">말을 바꿔 물어도 비슷한 내용의 지난 장면을 찾습니다. 한국어라면 Qwen3-Embedding이나 bge-m3 같은 다국어 임베딩 모델을 추천합니다.</p>
@@ -858,6 +905,15 @@
           if (mode !== 'off' && info?.enabled) await api('POST', `/chats/${chat}/start`, {}).catch(() => {});
           notice = mode === 'off' ? '뜻으로 찾기를 껐습니다.' : `임베딩을 연결했습니다: ${r.model} (${r.dimensions}차원). 새로 만들 색인이 있으면 이어서 만듭니다.`;
         });
+      }
+      case 'saveLanguage': {
+        const memoryLanguage = root.querySelector('#setMemLang')?.value || 'auto';
+        const translateConnection = root.querySelector('#setTrConn')?.value || '';
+        const translateQuotes = Boolean(root.querySelector('#setTrQuotes')?.checked);
+        return act(async () => {
+          await api('POST', '/settings/language', { memoryLanguage, translateConnection, translateQuotes });
+          serverSettings = (await api('GET', '/status')).settings;
+        }, '기억 언어를 저장했습니다.');
       }
       case 'saveSettings': {
         // Read every choice before act() redraws the page (a redraw puts the saved values back in the form).
