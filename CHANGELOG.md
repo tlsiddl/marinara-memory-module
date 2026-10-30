@@ -1,5 +1,14 @@
 # 변경 내역
 
+## v0.11.8-marinara.2.4.6.13
+- 일반판 v0.11.8과 같습니다: 런처를 body 바로 아래 버튼(data-drawer-launcher)으로 옮겨 확장 서랍과 호환되게 했고, click으로 열고 닫으며 Esc로도 닫힙니다.
+
+## v0.11.8
+- 확장 서랍 호환: 기억 서재를 여는 버튼(런처)을 섀도 루트 밖, `body` 바로 아래의 버튼 `<button id="memory-module-launcher" data-drawer-launcher>`로 옮겼습니다. 서랍 확장이 런처를 더 쉽게 찾아 담고, 서랍에서 눌러 열 수 있습니다.
+- 런처는 click으로 열고 닫습니다(열린 상태에서 다시 누르면 닫힘). Esc 키로도 닫히고, 닫히면 포커스가 런처로 돌아갑니다.
+- 다른 확장이나 스크립트에서 쓸 수 있도록 `window.memoryModuleLibrary`(open / close / toggle / isOpen / launcher)와 준비 완료 이벤트 `memory-module:ready`를 추가했습니다.
+- 끌어서 옮기기, 두 번 눌러 제자리, 밝은/어두운 테마, 모양은 그대로입니다.
+
 ## v0.11.7-marinara.2.4.6.12
 - 일반판 v0.11.7과 같습니다: DeepSeek 공식 주소로 가는 기억 정리 요청은 생각 모드를 끄고 보냅니다(2.4.6에서 OpenAI·사용자 지정 연결로 DeepSeek 주소를 쓰는 경우도 포함).
 

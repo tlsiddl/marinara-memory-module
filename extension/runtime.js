@@ -780,6 +780,8 @@
 
   function render() {
     if (!root) return;
+    launcher?.setAttribute('data-theme', theme);
+    launcher?.setAttribute('aria-expanded', String(open));
     root.querySelector('#backdrop').hidden = !open;
     root.host.setAttribute('data-font', font);
     root.querySelector('#panel').classList.toggle('is-running', Boolean(busy || (info && running())));
@@ -805,6 +807,7 @@
     const n = root.querySelector('#themeToggle');
     n.innerHTML = icon(theme === 'dark' ? 'sun' : 'moon');
     root.host.setAttribute('data-theme', theme);
+    launcher?.setAttribute('data-theme', theme);
     if (tab === 'scenes') {
       const sel = root.querySelector('.file-index.is-selected');
       sel?.scrollIntoView?.({ block: 'nearest', inline: 'center' });
@@ -991,6 +994,23 @@
 
   // A paper ticket with stamp edges: the launcher icon. No ids inside, so drawer extensions can copy it as is.
   const LAUNCH_ICON = `<svg class="launch-icon" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M4 11L4.75 11A2.05 2.05 0 0 0 8.85 11L10.35 11A2.05 2.05 0 0 0 14.45 11L15.95 11A2.05 2.05 0 0 0 20.05 11L21.55 11A2.05 2.05 0 0 0 25.65 11L27.15 11A2.05 2.05 0 0 0 31.25 11L32.75 11A2.05 2.05 0 0 0 36.85 11L38.35 11A2.05 2.05 0 0 0 42.45 11L43.95 11A2.05 2.05 0 0 0 48.05 11L49.55 11A2.05 2.05 0 0 0 53.65 11L55.15 11A2.05 2.05 0 0 0 59.25 11L60 11L60 11.57A2.05 2.05 0 0 0 60 15.68L60 16.82A2.05 2.05 0 0 0 60 20.93L60 22.07A2.05 2.05 0 0 0 60 26.18L60 27.32A2.05 2.05 0 0 0 60 31.43L60 32.58A2.05 2.05 0 0 0 60 36.67L60 37.83A2.05 2.05 0 0 0 60 41.92L60 43.08A2.05 2.05 0 0 0 60 47.17L60 48.33A2.05 2.05 0 0 0 60 52.42L60 53L59.25 53A2.05 2.05 0 0 0 55.15 53L53.65 53A2.05 2.05 0 0 0 49.55 53L48.05 53A2.05 2.05 0 0 0 43.95 53L42.45 53A2.05 2.05 0 0 0 38.35 53L36.85 53A2.05 2.05 0 0 0 32.75 53L31.25 53A2.05 2.05 0 0 0 27.15 53L25.65 53A2.05 2.05 0 0 0 21.55 53L20.05 53A2.05 2.05 0 0 0 15.95 53L14.45 53A2.05 2.05 0 0 0 10.35 53L8.85 53A2.05 2.05 0 0 0 4.75 53L4 53L4 52.42A2.05 2.05 0 0 0 4 48.33L4 47.17A2.05 2.05 0 0 0 4 43.08L4 41.92A2.05 2.05 0 0 0 4 37.83L4 36.67A2.05 2.05 0 0 0 4 32.58L4 31.43A2.05 2.05 0 0 0 4 27.32L4 26.18A2.05 2.05 0 0 0 4 22.07L4 20.93A2.05 2.05 0 0 0 4 16.82L4 15.68A2.05 2.05 0 0 0 4 11.57Z" fill="#f1eee7" stroke="#0000002e" stroke-width=".5"/><rect x="9" y="15.5" width="46" height="33" fill="none" stroke="#141414" stroke-width=".9"/><line x1="43.5" y1="16.5" x2="43.5" y2="47.5" stroke="#141414" stroke-width=".9" stroke-dasharray="1.6 1.6"/><text x="26.2" y="30.3" font-family="Georgia,'Times New Roman',serif" font-weight="700" font-size="6" text-anchor="middle" fill="#141414" letter-spacing=".25">MEMORY</text><text x="26.2" y="38.6" font-family="ui-monospace,Menlo,monospace" font-size="3.4" text-anchor="middle" fill="#141414" letter-spacing=".2">ADMIT ONE</text><path d="M49.3 27.7C49.815999999999995 31.484 49.815999999999995 31.484 53.599999999999994 32C49.815999999999995 32.516 49.815999999999995 32.516 49.3 36.3C48.784 32.516 48.784 32.516 45 32C48.784 31.484 48.784 31.484 49.3 27.7Z" fill="#141414"/></svg>`;
+  /*
+   * The launcher's look. It sits in the page itself (not in the shadow root), so it carries its own small style
+   * sheet, keyed to its id. Nothing here is !important: a drawer extension can restyle, hide or move it.
+   */
+  const LAUNCHER_CSS = `
+#memory-module-launcher{position:fixed;right:18px;bottom:122px;z-index:2147483647;width:64px;height:64px;padding:0;margin:0;border:0;border-radius:0;
+  background:transparent;box-shadow:none;color:inherit;line-height:0;display:grid;place-items:center;cursor:grab;touch-action:none;
+  user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent;
+  filter:drop-shadow(0 3px 6px #00000038);transition:transform .15s,filter .15s}
+#memory-module-launcher:hover{background:transparent;transform:translateY(-2px) rotate(-3deg);filter:drop-shadow(0 6px 9px #00000050)}
+#memory-module-launcher:active{background:transparent;transform:scale(.95)}
+#memory-module-launcher.dragging{cursor:grabbing;transform:rotate(-5deg) scale(1.06);filter:drop-shadow(0 10px 14px #00000060);transition:none}
+#memory-module-launcher:focus-visible{outline:3px solid #aaa7e5;outline-offset:3px}
+#memory-module-launcher[data-theme=dark]{filter:drop-shadow(0 3px 7px #000000a0)}
+#memory-module-launcher .launch-icon{width:100%;height:100%;display:block;pointer-events:none}
+@media(max-width:720px){#memory-module-launcher{width:58px;height:58px}}
+`;
   const LAUNCH_POS_KEY = 'memory-module-launch-pos';
 
   /** The launcher can be dragged anywhere; its spot is kept as a share of the screen so it survives resizing. */
@@ -1066,12 +1086,60 @@
     });
   }
 
+  let launcher = null;
+  let onPageKey = null;
+
+  /** The launcher: a plain button right under <body> (outside the shadow root), marked for drawer extensions. */
+  function makeLauncher() {
+    document.getElementById('memory-module-launcher')?.remove();
+    if (!document.getElementById('memory-module-launcher-style')) {
+      const style = document.createElement('style');
+      style.id = 'memory-module-launcher-style';
+      style.textContent = LAUNCHER_CSS;
+      (document.head || document.documentElement).append(style);
+    }
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.id = 'memory-module-launcher';
+    button.setAttribute('data-drawer-launcher', '');
+    button.setAttribute('aria-label', '기억 서재 열기');
+    button.setAttribute('aria-haspopup', 'dialog');
+    button.setAttribute('aria-expanded', 'false');
+    button.title = '기억 서재 (끌어서 옮길 수 있습니다 · 두 번 누르면 제자리)';
+    button.innerHTML = LAUNCH_ICON;
+    (document.body || document.documentElement).append(button);
+    return button;
+  }
+
+  function openLibrary() {
+    if (open || disposed) return;
+    open = true;
+    const current = activeChatId();
+    if (current && current !== room) {
+      room = current;
+      searchDraft = searchQuery = '';
+      recallTest = null;
+    }
+    void act(refresh);
+    if (tab === 'settings') void openSettings();
+    render();
+    launcher?.setAttribute('aria-expanded', 'true');
+  }
+
+  function closeLibrary() {
+    if (!open) return;
+    open = false;
+    render();
+    launcher?.setAttribute('aria-expanded', 'false');
+    // Back to the button that opened it, unless it sits hidden in a drawer.
+    if (launcher && launcher.offsetParent !== null && root?.activeElement) launcher.focus({ preventScroll: true });
+  }
+
   function install() {
     const element = document.createElement('div');
     element.id = 'memory-module-library';
     root = element.attachShadow({ mode: 'open' });
     root.innerHTML = `<style>${UI_CSS}${EXTRA_CSS}${THEME_CSS}</style>
-      <button id="launch" aria-label="기억 서재 열기" title="기억 서재 (끌어서 옮길 수 있습니다)">${LAUNCH_ICON}</button>
       <div id="backdrop" hidden></div>
       <section id="panel" role="dialog" aria-label="기억 서재" aria-modal="true" hidden>
         <aside class="sidebar"><div class="brand"><span class="logo" aria-hidden="true"><i class="disc"></i><i class="sleeve"></i></span><div>기억 서재<small>MEMORY MODULE</small></div></div>
@@ -1092,6 +1160,7 @@
     element.setAttribute('style', 'position:fixed!important;inset:0!important;z-index:2147483647!important;pointer-events:none!important;display:block!important;');
     (document.body || document.documentElement).append(element);
     root.host.setAttribute('data-theme', theme);
+    launcher?.setAttribute('data-theme', theme);
 
     // Shadow DOM retargets input events to our DIV at the page boundary. Keep
     // host shortcuts from treating typing (notably '?') as a page command.
@@ -1107,29 +1176,27 @@
       searchQuery = searchDraft.trim();
       render();
     });
-    makeDraggable(root.querySelector('#launch'));
-    root.querySelector('#launch').onclick = () => {
-      open = !open;
-      if (open) {
-        const current = activeChatId();
-        if (current && current !== room) {
-          room = current;
-          searchDraft = searchQuery = '';
-          recallTest = null;
-        }
-        void act(refresh);
-        if (tab === 'settings') void openSettings();
+    // The launcher lives outside the shadow root, as a plain button right under <body>, so drawer extensions and
+    // page scripts can find it, move it and click it (click opens and closes; Esc closes).
+    launcher = makeLauncher();
+    makeDraggable(launcher);
+    launcher.addEventListener('click', () => (open ? closeLibrary() : openLibrary()));
+    // Esc closes the library, also when the focus is inside it (keys there are kept from the page).
+    root.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && open && !e.isComposing) {
+        e.preventDefault();
+        closeLibrary();
       }
-      render();
+    });
+    onPageKey = (e) => {
+      if (e.key === 'Escape' && open && !e.isComposing && !e.defaultPrevented) closeLibrary();
     };
-    root.querySelector('#close').onclick = () => {
-      open = false;
-      render();
-    };
-    root.querySelector('#backdrop').onclick = () => {
-      open = false;
-      render();
-    };
+    document.addEventListener('keydown', onPageKey);
+    // For drawer extensions and other scripts: open, close and toggle without hunting for the button.
+    window.memoryModuleLibrary = { open: openLibrary, close: closeLibrary, toggle: () => (open ? closeLibrary() : openLibrary()), isOpen: () => open, launcher };
+    window.dispatchEvent(new CustomEvent('memory-module:ready', { detail: { launcher } }));
+    root.querySelector('#close').onclick = () => closeLibrary();
+    root.querySelector('#backdrop').onclick = () => closeLibrary();
     root.querySelector('#themeToggle').onclick = () => {
       theme = theme === 'dark' ? 'light' : 'dark';
       try {
@@ -1256,6 +1323,10 @@
     disposed = true;
     clearTimeout(pollTimer);
     root?.host?.remove();
+    launcher?.remove();
+    document.getElementById('memory-module-launcher-style')?.remove();
+    if (onPageKey) document.removeEventListener('keydown', onPageKey);
+    if (window.memoryModuleLibrary?.launcher === launcher) delete window.memoryModuleLibrary;
   }
 
   install();
