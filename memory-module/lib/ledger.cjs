@@ -1282,7 +1282,9 @@ function ago(at, now) {
 /** How much of a dish was eaten ("한 입", "몇 점", "반 접시", "마저" …): not part of what the dish is. */
 // Whole words only ("반" but not "반찬", "더" but not "더덕").
 const PORTION = /(?<=^|\s)(?:(?:한|두|세|네|몇|여러)\s*(?:입|점|조각|숟갈|숟가락|술|젓가락|포크)(?:\s*(?:더|째))?|반\s*(?:접시|그릇|공기|쪽)?|절반|조금|약간|일부|남은|나머지|마저|더|다\s*먹음|(?:\d+|한|두|세)\s*(?:입|점|조각))(?=\s|$)/g;
-const dishOf = (text) => String(text || '').replace(PORTION, ' ').replace(/\s+/g, ' ').trim();
+// The same in English: "a bite of steak", "a few pieces of steak", "the rest of the steak", "more steak".
+const PORTION_EN = /\b(?:(?:a|one|two|three|a few|few|several|some|\d+)\s+(?:bites?|pieces?|forkfuls?|spoonfuls?|slices?|mouthfuls?)\s+of|(?:half|the rest|rest|most|some|more)\s+of|finished|more|half)\b\s*(?:(?:the|a|an|her|his|their)\b\s*)?/gi;
+const dishOf = (text) => String(text || '').replace(PORTION, ' ').replace(PORTION_EN, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
 
 /**
  * What a sitting was, from the entries filed turn by turn ("스테이크 한 입", "스테이크 몇 점", "스테이크"):
@@ -1302,7 +1304,8 @@ function sittingText(entries) {
     }
   }
   // Eaten over several turns: the plain name of the dish ("스테이크"), not the first bite ("스테이크 한 입").
-  return dishes.map((d) => (d.texts.length > 1 ? d.dish : d.texts[0])).join(', ');
+  const plain = (t) => t.replace(PORTION, ' ').replace(PORTION_EN, ' ').replace(/\s+/g, ' ').trim();
+  return dishes.map((d) => (d.texts.length > 1 ? plain(d.texts.findLast((t) => dishOf(t) === d.dish) || d.texts.at(-1)) || d.dish : d.texts[0])).join(', ');
 }
 
 /** Meals less than two hours after the start of the previous one are the same sitting (one 끼니). */

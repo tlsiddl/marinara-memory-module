@@ -699,10 +699,22 @@ function translateModel() {
   return memoryModel(settings().translateConnection || settings().connection);
 }
 
-/** A chat written in English gets its memory written in English too (quotes and names stay as written). */
+/**
+ * Memory written in English: a chat written in English, or any chat when the memory is set to be written in
+ * English. Quotes and names stay as written.
+ */
 const LANGUAGE_NOTE = {
-  en: '\n\n[기록 언어] 이 채팅은 영어로 진행돼. 네가 새로 쓰는 모든 글(제목·요약·사건·사실·이유·메모)은 영어로 써. 인용(q)과 이름은 원문 그대로 둬.',
+  en: '\n\n[기록 언어] 네가 새로 쓰는 모든 글(제목·요약·사건·사실·이유·메모·생활 기록)은 영어로 써. 채팅이 한국어여도 마찬가지야. 인용(q)은 원문에서 그대로 복사하고(번역하지 마), 이름도 쓰인 그대로 둬.',
 };
+
+/** The language this chat's memory is written in: the chat's own, or English when set so for every chat. */
+function writeLanguage(chatId) {
+  return settings().writeLanguage === 'en' ? 'en' : chatLangs.get(chatId) || 'ko';
+}
+async function writeLanguageOf(chatId) {
+  await chatLanguage(chatId);
+  return writeLanguage(chatId);
+}
 
 function withLanguage(messages, lang) {
   const note = LANGUAGE_NOTE[lang];
@@ -982,7 +994,7 @@ function processChat(chatId, { rebuild = false, reason = 'auto' } = {}) {
         job.state = 'done';
         return;
       }
-      const model = { ...(await memoryModel()), signal: job.abort.signal, lang: await chatLanguage(chatId) };
+      const model = { ...(await memoryModel()), signal: job.abort.signal, lang: await writeLanguageOf(chatId) };
       for (const batch of batches) {
         if (job.cancel) throw Error('중단했습니다. 다시 시작하면 이어서 정리합니다.');
         const at = messages.indexOf(batch[0]);
@@ -1071,7 +1083,7 @@ function processScenes(chatId, { rebuild = false, reason = 'auto' } = {}) {
           log(`chat ${chatId}: added the translation to ${translated} saved line(s)`);
         }
         let model = null;
-        const getModel = async () => (model ||= { ...(await memoryModel()), signal: job.abort.signal, lang: await chatLanguage(chatId) });
+        const getModel = async () => (model ||= { ...(await memoryModel()), signal: job.abort.signal, lang: await writeLanguageOf(chatId) });
         if (S.nextSlice(store, messages, window, { minPending: rebuild ? 1 : SCENE_MIN_PENDING })) {
           job.calls += await foldScenes(chatId, store, messages, window, await getModel(), job, { minPending: rebuild ? 1 : SCENE_MIN_PENDING });
         }
@@ -1107,7 +1119,7 @@ function rebuildChapters(chatId) {
       store.arcs = [];
       store.nextArc = 1;
       saveScenes(chatId, store);
-      const model = { ...(await memoryModel()), signal: job.abort.signal, lang: await chatLanguage(chatId) };
+      const model = { ...(await memoryModel()), signal: job.abort.signal, lang: await writeLanguageOf(chatId) };
       job.calls = await condense(chatId, store, model, job, { maxCalls: Infinity, chaptersOnly: true });
       if (job.cancel) throw Error('중단했습니다.');
       log(`chat ${chatId}: chapters rebuilt (${before} → ${(store.chapters || []).length})`);
@@ -1133,7 +1145,7 @@ function tidyChat(chatId) {
       if (!cached) throw Error('아직 장부가 없습니다. 먼저 정리를 시작해 주세요.');
       const ledger = structuredClone(cached);
       const before = ledger.threads.filter((t) => t.status === 'open').length;
-      const tidy = await tidyLedger({ ...(await memoryModel()), lang: await chatLanguage(chatId) }, ledger, await chatMessages(chatId));
+      const tidy = await tidyLedger({ ...(await memoryModel()), lang: await writeLanguageOf(chatId) }, ledger, await chatMessages(chatId));
       saveLedger(chatId, ledger);
       job.result = { before, after: ledger.threads.filter((t) => t.status === 'open').length, ...tidy };
       job.done = 1;
@@ -1161,7 +1173,7 @@ async function startTrial(chatId, from, to) {
   const slice = messages.filter((m) => m.number >= from && m.number <= to);
   if (!slice.length) throw Error(`${from}~${to}번 사이에 읽을 메시지가 없습니다.`);
   if (slice.length > TRIAL_MAX_MESSAGES) throw Error(`구간 시험은 메시지 ${TRIAL_MAX_MESSAGES}개까지만 할 수 있습니다. 범위를 줄여 주세요.`);
-  const model = { ...(await memoryModel()), lang: chatLangs.get(chatId) || 'ko' };
+  const model = { ...(await memoryModel()), lang: writeLanguage(chatId) };
   const batches = L.planBatches(slice, REBUILD_BATCH_CHARS);
   const trial = { state: 'running', from, to, messages: slice.length, done: 0, total: batches.length, startedAt: new Date().toISOString(), result: null, error: null };
   trials.set(chatId, trial);
@@ -1517,14 +1529,14 @@ function maybePrepareTranslation(chatId) {
 /** What the memory library shows in Korean: memory written in another language, and (when on) quoted lines. */
 function displayTranslationTexts(chatId) {
   const quotes = settings().translateQuotes === true;
-  if (chatLangs.get(chatId) !== 'en' && !quotes) return [];
+  if (writeLanguage(chatId) !== 'en' && !quotes) return [];
   return T.displayTexts(loadScenes(chatId), loadLedger(chatId), { quotes }).filter((t) => T.textLanguage(t) === 'en');
 }
 
-/** Which language the memory goes in for this chat: the setting, or (auto) the language the chat is written in. */
+/** Which language the memory goes in for this chat: the setting, or (auto) the language it is written in. */
 function memoryLanguage(chatId) {
   const set = settings().memoryLanguage;
-  return T.LANGS.includes(set) ? set : chatLangs.get(chatId) || 'ko';
+  return T.LANGS.includes(set) ? set : writeLanguage(chatId);
 }
 
 /**
@@ -1838,6 +1850,11 @@ async function routes(app) {
       if (lang !== 'auto' && !T.LANGS.includes(lang)) throw Error('기억을 넣을 언어는 auto, ko, en 중 하나여야 합니다.');
       next.memoryLanguage = lang;
     }
+    if (req.body?.writeLanguage !== undefined) {
+      const lang = String(req.body.writeLanguage || 'auto');
+      if (!['auto', 'en'].includes(lang)) throw Error('기억을 정리할 언어는 auto, en 중 하나여야 합니다.');
+      next.writeLanguage = lang;
+    }
     if (req.body?.translateConnection !== undefined) next.translateConnection = String(req.body.translateConnection || '').trim() || null;
     if (req.body?.translateQuotes !== undefined) next.translateQuotes = req.body.translateQuotes === true;
     saveSettings(next);
@@ -1851,7 +1868,7 @@ async function routes(app) {
         await preparing.get(id)?.run;
       }
     })().catch(() => {});
-    return { memoryLanguage: next.memoryLanguage || 'auto', translateConnection: next.translateConnection || null, translateQuotes: next.translateQuotes === true };
+    return { memoryLanguage: next.memoryLanguage || 'auto', writeLanguage: next.writeLanguage || 'auto', translateConnection: next.translateConnection || null, translateQuotes: next.translateQuotes === true };
   }));
   // Korean for what the library shows, when the memory is in another language. Missing ones are made in the
   // background (the library asks again on its next check).
@@ -1924,6 +1941,7 @@ async function routes(app) {
       enabled: chatEnabled(chatId),
       chatLang: chatLangs.get(chatId) || null,
       memoryLanguage: memoryLanguage(chatId),
+      writeLanguage: writeLanguage(chatId),
       translationPrep: (maybePrepareTranslation(chatId), prepareStatus(chatId)),
       job,
       sceneJob,
@@ -2367,7 +2385,7 @@ function attach(app) {
   log('admin API ready at /api/memory-module');
 }
 
-module.exports = { fixSpeakers, speakerInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, loadTranslations, saveTranslations, chatLangs, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, jobs } };
+module.exports = { fixSpeakers, speakerInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, loadTranslations, saveTranslations, chatLangs, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, jobs, writeLanguage } };
 
 
 
