@@ -31,6 +31,9 @@
   let rooms = [];
   let info = null;
   let store = null;
+  let storeRoom = '';
+  let roomLoadSequence = 0;
+  const needsScenes = () => ['scenes', 'search', 'facts'].includes(tab);
   let selectedScene = '';
   /** Which shelf the scenes tab shows: a chapter id, or '' for the scenes not in a chapter yet. */
   let selectedGroup = null;
@@ -120,15 +123,20 @@
   }
 
   async function loadRoom(id) {
-    if (!id) {
-      info = null;
-      store = null;
-      return;
-    }
-    const [i, s] = await Promise.all([api('GET', `/chats/${encodeURIComponent(id)}`), api('GET', `/chats/${encodeURIComponent(id)}/scenes`)]);
+    const sequence = ++roomLoadSequence;
+    if (!id) { info = null; store = null; storeRoom = ''; return; }
+    const i = await api('GET', `/chats/${encodeURIComponent(id)}`);
+    if (sequence !== roomLoadSequence || room !== id || disposed) return;
     info = i;
-    store = s;
+    if (!needsScenes()) return;
+    if (storeRoom !== id || !store) {
+      const scenes = await api('GET', `/chats/${encodeURIComponent(id)}/scenes`);
+      if (sequence !== roomLoadSequence || room !== id || disposed) return;
+      store = scenes;
+      storeRoom = id;
+    }
     await loadTranslations(id);
+    if (sequence !== roomLoadSequence || room !== id || disposed) return;
     if (selectedScene && !store.scenes.some((x) => x.id === selectedScene)) selectedScene = '';
     if (!selectedScene && selectedGroup === null) selectedScene = store.scenes.at(-1)?.id || '';
   }
@@ -159,6 +167,8 @@
   async function refresh() {
     lastError = '';
     if (!rooms.length) rooms = (await api('GET', '/chats')) || [];
+    store = null;
+    storeRoom = '';
     if (!room) room = activeChatId() || rooms[0]?.id || '';
     await loadRoom(room);
     schedulePoll();
@@ -207,7 +217,11 @@
       try {
         if (!busy) {
           // Idle: only the small status is asked for; the whole room is loaded while a run is on and when it ends.
-          if (was) await loadRoom(room);
+          if (was) {
+            store = null;
+            storeRoom = '';
+            await loadRoom(room);
+          }
           else {
             const wasPreparing = info?.translationPrep?.working;
             info = await api('GET', `/chats/${encodeURIComponent(room)}`);
@@ -248,7 +262,11 @@
     try {
       await fn();
       if (done) notice = done;
-      if (options.reload !== false) await loadRoom(room);
+      if (options.reload !== false) {
+        store = null;
+        storeRoom = '';
+        await loadRoom(room);
+      }
     } catch (error) {
       lastError = error?.message || String(error);
     } finally {
@@ -1126,6 +1144,8 @@
     const current = activeChatId();
     if (current && current !== room) {
       room = current;
+      store = null;
+      storeRoom = '';
       searchDraft = searchQuery = '';
       recallTest = null;
     }
@@ -1215,6 +1235,8 @@
     };
     root.querySelector('#roomSelect').onchange = (e) => {
       room = e.target.value;
+      store = null;
+      storeRoom = '';
       searchDraft = searchQuery = '';
       recallTest = null;
       selectedScene = '';
@@ -1277,6 +1299,7 @@
         tab = n.dataset.tab;
         armed = '';
         if (tab === 'settings') void openSettings();
+        if (needsScenes() && (!store || storeRoom !== room)) void act(() => loadRoom(room), null, { reload: false });
         return render();
       }
       if (n.dataset.group !== undefined) {
