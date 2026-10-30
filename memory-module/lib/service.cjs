@@ -1535,7 +1535,20 @@ function renderLedger(chatId) {
   const source = renderMemorySource(chatId);
   if (!source) return '';
   const target = memoryLanguage(chatId);
-  const { text } = T.translateText(source, target, translationLookup(chatId, target));
+  const lookup = translationLookup(chatId, target);
+  let { text } = T.translateText(source, target, lookup);
+  // Translated text can come out longer than the original (English takes more letters than Korean): the memory is
+  // chosen again with less room so the translation still fits the same limit, instead of being cut at the end.
+  if (text.length > MEMORY_MAX_CHARS) {
+    // The opening and closing instructions are the same in every language; only the rest grows.
+    const style = settings().recallStyle;
+    const fixed = memoryHeader(style).length + memoryFooter(style).length + 40;
+    const grows = (text.length - fixed) / Math.max(1, source.length - fixed);
+    if (grows > 1) {
+      const smaller = renderMemorySource(chatId, Math.floor(fixed + ((MEMORY_MAX_CHARS - fixed) / grows) * 0.97));
+      if (smaller) text = T.translateText(smaller, target, lookup).text;
+    }
+  }
   if (target !== 'en') return text;
   // The labels the notes use in English, so the reply model reads them the same way.
   return text.replace(
@@ -1544,7 +1557,7 @@ function renderLedger(chatId) {
   );
 }
 
-function renderMemorySource(chatId) {
+function renderMemorySource(chatId, maxChars = MEMORY_MAX_CHARS) {
   if (!chatEnabled(chatId)) return '';
   // A ledger that must be read again from the start (an old message changed past what can be undone) only gives
   // what it learned before that message; with no such point known, none of it goes in until it is read again.
@@ -1558,7 +1571,7 @@ function renderMemorySource(chatId) {
   const style = settings().recallStyle;
   const header = memoryHeader(style);
   const footer = memoryFooter(style);
-  let room = MEMORY_MAX_CHARS - header.length - footer.length - 40;
+  let room = maxChars - header.length - footer.length - 40;
   // What is still open and daily life come first; if even they are too long, their oldest lines go.
   for (let i = 0; i < fixed.length; i++) {
     fixed[i] = fitBlock(fixed[i], Math.max(0, Math.floor(room / (fixed.length - i))));
