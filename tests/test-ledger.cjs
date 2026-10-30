@@ -403,7 +403,7 @@ test('bites of the same steak over an hour and a half are one meal', () => {
     { who: '서아', what: 'meal', text: '스테이크', at: '2024-10-18T01:47', number: 20 },
     { who: '서아', what: 'meal', text: '토스트', at: '2024-10-18T11:40', number: 60 },
   ] };
-  assert.match(L.renderRoutine(ledger, '2024-10-18T12:00'), /식사 오늘 2끼\(00:18 스테이크 여러 점, 11:40 토스트\), 마지막 20분 전/);
+  assert.match(L.renderRoutine(ledger, '2024-10-18T12:00'), /식사 오늘 2끼\(00:18 스테이크, 11:40 토스트\), 마지막 20분 전/);
 });
 
 test('everyone at the table ate unless told otherwise: one meal, an entry each', () => {
@@ -607,4 +607,18 @@ test('a hand-added entry shows even when its time is after the story clock', () 
   const text = L.renderRoutine(ledger, '2024-10-23T15:25');
   assert.match(text, /비타민 한 알/);
   assert.equal((text.match(/소염제/g) || []).length, 1, 'the same medicine shows once, its latest');
+});
+
+test('a meal eaten over several turns is named by its dish, not by the first bite', () => {
+  const meal = (text, at) => ({ who: '도윤', what: 'meal', text, at, number: 1 });
+  const wake = { who: '도윤', what: 'wake', at: '2025-07-17T07:00', number: 1 };
+  const one = L.renderRoutine({ routine: [meal('스테이크 한 입', '2025-07-17T19:00'), meal('스테이크 몇 점', '2025-07-17T19:10'), meal('스테이크', '2025-07-17T19:25'), wake] }, '2025-07-17T20:00');
+  assert.match(one, /1끼\(19:00 스테이크\)/);
+  assert.doesNotMatch(one, /한 입|몇 점/);
+  const mixed = L.renderRoutine({ routine: [meal('스테이크 반 접시', '2025-07-17T19:00'), meal('샐러드', '2025-07-17T19:20'), meal('스테이크 마저', '2025-07-17T19:30'), wake] }, '2025-07-17T20:00');
+  assert.match(mixed, /1끼\(19:00 스테이크, 샐러드\)/, 'different dishes are listed; "반찬"-like words are not cut');
+  const firstBite = L.renderRoutine({ routine: [meal('스테이크 한 입', '2025-07-17T19:00'), wake] }, '2025-07-17T20:00');
+  assert.match(firstBite, /19:00 스테이크 한 입/, 'one entry so far: as written');
+  const words = L.renderRoutine({ routine: [meal('반찬 몇 점', '2025-07-17T19:00'), meal('더덕구이', '2025-07-17T19:20'), wake] }, '2025-07-17T20:00');
+  assert.match(words, /반찬 몇 점, 더덕구이/, "\"반찬\" and \"더덕\" are not cut as portion words");
 });

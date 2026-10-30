@@ -1279,6 +1279,32 @@ function ago(at, now) {
   return `${Math.round(minutes / 1440)}일 전`;
 }
 
+/** How much of a dish was eaten ("한 입", "몇 점", "반 접시", "마저" …): not part of what the dish is. */
+// Whole words only ("반" but not "반찬", "더" but not "더덕").
+const PORTION = /(?<=^|\s)(?:(?:한|두|세|네|몇|여러)\s*(?:입|점|조각|숟갈|숟가락|술|젓가락|포크)(?:\s*(?:더|째))?|반\s*(?:접시|그릇|공기|쪽)?|절반|조금|약간|일부|남은|나머지|마저|더|다\s*먹음|(?:\d+|한|두|세)\s*(?:입|점|조각))(?=\s|$)/g;
+const dishOf = (text) => String(text || '').replace(PORTION, ' ').replace(/\s+/g, ' ').trim();
+
+/**
+ * What a sitting was, from the entries filed turn by turn ("스테이크 한 입", "스테이크 몇 점", "스테이크"):
+ * one name per dish, the latest wording of it; different dishes are listed in the order they came.
+ */
+function sittingText(entries) {
+  const dishes = [];
+  for (const r of entries) {
+    const text = String(r.text || '').trim();
+    if (!text) continue;
+    const dish = dishOf(text) || text;
+    const same = dishes.find((d) => d.dish === dish || d.dish.includes(dish) || dish.includes(d.dish));
+    if (!same) dishes.push({ dish, texts: [text] });
+    else {
+      same.texts.push(text);
+      if (dish.length > same.dish.length) same.dish = dish;
+    }
+  }
+  // Eaten over several turns: the plain name of the dish ("스테이크"), not the first bite ("스테이크 한 입").
+  return dishes.map((d) => (d.texts.length > 1 ? d.dish : d.texts[0])).join(', ');
+}
+
 /** Meals less than two hours after the start of the previous one are the same sitting (one 끼니). */
 function oneSitting(meals) {
   const out = [];
@@ -1287,9 +1313,12 @@ function oneSitting(meals) {
     const gap = first?.at && r.at ? (Date.parse(`${r.at}:00Z`) - Date.parse(`${first.at}:00Z`)) / 60000 : Infinity;
     if (first && gap >= 0 && gap < 120) {
       first.last = r.at;
+      first.parts.push(r);
+      first.text = sittingText(first.parts);
+      first.claimed = first.parts.every((p) => p.claimed);
       continue;
     }
-    out.push({ ...r });
+    out.push({ ...r, parts: [r] });
   }
   return out;
 }
