@@ -1962,7 +1962,7 @@ async function routes(app) {
       version: globalThis.__marinaraMemory?.version || null,
       health: health(),
       enabled: chatEnabled(chatId),
-      chatLang: chatLangs.get(chatId) || null,
+      chatLang: await chatLanguage(chatId).catch(() => null),
       memoryLanguage: memoryLanguage(chatId),
       writeLanguage: writeLanguage(chatId),
       translationPrep: (maybePrepareTranslation(chatId), prepareStatus(chatId)),

@@ -30,6 +30,11 @@
   let rooms = [];
   let info = null;
   let store = null;
+  let storeRoom = '';
+  let roomLoadSequence = 0;
+  // Tabs that show scenes, facts or links into them (the open-items tab links each item to its scenes).
+  const needsScenes = () => ['scenes', 'search', 'facts', 'ledger'].includes(tab);
+  let scenesLoading = false;
   let selectedScene = '';
   /** Which shelf the scenes tab shows: a chapter id, or '' for the scenes not in a chapter yet. */
   let selectedGroup = null;
@@ -119,15 +124,21 @@
   }
 
   async function loadRoom(id) {
-    if (!id) {
-      info = null;
-      store = null;
-      return;
-    }
-    const [i, s] = await Promise.all([api('GET', `/chats/${encodeURIComponent(id)}`), api('GET', `/chats/${encodeURIComponent(id)}/scenes`)]);
+    const sequence = ++roomLoadSequence;
+    if (!id) { info = null; store = null; storeRoom = ''; return; }
+    const i = await api('GET', `/chats/${encodeURIComponent(id)}`);
+    if (sequence !== roomLoadSequence || room !== id || disposed) return;
     info = i;
-    store = s;
+    // Korean notes for memory in English are shown on every tab (open items, daily life, home), not only scenes.
     await loadTranslations(id);
+    if (sequence !== roomLoadSequence || room !== id || disposed) return;
+    if (!needsScenes()) return;
+    if (storeRoom !== id || !store) {
+      const scenes = await api('GET', `/chats/${encodeURIComponent(id)}/scenes`);
+      if (sequence !== roomLoadSequence || room !== id || disposed) return;
+      store = scenes;
+      storeRoom = id;
+    }
     if (selectedScene && !store.scenes.some((x) => x.id === selectedScene)) selectedScene = '';
     if (!selectedScene && selectedGroup === null) selectedScene = store.scenes.at(-1)?.id || '';
   }
@@ -140,10 +151,11 @@
     }
     try {
       const t = await api('GET', `/chats/${encodeURIComponent(id)}/translations`);
+      if (room !== id || disposed) return;
       trMap = t.items || {};
       trPending = t.missing || 0;
     } catch {
-      trPending = 0;
+      if (room === id) trPending = 0;
     }
   }
 
@@ -155,9 +167,35 @@
   const trNote = (text) => (ko(text) ? `<p class="tr-note full"><span>한국어</span>${esc(ko(text))}</p>` : '');
   const shown = (text) => ko(text) || text || '';
 
+  /**
+   * A tab that needs the scenes was opened before they were loaded: fetch them now, even while another action is
+   * running (that action would otherwise swallow the request and leave the tab empty).
+   */
+  async function ensureScenes() {
+    if (!needsScenes() || !room || (store && storeRoom === room) || scenesLoading) return;
+    const id = room;
+    scenesLoading = true;
+    render();
+    try {
+      const scenes = await api('GET', `/chats/${encodeURIComponent(id)}/scenes`);
+      if (room !== id || disposed) return;
+      store = scenes;
+      storeRoom = id;
+      if (selectedScene && !store.scenes.some((x) => x.id === selectedScene)) selectedScene = '';
+      if (!selectedScene && selectedGroup === null) selectedScene = store.scenes.at(-1)?.id || '';
+    } catch (error) {
+      lastError = error?.message || String(error);
+    } finally {
+      scenesLoading = false;
+      if (!disposed) render();
+    }
+  }
+
   async function refresh() {
     lastError = '';
     if (!rooms.length) rooms = (await api('GET', '/chats')) || [];
+    store = null;
+    storeRoom = '';
     if (!room) room = activeChatId() || rooms[0]?.id || '';
     await loadRoom(room);
     schedulePoll();
@@ -206,10 +244,17 @@
       try {
         if (!busy) {
           // Idle: only the small status is asked for; the whole room is loaded while a run is on and when it ends.
-          if (was) await loadRoom(room);
+          if (was) {
+            store = null;
+            storeRoom = '';
+            await loadRoom(room);
+          }
           else {
             const wasPreparing = info?.translationPrep?.working;
-            info = await api('GET', `/chats/${encodeURIComponent(room)}`);
+            const polledRoom = room;
+            const polledInfo = await api('GET', `/chats/${encodeURIComponent(polledRoom)}`);
+            if (polledRoom !== room || disposed) { schedulePoll(); return; }
+            info = polledInfo;
             if ((wasPreparing || info?.translationPrep?.working) && tab === 'settings' && !editing()) render();
             if (trPending) {
               const before = trPending;
@@ -238,7 +283,7 @@
     root.querySelector('#status').textContent = running() ? '정리 중입니다… 3초마다 새로 확인합니다.' : notice;
   }
 
-  async function act(fn, done) {
+  async function act(fn, done, options = {}) {
     if (busy) return;
     busy = true;
     lastError = '';
@@ -247,7 +292,11 @@
     try {
       await fn();
       if (done) notice = done;
-      await loadRoom(room);
+      if (options.reload !== false) {
+        store = null;
+        storeRoom = '';
+        await loadRoom(room);
+      }
     } catch (error) {
       lastError = error?.message || String(error);
     } finally {
@@ -355,6 +404,7 @@
   }
 
   function emptyRoom() {
+    if (room && (scenesLoading || busy)) return `<div class="empty">${icon('refresh')}불러오는 중입니다…</div>`;
     return `<div class="empty">${icon('library')}채팅방을 선택해 주세요. 마리나라에서 채팅방을 열면 그 방이 먼저 표시됩니다.</div>`;
   }
 
@@ -834,7 +884,7 @@
     switch (actName) {
       case 'refresh':
         rooms = [];
-        return act(refresh, '새로 불러왔습니다.');
+        return act(refresh, '새로 불러왔습니다.', { reload: false });
       case 'start':
         return act(() => api('POST', `/chats/${chat}/start`, { fresh: false }), '정리를 시작했습니다.');
       case 'fresh':
@@ -961,14 +1011,22 @@
         const amount = root.querySelector('#setRecallAmount')?.value;
         const length = root.querySelector('#setChapterLength')?.value;
         const style = root.querySelector('#setRecallStyle')?.value;
+        // Only send changed settings. These endpoints update shared server settings,
+        // so keep writes sequential and refresh their authoritative values afterward.
+        const changes = [];
+        if (connection && connection !== (serverSettings?.connection || '')) changes.push(['/settings', { connection }]);
+        if (recall && recall !== (serverSettings?.recall || 'model')) changes.push(['/settings/recall', { mode: recall }]);
+        if (amount && amount !== (serverSettings?.recallAmount || 'normal')) changes.push(['/settings/recall-amount', { amount }]);
+        if (length && length !== (serverSettings?.chapterLength || 'normal')) changes.push(['/settings/chapter-length', { length }]);
+        if (style && style !== (serverSettings?.recallStyle || 'natural')) changes.push(['/settings/recall-style', { style }]);
+        if (!changes.length) {
+          notice = '변경된 설정이 없습니다.';
+          return render();
+        }
         return act(async () => {
-          if (connection) await api('POST', '/settings', { connection });
-          if (recall) await api('POST', '/settings/recall', { mode: recall });
-          if (amount) await api('POST', '/settings/recall-amount', { amount });
-          if (length) await api('POST', '/settings/chapter-length', { length });
-          if (style) await api('POST', '/settings/recall-style', { style });
+          for (const [path, body] of changes) await api('POST', path, body);
           serverSettings = (await api('GET', '/status')).settings;
-        }, '설정을 저장했습니다.');
+        }, '설정을 저장했습니다.', { reload: false });
       }
       default:
     }
@@ -1117,10 +1175,14 @@
     const current = activeChatId();
     if (current && current !== room) {
       room = current;
+      store = null;
+      storeRoom = '';
+      trMap = {};
+      trPending = 0;
       searchDraft = searchQuery = '';
       recallTest = null;
     }
-    void act(refresh);
+    void act(refresh, null, { reload: false });
     if (tab === 'settings') void openSettings();
     render();
     launcher?.setAttribute('aria-expanded', 'true');
@@ -1129,6 +1191,7 @@
   function closeLibrary() {
     if (!open) return;
     open = false;
+    clearTimeout(pollTimer);
     render();
     launcher?.setAttribute('aria-expanded', 'false');
     // Back to the button that opened it, unless it sits hidden in a drawer.
@@ -1206,10 +1269,12 @@
     };
     root.querySelector('#roomSelect').onchange = (e) => {
       room = e.target.value;
+      store = null;
+      storeRoom = '';
       searchDraft = searchQuery = '';
       recallTest = null;
       selectedScene = '';
-      void act(() => loadRoom(room));
+      void act(() => loadRoom(room), null, { reload: false });
     };
     root.querySelector('#roomEnabled').onchange = (e) => {
       const on = e.target.checked;
@@ -1254,6 +1319,7 @@
           tab = 'facts';
           focus = { kind: 'fact', id: link.dataset.gotoFact };
         }
+        void ensureScenes();
         return render();
       }
       const n = e.target.closest('button');
@@ -1268,6 +1334,7 @@
         tab = n.dataset.tab;
         armed = '';
         if (tab === 'settings') void openSettings();
+        void ensureScenes();
         return render();
       }
       if (n.dataset.group !== undefined) {
