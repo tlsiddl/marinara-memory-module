@@ -26,6 +26,8 @@ try {
  document.querySelector('#memory-module-launcher').click();
  for(let i=0;i<10;i++) await new Promise(r=>setTimeout(r,0));
  click('[data-tab="search"]');
+ // The scenes are loaded when a tab that needs them opens.
+ for(let i=0;i<10;i++) await new Promise(r=>setTimeout(r,0));
  const input=q('#memorySearchInput');
  for(const type of ['keydown','keypress','keyup']) {
   const event=new window.KeyboardEvent(type,{key:'?',bubbles:true,composed:true,cancelable:true});

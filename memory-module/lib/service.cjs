@@ -1776,7 +1776,11 @@ async function routes(app) {
       embedding: { mode: embeddingMode(), model: src?.model || null, label: src?.label || null, error: src ? null : embedSource.error },
     };
   }));
-  // SIDE B semantic search: read existing vectors across ALL scenes, without recall/window or memory writes.
+  // Shared read-only semantic search for external writing and analysis extensions.
+  // Missing or unknown scope retains the historical recall-window behavior.
+  const externalSearchScopes = new Set(['side-b', 'ooc-archive']);
+  const searchScenesForScope = (store, firstInside, scope) =>
+    externalSearchScopes.has(scope) ? store.scenes : R.candidates(store, firstInside);
   app.post('/chats/:id/search', guard(async (req) => {
     const chatId = safeChatId(req.params.id);
     if (!chatEnabled(chatId)) return { state: 'disabled', results: [] };
@@ -1799,7 +1803,7 @@ async function routes(app) {
       const results = queries.map((query, i) => {
         const subject = normalize(query.subject);
         const firstInside = windows.get(chatId) ?? store.window?.firstInside ?? null;
-        const searchable = req.body?.scope === 'side-b' ? store.scenes : R.candidates(store, firstInside);
+        const searchable = searchScenesForScope(store, firstInside, req.body?.scope);
         const candidates = subject ? searchable.filter(scene => normalize(JSON.stringify(scene)).includes(subject)) : searchable;
         const hits = V.nearest(index, [vectors[i]], candidates, 8).filter(hit => hit.score > 0).map(hit => ({ id: hit.id, piece: hit.piece, score: hit.score, strong: hit.strong }));
         return { query, hits };
@@ -1958,7 +1962,7 @@ async function routes(app) {
       version: globalThis.__marinaraMemory?.version || null,
       health: health(),
       enabled: chatEnabled(chatId),
-      chatLang: chatLangs.get(chatId) || null,
+      chatLang: await chatLanguage(chatId).catch(() => null),
       memoryLanguage: memoryLanguage(chatId),
       writeLanguage: writeLanguage(chatId),
       translationPrep: (maybePrepareTranslation(chatId), prepareStatus(chatId)),
