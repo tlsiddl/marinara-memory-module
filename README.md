@@ -6,7 +6,7 @@
 > **비공식 모듈입니다.** Marinara Engine 및 Pasta-Devs와 관련이 없고, 그쪽의 검토나 지원을 받지 않습니다.
 > Marinara Engine **2.4.6 전용 호환 브랜치**입니다. 공식 2.4.6 서버를 직접 빌드해 실행하고 장부·장면·회상·말풍선 태그·기억 언어 흐름을 확인했습니다. [검증 범위](COMPATIBILITY.md)를 확인해 주세요.
 
-지금 버전: **v0.11.8-marinara.2.4.6.13 (호환 베타)** · 변경 내역은 [CHANGELOG.md](CHANGELOG.md)
+지금 버전: **v0.11.9-marinara.2.4.6.14 (호환 베타)** · 변경 내역은 [CHANGELOG.md](CHANGELOG.md)
 
 ---
 
@@ -74,8 +74,8 @@ irm https://raw.githubusercontent.com/tlsiddl/marinara-memory-module/marinara-2.
 **설치 확인** — 마리나라 로그에 아래 줄들이 보이면 성공입니다.
 
 ```
-[memory-module] v0.11.8-marinara.2.4.6.13 applied: {{기억}} macro ready
-[memory-module] v0.11.8-marinara.2.4.6.13 applied: reply hook and admin API ready
+[memory-module] v0.11.9-marinara.2.4.6.14 applied: {{기억}} macro ready
+[memory-module] v0.11.9-marinara.2.4.6.14 applied: reply hook and admin API ready
 ```
 
 ### 2. 기억 서재 화면 (확장)

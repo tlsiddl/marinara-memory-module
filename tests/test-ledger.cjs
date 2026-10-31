@@ -622,3 +622,20 @@ test('a meal eaten over several turns is named by its dish, not by the first bit
   const words = L.renderRoutine({ routine: [meal('반찬 몇 점', '2025-07-17T19:00'), meal('더덕구이', '2025-07-17T19:20'), wake] }, '2025-07-17T20:00');
   assert.match(words, /반찬 몇 점, 더덕구이/, "\"반찬\" and \"더덕\" are not cut as portion words");
 });
+
+test('sleep: an evening nap is not the night, and being up in between (ate, washed) splits a sleep', () => {
+  const r = (what, at, text = '') => ({ who: '서아', what, text, at, number: 1 });
+  // Bedtime 03:25, waking not written down, washed 15:40, ate 17:10, napped after dinner, woke 20:30.
+  const out = L.renderRoutine({ routine: [r('wake', '2025-11-15T11:00'), r('meal', '2025-11-15T19:00', '저녁'), r('sleep', '2025-11-16T03:25'), r('wash', '2025-11-16T15:40', '욕조'), r('meal', '2025-11-16T17:10', '스테이크'), r('sleep', '2025-11-16T18:30'), r('wake', '2025-11-16T20:30')] }, '2025-11-16T22:25');
+  assert.doesNotMatch(out, /17시간/, 'never a seventeen-hour sleep through a bath and a meal');
+  assert.match(out, /밤잠 03:25에 잠듦\(깬 시각 기록 없음, 15:40엔 깨어 있음\), 낮잠 20:30에 깸/);
+  assert.match(out, /식사 기상\(시각 모름\) 후 1끼\(17:10 스테이크\)/, 'the meal after getting up still counts');
+  // A morning waking, then a nap from 19:10 to 20:30: the night stays 03:25-13:15, the nap is a nap.
+  const nap = L.renderRoutine({ routine: [r('sleep', '2025-11-16T03:25'), r('wake', '2025-11-16T13:15'), r('meal', '2025-11-16T17:10', '스테이크'), r('sleep', '2025-11-16T19:10'), r('wake', '2025-11-16T20:30')] }, '2025-11-16T22:25');
+  assert.match(nap, /밤잠 03:25에 잠들어 13:15에 깸\(9시간 50분 잠\), 낮잠 20:30에 깸/);
+  assert.match(nap, /식사 기상\(13:15\) 후 1끼/);
+  // Up at 2 am, back to bed: still one night.
+  assert.match(L.renderRoutine({ routine: [r('sleep', '2025-11-15T23:00'), r('wake', '2025-11-16T02:00'), r('sleep', '2025-11-16T02:30'), r('wake', '2025-11-16T08:00')] }, '2025-11-16T09:00'), /23:00에 잠들어 08:00에 깸\(8시간 30분 잠\)/);
+  // Went to bed, then ate breakfast with no waking written: not "asleep now".
+  assert.doesNotMatch(L.renderRoutine({ routine: [r('sleep', '2025-11-16T01:00'), r('meal', '2025-11-16T09:00', '아침')] }, '2025-11-16T10:00'), /자는 중/);
+});

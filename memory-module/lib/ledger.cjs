@@ -1329,30 +1329,44 @@ function oneSitting(meals) {
 const minutesBetween = (a, b) => (Date.parse(`${b}:00Z`) - Date.parse(`${a}:00Z`)) / 60000;
 
 /**
- * Night sleeps, oldest first: a wake after four hours or more of sleep, or (when when they fell asleep is
- * unknown) a wake in the morning hours. Naps don't count. Each: { slept, wake, minutes }.
+ * Night sleeps, oldest first: a waking between midnight and 2 pm, or after four hours or more of sleep. Naps don't
+ * count. `awake` are times they were plainly up (ate, washed, took medicine): a bedtime with one of those before the
+ * next waking ended unrecorded ({ wake: null, awakeBy }). Each: { slept, wake, minutes, partial, awakeBy? }.
  */
-function nightSleeps(sleeps, wakes) {
+function nightSleeps(sleeps, wakes, awake = []) {
   const out = [];
   const used = new Set();
+  const seen = awake.filter(Boolean).sort();
+  const awakeBetween = (from, to) => seen.filter((t) => t > from && t < to);
   let previousWake = null;
   for (const wake of [...wakes].filter((w) => w.at).sort((a, b) => a.at.localeCompare(b.at))) {
     // A bedtime pairs with the first waking after it only.
-    const slept = [...sleeps]
+    let slept = [...sleeps]
       .filter((s) => s.at && s.at < wake.at && (!previousWake || s.at >= previousWake) && !used.has(s) && minutesBetween(s.at, wake.at) < 16 * 60)
       .sort((a, b) => a.at.localeCompare(b.at))[0];
+    // Ate, washed or took medicine in between: they were up. That bedtime ended some time before (its waking was
+    // not written down), and this waking ends a sleep that started after the last of those.
+    if (slept) {
+      const up = awakeBetween(slept.at, wake.at);
+      if (up.length) {
+        used.add(slept);
+        const h = Number(slept.at.slice(11, 13));
+        if (h >= 19 || h < 7) out.push({ slept: slept.at, wake: null, awakeBy: up[0], minutes: null, partial: true });
+        slept = null;
+      }
+    }
     if (slept) used.add(slept);
-    previousWake = wake.at;
     const minutes = slept ? minutesBetween(slept.at, wake.at) : null;
-    const start = slept ? Number(slept.at.slice(11, 13)) : null;
     const hour = Number(wake.at.slice(11, 13));
-    // Night: fell asleep in the evening or small hours (however short), or slept four hours or more;
-    // with no known bedtime, woke in the morning hours.
-    const night = slept ? start >= 19 || start < 7 || minutes >= 240 : hour >= 4 && hour < 14;
+    // Night: woke between midnight and 2 pm, or slept four hours or more. An evening nap that ends the same evening
+    // ("두 시간 낮잠" after dinner) is not one, whenever it started.
+    const night = hour < 14 || (minutes != null && minutes >= 240);
+    previousWake = wake.at;
     if (!night) continue;
     const last = out.at(-1);
-    // Woke and dozed off again the same night: one night, sleep added up.
-    if (last && minutesBetween(last.wake, wake.at) < 8 * 60) {
+    // Woke and dozed off again the same night: one night, sleep added up. Only when they went back to bed soon after
+    // and did nothing else in between.
+    if (last?.wake && minutesBetween(last.wake, wake.at) < 8 * 60 && (!slept || minutesBetween(last.wake, slept.at) < 3 * 60) && !awakeBetween(last.wake, wake.at).length) {
       last.wake = wake.at;
       last.minutes = (last.minutes || 0) + (minutes || 0) || null;
       last.partial = last.partial || minutes == null;
@@ -1360,11 +1374,23 @@ function nightSleeps(sleeps, wakes) {
     }
     out.push({ slept: slept?.at || null, wake: wake.at, minutes, partial: minutes == null });
   }
-  return out;
+  // A night bedtime that never got its waking written down, with them up and about afterwards.
+  const wakeTimes = wakes.filter((w) => w.at).map((w) => w.at);
+  for (const s of sleeps) {
+    if (!s.at || used.has(s)) continue;
+    const h = Number(s.at.slice(11, 13));
+    if (!(h >= 19 || h < 7)) continue;
+    const up = seen.find((t) => t > s.at && minutesBetween(s.at, t) < 24 * 60);
+    if (!up || wakeTimes.some((w) => w > s.at && w <= up)) continue;
+    if (out.some((n) => n.slept === s.at)) continue;
+    out.push({ slept: s.at, wake: null, awakeBy: up, minutes: null, partial: true });
+  }
+  return out.sort((a, b) => String(a.wake || a.awakeBy).localeCompare(String(b.wake || b.awakeBy)));
 }
-
-function lastNightWake(sleeps, wakes) {
-  return nightSleeps(sleeps, wakes).at(-1)?.wake || null;
+/** When their day started: the last night's waking, or (not written down) the first thing they did after it. */
+function lastNightWake(sleeps, wakes, awake = []) {
+  const n = nightSleeps(sleeps, wakes, awake).at(-1);
+  return n ? n.wake || n.awakeBy || null : null;
 }
 
 function hours(minutes, partial = false) {
@@ -1382,10 +1408,11 @@ function hours(minutes, partial = false) {
 function pastDays(meals, nights) {
   const out = [];
   for (let i = nights.length - 1; i >= 1 && out.length < PAST_DAYS; i--) {
-    const from = nights[i - 1].wake;
-    const to = nights[i].wake;
+    const from = nights[i - 1].wake || nights[i - 1].awakeBy;
+    const to = nights[i].wake || nights[i].awakeBy;
     const count = meals.filter((r) => r.at && r.at >= from && r.at < to).length;
-    out.push(`${dayLabel(from.slice(0, 10))}: ${count}끼, 그 뒤 밤잠 ${hours(nights[i].minutes, nights[i].partial)}`);
+    const slept = nights[i].minutes != null ? hours(nights[i].minutes, nights[i].partial) : '시간 모름';
+    out.push(`${dayLabel(from.slice(0, 10))}: ${count}끼, 그 뒤 밤잠 ${slept}`);
   }
   return out;
 }
@@ -1469,6 +1496,8 @@ function renderRoutine(ledger, now = null) {
   const lines = [];
   for (const who of people) {
     const of = (what) => all.filter((r) => r.who === who && r.what === what);
+    // Times they were plainly up: a sleep can't have run through these.
+    const awake = all.filter((r) => r.who === who && ['meal', 'wash', 'medicine'].includes(r.what) && r.at).map((r) => r.at);
     const parts = [];
     const item = (r) => `${r.at ? r.at.slice(11) : ''} ${r.text || ''}${r.claimed ? ' (본인 주장)' : ''}`.trim();
     const meals = oneSitting(of('meal').filter((r) => !r.substitute));
@@ -1476,9 +1505,10 @@ function renderRoutine(ledger, now = null) {
     if (meals.length || madeDo.length) {
       const last = meals.at(-1);
       // The day starts when they got up from a night's sleep (naps don't count); without that, the calendar day.
-      const morning = lastNightWake(of('sleep'), of('wake'));
+      const lastNight = nightSleeps(of('sleep'), of('wake'), awake).at(-1);
+      const morning = lastNight ? lastNight.wake || lastNight.awakeBy : null;
       const since = morning ? (r) => r.at && r.at >= morning : (r) => today && r.at?.slice(0, 10) === today;
-      const label = morning ? `기상(${clock(morning, today)}) 후` : '오늘';
+      const label = !morning ? '오늘' : lastNight.wake ? `기상(${clock(morning, today)}) 후` : '기상(시각 모름) 후';
       const counted = meals.filter(since);
       const countedMadeDo = madeDo.filter(since);
       let line;
@@ -1489,14 +1519,19 @@ function renderRoutine(ledger, now = null) {
       if (countedMadeDo.length) line += `, 끼니 대신 때움 ${countedMadeDo.length}번(${countedMadeDo.map(item).join(', ')})`;
       parts.push(line);
     }
-    const nights = nightSleeps(of('sleep'), of('wake'));
+    const nights = nightSleeps(of('sleep'), of('wake'), awake);
     const slept = of('sleep').at(-1);
     const woke = of('wake').at(-1);
     const night = nights.at(-1);
     // Asleep now only if the last bedtime is after the last waking (by story time when both have one).
-    const asleep = slept && (!woke || (slept.at && woke.at ? slept.at > woke.at : slept.number > woke.number));
+    const asleep = slept && (!woke || (slept.at && woke.at ? slept.at > woke.at : slept.number > woke.number)) && !(slept.at && awake.some((t) => t > slept.at));
     if (asleep) {
       parts.push(`잠 ${clock(slept.at, today)}부터 자는 중${now && slept.at ? `(${span(slept.at, now) || '방금'}째)` : ''}`);
+    } else if (night && !night.wake) {
+      // Went to bed, and the next thing written down is them up and about: when they woke is not known.
+      let line = `밤잠 ${clock(night.slept, today)}에 잠듦(깬 시각 기록 없음, ${clock(night.awakeBy, today)}엔 깨어 있음)`;
+      if (woke?.at && woke.at > night.awakeBy) line += `, 낮잠 ${clock(woke.at, today)}에 깸`;
+      parts.push(line);
     } else if (night) {
       const lasted = night.minutes != null ? `(${hours(night.minutes, night.partial)} 잠)` : '';
       let line = `밤잠 ${night.slept ? `${clock(night.slept, today)}에 잠들어 ` : ''}${clock(night.wake, today)}에 깸${lasted}`;
