@@ -117,3 +117,4 @@ function speakerInstructions(names) {
 }
 
 module.exports = { restoreSpeakerTags, restoreContextSpeakerTags, needsSpeakerTags, isTranslationLine, speakerInstructions, namePrefixInstructions, prefixSingleCharacterDialogue };
+

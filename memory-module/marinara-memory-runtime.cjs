@@ -15,7 +15,7 @@ const { fileURLToPath } = require('node:url');
 const TAG = '[memory-module]';
 /** The Marinara version these patches were made and tested against. */
 const TESTED_MARINARA = '2.5.1';
-const VERSION = '0.11.22';
+const VERSION = '0.11.23';
 const NOTES_DIR = process.env.MEMORY_MODULE_NOTES_DIR || path.join(__dirname, 'notes');
 const DEFAULT_NOTE = '_default.txt';
 /** Last safety net only: the service already keeps the memory within its own limit (40,000 by default). */
@@ -58,12 +58,12 @@ const PATCHES = [
     ok: 'speaker tags are put back before reply streaming and saving (legacy route)',
   },
   {
-    name: 'speakerNamesSingle',
+    name: 'speakerNamesPrompt',
     target: /[\\/]packages[\\/]server[\\/]dist[\\/]routes[\\/]generate\.routes\.js$/,
     anchor: 'if (isGroupChat) {\n          // Inject group chat instructions at the end of the last user message',
     before: true,
-    insert: 'try { if (chatMode === "roleplay" && !isGroupChat && !input.impersonate) { const memoryNameInstruction = globalThis.__marinaraMemory?.nameInstructions?.(input.chatId, charInfo.map((c) => c.name)); if (memoryNameInstruction) injectIntoOutputFormatOrLastUser(finalMessages, memoryNameInstruction, { indent: true }); } } catch {}\n',
-    ok: 'one-to-one roleplay has visible dialogue name instructions',
+    insert: 'try { if (chatMode === "roleplay" && !input.impersonate) { const memoryNameInstruction = globalThis.__marinaraMemory?.nameInstructions?.(input.chatId, charInfo.map((c) => c.name)); if (memoryNameInstruction) injectIntoOutputFormatOrLastUser(finalMessages, memoryNameInstruction, { indent: true }); } } catch {}\n',
+    ok: 'roleplay has visible dialogue name instructions',
   },
   {
     name: 'speakerPrompt',
@@ -244,6 +244,7 @@ else if (process.env.MEMORY_MODULE_HOOK_TEST !== '1' && !globalThis.__marinaraMe
 }
 
 module.exports = { patchSource, sanitize, render, PATCHES, VERSION, TESTED_MARINARA };
+
 
 
 

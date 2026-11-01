@@ -2395,7 +2395,7 @@ async function chatCharacterNames(e, chat) {
 
 /** The host calls this only inside its native merged-roleplay speaker-color condition. */
 function speakerInstructions(chatId, names) {
-  return [speakerTagsOn(chatId) ? SP.speakerInstructions(names) : '', speakerNamesOn(chatId) ? SP.namePrefixInstructions(names) : ''].filter(Boolean).join('\n');
+  return speakerTagsOn(chatId) ? SP.speakerInstructions(names) : '';
 }
 
 /** Visible name labels also apply to one-to-one RP. */
@@ -2558,6 +2558,7 @@ function attach(app) {
 }
 
 module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, loadTranslations, saveTranslations, chatLangs, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, jobs, writeLanguage, memoryCallOptions } };
+
 
 
 
