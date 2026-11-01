@@ -73,3 +73,14 @@ test('name prefix instruction uses the exact character names', () => {
   assert.match(SP.namePrefixInstructions(['하준']), /하준 \\|/);
   assert.equal(SP.namePrefixInstructions([]), '');
 });
+
+
+test('one-to-one name prefix adds a label only to standalone dialogue', () => {
+  const sample = '서무진이 컵을 내려놓았다.\n"왜."\n\n"Come here." (이리 와.)\n그는 "괜찮아."라고 말했다.';
+  const fixed = SP.prefixSingleCharacterDialogue(sample, '서무진');
+  assert.equal(fixed, '서무진이 컵을 내려놓았다.\n서무진 | "왜."\n\n서무진 | "Come here." (이리 와.)\n그는 "괜찮아."라고 말했다.');
+  assert.equal(SP.prefixSingleCharacterDialogue(fixed, '서무진'), fixed);
+});
+test('one-to-one prefix does not invent an empty character name', () => {
+  assert.equal(SP.prefixSingleCharacterDialogue('"안녕."', ''), '"안녕."');
+});
