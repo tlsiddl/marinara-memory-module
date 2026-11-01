@@ -82,6 +82,20 @@ function namePrefixInstructions(names) {
   return 'For each character dialogue line, print the exact speaking character name followed by \` | \` before the opening quote, e.g. '+list[0]+' | "…". Preserve bilingual translations. Never label narration or user dialogue. Do not invent a speaker when uncertain. Avoid duplicate prefixes.';
 }
 
+
+/** Add visible labels to standalone dialogue lines in a one-character RP.
+ * A quote embedded in narration is deliberately not modified.
+ */
+function prefixSingleCharacterDialogue(text, name) {
+  const who = String(name || '').trim();
+  if (!who || /[<>"\r\n|]/.test(who) || !text) return text;
+  return String(text).split('\n').map(line => {
+    const m = line.match(/^(\s*)(["“「『])([^\n]+)(["”」』])(\s*(?:\([^\n]*\))?\s*)$/);
+    if (!m) return line;
+    return m[1] + who + ' | ' + line.slice(m[1].length);
+  }).join('\n');
+}
+
 /** Does a reply have character lines that lack tags? */
 function needsSpeakerTags(text, names) {
   return restoreSpeakerTags(text, names) !== text;
@@ -102,4 +116,4 @@ function speakerInstructions(names) {
   ].join('\n');
 }
 
-module.exports = { restoreSpeakerTags, restoreContextSpeakerTags, needsSpeakerTags, isTranslationLine, speakerInstructions, namePrefixInstructions };
+module.exports = { restoreSpeakerTags, restoreContextSpeakerTags, needsSpeakerTags, isTranslationLine, speakerInstructions, namePrefixInstructions, prefixSingleCharacterDialogue };
