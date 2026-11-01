@@ -58,6 +58,14 @@ const PATCHES = [
     ok: 'speaker tags are put back before reply streaming and saving (legacy route)',
   },
   {
+    name: 'speakerNamesSingle',
+    target: /[\\/]packages[\\/]server[\\/]dist[\\/]routes[\\/]generate\\.routes\\.js$/,
+    anchor: 'if (isGroupChat) {\n          // Inject group chat instructions at the end of the last user message',
+    before: true,
+    insert: 'try { if (chatMode === "roleplay" && !isGroupChat && !input.impersonate) { const memoryNameInstruction = globalThis.__marinaraMemory?.nameInstructions?.(input.chatId, charInfo.map((c) => c.name)); if (memoryNameInstruction) injectIntoOutputFormatOrLastUser(finalMessages, memoryNameInstruction, { indent: true }); } } catch {}\n',
+    ok: 'one-to-one roleplay has visible dialogue name instructions',
+  },
+  {
     name: 'speakerPrompt',
     target: /[\\/]packages[\\/]server[\\/]dist[\\/]routes[\\/]generate\.routes\.js$/,
     anchor: 'const charNames = charInfo.map((c) => c.name);',
@@ -162,6 +170,9 @@ function fixSpeakers(text, o) {
 function speakerInstructions(chatId, names) {
   return loadService()?.speakerInstructions?.(chatId, names) || '';
 }
+function nameInstructions(chatId, names) {
+  return loadService()?.nameInstructions?.(chatId, names) || '';
+}
 
 function attach(app) {
   const s = loadService();
@@ -175,7 +186,7 @@ function install() {
   }
   // What happened to each patch: 'ok', 'failed' (this Marinara version differs), or missing (file not loaded yet).
   const patches = {};
-  globalThis.__marinaraMemory = { version: VERSION, testedMarinara: TESTED_MARINARA, patches, render, attach, fixSpeakers, speakerInstructions };
+  globalThis.__marinaraMemory = { version: VERSION, testedMarinara: TESTED_MARINARA, patches, render, attach, fixSpeakers, speakerInstructions, nameInstructions };
   registerHooks({
     load(url, context, nextLoad) {
       if (!url.startsWith('file:')) return nextLoad(url, context);
