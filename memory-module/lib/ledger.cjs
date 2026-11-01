@@ -1126,7 +1126,7 @@ function isoDate(text, base = null) {
   const year = m[1] ? (m[1].length === 2 ? 2000 + Number(m[1]) : Number(m[1])) : base ? Number(base.slice(0, 4)) : null;
   if (!year) return null;
   const d = new Date(Date.UTC(year, Number(m[2]) - 1, Number(m[3])));
-  return Number.isNaN(d.getTime()) || d.getUTCDate() !== Number(m[3]) ? null : d.toISOString().slice(0, 10);
+  return Number.isNaN(d.getTime()) || d.getUTCMonth() !== Number(m[2]) - 1 || d.getUTCDate() !== Number(m[3]) ? null : d.toISOString().slice(0, 10);
 }
 
 function addDays(iso, days) {
@@ -1159,7 +1159,7 @@ function dateLine(line, base = null) {
   if (!raw || raw.length > 90 || /[.!?…。]["”’」』)]*$/.test(raw)) return null;
   const t = raw.replace(/^[^\p{L}\p{N}"“'‘「『]+/u, '');
   if (/["“”「」『』]/.test(t)) return null;
-  if (!/\d{4}\s*년|\d{2,4}[-./]\d{1,2}[-./]\d{1,2}|\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2}(?:st|nd|rd|th)?,?\s*\d{4}|\b\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?,?\s*\d{4}/i.test(t) && !WEEKDAY_WORD.test(t)) return null;
+  if (!/(?<!\d)\d{8}(?!\d)|\d{4}\s*년|\d{2,4}[-./]\d{1,2}[-./]\d{1,2}|\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2}(?:st|nd|rd|th)?,?\s*\d{4}|\b\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?,?\s*\d{4}/i.test(t) && !WEEKDAY_WORD.test(t)) return null;
   // "14일에", "14일까지", "18일이었다": a date inside a sentence.
   if (/\d\s*일\s*(?:에|엔|까지|부터|쯤|께|이었|이야|이다|이라|이니|인데|로|은|는|의)/.test(t) || /요일\s*(?:에|엔|까지|부터|이었|이야|이다|인데|은|는|의)/.test(t)) return null;
   // An English line with many words around the date is a sentence that mentions it, not a date line.
@@ -1175,6 +1175,10 @@ function dateInText(content, base = null) {
     if (c?.date && (!best || `${c.date}T${c.time || ''}` > `${best.date}T${best.time || ''}`)) best = c;
   };
   const text = String(content || '');
+  // Compact dates in an explicit RP header can appear inline with prose.
+  for (const hit of text.matchAll(/§\s*RP\s*\|\s*(\d{8})(?=\s*\|)([^§]*)/gi)) {
+    take(parseClock(`${hit[1]} ${hit[2]}`, base));
+  }
   // A numeric date with its weekday in brackets is a header wherever it stands, even inline before a line of
   // dialogue ("§RP | 24-10-18 (금) | 02:32 | 서재§ 하루 | …").
   for (const hit of text.matchAll(/(\d{2,4}-\d{1,2}-\d{1,2})\s*\([월화수목금토일]\)(?:\s*\|?\s*(\d{1,2}:\d{2}))?/g)) {
@@ -1196,8 +1200,10 @@ function parseClock(text, base = null) {
   const raw = String(text || '').trim();
   if (!raw) return null;
   let date = null;
+  const compact = raw.match(/(?<!\d)(\d{4})(\d{2})(\d{2})(?!\d)/);
+  if (compact) date = isoDate(`${compact[1]}-${compact[2]}-${compact[3]}`);
   const ko = raw.match(/(?:(\d{2}|\d{4})\s*년\s*)?(\d{1,2})\s*월\s*(\d{1,2})\s*일(?!\s*차)/);
-  if (ko) date = isoDate(`${ko[1] ? `${ko[1]}-` : ''}${ko[2]}-${ko[3]}`, base);
+  if (!date && ko) date = isoDate(`${ko[1] ? `${ko[1]}-` : ''}${ko[2]}-${ko[3]}`, base);
   if (!date) {
     // English: "October 18, 2024", "Oct 18th", "18 October 2024", "Fri, Oct 18 2024".
     const month = (m) => MONTHS.findIndex((x) => m.toLowerCase().startsWith(x)) + 1;
@@ -1938,3 +1944,4 @@ module.exports = {
   faded,
   lastSeen,
   SYSTEM_PROMPT, matchName, nameKeys, htmlToText, canonNames };
+

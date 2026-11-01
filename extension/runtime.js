@@ -49,6 +49,8 @@
   // Korean for memory written in another language (and for quoted lines, when that setting is on).
   let trMap = {};
   let trPending = 0;
+  let trError = '';
+  let trWorking = false;
   let notice = '';
   let lastError = '';
   let busy = false;
@@ -144,18 +146,15 @@
   }
 
   async function loadTranslations(id) {
-    if (info?.chatLang !== 'en' && serverSettings?.translateQuotes !== true) {
-      trMap = {};
-      trPending = 0;
-      return;
-    }
     try {
       const t = await api('GET', `/chats/${encodeURIComponent(id)}/translations`);
       if (room !== id || disposed) return;
       trMap = t.items || {};
       trPending = t.missing || 0;
-    } catch {
-      if (room === id) trPending = 0;
+      trError = t.error || '';
+      trWorking = Boolean(t.working);
+    } catch (error) {
+      if (room === id) trError = error?.message || String(error);
     }
   }
 
@@ -257,9 +256,9 @@
             info = polledInfo;
             if ((wasPreparing || info?.translationPrep?.working) && tab === 'settings' && !editing()) render();
             if (trPending) {
-              const before = trPending;
+              const before = `${trPending}:${trError}:${trWorking}`;
               await loadTranslations(room);
-              if (trPending !== before && !editing()) render();
+              if (`${trPending}:${trError}:${trWorking}` !== before && !editing()) render();
             }
           }
           if (was && !running()) notice = [info?.job?.state, info?.sceneJob?.state].includes('error') ? '정리가 멈췄습니다. 아래 오류를 확인해 주세요.' : '정리가 끝났습니다.';
@@ -851,7 +850,10 @@
     err.textContent = lastError;
     const content = root.querySelector('#content');
     const scroll = content.scrollTop;
-    content.innerHTML = VIEWS[tab]();
+    const jobError = info?.job?.error || info?.sceneJob?.error;
+    const warning = jobError ? `<div class="note" role="alert">기억 정리를 마치지 못했습니다. ${esc(jobError)}</div>` : '';
+    const translation = trPending || trError ? `<div class="note" role="status">${trError ? `한국어 번역을 마치지 못했습니다. ${esc(trError)}` : trWorking ? '한국어 번역 중입니다.' : '한국어 번역이 남아 있습니다.'} ${trPending ? `남은 항목: ${trPending}개.` : ''} <button data-act="retryTranslation">남은 항목 다시 번역</button></div>` : '';
+    content.innerHTML = warning + translation + VIEWS[tab]();
     content.scrollTop = scroll;
     root.querySelector('#inspector').innerHTML = inspector();
     const n = root.querySelector('#themeToggle');
@@ -882,6 +884,11 @@
     const chat = encodeURIComponent(room);
     if (actName !== 'fresh' && !actName.startsWith('deleteFact') && actName !== 'closeThread' && actName !== 'rebuildChapters' && actName !== 'deleteRoutine') armed = '';
     switch (actName) {
+      case 'retryTranslation':
+        return act(async () => {
+          const result = await api('POST', `/chats/${chat}/translations/retry`);
+          notice = result.alreadyWorking ? '이미 번역 중입니다.' : result.missing === 0 ? '남은 번역이 없습니다.' : '남은 항목을 번역하고 있습니다.';
+        });
       case 'refresh':
         rooms = [];
         return act(refresh, '새로 불러왔습니다.', { reload: false });
@@ -1205,6 +1212,7 @@
     root.innerHTML = `<style>${UI_CSS}${EXTRA_CSS}${THEME_CSS}</style>
       <div id="backdrop" hidden></div>
       <section id="panel" role="dialog" aria-label="기억 서재" aria-modal="true" hidden>
+        <button id="close" class="close" aria-label="기억 서재 닫기" title="닫기">${icon('close')}</button>
         <aside class="sidebar"><div class="brand"><span class="logo" aria-hidden="true"><i class="disc"></i><i class="sleeve"></i></span><div>기억 서재<small>MEMORY MODULE</small></div></div>
           <div class="nav-label">YOUR MEMORIES</div>
           <nav>${NAV.map(([id, label, i]) => `<button data-tab="${id}">${icon(i)}<span>${label}</span></button>`).join('')}</nav>
@@ -1213,8 +1221,7 @@
         </aside>
         <div class="workspace">
           <header class="topbar"><div class="crumb"><select id="roomSelect" aria-label="채팅방"></select></div>
-            <button id="themeToggle" class="theme-toggle" aria-label="화면 밝기 바꾸기"></button>
-            <button id="close" class="close" aria-label="닫기">${icon('close')}</button></header>
+            <button id="themeToggle" class="theme-toggle" aria-label="화면 밝기 바꾸기"></button></header>
           <div id="status" role="status"></div><div id="error" hidden></div>
           <main id="content"></main>
         </div>
@@ -1399,3 +1406,4 @@
   install();
   host.onCleanup?.(cleanup);
 })();
+
