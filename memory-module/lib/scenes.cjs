@@ -1046,6 +1046,7 @@ const CHAPTER_PROMPT = `너는 장기 롤플레이의 기억 관리자야. 이�
 - end: 이 챕터가 끝나는 장면 번호. 장면은 이야기 흐름이 끝나는 곳에서 끊어: 한 사건이나 갈등이 마무리됨, 시간이 크게 건너뜀, 장소나 상황이 크게 바뀜. 한 사건이 두 챕터로 쪼개지지 않게 해. 주어진 장면 중 ${CHAPTER_MIN}번째에서 ${CHAPTER_MAX}번째 사이에서 골라. 그 뒤 장면은 다음 챕터로 가니 요약에 넣지 마.
 - title: 그 시기를 대표하는 짧은 제목.
 - summary: 3~5문장. 무슨 일이 있었고, 인물 사이의 관계·감정·상황이 어떻게 바뀌었는지 시간 순서대로. 이름·물건·장소는 구체적으로.
+- 원문에 나타난 관계와 감정의 변화는 계기와 그 결과를 함께 보존해. 현재 관계가 과거의 초기 상태로 되돌아간 것처럼 쓰지 마. 근거 없는 성격이나 감정을 만들지 마.
 - turns: 이야기가 바뀐 결정적인 일 최대 5개. 각각 장면 번호로 시작하는 한 문장(누가 누구에게 무엇을). 예) "S14 도윤이 서아에게 진통제를 끊겠다고 약속함".
 - keep: 이 시기의 세부 사항 가운데 나중에도 정확히 맞아야 하는 것 최대 8개. 날짜·기한·접수 기간·시각·금액·주소·약속의 조건("~하면 ~하기로")·규칙 같은 것. 각각 한 문장, 숫자와 조건은 원문 그대로. 없으면 [].
 - 장면에 없는 내용은 지어내지 마. [사용자 캐릭터]의 속마음은 원문에 드러난 것만 쓰고, 아니면 "~로 보인다(추정)".
@@ -1064,6 +1065,11 @@ function buildChapterPrompt(store, scenes) {
   for (const sc of scenes) {
     parts.push(`${sc.id} | ${[sc.time, sc.place, sc.weather].filter(Boolean).join(' · ')} | ${sc.title}: ${sc.summary}${memoryNote(sc, castOf(store))}`);
     for (const e of sc.events.filter((x) => x.importance !== 'minor' || /\d/.test(x.text))) parts.push(`  - ${e.importance === 'critical' ? '★ ' : ''}${e.text}${e.why ? ` (계기: ${e.why})` : ''}`);
+    for (const r of sc.recollections || []) {
+      if (r.remembers === 'none') continue;
+      const remembered = r.remembers === 'partial' ? r.kept : r.text;
+      if (r.who && remembered) parts.push(`  - ${r.who}의 회상${r.remembers === 'partial' ? ' (흐릿함)' : ''}: ${remembered}`);
+    }
     for (const x of sc.later || []) parts.push(`  - 나중에 밝혀짐: ${x.what}`);
   }
   const facts = liveFacts(store).filter((f) => ids.has(f.sceneId));
@@ -1166,7 +1172,11 @@ function renderChapters(store, limit = 4000, query = '', today = null) {
   const full = (c) => [`${c.id} ${c.time ? `${c.time} — ` : ''}${c.title}: ${c.summary}`, ...c.turns.map((t) => `  · ${t}`), ...(c.keep || []).map((t) => `  ※ ${t}`)].join('\n');
   // Details that must stay exact (deadlines, conditions) are kept even when the chapter is shortened.
   const keepLines = (c) => (c.keep || []).map((t) => `  ※ ${t}`).join('\n');
-  const short = (c) => [`${c.id} ${c.time ? `${c.time} — ` : ''}${c.title}: ${String(c.summary).split(/(?<=[.다])\s/)[0]}`, keepLines(c)].filter(Boolean).join('\n');
+  const short = (c) => {
+    const sentences = String(c.summary).split(/(?<=[.!?。！？])\s+/).filter(Boolean);
+    const summary = sentences.slice(-2).join(' ');
+    return [`${c.id} ${c.time ? `${c.time} — ` : ''}${c.title}: ${summary}`, keepLines(c)].filter(Boolean).join('\n');
+  };
   const tiny = (c) => `${c.id} ${c.title}`;
   // Order of details: what the talk touches now; then dates still ahead in the story (nearest first); then the
   // newest; details whose date has already passed come last.
@@ -1601,3 +1611,4 @@ module.exports = {
   renderExpanded,
   cleanQuote,
   SCENE_PROMPT, changedAt, setKnowing, undoKnowing };
+
