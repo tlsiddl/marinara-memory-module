@@ -1358,6 +1358,72 @@ function oneSitting(meals) {
   return out;
 }
 
+// Display-only semantic groupings are keyed to all source records. An edit or rollback changes the key,
+// so an old model result cannot silently overwrite a new user edit or alter the raw routine history.
+function mealDisplayKey(meal) {
+  return hashText(JSON.stringify(meal.parts.map((p) => [p.who, p.at, p.number, p.text, !!p.edited])));
+}
+
+function pendingMealDisplays(ledger, limit = 20) {
+  const meals = (ledger?.routine || []).filter((r) => r.what === 'meal' && !r.substitute && r.at);
+  const result = [];
+  for (const who of [...new Set(meals.map((r) => r.who))]) {
+    for (const meal of oneSitting(meals.filter((r) => r.who === who))) {
+      const parts = meal.parts.flatMap((p) => foodParts(p.text));
+      if (parts.length < 2 || parts.length > 30) continue;
+      const key = mealDisplayKey(meal);
+      if (ledger.mealDisplays?.[key]) continue;
+      result.push({ key, who, at: meal.at, parts });
+      if (result.length >= limit) return result;
+    }
+  }
+  return result;
+}
+
+// Each input part must occur exactly once; model-selected labels must be existing input parts.
+function applyMealDisplays(ledger, candidates, answers) {
+  if (!Array.isArray(answers)) return 0;
+  const expected = new Map(candidates.map((x) => [x.key, x]));
+  let saved = 0;
+  for (const answer of answers) {
+    const candidate = expected.get(answer?.key);
+    if (!candidate || !Array.isArray(answer.groups) || !answer.groups.length) continue;
+    const used = new Set();
+    let valid = true;
+    for (const group of answer.groups) {
+      if (!Array.isArray(group?.parts) || !group.parts.length || !Number.isInteger(group.label) || !group.parts.includes(group.label)) { valid = false; break; }
+      for (const i of group.parts) {
+        if (!Number.isInteger(i) || i < 0 || i >= candidate.parts.length || used.has(i)) { valid = false; break; }
+        used.add(i);
+      }
+      if (!valid) break;
+    }
+    if (!valid || used.size !== candidate.parts.length) continue;
+    ledger.mealDisplays ||= {};
+    ledger.mealDisplays[candidate.key] = answer.groups.map((g) => ({ parts: [...g.parts], label: g.label }));
+    const keys = Object.keys(ledger.mealDisplays);
+    for (const old of keys.slice(0, Math.max(0, keys.length - 300))) delete ledger.mealDisplays[old];
+    saved++;
+  }
+  return saved;
+}
+
+function semanticMealText(meal, cache) {
+  const parts = meal.parts.flatMap((p) => foodParts(p.text));
+  const groups = cache?.[mealDisplayKey(meal)];
+  if (!Array.isArray(groups) || !groups.length) return null;
+  const used = new Set();
+  for (const group of groups) {
+    if (!Array.isArray(group?.parts) || !group.parts.includes(group.label)) return null;
+    for (const index of group.parts) {
+      if (!Number.isInteger(index) || index < 0 || index >= parts.length || used.has(index)) return null;
+      used.add(index);
+    }
+  }
+  if (used.size !== parts.length) return null;
+  return groups.map((group) => group.parts.length > 1 ? foodLabel(parts[group.label]) || parts[group.label] : parts[group.label]).join(', ');
+}
+
 const minutesBetween = (a, b) => (Date.parse(`${b}:00Z`) - Date.parse(`${a}:00Z`)) / 60000;
 
 /**
@@ -1544,7 +1610,7 @@ function renderRoutine(ledger, now = null) {
     const awake = all.filter((r) => r.who === who && ['meal', 'wash', 'medicine'].includes(r.what) && r.at).map((r) => r.at);
     const parts = [];
     const item = (r) => `${r.at ? r.at.slice(11) : ''} ${r.text || ''}${r.claimed ? ' (본인 주장)' : ''}`.trim();
-    const meals = oneSitting(of('meal').filter((r) => !r.substitute));
+    const meals = oneSitting(of('meal').filter((r) => !r.substitute)).map((meal) => ({ ...meal, text: semanticMealText(meal, ledger.mealDisplays) || meal.text }));
     const madeDo = of('meal').filter((r) => r.substitute);
     if (meals.length || madeDo.length) {
       const last = meals.at(-1);
@@ -1936,6 +2002,8 @@ function renderCompact(ledger, { maxChars = 2400, query = '', today = ledger?.st
 }
 
 module.exports = {
+  pendingMealDisplays,
+  applyMealDisplays,
   groupCast,
   awarenessIn,
   editRoutine,
