@@ -1412,15 +1412,21 @@ function hours(minutes, partial = false) {
  * how many meals, and how long the night's sleep that ended it was. "10-17 (목): 1끼, 밤잠 3시간"
  */
 function pastDays(meals, nights) {
-  const out = [];
-  for (let i = nights.length - 1; i >= 1 && out.length < PAST_DAYS; i--) {
+  const days = new Map();
+  for (let i = nights.length - 1; i >= 1; i--) {
     const from = nights[i - 1].wake || nights[i - 1].awakeBy;
     const to = nights[i].wake || nights[i].awakeBy;
+    if (!from || !to || from >= to) continue;
+    const date = from.slice(0, 10);
+    if (!days.has(date) && days.size >= PAST_DAYS) break;
     const count = meals.filter((r) => r.at && r.at >= from && r.at < to).length;
     const slept = nights[i].minutes != null ? hours(nights[i].minutes, nights[i].partial) : '시간 모름';
-    out.push(`${dayLabel(from.slice(0, 10))}: ${count}끼, 그 뒤 밤잠 ${slept}`);
+    const day = days.get(date) || { count: 0, sleeps: [] };
+    day.count += count;
+    day.sleeps.push(slept);
+    days.set(date, day);
   }
-  return out;
+  return [...days].map(([date, day]) => `${dayLabel(date)}: ${day.count}끼, 그 뒤 밤잠 ${day.sleeps.length === 1 ? day.sleeps[0] : day.sleeps.reverse().join(' / ')}`);
 }
 
 function clock(at, today) {
@@ -1944,4 +1950,5 @@ module.exports = {
   faded,
   lastSeen,
   SYSTEM_PROMPT, matchName, nameKeys, htmlToText, canonNames };
+
 
