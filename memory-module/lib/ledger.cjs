@@ -376,14 +376,14 @@ const SYSTEM_PROMPT = `너는 장기 롤플레이의 기억 관리자야. 새 �
 - 인물 이름은 본문에 쓰인 그대로 적어. 수위 높은 장면도 의미 있는 변화는 기록하되 설명은 짧게.
 
 생활 기록(routine):
-- 이 메시지들에서 누가(모든 인물) 실제로 끼니를 먹었거나(meal), 씻었거나(wash), 잠들었거나(sleep), 깼거나(wake), 약을 먹었으면(medicine) 적어.
+- 이 메시지들에서 누가(모든 인물) 실제로 끼니를 먹었거나(meal), 씻었거나(wash), 꾸몄거나(groom), 잠들었거나(sleep), 깼거나(wake), 약을 먹었으면(medicine) 적어.
   meal은 배를 채우는 끼니(밥, 요리, 빵, 죽 등)만이야. 물·커피·술·음료·담배·사탕이나 간식 한 입은 meal이 아니야.
   who는 먹은 사람이야. 남에게 먹여 주기만 한 사람은 먹은 게 아니야.
   함께 잠들거나 함께 깬 사람도 who에 모두 적어(예: 셋이 소파에서 같이 잠듦 → "서아·도윤·하준"). 같은 식탁에 앉았거나 함께 식사 시간을 가졌다고 나오면, 안 먹었다는 서술이 없는 한 같이 먹은 걸로 쳐. 그럴 땐 who에 함께 먹은 사람을 "서아·도윤·하준"처럼 모두 적어.
   예외: 끼니 대신 음료나 간식으로 '때웠다'면 meal로 적고 how를 "substitute"로 해. 제대로 먹었으면 how는 "ate".
   먹는 장면 없이 누가 "먹었어", "커피로 때웠어"라고 말로만 했으면 claimed를 true로 해(거짓말일 수도 있으니까).
   하기로 한 것, 권하기만 한 것은 아니야. 이 메시지 안에서 실제로 하는 장면만. 예전에 먹었다·잤다고 다시 말하는 건 아니야(예: "그래도 스테이크는 먹고 잠갔잖아"). 먹은 것이나 한 일은 text에 짧게.
-  '씻었다'는 말이 없어도 씻은 게 당연히 들어 있는 일이면 wash로 적어: 외출 준비를 마침, 단장함, 세수·양치, 머리를 감음, 몸단장. text에 그 일을 써(예: "외출 준비").
+  외출 준비를 마쳤거나 씻기·샤워·세수·양치·머리 감기를 했으면 wash로 적어(외출 준비는 사용자가 요청한 씻기 추정 규칙). 화장·마스카라·립스틱·향수·헤어스타일만 손본 것은 groom으로 따로 적고 wash로 적지 마. 샤워와 화장을 둘 다 했다면 각각 기록해. text에 실제 한 일을 써.
   시간 계산(몇 시간 잤는지, 몇 끼째인지)은 하지 마. 프로그램이 해.
 - 이건 장부 항목이 아니라 '언제 했는지' 기록이야. 없으면 [].
 
@@ -392,7 +392,7 @@ const SYSTEM_PROMPT = `너는 장기 롤플레이의 기억 관리자야. 새 �
  "update":[{"id":"T3","now":"새로 생긴 일 한 문장","at":"작중 시간 또는 null","detail":"지금 남은 내용으로 고쳐 쓴 설명 또는 null","period":null,"due":null,"learned":[],"evidence":[{"n":"15.2","q":"핵심 구절"}]}],
  "close":[{"id":"T3","how":"어떻게 끝났는지","at":"작중 시간 또는 null","evidence":[{"n":"20.1","q":"핵심 구절"}]}],
  "reopen":[{"id":"T7","why":"아직 끝나지 않은 이유","evidence":[{"n":"21.4","q":"핵심 구절"}]}],
- "routine":[{"who":"인물","what":"meal|wash|sleep|wake|medicine","text":"스테이크 반 접시","how":"ate|substitute (meal일 때만)","claimed":false,"evidence":[{"n":"22.3","q":"핵심 구절"}]}]}
+ "routine":[{"who":"인물","what":"meal|wash|groom|sleep|wake|medicine","text":"스테이크 반 접시","how":"ate|substitute (meal일 때만)","claimed":false,"evidence":[{"n":"22.3","q":"핵심 구절"}]}]}
 바뀐 게 없으면 {"open":[],"update":[],"close":[],"reopen":[],"routine":[]}.`;
 
 const TIDY_PROMPT = `너는 장기 롤플레이의 기억 관리자야. 지금 장부의 열린 항목을 점검해.
@@ -1246,9 +1246,12 @@ function clockNote(message) {
   return parts.length ? ` (${parts.join(' · ')})` : '';
 }
 
-const ROUTINE = ['meal', 'wash', 'sleep', 'wake', 'medicine'];
+const ROUTINE = ['meal', 'wash', 'groom', 'sleep', 'wake', 'medicine'];
 const ROUTINE_KEEP = 40;
 const PAST_DAYS = 3;
+const COSMETICS = /(화장(?!실)|메이크업|마스카라|립스틱|립\s*마무리|향수|헤어스타일|make\s?up|mascara|lipstick|perfume)/i;
+const WASHING = /(샤워|목욕|세수|양치|씻|머리\s*감|클렌징|외출\s*준비|shower|bath|wash)/i;
+const routineDisplayKind = (r) => r.what === 'wash' && COSMETICS.test(r.text || '') && !WASHING.test(r.text || '') ? 'groom' : r.what;
 const DRINK_OR_SMOKE = /(담배|시가|궐련|커피|라떼|술|맥주|와인|버번|위스키|보드카|칵테일|음료|주스|우유|콜라|탄산|녹차|홍차|(?:^|\s)물(?:\s|을|만|$)|얼음물|생수|사탕|껌)/;
 const FOOD = /(밥|식사|끼니|아침|점심|저녁|야식|브런치|스테이크|고기|빵|토스트|샌드위치|죽|국|찌개|요리|면|라면|파스타|샐러드|피자|햄버거|계란|달걀|과일|수프|스프|도시락|김밥|떡)/;
 
@@ -1440,7 +1443,7 @@ function nightSleeps(sleeps, wakes, awake = []) {
   for (const wake of [...wakes].filter((w) => w.at).sort((a, b) => a.at.localeCompare(b.at))) {
     // A bedtime pairs with the first waking after it only.
     let slept = [...sleeps]
-      .filter((s) => s.at && s.at < wake.at && (!previousWake || s.at >= previousWake) && !used.has(s) && minutesBetween(s.at, wake.at) < 16 * 60)
+      .filter((s) => s.at && s.at < wake.at && (!previousWake || s.at > previousWake) && !used.has(s) && minutesBetween(s.at, wake.at) < 16 * 60)
       .sort((a, b) => a.at.localeCompare(b.at))[0];
     // Ate, washed or took medicine in between: they were up. That bedtime ended some time before (its waking was
     // not written down), and this waking ends a sleep that started after the last of those.
@@ -1607,7 +1610,7 @@ function renderRoutine(ledger, now = null) {
   for (const who of people) {
     const of = (what) => all.filter((r) => r.who === who && r.what === what);
     // Times they were plainly up: a sleep can't have run through these.
-    const awake = all.filter((r) => r.who === who && ['meal', 'wash', 'medicine'].includes(r.what) && r.at).map((r) => r.at);
+    const awake = all.filter((r) => r.who === who && ['meal', 'wash', 'groom', 'medicine'].includes(r.what) && r.at).map((r) => r.at);
     const parts = [];
     const item = (r) => `${r.at ? r.at.slice(11) : ''} ${r.text || ''}${r.claimed ? ' (본인 주장)' : ''}`.trim();
     const meals = oneSitting(of('meal').filter((r) => !r.substitute)).map((meal) => ({ ...meal, text: semanticMealText(meal, ledger.mealDisplays) || meal.text }));
@@ -1653,8 +1656,11 @@ function renderRoutine(ledger, now = null) {
     }
     const days = pastDays(meals, nights);
     if (days.length) parts.push(`지난 며칠: ${days.join(' / ')}`);
-    const lastWash = of('wash').at(-1);
+    const oldWash = of('wash');
+    const lastWash = oldWash.filter((r) => routineDisplayKind(r) === 'wash').at(-1);
     if (lastWash) parts.push(`씻기 마지막 ${clock(lastWash.at, today)}${lastWash.text ? ` ${lastWash.text}` : ''}${ago(lastWash.at, now) ? `(${ago(lastWash.at, now)})` : ''}`);
+    const grooming = [...of('groom'), ...oldWash.filter((r) => COSMETICS.test(r.text || ''))].sort((a, b) => String(a.at || '').localeCompare(String(b.at || ''))).at(-1);
+    if (grooming) parts.push(`꾸밈 마지막 ${clock(grooming.at, today)}${grooming.text ? ` ${grooming.text}` : ''}${ago(grooming.at, now) ? `(${ago(grooming.at, now)})` : ''}`);
     // Each medicine on its own: a pill taken every morning is not hidden by a painkiller taken later.
     const byDrug = new Map();
     for (const r of of('medicine')) byDrug.set(drugName(r.text), r);
@@ -2002,6 +2008,7 @@ function renderCompact(ledger, { maxChars = 2400, query = '', today = ledger?.st
 }
 
 module.exports = {
+  routineDisplayKind,
   pendingMealDisplays,
   applyMealDisplays,
   groupCast,

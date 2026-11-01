@@ -656,15 +656,15 @@
   function viewLife() {
     if (!info) return emptyRoom();
     return `<div class="eyebrow">DAILY LIFE</div><h1>최근 생활</h1>
-      <p class="intro">인물마다 마지막 식사·씻기·잠·약을 보여 드립니다. 몇 끼째인지, 몇 시간 잤는지는 지문의 작중 시각으로 프로그램이 계산합니다.</p>
+      <p class="intro">인물마다 마지막 식사·씻기·꾸밈·잠·약을 보여 드립니다. 몇 끼째인지, 몇 시간 잤는지는 지문의 작중 시각으로 프로그램이 계산합니다.</p>
       ${info.routine ? `<pre>${esc(info.routine)}</pre>` : '<div class="empty">아직 기록이 없습니다.</div>'}
       ${routineEditor()}`;
   }
 
-  const ROUTINE_LABEL = { meal: '식사', wash: '씻기', sleep: '잠듦', wake: '깸', medicine: '약' };
+  const ROUTINE_LABEL = { meal: '식사', wash: '씻기', groom: '꾸밈', sleep: '잠듦', wake: '깸', medicine: '약' };
 
   function routineRow(r, key) {
-    const opts = Object.entries(ROUTINE_LABEL).map(([k, v]) => `<option value="${k}" ${r.what === k ? 'selected' : ''}>${v}</option>`).join('');
+    const opts = Object.entries(ROUTINE_LABEL).map(([k, v]) => `<option value="${k}" ${(r.displayWhat || r.what) === k ? 'selected' : ''}>${v}</option>`).join('');
     return `<div class="routine-row" data-rkey="${esc(key)}">
       <select data-f="what" aria-label="무엇">${opts}</select>
       <input data-f="at" type="datetime-local" value="${esc(r.at || '')}" aria-label="작중 시각">
