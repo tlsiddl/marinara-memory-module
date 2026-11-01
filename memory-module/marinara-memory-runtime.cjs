@@ -59,7 +59,7 @@ const PATCHES = [
   },
   {
     name: 'speakerNamesSingle',
-    target: /[\\/]packages[\\/]server[\\/]dist[\\/]routes[\\/]generate\\.routes\\.js$/,
+    target: /[\\/]packages[\\/]server[\\/]dist[\\/]routes[\\/]generate\.routes\.js$/,
     anchor: 'if (isGroupChat) {\n          // Inject group chat instructions at the end of the last user message',
     before: true,
     insert: 'try { if (chatMode === "roleplay" && !isGroupChat && !input.impersonate) { const memoryNameInstruction = globalThis.__marinaraMemory?.nameInstructions?.(input.chatId, charInfo.map((c) => c.name)); if (memoryNameInstruction) injectIntoOutputFormatOrLastUser(finalMessages, memoryNameInstruction, { indent: true }); } } catch {}\n',
