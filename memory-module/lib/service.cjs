@@ -1437,8 +1437,7 @@ function translateMissing(chatId, target, texts, { max = TRANSLATE_MAX_PER_RUN }
       const parsed = L.parseJsonObject(await askModel(model, T.buildTranslatePrompt(part, target), { maxTokens: 6000 }));
       const out = T.readTranslation(parsed, part);
       if (!out) {
-        log(`chat ${chatId}: translation reply did not line up, will try again later`);
-        continue;
+        throw Error('번역 응답의 형식이 올바르지 않습니다. 번역 연결과 모델을 확인해 주세요.');
       }
       const data = loadTranslations(chatId);
       part.forEach((src, i) => {
@@ -1448,6 +1447,7 @@ function translateMissing(chatId, target, texts, { max = TRANSLATE_MAX_PER_RUN }
         }
       });
       saveTranslations(chatId, data);
+      if (out.some((t) => !t)) throw Error('번역 응답에 누락되거나 유효하지 않은 항목이 있습니다. 남은 항목을 다시 번역해 주세요.');
     }
     if (done) log(`chat ${chatId}: translated ${done} memory line(s) into ${target}`);
     return done;
@@ -1493,6 +1493,20 @@ async function translateAfterRun(chatId, job) {
  * The stored memory is not changed; only the translation cache is filled. Status per chat for the library.
  */
 const preparing = new Map();
+const displayTranslationStatus = new Map();
+function startDisplayTranslation(chatId, missing, force = false) {
+  const previous = displayTranslationStatus.get(chatId);
+  if (translating.has(`${chatId}:ko`)) return false;
+  if (!force && previous?.error && Date.now() - previous.at < PREPARE_RETRY_MS) return false;
+  const state = { error: null, at: Date.now() };
+  displayTranslationStatus.set(chatId, state);
+  translateMissing(chatId, 'ko', missing).catch((error) => {
+    state.error = String(error?.message || error).slice(0, 300);
+    state.at = Date.now();
+    log(`chat ${chatId}: display translation failed (${state.error})`);
+  });
+  return true;
+}
 const PREPARE_RETRY_MS = 2 * 60_000;
 
 function prepareStatus(chatId) {
@@ -1907,8 +1921,19 @@ async function routes(app) {
       if (done != null) items[t] = done;
       else missing.push(t);
     }
-    if (missing.length && settings().connection) translateMissing(chatId, 'ko', missing).catch((error) => log(`chat ${chatId}: translation failed (${error?.message || error})`));
-    return { chatLang: chatLangs.get(chatId) || 'ko', items, missing: missing.length, working: translating.has(`${chatId}:ko`) };
+    if (missing.length && settings().connection) startDisplayTranslation(chatId, missing);
+    const status = displayTranslationStatus.get(chatId);
+    return { chatLang: chatLangs.get(chatId) || 'ko', items, missing: missing.length, working: translating.has(`${chatId}:ko`), error: missing.length ? (status?.error || (!settings().connection ? '기억 정리 연결을 설정해 주세요.' : null)) : null };
+  }));
+  app.post('/chats/:id/translations/retry', guard(async (req) => {
+    const chatId = safeChatId(req.params.id);
+    if (translating.has(`${chatId}:ko`)) return { working: true, alreadyWorking: true };
+    const lookup = translationLookup(chatId, 'ko');
+    const missing = displayTranslationTexts(chatId).filter((t) => lookup(t) == null);
+    if (!missing.length) return { working: false, missing: 0 };
+    if (!settings().connection) throw Error('기억 정리 연결을 설정해 주세요.');
+    startDisplayTranslation(chatId, missing, true);
+    return { working: true, missing: missing.length };
   }));
   app.post('/settings/chapter-length', guard(async (req) => {
     const length = String(req.body?.length || '').trim();
@@ -2409,6 +2434,7 @@ function attach(app) {
 }
 
 module.exports = { fixSpeakers, speakerInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, loadTranslations, saveTranslations, chatLangs, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, jobs, writeLanguage, memoryCallOptions } };
+
 
 
 
