@@ -1545,7 +1545,7 @@ function hours(minutes, partial = false) {
  * The last few days before today, a day running from one night's waking to the next:
  * how many meals, and how long the night's sleep that ended it was. "10-17 (목): 1끼, 밤잠 3시간"
  */
-function pastDays(meals, nights) {
+function pastDays(meals, nights, naps = []) {
   const days = new Map();
   for (let i = nights.length - 1; i >= 1; i--) {
     const from = nights[i - 1].wake || nights[i - 1].awakeBy;
@@ -1555,17 +1555,20 @@ function pastDays(meals, nights) {
     if (!days.has(date) && days.size >= PAST_DAYS) break;
     const count = meals.filter((r) => r.at && r.at >= from && r.at < to).length;
     const slept = nights[i].minutes != null ? hours(nights[i].minutes, nights[i].partial) : '시간 모름';
-    const day = days.get(date) || { count: 0, sleeps: [] };
+    const day = days.get(date) || { count: 0, sleeps: [], naps: [] };
     day.count += count;
     day.sleeps.push(slept);
+    day.naps.push(...naps.filter((n) => n.slept >= from && n.wake <= to));
     days.set(date, day);
   }
   return [...days].map(([date, day]) => {
     const sleeps = day.sleeps.reverse();
     const known = sleeps.filter((x) => x !== '시간 모름');
-    const unknown = sleeps.length - known.length;
-    const shown = known.length ? known.join(', ') + (unknown ? ' (다른 수면 기록 시간 모름)' : '') : '시간 모름';
-    return `${dayLabel(date)}: ${day.count}끼, 그 뒤 밤잠 ${shown}`;
+    const shown = known.length ? known.join(', ') : '시간 미확인';
+    const napText = day.naps.length
+      ? `낮잠 ${day.naps.length}회, 총 ${hours(day.naps.reduce((total, n) => total + n.minutes, 0))}`
+      : '낮잠 시간 확인 가능한 기록 없음';
+    return `${dayLabel(date)}: ${day.count}끼, ${napText}, 그 뒤 밤잠 ${shown}`;
   });
 }
 
@@ -1693,11 +1696,11 @@ function renderRoutine(ledger, now = null) {
       const lasted = slept?.at && woke.at ? span(slept.at, woke.at) : null;
       parts.push(`잠 ${slept ? `${clock(slept.at, today)}에 잠들어 ` : ''}${clock(woke.at, today)}에 깸${lasted ? `(${lasted} 잠)` : ''}`);
     }
-    const naps = completedNaps(of('sleep'), of('wake'), awake)
-      .filter((n) => !now || (n.wake <= now && minutesBetween(n.wake, now) <= 24 * 60));
+    const allNaps = completedNaps(of('sleep'), of('wake'), awake);
+    const naps = allNaps.filter((n) => !now || (n.wake <= now && minutesBetween(n.wake, now) <= 24 * 60));
     if (naps.length) parts.push(`${now ? '최근 24시간' : '기록된'} 낮잠 ${naps.length}회, 총 ${hours(naps.reduce((total, n) => total + n.minutes, 0))}`);
     else if (now) parts.push('최근 24시간 낮잠: 시간 확인 가능한 기록 없음');
-    const days = pastDays(meals, nights);
+    const days = pastDays(meals, nights, allNaps);
     if (days.length) parts.push(`지난 며칠: ${days.join(' / ')}`);
     const oldWash = of('wash');
     const lastWash = oldWash.filter((r) => routineDisplayKind(r) === 'wash').at(-1);

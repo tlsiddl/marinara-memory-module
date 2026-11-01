@@ -34,3 +34,18 @@ test('explicit morning nap is not presented as night sleep', () => {
   assert.match(out, /최근 24시간 낮잠 1회, 총 30분/);
   assert.doesNotMatch(out, /밤잠/);
 });
+
+test('completed previous days include the naps in each waking-to-waking period', () => {
+  const routine = [
+    r('sleep','2025-11-14T23:00'), r('wake','2025-11-15T08:00'),
+    r('meal','2025-11-15T12:00','밥'),
+    r('sleep','2025-11-15T15:00','낮잠'), r('wake','2025-11-15T15:30'),
+    r('sleep','2025-11-15T18:00','낮잠'), r('wake','2025-11-15T19:00'),
+    r('sleep','2025-11-15T22:10'), r('wake','2025-11-16T08:00'),
+    r('sleep','2025-11-16T18:15','낮잠'), r('wake','2025-11-16T20:30'),
+    r('sleep','2025-11-16T23:20'), r('wake','2025-11-17T08:00'),
+  ];
+  const out = L.renderRoutine({routine}, '2025-11-17T10:05');
+  assert.match(out, /25-11-16 \(일\): 0끼, 낮잠 1회, 총 2시간 15분, 그 뒤 밤잠 8시간 40분/);
+  assert.match(out, /25-11-15 \(토\): 1끼, 낮잠 2회, 총 1시간 30분, 그 뒤 밤잠 9시간 50분/);
+});

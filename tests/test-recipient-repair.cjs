@@ -19,7 +19,7 @@ test('recipient repair uses source context, known names, and preserves existing 
   assert.equal(S.recipientCandidates({ scenes: [scene] }, messages).length, 0);
 });
 
-test('same-date wake cycles appear on one date and preserve uncertain sleep', () => {
+test('same-date wake cycles show one date without an extra unknown next to known sleep', () => {
   const r = (what, at) => ({ who: '이리나', what, at, text: what, number: 1 });
   const routine = [r('wake','2025-11-15T08:00'), r('meal','2025-11-15T09:00'), r('wake','2025-11-15T12:00'),
     r('meal','2025-11-15T13:00'), r('sleep','2025-11-15T22:10'), r('wake','2025-11-16T08:00'),
@@ -27,5 +27,6 @@ test('same-date wake cycles appear on one date and preserve uncertain sleep', ()
   const out = L.renderRoutine({ routine }, '2025-11-17T10:05');
   assert.equal((out.match(/25-11-15 \(토\):/g) || []).length, 1, out);
   assert.match(out, /25-11-15 \(토\): 2끼/);
-  assert.match(out, /25-11-15 \(토\): 2끼, 그 뒤 밤잠 9시간 50분 \(다른 수면 기록 시간 모름\)/);
+  assert.match(out, /25-11-15 \(토\): 2끼, 낮잠 시간 확인 가능한 기록 없음, 그 뒤 밤잠 9시간 50분/);
+  assert.doesNotMatch(out, /다른 수면 기록 시간 모름/);
 });
