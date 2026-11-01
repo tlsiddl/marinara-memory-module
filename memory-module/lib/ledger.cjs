@@ -1308,6 +1308,17 @@ function foodLabel(text) {
 }
 const foodKey = (text) => foodLabel(text).toLowerCase();
 
+// Match a named pasta to its generic noodle/pasta reference without equating different pasta types.
+function sameNamedPasta(a, b) {
+  const pastaName = (s) => s.match(/(?:페투치네|펫투치네|fettuccine|스파게티|spaghetti|링귀니|linguine)/i)?.[0]?.toLowerCase();
+  const first = pastaName(a), second = pastaName(b);
+  if (!first || !second) return false;
+  const canonical = (s) => s === '펫투치네' || s === 'fettuccine' ? '페투치네' : s === 'spaghetti' ? '스파게티' : s === 'linguine' ? '링귀니' : s;
+  if (canonical(first) !== canonical(second)) return false;
+  const generic = (s, name) => s.replace(name, '').replace(/(?:파스타|면|pasta|noodles?)/gi, '').trim() === '';
+  return generic(a, first) || generic(b, second);
+}
+
 /**
  * What a sitting was, from the entries filed turn by turn ("스테이크 한 입", "스테이크 몇 점", "스테이크"):
  * one name per dish, the latest wording of it; different dishes are listed in the order they came.
@@ -1317,7 +1328,7 @@ function sittingText(entries) {
   for (const r of entries) {
     for (const text of foodParts(r.text)) {
       const dish = foodKey(text) || text;
-      const same = dishes.find((d) => d.dish === dish || d.dish.includes(dish) || dish.includes(d.dish));
+      const same = dishes.find((d) => d.dish === dish || d.dish.includes(dish) || dish.includes(d.dish) || sameNamedPasta(d.dish, dish));
       if (!same) dishes.push({ dish, texts: [text] });
       else {
         same.texts.push(text);
@@ -1342,7 +1353,7 @@ function oneSitting(meals) {
       first.claimed = first.parts.every((p) => p.claimed);
       continue;
     }
-    out.push({ ...r, parts: [r] });
+    out.push({ ...r, text: sittingText([r]) || r.text, parts: [r] });
   }
   return out;
 }
@@ -1441,7 +1452,13 @@ function pastDays(meals, nights) {
     day.sleeps.push(slept);
     days.set(date, day);
   }
-  return [...days].map(([date, day]) => `${dayLabel(date)}: ${day.count}끼, 그 뒤 밤잠 ${day.sleeps.length === 1 ? day.sleeps[0] : day.sleeps.reverse().join(' / ')}`);
+  return [...days].map(([date, day]) => {
+    const sleeps = day.sleeps.reverse();
+    const known = sleeps.filter((x) => x !== '시간 모름');
+    const unknown = sleeps.length - known.length;
+    const shown = known.length ? known.join(', ') + (unknown ? ' (다른 수면 기록 시간 모름)' : '') : '시간 모름';
+    return `${dayLabel(date)}: ${day.count}끼, 그 뒤 밤잠 ${shown}`;
+  });
 }
 
 function clock(at, today) {

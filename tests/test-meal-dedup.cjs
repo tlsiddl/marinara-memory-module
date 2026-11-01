@@ -26,3 +26,16 @@ test('one bite remains a bite until another record updates it', () => {
 test('food labels in other languages preserve their case', () => {
   assert.match(render(['Steak, Salad', 'more of the Steak']), /Steak, Salad/);
 });
+test('fettuccine noodles are one dish even in a single historical entry', () => {
+  const result = render(['데워진 페투치네 라구 파스타, 블루 레어 스테이크 마지막 두 조각, 페투치네 면, 탄산수']);
+  assert.equal((result.match(/페투치네/g) || []).length, 1, result);
+  assert.match(result, /페투치네 라구 파스타/);
+  assert.match(result, /스테이크/);
+  assert.match(result, /탄산수/);
+});
+test('generic fettuccine does not erase a distinct pasta type or sauce', () => {
+  const result = render(['페투치네 면', '페투치네 라구 파스타와 스파게티']);
+  assert.equal((result.match(/페투치네/g) || []).length, 1, result);
+  assert.match(result, /페투치네 라구 파스타/);
+  assert.match(result, /스파게티/);
+});
