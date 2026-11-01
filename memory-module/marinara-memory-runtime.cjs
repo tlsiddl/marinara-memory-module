@@ -15,7 +15,7 @@ const { fileURLToPath } = require('node:url');
 const TAG = '[memory-module]';
 /** The Marinara version these patches were made and tested against. */
 const TESTED_MARINARA = '2.4.6';
-const VERSION = '0.11.22-marinara.2.4.6.27';
+const VERSION = '0.11.23-marinara.2.4.6.28';
 const NOTES_DIR = process.env.MEMORY_MODULE_NOTES_DIR || path.join(__dirname, 'notes');
 const DEFAULT_NOTE = '_default.txt';
 /** Last safety net only: the service already keeps the memory within its own limit (40,000 by default). */
@@ -47,6 +47,14 @@ const PATCHES = [
     before: true,
     insert: 'try { const fixed = globalThis.__marinaraMemory?.fixSpeakers?.(fullResponse, { chatId: input.chatId, chatMode, isGroupChat, usesIndividualGroupGeneration, impersonate: input.impersonate, charInfo }); if (typeof fixed === "string" && fixed !== fullResponse) { fullResponse = fixed; contentReplaced = true; } } catch {}\n',
     ok: 'speaker tags are put back before reply streaming and saving (legacy route)',
+  },
+  {
+    name: 'speakerNamesPrompt',
+    target: /[\\/]packages[\\/]server[\\/]dist[\\/]routes[\\/]generate\.routes\.js$/,
+    anchor: 'if (isGroupChat) {\n          // Inject group chat instructions at the end of the last user message',
+    before: true,
+    insert: 'try { if (chatMode === "roleplay" && !input.impersonate) { const memoryNameInstruction = globalThis.__marinaraMemory?.nameInstructions?.(input.chatId, charInfo.map((c) => c.name)); if (memoryNameInstruction) injectIntoOutputFormatOrLastUser(finalMessages, memoryNameInstruction, { indent: true }); } } catch {}\n',
+    ok: 'roleplay has visible dialogue name instructions',
   },
   {
     name: 'speakerPrompt',
@@ -154,6 +162,10 @@ function speakerInstructions(chatId, names) {
   return loadService()?.speakerInstructions?.(chatId, names) || '';
 }
 
+function nameInstructions(chatId, names) {
+  return loadService()?.nameInstructions?.(chatId, names) || '';
+}
+
 function attach(app) {
   const s = loadService();
   if (s) s.attach(app);
@@ -166,7 +178,7 @@ function install() {
   }
   // What happened to each patch: 'ok', 'failed' (this Marinara version differs), or missing (file not loaded yet).
   const patches = {};
-  globalThis.__marinaraMemory = { version: VERSION, testedMarinara: TESTED_MARINARA, patches, render, attach, fixSpeakers, speakerInstructions };
+  globalThis.__marinaraMemory = { version: VERSION, testedMarinara: TESTED_MARINARA, patches, render, attach, fixSpeakers, speakerInstructions, nameInstructions };
   registerHooks({
     load(url, context, nextLoad) {
       if (!url.startsWith('file:')) return nextLoad(url, context);
@@ -224,6 +236,7 @@ else if (process.env.MEMORY_MODULE_HOOK_TEST !== '1' && !globalThis.__marinaraMe
 }
 
 module.exports = { patchSource, sanitize, render, PATCHES, VERSION, TESTED_MARINARA };
+
 
 
 

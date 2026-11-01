@@ -478,6 +478,13 @@ function setSpeakerTags(chatId, on) {
   saveSettings(next);
 }
 
+function speakerNamesOn(chatId) { return settings().chats?.[chatId]?.speakerNames === true; }
+function setSpeakerNames(chatId, on) {
+  const next = settings();
+  next.chats = { ...next.chats, [chatId]: { ...(next.chats?.[chatId] || {}), speakerNames: on } };
+  saveSettings(next);
+}
+
 /* ---------- messages ---------- */
 
 function parseExtra(value) {
@@ -2094,6 +2101,7 @@ async function routes(app) {
       job,
       sceneJob,
       speakerTags: speakerTagsOn(chatId),
+      speakerNames: speakerNamesOn(chatId),
       routine: ledger ? L.renderRoutine(ledger, storyNow.get(chatId) || ledger.storyTime || null) : '',
       routineItems: (ledger?.routine || []).map((r) => ({ ...r, displayWhat: L.routineDisplayKind(r), key: L.routineKey(r) })),
       storyNow: storyNow.get(chatId) || ledger?.storyTime || null,
@@ -2273,6 +2281,11 @@ async function routes(app) {
     setSpeakerTags(safeChatId(req.params.id), on);
     return { speakerTags: on };
   }));
+  app.post('/chats/:id/speaker-names', guard(async (req) => {
+    const on = req.body?.on === true;
+    setSpeakerNames(safeChatId(req.params.id), on);
+    return { speakerNames: on };
+  }));
   app.post('/chats/:id/enable', guard(async (req) => (setChatEnabled(safeChatId(req.params.id), true), { enabled: true })));
   app.post('/chats/:id/disable', guard(async (req) => (setChatEnabled(safeChatId(req.params.id), false), { enabled: false })));
 }
@@ -2385,11 +2398,22 @@ function speakerInstructions(chatId, names) {
   return speakerTagsOn(chatId) ? SP.speakerInstructions(names) : '';
 }
 
+/** Visible name labels also apply to one-to-one RP. */
+function nameInstructions(chatId, names) {
+  return speakerNamesOn(chatId) ? SP.namePrefixInstructions(names) : '';
+}
+
 /** From Marinara's reply cleanup (synchronous): merged roleplay group replies in chats that color speakers. */
 function fixSpeakers(text, o) {
-  if (!o || o.chatMode !== 'roleplay' || !o.isGroupChat || o.usesIndividualGroupGeneration || o.impersonate) return text;
+  if (!o || o.chatMode !== 'roleplay' || o.impersonate) return text;
+  if (!o.isGroupChat && speakerNamesOn(o.chatId)) {
+    const cast = (o.charInfo || []).map(c => c.name).filter(Boolean);
+    return cast.length === 1 ? SP.prefixSingleCharacterDialogue(text, cast[0]) : text;
+  }
+  if (!o.isGroupChat || o.usesIndividualGroupGeneration) return text;
   if (!speakerColors.get(o.chatId) || !speakerTagsOn(o.chatId)) return text;
-  const fixed = SP.restoreSpeakerTags(text, (o.charInfo || []).map((c) => c.name));
+  const names = (o.charInfo || []).map((c) => c.name);
+  const fixed = SP.restoreContextSpeakerTags(SP.restoreSpeakerTags(text, names), names);
   if (fixed !== text) log(`chat ${o.chatId}: put speaker tags back on the new reply`);
   return fixed;
 }
@@ -2533,7 +2557,8 @@ function attach(app) {
   log('admin API ready at /api/memory-module');
 }
 
-module.exports = { fixSpeakers, speakerInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, loadTranslations, saveTranslations, chatLangs, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, jobs, writeLanguage, memoryCallOptions } };
+module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, loadTranslations, saveTranslations, chatLangs, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, jobs, writeLanguage, memoryCallOptions } };
+
 
 
 

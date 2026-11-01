@@ -43,6 +43,59 @@ function restoreSpeakerTags(text, names) {
   return result === text ? text : result;
 }
 
+/** Recover quote-only dialogue only when an immediately adjacent narration line names the speaker.
+ * Never infer an identity from conversational turns or a generic pronoun.
+ */
+function restoreContextSpeakerTags(text, names) {
+  const list = [...new Set((names || []).map(n => String(n || '').trim()).filter(n => n && !/[<>"\r\n]/.test(n)))].sort((a,b) => b.length-a.length);
+  if (!text || !list.length) return text;
+  const lines = String(text).split('\n');
+  const out = [...lines];
+  const quoted = /^\s*(["“「『][^\n]+["”」』])\s*(?:\([^\n]*\))?\s*$/;
+  for (let i=0;i<lines.length;i++) {
+    if (!quoted.test(lines[i]) || /<\/?speaker\b/.test(lines[i])) continue;
+    // Do not double-tag a quote in an existing multi-line speaker block.
+    const earlier = lines.slice(0,i).join('\n');
+    const opened = (earlier.match(/<speaker="[^"]*">/g)||[]).length;
+    const closed = (earlier.match(/<\/speaker>/g)||[]).length;
+    if (opened > closed) continue;
+    const adjacent = [lines[i-1] || '', lines[i+1] || ''].filter(Boolean);
+    const candidates = [];
+    for (const name of list) {
+      const e = escape(name);
+      const speechCue = new RegExp(e+'(?:이|가|은|는)?\\s*(?:말했다|물었다|대답했다|속삭였다|외쳤다|중얼거렸다|말을\\s*이었다|입을\\s*열었다)');
+      if (adjacent.some(line=>speechCue.test(line) && !/<speaker[=>]/.test(line))) candidates.push(name);
+    }
+    if (candidates.length !== 1) continue;
+    const name = candidates[0];
+    const block = [lines[i]];
+    while (i+1<lines.length && isTranslationLine(lines[i+1])) block.push(lines[++i].trim());
+    out[i-block.length+1] = '<speaker="'+name+'">'+block.join('\n')+'</speaker>';
+    for (let j=i-block.length+2;j<=i;j++) out[j] = null;
+  }
+  return out.filter(x=>x!==null).join('\n');
+}
+
+function namePrefixInstructions(names) {
+  const list = [...new Set((names||[]).map(n=>String(n||'').trim()).filter(n=>n&&!/[<>"\r\n]/.test(n)))];
+  if (!list.length) return '';
+  return 'For each character dialogue line, print the exact speaking character name followed by \` | \` before the opening quote, e.g. '+list[0]+' | "…". Preserve bilingual translations. Never label narration or user dialogue. Do not invent a speaker when uncertain. Avoid duplicate prefixes.';
+}
+
+
+/** Add visible labels to standalone dialogue lines in a one-character RP.
+ * A quote embedded in narration is deliberately not modified.
+ */
+function prefixSingleCharacterDialogue(text, name) {
+  const who = String(name || '').trim();
+  if (!who || /[<>"\r\n|]/.test(who) || !text) return text;
+  return String(text).split('\n').map(line => {
+    const m = line.match(/^(\s*)(["“「『])([^\n]+)(["”」』])(\s*(?:\([^\n]*\))?\s*)$/);
+    if (!m) return line;
+    return m[1] + who + ' | ' + line.slice(m[1].length);
+  }).join('\n');
+}
+
 /** Does a reply have character lines that lack tags? */
 function needsSpeakerTags(text, names) {
   return restoreSpeakerTags(text, names) !== text;
@@ -63,4 +116,5 @@ function speakerInstructions(names) {
   ].join('\n');
 }
 
-module.exports = { restoreSpeakerTags, needsSpeakerTags, isTranslationLine, speakerInstructions };
+module.exports = { restoreSpeakerTags, restoreContextSpeakerTags, needsSpeakerTags, isTranslationLine, speakerInstructions, namePrefixInstructions, prefixSingleCharacterDialogue };
+
