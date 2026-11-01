@@ -2405,7 +2405,12 @@ function nameInstructions(chatId, names) {
 
 /** From Marinara's reply cleanup (synchronous): merged roleplay group replies in chats that color speakers. */
 function fixSpeakers(text, o) {
-  if (!o || o.chatMode !== 'roleplay' || !o.isGroupChat || o.usesIndividualGroupGeneration || o.impersonate) return text;
+  if (!o || o.chatMode !== 'roleplay' || o.impersonate) return text;
+  if (!o.isGroupChat && speakerNamesOn(o.chatId)) {
+    const cast = (o.charInfo || []).map(c => c.name).filter(Boolean);
+    return cast.length === 1 ? SP.prefixSingleCharacterDialogue(text, cast[0]) : text;
+  }
+  if (!o.isGroupChat || o.usesIndividualGroupGeneration) return text;
   if (!speakerColors.get(o.chatId) || !speakerTagsOn(o.chatId)) return text;
   const names = (o.charInfo || []).map((c) => c.name);
   const fixed = SP.restoreContextSpeakerTags(SP.restoreSpeakerTags(text, names), names);
