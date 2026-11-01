@@ -747,6 +747,48 @@ function attachTranslations(store, messages) {
   return changed;
 }
 
+// Use the original message and known participants; never invent a listener when evidence is ambiguous.
+function recipientCandidates(store, messages, limit = 20) {
+  const byNumber = new Map(messages.map((m) => [m.number, m]));
+  const result = [];
+  for (const scene of store.scenes || []) {
+    const names = [...new Set([...(scene.present || []), ...(store.personas || []), ...(scene.recollections || []).map((r) => r.who)].filter((x) => typeof x === 'string' && x.trim()))];
+    for (const quotes of [...(scene.events || []).map((e) => e.quotes || []), scene.loose || []]) {
+      for (const q of quotes) {
+        if (q.to || !q.by || q.recipientChecked || !isSpoken(parseLine(q.text).text)) continue;
+        const message = byNumber.get(q.number);
+        if (!message || (q.messageId && q.messageId !== message.id)) continue;
+        const source = message.sentences?.[q.sentence - 1];
+        if (!source || !parseLine(q.text).text.includes(parseLine(source).text)) continue;
+        const candidates = names.filter((n) => n !== q.by);
+        if (!candidates.length) continue;
+        const context = (message.sentences || []).slice(Math.max(0, q.sentence - 4), q.sentence + 3).join('\n').slice(0, 5000);
+        result.push({ id: String(result.length), q, scene, candidates, context });
+        if (result.length >= limit) return result;
+      }
+    }
+  }
+  return result;
+}
+
+function applyRecipientResults(candidates, results) {
+  if (!Array.isArray(results)) return 0;
+  let changed = 0;
+  const byId = new Map(candidates.map((x) => [x.id, x]));
+  for (const answer of results) {
+    const entry = byId.get(String(answer?.id));
+    if (!entry || entry.q.to || entry.q.recipientChecked) continue;
+    const to = typeof answer.to === 'string' ? answer.to.trim() : '';
+    const proof = typeof answer.evidence === 'string' ? answer.evidence.trim() : '';
+    if (to && entry.candidates.includes(to) && proof.length >= 4 && entry.context.includes(proof)) {
+      entry.q.to = to;
+      changed++;
+    }
+    entry.q.recipientChecked = true;
+  }
+  return changed;
+}
+
 /**
  * Change who knows a fact, and remember what it was before and in which scene it changed, so that undoing
  * that scene (an edit, a delete, a swipe) puts the old knowledge back.
@@ -1619,6 +1661,8 @@ module.exports = {
   applyLearned,
   parseScenesReply,
   attachTranslations,
+  recipientCandidates,
+  applyRecipientResults,
   uncited,
   quoteLine,
   parseLine,
