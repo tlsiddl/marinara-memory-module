@@ -383,6 +383,7 @@ const SYSTEM_PROMPT = `너는 장기 롤플레이의 기억 관리자야. 새 �
   예외: 끼니 대신 음료나 간식으로 '때웠다'면 meal로 적고 how를 "substitute"로 해. 제대로 먹었으면 how는 "ate".
   먹는 장면 없이 누가 "먹었어", "커피로 때웠어"라고 말로만 했으면 claimed를 true로 해(거짓말일 수도 있으니까).
   하기로 한 것, 권하기만 한 것은 아니야. 이 메시지 안에서 실제로 하는 장면만. 예전에 먹었다·잤다고 다시 말하는 건 아니야(예: "그래도 스테이크는 먹고 잠갔잖아"). 먹은 것이나 한 일은 text에 짧게.
+  특히 막 깨어나는 장면에서 '두 시간 낮잠을 잤다'처럼 이미 끝난 수면을 회상하면 wake만 적어. 이전에 잠든 기록이 있든 없든 깬 시각을 새 잠든 시각으로 기록하지 마. 이전 잠든 기록은 건드리지 마. 실제로 다시 잠드는 행동이 나오면 별도의 sleep으로 적어.
   외출 준비를 마쳤거나 씻기·샤워·세수·양치·머리 감기를 했으면 wash로 적어(외출 준비는 사용자가 요청한 씻기 추정 규칙). 화장·마스카라·립스틱·향수·헤어스타일만 손본 것은 groom으로 따로 적고 wash로 적지 마. 샤워와 화장을 둘 다 했다면 각각 기록해. text에 실제 한 일을 써.
   시간 계산(몇 시간 잤는지, 몇 끼째인지)은 하지 마. 프로그램이 해.
 - 이건 장부 항목이 아니라 '언제 했는지' 기록이야. 없으면 [].
@@ -737,6 +738,22 @@ function indexBatch(batch) {
   return index;
 }
 
+// A duration describing a nap in a wake-up message is not a fresh bedtime at the wake timestamp.
+// Keep real new sleep onsets, and skip only when both the recap and waking are explicit.
+function pastSleepAtWake(item, evidence, message, who) {
+  const source = String(message?.content || '');
+  const cited = evidence.map((p) => p.text).join(' ');
+  const summary = String(item?.text || '');
+  const duration = /(?:두어|한두|한|두|세|네|몇|여러|\d+)\s*(?:시간|분)|(?:an? |\d+ |a few |several )?(?:hours?|minutes?)/i;
+  const sleep = /(낮잠|잠을?\s*(?:잤|자고|잔)|수면|잠에서|slept|sleeping|nap)/i;
+  const waking = /(잠에서\s*깨|잠에서\s*깼|깨(?:어|었|고|니|는|다|기)|깨어|깼|눈을?\s*뜨|일어났|woke|wakes?\s+up|awaken)/i;
+  const newSleep = /(다시\s*잠들|다시\s*잠에|다시\s*눈을?\s*감|잠들(?:었|어|고|기|다)|잠에\s*(?:빠|들)|잠이\s*들|fell\s+asleep|falls?\s+asleep|back\s+to\s+sleep)/i;
+  const name = String(who || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const namedWake = name && new RegExp(`${name}[^.!?。？！\\n]{0,35}(?:깨|깼|눈을?\\s*뜨|일어났|woke|awaken)`, 'i').test(source);
+  const userWake = message?.role === 'user' && message.speaker === who && waking.test(cited);
+  return duration.test(cited + ' ' + summary) && sleep.test(cited + ' ' + summary) && (namedWake || userWake) && !newSleep.test(cited);
+}
+
 /** Apply one validated model result to the ledger. Bad items are dropped one by one, never the whole result. */
 function applyResult(ledger, result, batch, now = new Date().toISOString()) {
   const stats = { opened: 0, updated: 0, closed: 0, dropped: 0 };
@@ -855,6 +872,7 @@ function applyResult(ledger, result, batch, now = new Date().toISOString()) {
       const message = batch.find((m) => m.number === evidence[0].number);
       const at = storyTime([message].filter(Boolean)) || storyTime(batch);
       const text = cleanText(item.text, 80);
+      if (what === 'sleep' && pastSleepAtWake(item, evidence, message, who)) continue;
       // "도윤이 먹여 준 스테이크" filed under 도윤: he fed it, he did not eat it.
       if (what === 'meal' && text && new RegExp(`${who.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*(이|가)?\\s*(떠)?먹여`).test(text)) continue;
       const substitute = what === 'meal' && item.how === 'substitute';
