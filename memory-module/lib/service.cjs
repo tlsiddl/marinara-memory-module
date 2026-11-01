@@ -2398,6 +2398,11 @@ function speakerInstructions(chatId, names) {
   return [speakerTagsOn(chatId) ? SP.speakerInstructions(names) : '', speakerNamesOn(chatId) ? SP.namePrefixInstructions(names) : ''].filter(Boolean).join('\n');
 }
 
+/** Visible name labels also apply to one-to-one RP. */
+function nameInstructions(chatId, names) {
+  return speakerNamesOn(chatId) ? SP.namePrefixInstructions(names) : '';
+}
+
 /** From Marinara's reply cleanup (synchronous): merged roleplay group replies in chats that color speakers. */
 function fixSpeakers(text, o) {
   if (!o || o.chatMode !== 'roleplay' || !o.isGroupChat || o.usesIndividualGroupGeneration || o.impersonate) return text;
@@ -2547,7 +2552,7 @@ function attach(app) {
   log('admin API ready at /api/memory-module');
 }
 
-module.exports = { fixSpeakers, speakerInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, loadTranslations, saveTranslations, chatLangs, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, jobs, writeLanguage, memoryCallOptions } };
+module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, loadTranslations, saveTranslations, chatLangs, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, jobs, writeLanguage, memoryCallOptions } };
 
 
 
