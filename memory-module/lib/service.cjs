@@ -1428,6 +1428,17 @@ function translationLookup(chatId, target) {
 
 const translating = new Map();
 
+// Only split content/response failures. Authentication, rate limits, network and server failures need attention,
+// not an exponentially growing number of identical requests.
+function splittableTranslationError(error) {
+  const text = String(error?.message || error || '');
+  const status = Number(error?.status || error?.statusCode || error?.response?.status || 0);
+  if ([401, 408, 429].includes(status) || status >= 500 || /\b(?:401|408|429|5\d\d)\b|rate.?limit|quota|unauthori[sz]ed|api.?key|timed?\s*out|network|fetch failed|connection|연결|시간 초과|사용량|인증/i.test(text)) return false;
+  if (/safety|content.?filter|content.?policy|moderation|blocked|blocklist|prohibited|finish.?reason.?[:=]?\s*(?:safety|content_filter)|안전|검열|차단|정책/i.test(text)) return true;
+  if (status === 403 || /\b403\b|forbidden/i.test(text)) return false;
+  return /빈 답|형식이 올바르지|유효하지 않은/i.test(text);
+}
+
 /**
  * Translate the texts not translated yet (at most `max`), in batches, into the cache. One run per chat and
  * language at a time; a second request waits for it. Returns how many were translated.
@@ -1441,11 +1452,20 @@ function translateMissing(chatId, target, texts, { max = TRANSLATE_MAX_PER_RUN }
     if (!todo.length) return 0;
     const model = await translateModel();
     let done = 0;
-    for (const part of T.batches(todo)) {
-      const parsed = L.parseJsonObject(await askModel(model, T.buildTranslatePrompt(part, target), { maxTokens: 6000 }));
-      const out = T.readTranslation(parsed, part);
-      if (!out) {
-        throw Error('번역 응답의 형식이 올바르지 않습니다. 번역 연결과 모델을 확인해 주세요.');
+    const failed = [];
+    async function translatePart(part) {
+      let out;
+      try {
+        const parsed = L.parseJsonObject(await askModel(model, T.buildTranslatePrompt(part, target), { maxTokens: 6000 }));
+        out = T.readTranslation(parsed, part);
+        if (!out) throw Error('번역 응답의 형식이 올바르지 않습니다.');
+      } catch (error) {
+        if (!splittableTranslationError(error)) throw error;
+        if (part.length === 1) { failed.push(error); return; }
+        const middle = Math.floor(part.length / 2);
+        await translatePart(part.slice(0, middle));
+        await translatePart(part.slice(middle));
+        return;
       }
       const data = loadTranslations(chatId);
       part.forEach((src, i) => {
@@ -1455,9 +1475,18 @@ function translateMissing(chatId, target, texts, { max = TRANSLATE_MAX_PER_RUN }
         }
       });
       saveTranslations(chatId, data);
-      if (out.some((t) => !t)) throw Error('번역 응답에 누락되거나 유효하지 않은 항목이 있습니다. 남은 항목을 다시 번역해 주세요.');
+      const missing = part.filter((_, i) => !out[i]);
+      if (missing.length === 1 && part.length === 1) failed.push(Error('번역 응답에 누락되거나 유효하지 않은 항목이 있습니다.'));
+      else if (missing.length === 1) await translatePart(missing);
+      else if (missing.length > 1) {
+        const middle = Math.floor(missing.length / 2);
+        await translatePart(missing.slice(0, middle));
+        await translatePart(missing.slice(middle));
+      }
     }
+    for (const part of T.batches(todo)) await translatePart(part);
     if (done) log(`chat ${chatId}: translated ${done} memory line(s) into ${target}`);
+    if (failed.length) throw Error(`${failed.length}개 항목을 개별로 다시 시도했지만 번역하지 못했습니다. 모델의 내용 제한이나 응답 오류를 확인해 주세요. 나머지 번역은 저장했습니다. (${String(failed[0]?.message || failed[0]).slice(0, 180)})`);
     return done;
   })().finally(() => translating.delete(runKey));
   translating.set(runKey, run);
@@ -1542,6 +1571,7 @@ function prepareTranslation(chatId) {
     }
   })()
     .catch((error) => {
+      entry.left = injectionLines(chatId, target).filter((l) => translationLookup(chatId, target)(l) == null).length;
       entry.error = String(error?.message || error).slice(0, 300);
       log(`chat ${chatId}: translation failed (${entry.error})`);
     })
@@ -2442,6 +2472,7 @@ function attach(app) {
 }
 
 module.exports = { fixSpeakers, speakerInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, loadTranslations, saveTranslations, chatLangs, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, jobs, writeLanguage, memoryCallOptions } };
+
 
 
 
