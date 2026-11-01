@@ -63,10 +63,11 @@ h2,h3{font-family:var(--serif);font-weight:700;color:var(--t-ink)}
 .topbar{border-bottom:1.5px solid var(--t-ink)!important}
 #roomSelect,select,input:not([type=checkbox]),textarea{border-radius:3px!important;background:var(--im-field)!important;border:1px solid var(--im-field-border)!important;color:var(--t-ink)!important}
 #themeToggle,#close{border-radius:50%!important;border:1px solid var(--t-ink)!important;background:transparent!important;color:var(--t-ink)!important}
-/* The mobile sidebar is dark even in light mode; the close control must not inherit black-on-black. */
-#panel>#close{z-index:100!important;background:#f3efe7!important;color:#151515!important;border:1.5px solid #151515!important}
-:host([data-theme=dark]) #panel>#close{background:#262522!important;color:#f3efe7!important;border-color:#f3efe7!important}
-#panel>#close .icon{stroke:currentColor!important;width:22px;height:22px}
+/* On mobile these controls overlap a dark sidebar, even in light mode. */
+@media(max-width:720px){
+  #close{z-index:100!important;background:#f3efe7!important;color:#151515!important;border:1.5px solid #151515!important}
+  :host([data-theme=dark]) #close{background:#262522!important;color:#f3efe7!important;border-color:#f3efe7!important}
+}
 
 /* metrics = admission stubs */
 .metric-row{gap:12px!important}

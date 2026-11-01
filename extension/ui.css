@@ -93,8 +93,6 @@ input::placeholder,textarea::placeholder{color:var(--im-muted);opacity:1}.global
 /* v0.7.5: mobile header controls and movable launcher */
 #themeToggle{font:inherit}#themeToggle .icon{width:20px;height:20px}
 #close{width:44px;height:44px;display:grid;place-items:center;flex:none;padding:0;border-radius:12px}
-#panel>#close{position:absolute;top:10px;right:14px;z-index:50;border:1px solid var(--im-line);background:var(--im-paper)}
-.topbar{padding-right:70px}
 #launch{touch-action:none;cursor:grab;-webkit-touch-callout:none;transition:background .15s,box-shadow .15s}
 #launch.dragging{cursor:grabbing;box-shadow:0 9px 28px #30204766;transition:none}
 @media(max-width:720px){
@@ -193,4 +191,5 @@ a.record-row .chip-arrow{color:var(--im-accent)}
 .routine-row button{padding:7px 12px;font-size:11px}
 details.paper>summary{font-size:13px;font-weight:600;color:var(--im-ink)}
 .routine-row .warn{flex-basis:100%;color:#b0623f}:host([data-theme=dark]) .routine-row .warn{color:#ffb08a}
+
 
