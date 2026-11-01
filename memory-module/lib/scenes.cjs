@@ -314,18 +314,35 @@ const isTranslation = (text) => typeof text === 'string' && /^\(.*[가-힣].*\)$
 const hasTranslation = (text) => /\([^()]*[가-힣][^()]*\)$/.test(untag(text));
 const isSpoken = (text) => /^["“'‘「『]/.test(text);
 
+// Only pair an adjacent Korean parenthetical with a complete quoted foreign-language line.
+// This avoids treating ordinary parenthetical narration as a translation.
+function bilingualQuote(pointer, index) {
+  let first = pointer;
+  if (isTranslation(pointer.text)) {
+    const previous = index.get(`${pointer.number}.${pointer.sentence - 1}`);
+    const preceding = previous && parseLine(previous.text).text;
+    if (preceding && isSpoken(preceding) && /[A-Za-z]/.test(preceding) && !hasTranslation(preceding)) first = previous;
+  }
+  const next = index.get(`${first.number}.${first.sentence + 1}`);
+  const spoken = parseLine(first.text).text;
+  if (isSpoken(spoken) && /[A-Za-z]/.test(spoken) && !hasTranslation(spoken) && isTranslation(next?.text)) {
+    return { ...first, text: `${first.text} ${next.text}` };
+  }
+  return pointer;
+}
+
 function resolveQuotes(items, index, slice) {
   const roles = new Map(slice.map((m) => [m.number, m]));
   const out = [];
   const seen = new Set();
   for (const raw of Array.isArray(items) ? items : []) {
-    const pointer = L.resolveEvidence([raw], index)[0];
+    let pointer = L.resolveEvidence([raw], index)[0];
     if (!pointer) continue;
+    pointer = bilingualQuote(pointer, index);
     const key = `${pointer.number}.${pointer.sentence}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    const following = index.get(`${pointer.number}.${pointer.sentence + 1}`)?.text;
-    const line = parseLine(!hasTranslation(pointer.text) && isTranslation(following) ? `${pointer.text} ${following}` : pointer.text);
+    const line = parseLine(pointer.text);
     const message = roles.get(pointer.number);
     const spoken = isSpoken(line.text);
     const by = line.by || (spoken ? cleanText(raw?.by, 40) || (message?.role === 'user' ? message.speaker : null) : null);
@@ -708,16 +725,22 @@ function uncited(scene, slice, facts) {
 /** Old quotes saved without the translation line that follows them in the message: add it. */
 function attachTranslations(store, messages) {
   const byNumber = new Map(messages.map((m) => [m.number, m]));
+  const index = L.indexBatch(messages);
   let changed = 0;
   for (const scene of store.scenes) {
-    for (const e of scene.events) {
-      for (const q of e.quotes) {
-        if (hasTranslation(q.text)) continue;
-        const next = byNumber.get(q.number)?.sentences[q.sentence];
-        if (isTranslation(next)) {
-          q.text = `${q.text} ${next}`;
-          changed++;
-        }
+    for (const quotes of [...scene.events.map((e) => e.quotes), scene.loose || []]) {
+      for (const q of quotes) {
+        const message = byNumber.get(q.number);
+        if (!message || (q.messageId && message.id !== q.messageId)) continue;
+        const original = index.get(`${q.number}.${q.sentence}`);
+        if (!original || parseLine(original.text).text !== parseLine(q.text).text) continue;
+        const paired = bilingualQuote(original, index);
+        if (paired.text === original.text) continue;
+        const line = parseLine(paired.text);
+        q.text = line.text;
+        q.sentence = paired.sentence;
+        if (!q.by && line.by) q.by = line.by;
+        changed++;
       }
     }
   }
@@ -1611,4 +1634,5 @@ module.exports = {
   renderExpanded,
   cleanQuote,
   SCENE_PROMPT, changedAt, setKnowing, undoKnowing };
+
 

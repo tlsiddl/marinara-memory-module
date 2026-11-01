@@ -316,7 +316,7 @@
     const prefix = text.match(/^\s*([^|"“(]{1,20}?)\s*\|\s*/);
     const by = q.by || (prefix ? prefix[1].trim() : '');
     if (prefix) text = text.slice(prefix[0].length);
-    return { who: by ? `${by}${q.to ? ` → ${q.to}` : ''}` : '서술', text: text.trim() };
+    return { who: by ? `${by}${q.to ? ` → ${q.to}` : ''}` : (/^\s*["“'‘「『]/.test(text) ? '대사' : '서술'), text: text.trim() };
   }
 
   /** A warning when this Marinara is not the version the module was tested on, or a patch could not go in. */
@@ -1407,5 +1407,6 @@
   install();
   host.onCleanup?.(cleanup);
 })();
+
 
 
