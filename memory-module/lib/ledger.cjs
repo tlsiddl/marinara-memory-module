@@ -1447,6 +1447,26 @@ function semanticMealText(meal, cache) {
 
 const minutesBetween = (a, b) => (Date.parse(`${b}:00Z`) - Date.parse(`${a}:00Z`)) / 60000;
 
+function isNapPeriod(sleep, wake, minutes) {
+  if (/낮잠|쪽잠|\bnap(?:ped|ping)?\b/i.test(`${sleep?.text || ''} ${wake?.text || ''}`)) return true;
+  return Number(wake.at.slice(11, 13)) >= 14 && minutes < 240;
+}
+
+// Count only complete, non-overlapping naps with no recorded activity during them.
+function completedNaps(sleeps, wakes, awake = []) {
+  const results = [];
+  let previousWake = null;
+  const starts = [...sleeps].filter((s) => s.at).sort((a, b) => a.at.localeCompare(b.at));
+  for (const wake of [...wakes].filter((w) => w.at).sort((a, b) => a.at.localeCompare(b.at))) {
+    const sleep = starts.find((s) => s.at < wake.at && (!previousWake || s.at > previousWake) && minutesBetween(s.at, wake.at) < 16 * 60);
+    previousWake = wake.at;
+    if (!sleep || awake.some((at) => at > sleep.at && at < wake.at)) continue;
+    const minutes = minutesBetween(sleep.at, wake.at);
+    if (minutes > 0 && isNapPeriod(sleep, wake, minutes)) results.push({ slept: sleep.at, wake: wake.at, minutes });
+  }
+  return results;
+}
+
 /**
  * Night sleeps, oldest first: a waking between midnight and 2 pm, or after four hours or more of sleep. Naps don't
  * count. `awake` are times they were plainly up (ate, washed, took medicine): a bedtime with one of those before the
@@ -1481,6 +1501,7 @@ function nightSleeps(sleeps, wakes, awake = []) {
     // ("두 시간 낮잠" after dinner) is not one, whenever it started.
     const night = hour < 14 || (minutes != null && minutes >= 240);
     previousWake = wake.at;
+    if (slept && isNapPeriod(slept, wake, minutes)) continue;
     if (!night) continue;
     const last = out.at(-1);
     // Woke and dozed off again the same night: one night, sleep added up. Only when they went back to bed soon after
@@ -1672,6 +1693,10 @@ function renderRoutine(ledger, now = null) {
       const lasted = slept?.at && woke.at ? span(slept.at, woke.at) : null;
       parts.push(`잠 ${slept ? `${clock(slept.at, today)}에 잠들어 ` : ''}${clock(woke.at, today)}에 깸${lasted ? `(${lasted} 잠)` : ''}`);
     }
+    const naps = completedNaps(of('sleep'), of('wake'), awake)
+      .filter((n) => !now || (n.wake <= now && minutesBetween(n.wake, now) <= 24 * 60));
+    if (naps.length) parts.push(`${now ? '최근 24시간' : '기록된'} 낮잠 ${naps.length}회, 총 ${hours(naps.reduce((total, n) => total + n.minutes, 0))}`);
+    else if (now) parts.push('최근 24시간 낮잠: 시간 확인 가능한 기록 없음');
     const days = pastDays(meals, nights);
     if (days.length) parts.push(`지난 며칠: ${days.join(' / ')}`);
     const oldWash = of('wash');

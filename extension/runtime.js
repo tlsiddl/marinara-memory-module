@@ -1217,7 +1217,6 @@
     root.innerHTML = `<style>${UI_CSS}${EXTRA_CSS}${THEME_CSS}</style>
       <div id="backdrop" hidden></div>
       <section id="panel" role="dialog" aria-label="기억 서재" aria-modal="true" hidden>
-        <button id="close" class="close" aria-label="기억 서재 닫기" title="닫기">${icon('close')}</button>
         <aside class="sidebar"><div class="brand"><span class="logo" aria-hidden="true"><i class="disc"></i><i class="sleeve"></i></span><div>기억 서재<small>MEMORY MODULE</small></div></div>
           <div class="nav-label">YOUR MEMORIES</div>
           <nav>${NAV.map(([id, label, i]) => `<button data-tab="${id}">${icon(i)}<span>${label}</span></button>`).join('')}</nav>
@@ -1226,7 +1225,8 @@
         </aside>
         <div class="workspace">
           <header class="topbar"><div class="crumb"><select id="roomSelect" aria-label="채팅방"></select></div>
-            <button id="themeToggle" class="theme-toggle" aria-label="화면 밝기 바꾸기"></button></header>
+            <button id="themeToggle" class="theme-toggle" aria-label="화면 밝기 바꾸기"></button>
+            <button id="close" class="close" aria-label="기억 서재 닫기" title="닫기">${icon('close')}</button></header>
           <div id="status" role="status"></div><div id="error" hidden></div>
           <main id="content"></main>
         </div>
