@@ -2095,7 +2095,7 @@ async function routes(app) {
       sceneJob,
       speakerTags: speakerTagsOn(chatId),
       routine: ledger ? L.renderRoutine(ledger, storyNow.get(chatId) || ledger.storyTime || null) : '',
-      routineItems: (ledger?.routine || []).map((r) => ({ ...r, key: L.routineKey(r) })),
+      routineItems: (ledger?.routine || []).map((r) => ({ ...r, displayWhat: L.routineDisplayKind(r), key: L.routineKey(r) })),
       storyNow: storyNow.get(chatId) || ledger?.storyTime || null,
       personas: scenes?.personas || [],
       cast: (scenes?.cast || ledger?.cast || []).filter((n) => !(scenes?.personas || []).includes(n)),
