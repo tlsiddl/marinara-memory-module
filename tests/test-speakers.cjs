@@ -58,3 +58,18 @@ test('generation guidance uses native exact-name tags without visible name prefi
   const plain = '하준이 말했다.\n"안녕."\n\n하루가 말했다.\n"반가워."';
   assert.equal(SP.restoreSpeakerTags(plain, names), plain, 'post-processing does not guess a speaker from prose');
 });
+
+
+test('quote-only speech gets a tag only with a unique adjacent explicit speaker cue', () => {
+  const s = '하준이 말했다.\n"안녕."\n하루가 손을 흔들었다.';
+  assert.equal(SP.restoreContextSpeakerTags(s, names), '하준이 말했다.\n<speaker="하준">"안녕."</speaker>\n하루가 손을 흔들었다.');
+  assert.equal(SP.restoreContextSpeakerTags('"안녕."', names), '"안녕."');
+  assert.equal(SP.restoreContextSpeakerTags('하준이 말했다.\n하루가 말했다.\n"안녕."', names), '하준이 말했다.\n하루가 말했다.\n<speaker="하루">"안녕."</speaker>');
+  const ambiguous = '하준이 말했다. 하루가 말했다.\n"안녕."';
+  assert.equal(SP.restoreContextSpeakerTags(ambiguous, names), ambiguous);
+  assert.equal(SP.restoreContextSpeakerTags('<speaker="하준">"안녕."</speaker>', names), '<speaker="하준">"안녕."</speaker>');
+});
+test('name prefix instruction uses the exact character names', () => {
+  assert.match(SP.namePrefixInstructions(['하준']), /하준 \\|/);
+  assert.equal(SP.namePrefixInstructions([]), '');
+});
