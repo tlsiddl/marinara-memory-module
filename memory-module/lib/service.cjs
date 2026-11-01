@@ -863,15 +863,16 @@ async function foldScenes(chatId, store, messages, window, model, job, { minPend
  * Chapters and fact merges. A failure here is logged and left for next time: it never blocks the scenes.
  * At most a few calls per run, so a long rebuild keeps moving.
  */
-async function condense(chatId, store, model, job, { maxCalls = 6, chaptersOnly = false } = {}) {
+async function condense(chatId, store, model, job, { maxCalls = 6, chaptersOnly = false, staged = false } = {}) {
   let calls = 0;
+  const persist = () => { if (!staged) saveScenes(chatId, store); };
   // Summaries a hand edit made out of date are made again first (a chapter before the arc that holds it).
   while (calls < maxCalls && !job?.cancel) {
     const redo = S.nextRedo(store);
     if (!redo) break;
     if (redo.kind.startsWith('drop')) {
       S.applyRedo(store, redo);
-      saveScenes(chatId, store);
+      persist();
       continue;
     }
     const label = redo.kind === 'chapter' ? '챕터' : '큰 흐름';
@@ -882,9 +883,10 @@ async function condense(chatId, store, model, job, { maxCalls = 6, chaptersOnly 
       const parsed = L.parseJsonObject(await askModel(model, prompt, { maxTokens: 2000 }));
       const made = S.applyRedo(store, redo, parsed);
       if (made.error) throw Error(made.error);
-      saveScenes(chatId, store);
+      persist();
       log(`chat ${chatId}: ${redo.kind} ${redo.target.id} summarized again after a hand edit`);
     } catch (error) {
+      if (staged) throw error;
       log(`chat ${chatId}: summarizing ${redo.target.id} again failed, will try again later (${error?.message || error})`);
       break;
     }
@@ -899,9 +901,10 @@ async function condense(chatId, store, model, job, { maxCalls = 6, chaptersOnly 
       const made = S.applyChapter(store, parsed, scenes);
       if (made.error) throw Error(made.error);
       S.commitChapter(store, made.chapter);
-      saveScenes(chatId, store);
+      persist();
       log(`chat ${chatId}: chapter ${made.chapter.id} (${scenes[0].id}~${scenes.at(-1).id}) ${made.chapter.title}`);
     } catch (error) {
+      if (staged) throw error;
       log(`chat ${chatId}: chapter failed, will try again later (${error?.message || error})`);
       break;
     }
@@ -917,9 +920,10 @@ async function condense(chatId, store, model, job, { maxCalls = 6, chaptersOnly 
       const made = S.applyArc(store, parsed, chapters);
       if (made.error) throw Error(made.error);
       S.commitArc(store, made.arc);
-      saveScenes(chatId, store);
+      persist();
       log(`chat ${chatId}: arc ${made.arc.id} (${made.arc.chapters[0]}~${made.arc.chapters.at(-1)}) ${made.arc.title}`);
     } catch (error) {
+      if (staged) throw error;
       log(`chat ${chatId}: arc failed, will try again later (${error?.message || error})`);
       break;
     }
@@ -1131,16 +1135,20 @@ function rebuildChapters(chatId) {
     sceneJobs.set(chatId, job);
     try {
       checkFiles(chatId);
-      const store = structuredClone(loadScenes(chatId) || S.emptyStore());
+      const original = loadScenes(chatId);
+      if (!original) throw Error('아직 장면이 없습니다.');
+      const originalSnapshot = JSON.stringify(original);
+      const store = structuredClone(original);
       const before = (store.chapters || []).length;
       store.chapters = [];
       store.nextChapter = 1;
       store.arcs = [];
       store.nextArc = 1;
-      saveScenes(chatId, store);
       const model = { ...(await memoryModel()), signal: job.abort.signal, lang: await writeLanguageOf(chatId) };
-      job.calls = await condense(chatId, store, model, job, { maxCalls: Infinity, chaptersOnly: true });
+      job.calls = await condense(chatId, store, model, job, { maxCalls: Infinity, chaptersOnly: true, staged: true });
       if (job.cancel) throw Error('중단했습니다.');
+      if (JSON.stringify(loadScenes(chatId)) !== originalSnapshot) throw Error('정리하는 동안 장면이 변경되어 기존 챕터를 유지했습니다. 다시 시도해 주세요.');
+      saveScenes(chatId, store);
       log(`chat ${chatId}: chapters rebuilt (${before} → ${(store.chapters || []).length})`);
       job.state = 'done';
     } catch (error) {
@@ -2433,7 +2441,8 @@ function attach(app) {
   log('admin API ready at /api/memory-module');
 }
 
-module.exports = { fixSpeakers, speakerInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, loadTranslations, saveTranslations, chatLangs, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, jobs, writeLanguage, memoryCallOptions } };
+module.exports = { fixSpeakers, speakerInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, loadTranslations, saveTranslations, chatLangs, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, jobs, writeLanguage, memoryCallOptions } };
+
 
 
 

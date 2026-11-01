@@ -74,8 +74,8 @@ irm https://raw.githubusercontent.com/tlsiddl/marinara-memory-module/main/instal
 **설치 확인** — 마리나라 로그에 아래 줄들이 보이면 성공입니다.
 
 ```
-[memory-module] v0.11.11 applied: {{기억}} macro ready
-[memory-module] v0.11.11 applied: reply hook and admin API ready
+[memory-module] v0.11.12 applied: {{기억}} macro ready
+[memory-module] v0.11.12 applied: reply hook and admin API ready
 ```
 
 ### 2. 기억 서재 화면 (확장)
@@ -222,6 +222,7 @@ mm report      # 상태와 기억 전체를 한 번에 (홈 폴더의 memory-rep
 ## 라이선스
 
 [MIT](LICENSE). Marinara Engine은 Pasta-Devs의 AGPL-3.0 소프트웨어이며, 이 모듈에는 Marinara Engine의 코드가 들어 있지 않습니다.
+
 
 
 
