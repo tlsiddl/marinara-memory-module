@@ -1290,7 +1290,23 @@ function ago(at, now) {
 const PORTION = /(?<=^|\s)(?:(?:한|두|세|네|몇|여러)\s*(?:입|점|조각|숟갈|숟가락|술|젓가락|포크)(?:\s*(?:더|째))?|반\s*(?:접시|그릇|공기|쪽)?|절반|조금|약간|일부|남은|나머지|마저|더|다\s*먹음|(?:\d+|한|두|세)\s*(?:입|점|조각))(?=\s|$)/g;
 // The same in English: "a bite of steak", "a few pieces of steak", "the rest of the steak", "more steak".
 const PORTION_EN = /\b(?:(?:a|one|two|three|a few|few|several|some|\d+)\s+(?:bites?|pieces?|forkfuls?|spoonfuls?|slices?|mouthfuls?)\s+of|(?:half|the rest|rest|most|some|more)\s+of|finished|more|half)\b\s*(?:(?:the|a|an|her|his|their)\b\s*)?/gi;
-const dishOf = (text) => String(text || '').replace(PORTION, ' ').replace(PORTION_EN, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+// Split explicit food lists, including particles attached to a portion ("몇 조각과").
+// Keep "사과" intact: its last syllable is not a list particle.
+function foodParts(text) {
+  const separated = String(text || '')
+    .replace(/(입|점|조각|숟갈|숟가락|술|젓가락|포크)(?:과|와)(?=\s)/g, '$1,')
+    .replace(/([가-힣]+)(와|과)(?=\s)/g, (whole, noun) => noun === '사' ? whole : noun + ',');
+  return separated.split(/\s*[,，]\s*/).map((part) => part.trim()).filter(Boolean);
+}
+
+function foodLabel(text) {
+  return String(text || '')
+    .replace(/(?:을|를)\s*(?:더\s*)?(?:먹음|먹었다|먹는다|먹으며|먹고|마셨다|마심)\s*$/u, '')
+    .replace(/\s*(?:먹음|먹었다|마심|마셨다)\s*$/u, '')
+    .replace(PORTION, ' ').replace(PORTION_EN, ' ').replace(/\s+/g, ' ')
+    .replace(/[.!?。]+$/u, '').trim();
+}
+const foodKey = (text) => foodLabel(text).toLowerCase();
 
 /**
  * What a sitting was, from the entries filed turn by turn ("스테이크 한 입", "스테이크 몇 점", "스테이크"):
@@ -1299,19 +1315,18 @@ const dishOf = (text) => String(text || '').replace(PORTION, ' ').replace(PORTIO
 function sittingText(entries) {
   const dishes = [];
   for (const r of entries) {
-    const text = String(r.text || '').trim();
-    if (!text) continue;
-    const dish = dishOf(text) || text;
-    const same = dishes.find((d) => d.dish === dish || d.dish.includes(dish) || dish.includes(d.dish));
-    if (!same) dishes.push({ dish, texts: [text] });
-    else {
-      same.texts.push(text);
-      if (dish.length > same.dish.length) same.dish = dish;
+    for (const text of foodParts(r.text)) {
+      const dish = foodKey(text) || text;
+      const same = dishes.find((d) => d.dish === dish || d.dish.includes(dish) || dish.includes(d.dish));
+      if (!same) dishes.push({ dish, texts: [text] });
+      else {
+        same.texts.push(text);
+        if (dish.length > same.dish.length) same.dish = dish;
+      }
     }
   }
   // Eaten over several turns: the plain name of the dish ("스테이크"), not the first bite ("스테이크 한 입").
-  const plain = (t) => t.replace(PORTION, ' ').replace(PORTION_EN, ' ').replace(/\s+/g, ' ').trim();
-  return dishes.map((d) => (d.texts.length > 1 ? plain(d.texts.findLast((t) => dishOf(t) === d.dish) || d.texts.at(-1)) || d.dish : d.texts[0])).join(', ');
+  return dishes.map((d) => (d.texts.length > 1 ? foodLabel(d.texts.findLast((t) => foodKey(t) === d.dish) || d.texts.at(-1)) || d.dish : d.texts[0])).join(', ');
 }
 
 /** Meals less than two hours after the start of the previous one are the same sitting (one 끼니). */
