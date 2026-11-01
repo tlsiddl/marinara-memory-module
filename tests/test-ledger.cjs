@@ -435,7 +435,7 @@ test('the last few days: meals per day and the night sleep after it; a morning w
   const text = L.renderRoutine(ledger, '2024-10-18T10:00');
   assert.match(text, /식사 기상\(09:00\) 후 아직 없음\(마지막: 24-10-17 \(목\) 12:00 빵, 22시간 전\)/);
   assert.match(text, /밤잠 03:00에 잠들어 09:00에 깸\(3시간 이상 잠\)/);
-  assert.match(text, /지난 며칠: 24-10-17 \(목\): 1끼, 그 뒤 밤잠 3시간 이상 \/ 24-10-16 \(수\): 2끼, 그 뒤 밤잠 3시간 30분/);
+  assert.match(text, /지난 며칠: 24-10-17 \(목\): 1끼, 낮잠 시간 확인 가능한 기록 없음, 그 뒤 밤잠 3시간 이상 \/ 24-10-16 \(수\): 2끼, 낮잠 시간 확인 가능한 기록 없음, 그 뒤 밤잠 3시간 30분/);
 });
 
 test('whoever only fed the meal did not eat it', () => {
