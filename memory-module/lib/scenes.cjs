@@ -748,14 +748,14 @@ function attachTranslations(store, messages) {
 }
 
 // Use the original message and known participants; never invent a listener when evidence is ambiguous.
-function recipientCandidates(store, messages, limit = 20) {
+function recipientCandidates(store, messages, limit = 20, attempted = new Set()) {
   const byNumber = new Map(messages.map((m) => [m.number, m]));
   const result = [];
   for (const scene of store.scenes || []) {
     const names = [...new Set([...(scene.present || []), ...(store.personas || []), ...(scene.recollections || []).map((r) => r.who)].filter((x) => typeof x === 'string' && x.trim()))];
     for (const quotes of [...(scene.events || []).map((e) => e.quotes || []), scene.loose || []]) {
       for (const q of quotes) {
-        if (q.to || !q.by || q.recipientChecked || !isSpoken(parseLine(q.text).text)) continue;
+        if (q.to || !q.by || attempted.has(q) || !isSpoken(parseLine(q.text).text)) continue;
         const message = byNumber.get(q.number);
         if (!message || (q.messageId && q.messageId !== message.id)) continue;
         const source = message.sentences?.[q.sentence - 1];
@@ -777,14 +777,14 @@ function applyRecipientResults(candidates, results) {
   const byId = new Map(candidates.map((x) => [x.id, x]));
   for (const answer of results) {
     const entry = byId.get(String(answer?.id));
-    if (!entry || entry.q.to || entry.q.recipientChecked) continue;
+    if (!entry || entry.q.to) continue;
     const to = typeof answer.to === 'string' ? answer.to.trim() : '';
     const proof = typeof answer.evidence === 'string' ? answer.evidence.trim() : '';
     if (to && entry.candidates.includes(to) && proof.length >= 4 && entry.context.includes(proof)) {
       entry.q.to = to;
+      delete entry.q.recipientChecked;
       changed++;
     }
-    entry.q.recipientChecked = true;
   }
   return changed;
 }
@@ -1678,5 +1678,6 @@ module.exports = {
   renderExpanded,
   cleanQuote,
   SCENE_PROMPT, changedAt, setKnowing, undoKnowing };
+
 
 
