@@ -2421,6 +2421,7 @@ function fixSpeakers(text, o) {
     fixed = SP.restoreContextSpeakerTags(SP.restoreSpeakerTags(fixed, names), names);
   }
   if (speakerNamesOn(o.chatId)) {
+    fixed = SP.dedupeDialogueNames(fixed, names);
     fixed = SP.prefixTaggedDialogue(fixed, names);
     if (o.isGroupChat) fixed = SP.restoreContextSpeakerTags(fixed, names, true);
     if (!o.isGroupChat && names.length === 1) fixed = SP.prefixSingleCharacterDialogue(fixed, names[0]);
@@ -2572,6 +2573,7 @@ function attach(app) {
 }
 
 module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, loadTranslations, saveTranslations, chatLangs, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, jobs, writeLanguage, memoryCallOptions } };
+
 
 
 
