@@ -2415,15 +2415,15 @@ function nameInstructions(chatId, names) {
 /** From Marinara's reply cleanup (synchronous): merged roleplay group replies in chats that color speakers. */
 function fixSpeakers(text, o) {
   if (!o || o.chatMode !== 'roleplay' || o.impersonate) return text;
-  if (!o.isGroupChat && speakerNamesOn(o.chatId)) {
-    const cast = (o.charInfo || []).map(c => c.name).filter(Boolean);
-    return cast.length === 1 ? SP.prefixSingleCharacterDialogue(text, cast[0]) : text;
+  const names = (o.charInfo || []).map(c => c.name).filter(Boolean);
+  let fixed = text;
+  if (o.isGroupChat && !o.usesIndividualGroupGeneration && speakerColors.get(o.chatId) && speakerTagsOn(o.chatId)) {
+    fixed = SP.restoreContextSpeakerTags(SP.restoreSpeakerTags(fixed, names), names);
   }
-  if (!o.isGroupChat || o.usesIndividualGroupGeneration) return text;
-  if (!speakerColors.get(o.chatId) || !speakerTagsOn(o.chatId)) return text;
-  const names = (o.charInfo || []).map((c) => c.name);
-  const fixed = SP.restoreContextSpeakerTags(SP.restoreSpeakerTags(text, names), names);
-  if (fixed !== text) log(`chat ${o.chatId}: put speaker tags back on the new reply`);
+  if (speakerNamesOn(o.chatId)) {
+    fixed = SP.prefixTaggedDialogue(fixed, names);
+    if (!o.isGroupChat && names.length === 1) fixed = SP.prefixSingleCharacterDialogue(fixed, names[0]);
+  }
   return fixed;
 }
 
@@ -2567,6 +2567,7 @@ function attach(app) {
 }
 
 module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, loadTranslations, saveTranslations, chatLangs, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, jobs, writeLanguage, memoryCallOptions } };
+
 
 
 

@@ -96,6 +96,18 @@ function prefixSingleCharacterDialogue(text, name) {
   }).join('\n');
 }
 
+/** Add visible labels where an existing speaker tag identifies the character. */
+function prefixTaggedDialogue(text, names) {
+  const allowed = new Set((names || []).map(n => String(n || '').trim()).filter(Boolean));
+  if (!text || !allowed.size) return text;
+  return String(text).replace(/<speaker="([^"\r\n]+)">([\s\S]*?)<\/speaker>/g, (whole, name, body) => {
+    if (!allowed.has(name)) return whole;
+    const match = body.match(/^(\s*)(["“「『])/);
+    if (!match) return whole;
+    return '<speaker="' + name + '">' + match[1] + name + ' | ' + body.slice(match[1].length) + '</speaker>';
+  });
+}
+
 /** Does a reply have character lines that lack tags? */
 function needsSpeakerTags(text, names) {
   return restoreSpeakerTags(text, names) !== text;
@@ -116,5 +128,6 @@ function speakerInstructions(names) {
   ].join('\n');
 }
 
-module.exports = { restoreSpeakerTags, restoreContextSpeakerTags, needsSpeakerTags, isTranslationLine, speakerInstructions, namePrefixInstructions, prefixSingleCharacterDialogue };
+module.exports = { restoreSpeakerTags, restoreContextSpeakerTags, needsSpeakerTags, isTranslationLine, speakerInstructions, namePrefixInstructions, prefixSingleCharacterDialogue, prefixTaggedDialogue };
+
 
