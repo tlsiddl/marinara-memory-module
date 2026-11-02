@@ -102,12 +102,30 @@ function prefixSingleCharacterDialogue(text, name) {
 function prefixTaggedDialogue(text, names) {
   const allowed = new Set((names || []).map(n => String(n || '').trim()).filter(Boolean));
   if (!text || !allowed.size) return text;
-  return String(text).replace(/<speaker="([^"\r\n]+)">([\s\S]*?)<\/speaker>/g, (whole, name, body) => {
+  return String(text).replace(/<speaker="([^"\r\n]+)">([\s\S]*?)<\/speaker>/g, (whole, name, body, offset, full) => {
     if (!allowed.has(name)) return whole;
+    const startOfLine = full.lastIndexOf('\n', offset - 1) + 1;
+    const before = full.slice(startOfLine, offset);
+    const outsidePrefix = new RegExp('^\\s*' + escape(name) + '\\s*[|｜]\\s*$').test(before);
+    const innerPrefix = new RegExp('^(\\s*)' + escape(name) + '\\s*[|｜]\\s*(?=["“「『])');
+    const repeatedInside = new RegExp('^(\\s*)(' + escape(name) + ')\\s*[|｜]\\s*(?:\\2\\s*[|｜]\\s*)+(?=["“「『])');
+    body = body.replace(repeatedInside, '$1$2 | ');
+    if (outsidePrefix) return '<speaker="' + name + '">' + body.replace(innerPrefix, '$1') + '</speaker>';
     const match = body.match(/^(\s*)(["“「『])/);
-    if (!match) return whole;
+    if (!match) return '<speaker="' + name + '">' + body + '</speaker>';
     return '<speaker="' + name + '">' + match[1] + name + ' | ' + body.slice(match[1].length) + '</speaker>';
   });
+}
+
+/** Collapse repeated identical visible prefixes without changing different character names. */
+function dedupeDialogueNames(text, names) {
+  let result = text;
+  for (const name of [...new Set((names || []).map(n => String(n || '').trim()).filter(Boolean))]) {
+    const e = escape(name);
+    const repeated = new RegExp('(^|\\n)([ \\t]*)(' + e + ')[ \\t]*[|｜][ \\t]*(?:\\3[ \\t]*[|｜][ \\t]*)+(?=["“「『<])', 'g');
+    result = result.replace(repeated, '$1$2$3 | ');
+  }
+  return result;
 }
 
 /** Does a reply have character lines that lack tags? */
@@ -130,7 +148,8 @@ function speakerInstructions(names) {
   ].join('\n');
 }
 
-module.exports = { restoreSpeakerTags, restoreContextSpeakerTags, needsSpeakerTags, isTranslationLine, speakerInstructions, namePrefixInstructions, prefixSingleCharacterDialogue, prefixTaggedDialogue };
+module.exports = { restoreSpeakerTags, restoreContextSpeakerTags, needsSpeakerTags, isTranslationLine, speakerInstructions, namePrefixInstructions, prefixSingleCharacterDialogue, prefixTaggedDialogue, dedupeDialogueNames };
+
 
 
 
