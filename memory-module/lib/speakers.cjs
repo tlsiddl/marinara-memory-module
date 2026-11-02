@@ -81,7 +81,7 @@ function restoreContextSpeakerTags(text, names, visibleNameOnly = false) {
 function namePrefixInstructions(names) {
   const list = [...new Set((names||[]).map(n=>String(n||'').trim()).filter(n=>n&&!/[<>"\r\n]/.test(n)))];
   if (!list.length) return '';
-  return 'For each character dialogue line, print the exact speaking character name followed by \` | \` before the opening quote, e.g. '+list[0]+' | "…". Preserve bilingual translations. Never label narration or user dialogue. Do not invent a speaker when uncertain. Avoid duplicate prefixes.';
+  return 'For each character dialogue line, identify who is speaking from the surrounding narration, actions, dialogue and context, then print the exact speaking character name followed by \` | \` before the opening quote, e.g. '+list[0]+' | "…". Use the exact character name even when it was not explicitly named next to the dialogue. Preserve bilingual translations. Never label narration or user dialogue. If the speaker genuinely cannot be determined, do not guess. Avoid duplicate prefixes.';
 }
 
 
@@ -131,6 +131,7 @@ function speakerInstructions(names) {
 }
 
 module.exports = { restoreSpeakerTags, restoreContextSpeakerTags, needsSpeakerTags, isTranslationLine, speakerInstructions, namePrefixInstructions, prefixSingleCharacterDialogue, prefixTaggedDialogue };
+
 
 
 

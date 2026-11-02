@@ -1,0 +1,8 @@
+'use strict';
+const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path');
+process.env.DATA_DIR=fs.mkdtempSync(path.join(os.tmpdir(),'mm-individual-names-'));
+const svc=require('../memory-module/lib/service.cjs'),SP=require('../memory-module/lib/speakers.cjs');
+const context={chatId:'room',chatMode:'roleplay',isGroupChat:true,usesIndividualGroupGeneration:true,impersonate:false,targetCharId:'c',charInfo:[{id:'c',name:'카시안'},{id:'k',name:'킬리안'}]};
+test('individual group generation uses the exact target and preserves bilingual dialogue',()=>{svc._test.saveSettings({chats:{room:{speakerNames:true}}});let input='카시안이 손을 뻗었다.\n"Hello, Lili." (안녕, 리리.)';let out=svc.fixSpeakers(input,context);assert.equal(out,'카시안이 손을 뻗었다.\n카시안 | "Hello, Lili." (안녕, 리리.)');assert.equal(svc.fixSpeakers(out,context),out);});
+test('disabled setting, impersonation, and missing or unknown target cannot invent names',()=>{const input='"Hello."';svc._test.saveSettings({chats:{room:{speakerNames:false}}});assert.equal(svc.fixSpeakers(input,context),input);svc._test.saveSettings({chats:{room:{speakerNames:true}}});for(const o of [{...context,targetCharId:null},{...context,targetCharId:'unknown'},{...context,impersonate:true}])assert.equal(svc.fixSpeakers(input,o),input);});
+test('context guidance requests exact names and retains uncertain and translation instructions',()=>{const s=SP.namePrefixInstructions(['카시안']);assert.match(s,/surrounding narration, actions, dialogue and context/);assert.match(s,/Preserve bilingual translations/);assert.match(s,/do not guess/i);});
