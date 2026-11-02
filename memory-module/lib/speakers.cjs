@@ -46,7 +46,7 @@ function restoreSpeakerTags(text, names) {
 /** Recover quote-only dialogue only when an immediately adjacent narration line names the speaker.
  * Never infer an identity from conversational turns or a generic pronoun.
  */
-function restoreContextSpeakerTags(text, names) {
+function restoreContextSpeakerTags(text, names, visibleNameOnly = false) {
   const list = [...new Set((names || []).map(n => String(n || '').trim()).filter(n => n && !/[<>"\r\n]/.test(n)))].sort((a,b) => b.length-a.length);
   if (!text || !list.length) return text;
   const lines = String(text).split('\n');
@@ -59,7 +59,8 @@ function restoreContextSpeakerTags(text, names) {
     const opened = (earlier.match(/<speaker="[^"]*">/g)||[]).length;
     const closed = (earlier.match(/<\/speaker>/g)||[]).length;
     if (opened > closed) continue;
-    const adjacent = [lines[i-1] || '', lines[i+1] || ''].filter(Boolean);
+    const nearest = (step) => { for (let j=i+step; j>=0 && j<lines.length && Math.abs(j-i)<=3; j+=step) if (lines[j].trim()) return lines[j]; return ''; };
+    const adjacent = visibleNameOnly ? [nearest(-1), nearest(1)].filter(Boolean) : [lines[i-1] || '', lines[i+1] || ''].filter(Boolean);
     const candidates = [];
     for (const name of list) {
       const e = escape(name);
@@ -68,6 +69,7 @@ function restoreContextSpeakerTags(text, names) {
     }
     if (candidates.length !== 1) continue;
     const name = candidates[0];
+    if (visibleNameOnly) { out[i] = lines[i].replace(/^(\s*)/, '$1' + name + ' | '); continue; }
     const block = [lines[i]];
     while (i+1<lines.length && isTranslationLine(lines[i+1])) block.push(lines[++i].trim());
     out[i-block.length+1] = '<speaker="'+name+'">'+block.join('\n')+'</speaker>';
@@ -129,5 +131,6 @@ function speakerInstructions(names) {
 }
 
 module.exports = { restoreSpeakerTags, restoreContextSpeakerTags, needsSpeakerTags, isTranslationLine, speakerInstructions, namePrefixInstructions, prefixSingleCharacterDialogue, prefixTaggedDialogue };
+
 
 
