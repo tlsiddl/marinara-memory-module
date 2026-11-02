@@ -60,7 +60,7 @@ const PATCHES = [
   {
     name: 'speakerNamesPrompt',
     target: /[\\/]packages[\\/]server[\\/]dist[\\/]routes[\\/]generate\.routes\.js$/,
-    anchor: 'if (isGroupChat) {\n          // Inject group chat instructions at the end of the last user message',
+    anchorRegex: /^[ \t]*if \(isGroupChat\) \{\r?\n[ \t]*\/\/ Inject group chat instructions at the end of the last user message/gm,
     before: true,
     insert: 'try { if (chatMode === "roleplay" && !input.impersonate) { const memoryNameInstruction = globalThis.__marinaraMemory?.nameInstructions?.(input.chatId, charInfo.map((c) => c.name)); if (memoryNameInstruction) injectIntoOutputFormatOrLastUser(finalMessages, memoryNameInstruction, { indent: true }); } } catch {}\n',
     ok: 'roleplay has visible dialogue name instructions',
@@ -101,6 +101,13 @@ function count(haystack, needle) {
 function patchSource(source, patch = PATCHES[0]) {
   if (patch.skipIf?.test(source)) return source;
   if (source.includes(patch.insert)) return source;
+  if (patch.anchorRegex) {
+    // Keep the fail-closed check, but allow indentation and line endings to vary.
+    const matches = [...source.matchAll(new RegExp(patch.anchorRegex.source, patch.anchorRegex.flags))];
+    if (matches.length !== 1) return null;
+    const match = matches[0];
+    return source.slice(0, match.index) + patch.insert + source.slice(match.index);
+  }
   // Leading indentation differs between TypeScript and Android's esbuild output.
   // Match the complete statement regardless of indentation, while retaining the
   // exact-once safety check and all other characters of the anchor.
