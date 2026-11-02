@@ -15,7 +15,7 @@ const { fileURLToPath } = require('node:url');
 const TAG = '[memory-module]';
 /** The Marinara version these patches were made and tested against. */
 const TESTED_MARINARA = '2.4.6';
-const VERSION = '0.11.23-marinara.2.4.6.28';
+const VERSION = '0.11.23-marinara.2.4.6.29';
 const NOTES_DIR = process.env.MEMORY_MODULE_NOTES_DIR || path.join(__dirname, 'notes');
 const DEFAULT_NOTE = '_default.txt';
 /** Last safety net only: the service already keeps the memory within its own limit (40,000 by default). */
@@ -51,7 +51,7 @@ const PATCHES = [
   {
     name: 'speakerNamesPrompt',
     target: /[\\/]packages[\\/]server[\\/]dist[\\/]routes[\\/]generate\.routes\.js$/,
-    anchor: 'if (isGroupChat) {\n          // Inject group chat instructions at the end of the last user message',
+    anchorRegex: /^[ \t]*if \(isGroupChat\) \{\r?\n[ \t]*\/\/ Inject group chat instructions at the end of the last user message/gm,
     before: true,
     insert: 'try { if (chatMode === "roleplay" && !input.impersonate) { const memoryNameInstruction = globalThis.__marinaraMemory?.nameInstructions?.(input.chatId, charInfo.map((c) => c.name)); if (memoryNameInstruction) injectIntoOutputFormatOrLastUser(finalMessages, memoryNameInstruction, { indent: true }); } } catch {}\n',
     ok: 'roleplay has visible dialogue name instructions',
@@ -92,6 +92,12 @@ function count(haystack, needle) {
 function patchSource(source, patch = PATCHES[0]) {
   if (patch.skipIf?.test(source)) return source;
   if (source.includes(patch.insert)) return source;
+  if (patch.anchorRegex) {
+    // Preserve fail-closed behavior while allowing indentation and line endings to vary.
+    const matches = [...source.matchAll(new RegExp(patch.anchorRegex.source, patch.anchorRegex.flags))];
+    if (matches.length !== 1) return null;
+    return source.slice(0, matches[0].index) + patch.insert + source.slice(matches[0].index);
+  }
   // Leading indentation differs between TypeScript and Android's esbuild output.
   // Match the complete statement regardless of indentation, while retaining the
   // exact-once safety check and all other characters of the anchor.
