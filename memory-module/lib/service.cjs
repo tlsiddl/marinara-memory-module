@@ -1181,7 +1181,7 @@ function processScenes(chatId, { rebuild = false, reason = 'auto' } = {}) {
           if (reordered) { saveScenes(chatId, store); recalls.delete(chatId); }
           const attempted = new Set();
           while (!job.cancel) {
-            const candidates = S.attributionCandidates(store, messages, 20, attempted);
+            const candidates = S.attributionCandidates(store, messages, 4, attempted, { retryUnresolved: reason === 'resume' });
             if (!candidates.length) break;
             candidates.forEach(({ q }) => attempted.add(q));
             try {

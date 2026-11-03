@@ -793,14 +793,14 @@ function attachTranslations(store, messages) {
   return changed;
 }
 
-function attributionCandidates(store, messages, limit = 20, attempted = new Set()) {
+function attributionCandidates(store, messages, limit = 20, attempted = new Set(), { retryUnresolved = false } = {}) {
   const byNumber = new Map(messages.map((m) => [m.number, m]));
   const result = [];
   for (const scene of store.scenes || []) {
     if (scene.edited) continue;
     const names = [...new Set([...(store.cast || []), ...(scene.present || []), ...(store.personas || []), ...(scene.recollections || []).map((r) => r.who)].filter((n) => typeof n === 'string' && n.trim()))];
     for (const event of [...(scene.events || []), { quotes: scene.loose || [] }]) for (const q of event.quotes || []) {
-      if (attempted.has(q) || q.attributionChecked === 4 || !isSpoken(parseLine(q.text).text)) continue;
+      if (attempted.has(q) || (q.attributionChecked === 5 && (!retryUnresolved || (q.by && q.to))) || !isSpoken(parseLine(q.text).text)) continue;
       const m = byNumber.get(q.number), source = m?.sentences?.[q.sentence - 1];
       if (!source || (q.messageId && q.messageId !== m.id) || !parseLine(q.text).text.includes(parseLine(source).text)) continue;
       const before = m.sentences.slice(Math.max(0, q.sentence - 9), q.sentence - 1);
@@ -842,12 +842,14 @@ function applyAttributionResults(candidates, results) {
     const labelMatches = sourceLabel && by && L.matchName(sourceLabel, e.names) && L.matchName(sourceLabel, e.names) === L.matchName(by, e.names);
     if (by && !externalProof && !labelMatches && !senderMatches) by = null;
     if (!by && e.senderAlone && answer.by === null) by = e.sender;
+    // A null answer is uncertainty, not evidence that a previously attributed speaker is wrong.
+    if (!by && answer.by === null) by = e.q.by || null;
     if (to.some((n) => !n) || (to.length && !proof(answer.toEvidence))) to.length = 0;
     if (!by) to.length = 0;
     const same = (a, b) => a === b || e.names.some((n) => (n === a || L.nameKeys(n).includes(a)) && (n === b || L.nameKeys(n).includes(b)));
-    const recipient = [...new Set(to.filter((n) => !same(n, by)))].join('·') || null;
+    const recipient = [...new Set(to.filter((n) => !same(n, by)))].join('·') || (e.q.by === by ? e.q.to || null : null);
     if (e.q.by !== by || e.q.to !== recipient) changed++;
-    e.q.by = by; e.q.to = recipient; e.q.attributionChecked = 4;
+    e.q.by = by; e.q.to = recipient; e.q.attributionChecked = 5;
   }
   return changed;
 }
