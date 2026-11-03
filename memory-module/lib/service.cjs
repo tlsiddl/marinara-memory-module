@@ -853,42 +853,50 @@ async function tidyLedger(model, ledger, messages) {
 async function foldScenes(chatId, store, messages, window, model, job, { minPending = 1 } = {}) {
   let calls = 0;
   for (;;) {
-    const next = S.nextSlice(store, messages, window, { minPending: calls ? 1 : minPending, maxMessages: settings().chats?.[chatId]?.organize?.detailLevel === 'very_detailed' ? 6 : 8 });
+    let maxMessages = settings().chats?.[chatId]?.organize?.detailLevel === 'very_detailed' ? 6 : 8;
+    let next = S.nextSlice(store, messages, window, { minPending: calls ? 1 : minPending, maxMessages });
     if (!next) break;
     if (job?.cancel) throw Error('중단했습니다. 다시 시작하면 이어서 정리합니다.');
     if (job) job.stage = `장면 정리 (${next.slice[0].number}번부터)`;
     let applied = null;
     let lastError = '';
-    let lastParsed = null;
     let lastReply = '';
-    for (let attempt = 0; attempt < 2 && !applied; attempt++) {
-      const reply = await askModel(model, S.buildScenePrompt(store, next.slice, next.required, lastError || null, settings().chats?.[chatId]?.organize || {}), { maxTokens: (settings().chats?.[chatId]?.organize?.quoteMode === 'both' || settings().chats?.[chatId]?.organize?.detailLevel === 'very_detailed') ? 12288 : 8192 });
-      calls++;
-      lastReply = String(reply || '');
-      const { result: parsed, truncated } = S.parseScenesReply(reply);
-      if (parsed) lastParsed = parsed;
-      if (truncated) {
-        // Cut off by the length limit: keep the whole scenes it did write; the rest is read in the next round.
-        const part = parsed ? S.applyScenes(store, parsed, next.slice, next.required, undefined, { partial: true, quoteMode: settings().chats?.[chatId]?.organize?.quoteMode, verifyAttribution: true, strictCoverage: true }) : { error: '응답이 너무 길어서 잘렸습니다' };
-        if (!part.error) {
-          applied = part;
-          log(`chat ${chatId}: reply was cut off, kept ${part.scenes.length} whole scene(s)`);
-        } else lastError = part.error;
+    // If a large scene skips substantial messages, retry smaller complete exchanges.
+    // Never mark the omitted messages covered merely to keep moving.
+    while (!applied) {
+      let lastParsed = null;
+      let lastCode = null;
+      for (let attempt = 0; attempt < 2 && !applied; attempt++) {
+        const reply = await askModel(model, S.buildScenePrompt(store, next.slice, next.required, lastError || null, settings().chats?.[chatId]?.organize || {}), { maxTokens: (settings().chats?.[chatId]?.organize?.quoteMode === 'both' || settings().chats?.[chatId]?.organize?.detailLevel === 'very_detailed') ? 12288 : 8192 });
+        calls++;
+        lastReply = String(reply || '');
+        const { result: parsed, truncated } = S.parseScenesReply(reply);
+        if (parsed) lastParsed = parsed;
+        const opts = { partial: !!truncated, quoteMode: settings().chats?.[chatId]?.organize?.quoteMode, verifyAttribution: true, strictCoverage: true };
+        const result = parsed ? S.applyScenes(store, parsed, next.slice, next.required, undefined, opts) : { error: truncated ? '응답이 너무 길어서 잘렸습니다' : '응답을 읽지 못했습니다' };
+        if (!result.error) applied = result;
+        else { lastError = result.error; lastCode = result.errorCode; }
+      }
+      if (!applied && lastParsed) {
+        const part = S.applyScenes(store, lastParsed, next.slice, next.required, undefined, { partial: true, quoteMode: settings().chats?.[chatId]?.organize?.quoteMode, verifyAttribution: true, strictCoverage: true });
+        if (!part.error) applied = part;
+        else { lastError = part.error; lastCode = part.errorCode || lastCode; }
+      }
+      if (applied) break;
+      if (lastCode !== 'coverage_missing' && lastCode !== 'uncited_run') break;
+      if (maxMessages <= 1) break;
+      const smallerLimit = maxMessages > 4 ? 4 : maxMessages > 2 ? 2 : 1;
+      const smaller = S.nextSlice(store, messages, window, { minPending: 1, maxMessages: smallerLimit });
+      if (!smaller || smaller.slice.length >= next.slice.length) {
+        maxMessages = smallerLimit;
         continue;
       }
-      const result = parsed ? S.applyScenes(store, parsed, next.slice, next.required, undefined, {quoteMode: settings().chats?.[chatId]?.organize?.quoteMode, verifyAttribution: true, strictCoverage: true}) : { error: '응답을 읽지 못했습니다' };
-      if (result.error) lastError = result.error;
-      else applied = result;
+      maxMessages = smallerLimit;
+      next = smaller;
+      lastError = '';
+      log(`chat ${chatId}: retrying scene with ${next.slice.length} message(s) after missing coverage`);
     }
     if (!applied) saveLastReply(chatId, lastError, lastReply);
-    // Still skipping messages after two tries: keep the good scenes before the gap; the rest is read again next.
-    if (!applied && lastParsed) {
-      const part = S.applyScenes(store, lastParsed, next.slice, next.required, undefined, { partial: true, quoteMode: settings().chats?.[chatId]?.organize?.quoteMode, verifyAttribution: true, strictCoverage: true });
-      if (!part.error) {
-        applied = part;
-        log(`chat ${chatId}: kept ${part.scenes.length} good scene(s), reading the rest again (${lastError})`);
-      }
-    }
     if (job?.cancel) throw Error('중단했습니다. 다시 시작하면 이어서 정리합니다.');
     if (!applied) throw Error(`${next.slice[0].number}번부터 장면 정리에 실패했습니다: ${lastError}`);
     S.commitScenes(store, applied);
@@ -2627,7 +2635,7 @@ function attach(app) {
   log('admin API ready at /api/memory-module');
 }
 
-module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { selectedForView, loadSelected, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, loadTranslations, saveTranslations, chatLangs, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, jobs, writeLanguage, memoryCallOptions } };
+module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { foldScenes, selectedForView, loadSelected, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, loadTranslations, saveTranslations, chatLangs, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, jobs, writeLanguage, memoryCallOptions } };
 
 
 
