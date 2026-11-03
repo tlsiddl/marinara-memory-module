@@ -236,7 +236,7 @@ function absentFrom(scene, cast) {
   return cast.filter((n) => (!present.includes(n) || blank.has(n)) && !heard.has(n));
 }
 
-function buildScenePrompt(store, slice, required, problem = null) {
+function buildScenePrompt(store, slice, required, problem = null, preferences = {}) {
   const parts = [];
   const known = liveFacts(store).slice(-80);
   const cast = castOf(store);
@@ -268,8 +268,12 @@ function buildScenePrompt(store, slice, required, problem = null) {
     parts.push(`[${message.number}] ${message.speaker}${L.clockNote(message)}:`);
     message.sentences.forEach((sentence, index) => parts.push(`[${message.number}.${index + 1}] ${String(sentence).replace(/\s*\n\s*/g, ' / ')}`));
   }
+  const guidance = [];
+  if (preferences.npcCoverage === 'expanded') guidance.push('1:1 대화에서도 주변 NPC·모브가 실제로 한 말·행동과 역할, 사건에 미친 영향 및 상대 반응을 구체적으로 정리해. 이름이 없으면 원문에 있는 직책으로 구분하고 이름이나 성격을 지어내지 마.');
+  if (preferences.quoteMode === 'narration') guidance.push('인용은 사건의 중요한 서술 문장 위주로 골라. 중요 문답·약속·거절의 대사도 함께 보존해. 서술의 by와 to는 null로 둬.');
+  if (preferences.quoteMode === 'both') guidance.push('사건의 대사와 중요한 서술을 모두 가능한 한 넉넉하게 인용해. 사건마다 최대 12개까지 보존한다. 질문과 답변은 함께 보존하고 서술의 by와 to는 null로 둬.');
   return [
-    { role: 'system', content: SCENE_PROMPT },
+    { role: 'system', content: SCENE_PROMPT + (guidance.length ? '\n\n사용자가 선택한 정리 우선순위 (위의 대사 우선 규칙보다 우선):\n' + guidance.join('\n') : '') },
     { role: 'user', content: parts.join('\n') },
   ];
 }
@@ -520,7 +524,7 @@ function supportEvents(scene, index, slice) {
  * Turn a model result into scenes for this slice. Scenes follow each other with no gap, from the slice start,
  * and the last one must reach `required`. Returns { scenes, facts, covered } or { error }.
  */
-function applyScenes(store, result, slice, required, now = new Date().toISOString(), { partial = false } = {}) {
+function applyScenes(store, result, slice, required, now = new Date().toISOString(), { partial = false, quoteMode = 'dialogue' } = {}) {
   const raw = Array.isArray(result?.scenes) ? result.scenes : null;
   if (!raw || !raw.length) return { error: '장면이 비어 있습니다' };
   const index = L.indexBatch(slice);
@@ -547,7 +551,7 @@ function applyScenes(store, result, slice, required, now = new Date().toISOStrin
         const all = resolveQuotes(e?.quotes, index, slice);
         const text = cleanText(e?.text, 500);
         for (const q of all) if (!inScene(q) && text) stray.push({ quote: q, about: text });
-        return { text, time: cleanText(e?.time, 40), why: cleanText(e?.why, 300), importance: ['critical', 'major', 'minor'].includes(e?.importance) ? e.importance : 'major', quotes: all.filter(inScene).slice(0, MAX_QUOTES_PER_EVENT) };
+        return { text, time: cleanText(e?.time, 40), why: cleanText(e?.why, 300), importance: ['critical', 'major', 'minor'].includes(e?.importance) ? e.importance : 'major', quotes: all.filter(inScene).slice(0, quoteMode === 'both' ? 12 : MAX_QUOTES_PER_EVENT) };
       })
       .filter((e) => e.text)
       .slice(0, item._maxEvents || MAX_EVENTS);
