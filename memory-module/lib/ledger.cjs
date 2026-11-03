@@ -756,7 +756,7 @@ function pastSleepAtWake(item, evidence, message, who) {
 }
 
 /** Apply one validated model result to the ledger. Bad items are dropped one by one, never the whole result. */
-function applyResult(ledger, result, batch, now = new Date().toISOString()) {
+function applyResult(ledger, result, batch, now = new Date().toISOString(), { strictCloseEvidence = false } = {}) {
   const stats = { opened: 0, updated: 0, closed: 0, dropped: 0 };
   if (!result || typeof result !== 'object') return { ...stats, invalid: true };
   const index = indexBatch(batch);
@@ -827,7 +827,7 @@ function applyResult(ledger, result, batch, now = new Date().toISOString()) {
     const learned = castNames(item?.learned, groupCast(ledger));
     if (learned.length && thread.unaware?.length) thread.unaware = thread.unaware.filter((n) => !learned.includes(n));
     if (learned.length && thread.guess?.length) thread.guess = thread.guess.filter((n) => !learned.includes(n));
-    if (soundsDone(thread, news) || (thread.kind === 'emotion' && evidence.length && soundsResolved(news))) {
+    if (((soundsDone(thread, news) && (!strictCloseEvidence || (evidence.length && !hedged(news)))) || (thread.kind === 'emotion' && evidence.length && soundsResolved(news)))) {
       const where = evidence[0] || { messageId: batch.at(-1)?.id ?? null, number: batch.at(-1)?.number ?? null };
       closeThread(thread, news, evidence, { messageId: where.messageId, number: where.number, time: at }, now);
       stats.closed++;
@@ -841,7 +841,8 @@ function applyResult(ledger, result, batch, now = new Date().toISOString()) {
     const evidence = resolveEvidence(item?.evidence, index);
     const how = cleanText(item?.how, 200);
     const feelingBlocked = thread?.kind === 'emotion' && (!evidence.length || hedged(how));
-    if (!thread || thread.status !== 'open' || (!evidence.length && !how) || feelingBlocked || handedOff(how) || FORGOTTEN.test(how || '')) {
+    const groundedClose = evidence.some((p) => (Array.isArray(item?.evidence) ? item.evidence : []).some((e) => typeof e?.q === 'string' && squash(e.q).length >= 2 && squash(p.text).includes(squash(e.q))));
+    if ((strictCloseEvidence && (!groundedClose || hedged(how))) || !thread || thread.status !== 'open' || (!evidence.length && !how) || feelingBlocked || handedOff(how) || FORGOTTEN.test(how || '')) {
       stats.dropped++;
       continue;
     }
@@ -1047,7 +1048,7 @@ function buildTidyPrompt(ledger, recent = []) {
 }
 
 /** Apply a tidy result: close finished threads, fold duplicates into the one kept. */
-function applyTidy(ledger, result, now = new Date().toISOString()) {
+function applyTidy(ledger, result, now = new Date().toISOString(), { strictCloseEvidence = false } = {}) {
   const stats = { closed: 0, merged: 0, dropped: 0 };
   if (!result || typeof result !== 'object') return { ...stats, invalid: true };
   const byId = new Map(ledger.threads.map((t) => [t.id, t]));
@@ -1085,7 +1086,8 @@ function applyTidy(ledger, result, now = new Date().toISOString()) {
     const why = item?.why;
     const allowed =
       why === 'momentary' || (why === 'done' && (thread?.kind === 'promise' || thread?.kind === 'pending') && DONE_WORDS.test(`${how || ''} ${thread?.latest?.text || ''}`));
-    if (!thread || !allowed || hedged(how) || handedOff(how) || FORGOTTEN.test(how || '')) {
+    const documentedDone = thread?.latest?.number != null && (thread.evidence || []).some((p) => p.number === thread.latest.number) && DONE_WORDS.test(thread.latest.text || '') && !hedged(thread.latest.text);
+    if (!thread || !allowed || (strictCloseEvidence && why === 'done' && !documentedDone) || hedged(how) || handedOff(how) || FORGOTTEN.test(how || '')) {
       stats.dropped++;
       continue;
     }

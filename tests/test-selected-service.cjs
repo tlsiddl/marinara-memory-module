@@ -14,3 +14,5 @@ test('valid selected memory is available to reply and changed original is exclud
  content='한서래는 편지를 읽고 웃었다.';const initial=await service.chatMessages('room');T.selectedForView('room',initial);T.setSelectedQuery('room','한서래가 읽었던 편지');assert.match(T.renderMemorySource('room'),/직접 선택해 정리한 기억/);
  content='한서래는 봉투를 덮었다.';T.selectedForView('room',await service.chatMessages('room'));assert.doesNotMatch(T.renderMemorySource('room'),/직접 선택해 정리한 기억/);
 });
+
+test('scene detail preference is room-specific and survives an older client save',async()=>{const key='POST /chats/:id/organize-preferences';let r=await request(key,{id:'detail-room'},{npcCoverage:'standard',quoteMode:'both',detailLevel:'very_detailed'});assert.ifError(r.error);assert.equal(r.result.organize.detailLevel,'very_detailed');r=await request(key,{id:'detail-room'},{npcCoverage:'expanded',quoteMode:'both'});assert.ifError(r.error);assert.equal(r.result.organize.detailLevel,'very_detailed');r=await request(key,{id:'detail-room'},{detailLevel:'wrong'});assert(r.error);assert.equal(T.settings().chats['detail-room'].organize.detailLevel,'very_detailed');});

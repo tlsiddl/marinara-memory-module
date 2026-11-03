@@ -65,3 +65,51 @@ test('long backlogs are bounded without splitting a user message and reply', () 
   assert.equal(next.slice.at(-1).role,'assistant');
   assert.ok(next.required <= next.slice.at(-1).number);
 });
+
+test('untagged speakers can be inferred from source context, and unsupported recipients stay blank', () => {
+  const batch=L.prepareMessages([{id:'m',number:1,role:'assistant',speaker:'주인공',content:'지훈은 맞은편을 바라보며 말을 꺼냈다. "그 얘기 정말이야?" 민수가 지훈에게 고개를 돌렸다. "나도 그렇게 들었어."'}]);
+  const quotes=batch[0].sentences;
+  const first=quotes.findIndex(x=>x.includes('그 얘기 정말이야'))+1;
+  const second=quotes.findIndex(x=>x.includes('나도 그렇게'))+1;
+  const input={scenes:[{end:1,title:'대화',events:[{text:'두 사람이 대화한다',quotes:[
+    {n:`1.${first}`,by:'지훈',byEvidence:'지훈은 맞은편을 바라보며',to:'주인공'},
+    {n:`1.${second}`,by:'민수',byEvidence:'민수가 지훈에게 고개를 돌렸다',to:'지훈',toEvidence:'민수가 지훈에게 고개를 돌렸다'},
+  ]}]}]};
+  const result=S.applyScenes(S.emptyStore(),input,batch,1,undefined,{verifyAttribution:true});
+  assert.ok(!result.error,result.error);
+  assert.deepEqual(result.scenes[0].events[0].quotes.map(q=>[q.by,q.to]),[['지훈',null],['민수','지훈']]);
+});
+
+test('a substantial message without an event quote triggers retry and cannot silently pass partial fallback', () => {
+  const batch=L.prepareMessages([{id:'a',number:1,role:'assistant',speaker:'민',content:'"먼저 앉으세요."'}, {id:'b',number:2,role:'assistant',speaker:'민',content:'긴 서술이 이어진다. '.repeat(12)+'민이 이름을 듣고 질문을 이어갔다.'}]);
+  const input={scenes:[{end:2,title:'대화',events:[{text:'민이 앉으라고 한다',quotes:[{n:'1.1'}]}]}]};
+  const strict=S.applyScenes(S.emptyStore(),input,batch,2,undefined,{strictCoverage:true});
+  assert.match(strict.error,/2번 메시지/);
+  assert.match(S.applyScenes(S.emptyStore(),input,batch,2,undefined,{strictCoverage:true,partial:true}).error,/2번 메시지/);
+});
+
+test('strict ledger close requires a matching source phrase and rejects an ongoing condition', () => {
+  const ledger=L.emptyLedger();
+  const start=L.prepareMessages([{id:'s',number:1,speaker:'민',content:'"머무는 동안은 언제든 떠나도 돼."'}]);
+  L.applyResult(ledger,{open:[{kind:'promise',title:'체류 조건',evidence:[{n:'1.1'}]}]},start);
+  const later=L.prepareMessages([{id:'t',number:2,speaker:'손님',content:'손님이 저택에 도착했다.'}]);
+  const stats=L.applyResult(ledger,{close:[{id:'T1',how:'조건이 완료됐다',evidence:[{n:'2.1',q:'조건이 끝났다'}]}]},later,undefined,{strictCloseEvidence:true});
+  assert.equal(stats.closed,0); assert.equal(ledger.threads[0].status,'open');
+});
+
+test('strict tidy does not close an ongoing promise based only on a model explanation', () => {
+  const ledger=L.emptyLedger();
+  const start=L.prepareMessages([{id:'s',number:1,speaker:'민',content:'"머무는 동안 언제든 떠나도 돼."'}]);
+  L.applyResult(ledger,{open:[{kind:'promise',title:'체류 조건',evidence:[{n:'1.1'}]}]},start);
+  const stats=L.applyTidy(ledger,{close:[{id:'T1',why:'done',how:'도착해서 완료됨'}]},undefined,{strictCloseEvidence:true});
+  assert.equal(stats.closed,0); assert.equal(ledger.threads[0].status,'open');
+});
+
+test('detail levels keep standard unchanged and request progressively more detail', () => {
+  const standard=S.buildScenePrompt(S.emptyStore(),messages,3,null,{detailLevel:'standard'})[0].content;
+  const detailed=S.buildScenePrompt(S.emptyStore(),messages,3,null,{detailLevel:'detailed'})[0].content;
+  const very=S.buildScenePrompt(S.emptyStore(),messages,3,null,{detailLevel:'very_detailed'})[0].content;
+  assert.doesNotMatch(standard,/장면을 아주 자세히 기록해/);
+  assert.match(detailed,/행동, 반응, 대화의 맥락/);
+  assert.match(very,/장면을 아주 자세히 기록해/);
+});
