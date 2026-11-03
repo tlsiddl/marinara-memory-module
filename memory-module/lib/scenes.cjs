@@ -316,16 +316,17 @@ const isSpoken = (text) => /^["“'‘「『]/.test(text);
 
 // Only pair an adjacent Korean parenthetical with a complete quoted foreign-language line.
 // This avoids treating ordinary parenthetical narration as a translation.
+const foreignQuote = (text) => isSpoken(text) && /\p{L}/u.test(text) && /[^\p{Script=Hangul}\s\p{P}\p{S}\p{N}]/u.test(text) && !/[가-힣]/.test(text);
 function bilingualQuote(pointer, index) {
   let first = pointer;
   if (isTranslation(pointer.text)) {
     const previous = index.get(`${pointer.number}.${pointer.sentence - 1}`);
     const preceding = previous && parseLine(previous.text).text;
-    if (preceding && isSpoken(preceding) && /[A-Za-z]/.test(preceding) && !hasTranslation(preceding)) first = previous;
+    if (preceding && foreignQuote(preceding) && !hasTranslation(preceding)) first = previous;
   }
   const next = index.get(`${first.number}.${first.sentence + 1}`);
   const spoken = parseLine(first.text).text;
-  if (isSpoken(spoken) && /[A-Za-z]/.test(spoken) && !hasTranslation(spoken) && isTranslation(next?.text)) {
+  if (foreignQuote(spoken) && !hasTranslation(spoken) && isTranslation(next?.text)) {
     return { ...first, text: `${first.text} ${next.text}` };
   }
   return pointer;
@@ -740,6 +741,28 @@ function attachTranslations(store, messages) {
         q.text = line.text;
         q.sentence = paired.sentence;
         if (!q.by && line.by) q.by = line.by;
+        changed++;
+      }
+    }
+  }
+  return changed;
+}
+
+/** Restore original adjacent translations in ledger evidence, without changing sentence numbering. */
+function attachLedgerTranslations(ledger, messages) {
+  const byId = new Map(messages.map((m) => [m.id, m]));
+  const index = L.indexBatch(messages);
+  let changed = 0;
+  for (const thread of ledger.threads || []) {
+    for (const pointers of [thread.evidence, thread.clues, thread.closed?.evidence]) {
+      for (const q of Array.isArray(pointers) ? pointers : []) {
+        const message = byId.get(q.messageId);
+        if (!message || message.number !== q.number) continue;
+        const original = index.get(`${q.number}.${q.sentence}`);
+        if (!original || original.text !== q.text) continue;
+        const paired = bilingualQuote(original, index);
+        if (paired.text === original.text || paired.sentence !== original.sentence) continue;
+        q.text = paired.text;
         changed++;
       }
     }
@@ -1661,6 +1684,7 @@ module.exports = {
   applyLearned,
   parseScenesReply,
   attachTranslations,
+  attachLedgerTranslations,
   recipientCandidates,
   applyRecipientResults,
   uncited,

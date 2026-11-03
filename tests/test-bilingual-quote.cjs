@@ -47,3 +47,24 @@ test('ordinary adjacent parenthetical prose is not attached to narration', () =>
   const result = S.applyScenes(store, { scenes: [{ end: 1, title: '웃음', summary: '웃었다', events: [{ text: '그가 웃었다', quotes: [{ n: '1.2' }] }] }] }, msgs, 1);
   assert.equal(result.scenes[0].events[0].quotes[0].text, '(그는 웃었다.)');
 });
+
+test('ledger evidence restores a translation once without touching changed sources or edits', () => {
+  const msgs = messages();
+  const pointer = L.indexBatch(msgs).get('1.1');
+  const ledger = { threads: [{ evidence: [{ ...pointer }], clues: [], closed: { evidence: [] } }] };
+  assert.equal(S.attachLedgerTranslations(ledger, msgs), 1);
+  assert.equal(ledger.threads[0].evidence[0].text, english + ' ' + korean);
+  assert.equal(S.attachLedgerTranslations(ledger, msgs), 0);
+  const edited = { threads: [{ evidence: [{ ...pointer, text: '직접 고친 내용' }] }] };
+  assert.equal(S.attachLedgerTranslations(edited, msgs), 0);
+  const wrongMessage = { threads: [{ evidence: [{ ...pointer, messageId: 'other' }] }] };
+  assert.equal(S.attachLedgerTranslations(wrongMessage, msgs), 0);
+});
+
+test('Japanese quotes can retain a Korean translation and Korean dialogue is not paired', () => {
+  for (const [content, expected] of [['「おはよう。」 (좋은 아침이야.)', 1], ['“안녕.” (반갑다는 뜻이다.)', 0]]) {
+    const msgs = L.prepareMessages([{ id: 'one', number: 1, role: 'assistant', content }]);
+    const ledger = { threads: [{ evidence: [L.indexBatch(msgs).get('1.1')] }] };
+    assert.equal(S.attachLedgerTranslations(ledger, msgs), expected);
+  }
+});
