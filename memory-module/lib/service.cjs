@@ -1328,7 +1328,7 @@ async function startTrial(chatId, from, to) {
         if (!next) break;
         let applied = null;
         for (let attempt = 0; attempt < 2 && !applied; attempt++) {
-          const parsed = L.parseJsonObject(await askModel(model, S.buildScenePrompt(scenes, next.slice, next.required, null, settings().chats?.[chatId]?.organize || {}), { maxTokens: 8192 }));
+          const parsed = L.parseJsonObject(await askModel(model, S.buildScenePrompt(scenes, next.slice, next.required, null, settings().chats?.[chatId]?.organize || {}), { maxTokens: settings().chats?.[chatId]?.organize?.quoteMode === 'both' ? 12288 : 8192 }));
           const result = parsed ? S.applyScenes(scenes, parsed, next.slice, next.required, undefined, {quoteMode: settings().chats?.[chatId]?.organize?.quoteMode}) : { error: '응답을 읽지 못했습니다' };
           if (!result.error) applied = result;
           else trial.sceneError = result.error;

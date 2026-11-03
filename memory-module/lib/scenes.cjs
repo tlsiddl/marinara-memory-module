@@ -74,6 +74,7 @@ const SCENE_PROMPT = `너는 장기 롤플레이의 기억 관리자야. 지나�
 - summary: 1~2문장. 무슨 일이 있었고 무엇이 바뀌었는지.
 - events: 중요한 일 3~6개를 순서대로. 각 사건은 한두 문장(text)과, 그 순간을 보여 주는 대사나 문장(quotes) 1~4개.
   날짜·기한·시각·금액·횟수·장소·조건("~하면 ~하기로")이 나오면 사건 text에 빠뜨리지 말고 그대로 적어. 예) "하준이 서아에게 원서 접수가 7월 20일 마감이라고 알려 줌".
+  사건은 실제 발생 순서대로 쓰고, 서로 떨어진 두 발화 사이에 반응이나 행동이 있으면 이를 별도 사건으로 나눠. 각 사건의 인용도 원문 순서대로 배치해. 뒤의 메시지에 작중 시각이 있으면 해당 사건의 time에 적어. 한 번 한 행동을 반복되는 습관으로 단정하지 마.
   대사가 있으면 대사를 우선해. 고백, 약속, 폭로, 결정적인 말은 꼭 대사로 남겨.
   [사용자 캐릭터]의 말도 요약하지 말고 대사 그대로 남겨. 나중에 다른 인물이 "너 그때 이렇게 말했잖아"라고 꺼낼 수 있어야 해. 특히 부탁, 약속, 고백, 질문, 변명, 감정을 드러낸 말, 그 장면을 움직인 말. 그 말에 대한 다른 인물의 대답이 있으면 같은 사건에 함께 넣어. 묻고 답하는 대화는 질문과 대답을 모두 인용해(사건 하나에 대사 최대 6개).
   사용자 캐릭터의 대사가 있는 장면이면 적어도 한두 개는 꼭 인용해.
@@ -271,7 +272,7 @@ function buildScenePrompt(store, slice, required, problem = null, preferences = 
   const guidance = [];
   if (preferences.npcCoverage === 'expanded') guidance.push('1:1 대화에서도 주변 NPC·모브가 실제로 한 말·행동과 역할, 사건에 미친 영향 및 상대 반응을 구체적으로 정리해. 이름이 없으면 원문에 있는 직책으로 구분하고 이름이나 성격을 지어내지 마.');
   if (preferences.quoteMode === 'narration') guidance.push('인용은 사건의 중요한 서술 문장 위주로 골라. 중요 문답·약속·거절의 대사도 함께 보존해. 서술의 by와 to는 null로 둬.');
-  if (preferences.quoteMode === 'both') guidance.push('사건의 대사와 중요한 서술을 모두 가능한 한 넉넉하게 인용해. 사건마다 최대 12개까지 보존한다. 질문과 답변은 함께 보존하고 서술의 by와 to는 null로 둬.');
+  if (preferences.quoteMode === 'both') guidance.push('사건의 대사와 중요한 서술을 모두 인용해. 각 사건에서 중요한 대사와 행동·표정·접촉·상황 변화의 서술을 각각 원문 문장 번호로 인용해. 대사가 있는 사건도 관련 서술이 있으면 최소 한 문장을 별도 quotes 항목으로 넣어. 원문에 없으면 만들지 마. 사건마다 최대 12개. 질문과 답변은 함께 보존하고 서술의 by와 to는 null로 둬. 이름·철자 공개 뒤의 질문과 반응처럼 새 전개가 있으면 별도 사건을 만들어 그 대사를 직접 연결해.');
   return [
     { role: 'system', content: SCENE_PROMPT + (guidance.length ? '\n\n사용자가 선택한 정리 우선순위 (위의 대사 우선 규칙보다 우선):\n' + guidance.join('\n') : '') },
     { role: 'user', content: parts.join('\n') },
@@ -342,7 +343,10 @@ function resolveQuotes(items, index, slice) {
   const seen = new Set();
   for (const raw of Array.isArray(items) ? items : []) {
     let pointer = L.resolveEvidence([raw], index)[0];
-    if (!pointer) continue;
+    // Do not trust an existing number when the supplied phrase does not occur there.
+    // resolveEvidence may otherwise retain an unrelated numbered sentence.
+    const phrase = typeof raw === 'object' && raw ? squash(raw.q) : '';
+    if (!pointer || (phrase.length >= 2 && !squash(pointer.text).includes(phrase))) continue;
     pointer = bilingualQuote(pointer, index);
     const key = `${pointer.number}.${pointer.sentence}`;
     if (seen.has(key)) continue;
@@ -354,6 +358,17 @@ function resolveQuotes(items, index, slice) {
     out.push({ ...pointer, text: line.text, by, to: by ? cleanText(raw?.to, 60) : null });
   }
   return out;
+}
+
+// Keep one narrative source in mixed mode even if the model listed it after many lines.
+function limitQuotes(quotes, mode) {
+  const limit = mode === 'both' ? 12 : MAX_QUOTES_PER_EVENT;
+  const selected = quotes.slice(0, limit);
+  if (mode === 'both' && !selected.some((q) => !isSpoken(parseLine(q.text).text))) {
+    const narrative = quotes.slice(limit).find((q) => !isSpoken(parseLine(q.text).text));
+    if (narrative) selected[limit - 1] = narrative;
+  }
+  return selected.sort((a, b) => a.number - b.number || a.sentence - b.sentence);
 }
 
 /** "도윤은 하준을…" about 도윤 → "하준을…" */
@@ -505,18 +520,29 @@ function relinkLoose(scene, speakerOf) {
   return moved;
 }
 
-/** An event with no line at all gets the sentence of its scene that it describes best, when one clearly fits. */
-function supportEvents(scene, index, slice) {
+/** Add only clear narrative support from a cited message; ambiguous matches stay unlinked. */
+function supportEvents(scene, index, slice, quoteMode) {
   for (const e of scene.events) {
-    if (e.quotes.length) continue;
-    let best = null;
-    let score = 0;
+    const wantNarration = quoteMode === 'both' || quoteMode === 'narration';
+    if (e.quotes.length && (!wantNarration || e.quotes.some((q) => !isSpoken(parseLine(q.text).text)))) continue;
+    const citedMessages = new Set(e.quotes.map((q) => q.number));
+    let best = null, score = 0, tied = false;
     for (const p of index.values()) {
       if (p.number < scene.start || p.number > scene.end) continue;
-      const sc = overlap(e.text, p.text);
-      if (sc > score) [best, score] = [p, sc];
+      if (citedMessages.size && !citedMessages.has(p.number)) continue;
+      const line = parseLine(p.text).text;
+      if (isSpoken(line) || isTranslation(line)) continue;
+      // A short line can coincidentally overlap almost completely with an unrelated event.
+      if (squash(line).length < 8) continue;
+      const sc = overlap(e.text, line);
+      if (sc > score) { best = p; score = sc; tied = false; }
+      else if (sc === score && sc > 0) tied = true;
     }
-    if (best && score >= 0.35) e.quotes = resolveQuotes([{ n: `${best.number}.${best.sentence}` }], index, slice);
+    if (best && score >= 0.35 && !tied) {
+      const added = resolveQuotes([{ n: `${best.number}.${best.sentence}` }], index, slice)[0];
+      if (added && !e.quotes.some((q) => q.number === added.number && q.sentence === added.sentence)) e.quotes.push(added);
+      e.quotes = limitQuotes(e.quotes, quoteMode);
+    }
   }
 }
 
@@ -551,7 +577,7 @@ function applyScenes(store, result, slice, required, now = new Date().toISOStrin
         const all = resolveQuotes(e?.quotes, index, slice);
         const text = cleanText(e?.text, 500);
         for (const q of all) if (!inScene(q) && text) stray.push({ quote: q, about: text });
-        return { text, time: cleanText(e?.time, 40), why: cleanText(e?.why, 300), importance: ['critical', 'major', 'minor'].includes(e?.importance) ? e.importance : 'major', quotes: all.filter(inScene).slice(0, quoteMode === 'both' ? 12 : MAX_QUOTES_PER_EVENT) };
+        return { text, time: cleanText(e?.time, 40), why: cleanText(e?.why, 300), importance: ['critical', 'major', 'minor'].includes(e?.importance) ? e.importance : 'major', quotes: limitQuotes(all.filter(inScene), quoteMode) };
       })
       .filter((e) => e.text)
       .slice(0, item._maxEvents || MAX_EVENTS);
@@ -642,7 +668,7 @@ function applyScenes(store, result, slice, required, now = new Date().toISOStrin
   if (!made.length) return { error: '쓸 수 있는 장면이 없습니다' };
   const speakers = new Map(slice.map((m) => [m.number, m.speaker]));
   placeStray(made, stray, (n) => speakers.get(n));
-  for (const scene of made) supportEvents(scene, index, slice);
+  for (const scene of made) supportEvents(scene, index, slice, quoteMode);
   // A scene whose lines all come from a few of its messages skipped the rest: those would be lost.
   const bad = made.findIndex((scene, i) => uncited(scene, slice, newFacts) > MAX_UNCITED);
   if (bad >= 0) {
