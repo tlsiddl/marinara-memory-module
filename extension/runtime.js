@@ -529,7 +529,7 @@
           <label>중요도<select data-f="importance">${Object.entries(IMPORTANCE).map(([k, v]) => `<option value="${k}" ${(e.importance || 'major') === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
           <label class="full">계기 (원문에 있을 때만)<input data-f="why" value="${esc(e.why || '')}"></label>${trNote(e.why)}
         </div>
-        ${e.quotes.map((q, qi) => { const l = quoteLine(q); return `<div class="quote-card" data-quote="${qi}"><small>${esc(l.who)} · #${q.number}.${q.sentence}</small><blockquote>${esc(l.text)}</blockquote>${trNote(q.text)}<label>들은 사람<input data-quote-to value="${esc(q.to || '')}" placeholder="모르면 비워 두기"></label></div>`; }).join('')}
+        ${e.quotes.map((q, qi) => { const l = quoteLine(q); return `<div class="quote-card" data-quote="${qi}"><small>${esc(l.who)} · #${q.number}.${q.sentence}</small><blockquote>${esc(l.text)}</blockquote>${trNote(q.text)}<label>말한 사람<input data-quote-by value="${esc(q.by || '')}" placeholder="모르면 비워 두기"></label><label>들은 사람<input data-quote-to value="${esc(q.to || '')}" placeholder="모르면 비워 두기"></label></div>`; }).join('')}
       </article>`)
       .join('');
     const loose = (s.loose || []).map((q) => { const l = quoteLine(q); return `<div class="quote-card loose"><small>${esc(l.who)} · #${q.number}.${q.sentence} · 연결 미확정</small><blockquote>${esc(l.text)}</blockquote>${trNote(q.text)}</div>`; }).join('');
@@ -582,7 +582,8 @@
       const old = s.events[Number(el.dataset.event)];
       const quotes = old.quotes.map((q, i) => {
         const input = el.querySelector(`[data-quote="${i}"] [data-quote-to]`);
-        return input ? { ...q, to: input.value.trim() || null } : q;
+        const speaker = el.querySelector(`[data-quote="${i}"] [data-quote-by]`);
+        return input ? { ...q, by: speaker?.value.trim() || null, to: input.value.trim() || null } : q;
       });
       return { ...old, quotes, text: val(el, 'text'), time: val(el, 'time'), why: val(el, 'why'), importance: val(el, 'importance') };
     });

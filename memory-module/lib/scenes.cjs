@@ -816,6 +816,44 @@ function attachLedgerTranslations(ledger, messages) {
   return changed;
 }
 
+function attributionCandidates(store, messages, limit = 20, attempted = new Set()) {
+  const byNumber = new Map(messages.map((m) => [m.number, m]));
+  const result = [];
+  for (const scene of store.scenes || []) {
+    if (scene.edited) continue;
+    const names = [...new Set([...(store.cast || []), ...(scene.present || []), ...(store.personas || []), ...(scene.recollections || []).map((r) => r.who)].filter((n) => typeof n === 'string' && n.trim()))];
+    for (const quotes of [...(scene.events || []).map((e) => e.quotes || []), scene.loose || []]) for (const q of quotes) {
+      if (attempted.has(q) || q.attributionChecked === 1 || !isSpoken(parseLine(q.text).text)) continue;
+      const m = byNumber.get(q.number), source = m?.sentences?.[q.sentence - 1];
+      if (!source || (q.messageId && q.messageId !== m.id) || !parseLine(q.text).text.includes(parseLine(source).text)) continue;
+      const context = m.sentences.slice(Math.max(0, q.sentence - 7), q.sentence + 6).join('\n').slice(0, 8000);
+      result.push({ id: String(result.length), q, scene, names, context });
+      if (result.length >= limit) return result;
+    }
+  }
+  return result;
+}
+function applyAttributionResults(candidates, results) {
+  if (!Array.isArray(results)) return 0;
+  let changed = 0;
+  const entries = new Map(candidates.map((e) => [e.id, e])), seen = new Set();
+  for (const answer of results) {
+    const e = entries.get(String(answer?.id));
+    if (!e || e.scene.edited || seen.has(e.id)) continue;
+    seen.add(e.id);
+    if (!(answer.by === null || typeof answer.by === 'string') || !Array.isArray(answer.to)) continue;
+    const proof = (s) => typeof s === 'string' && squash(s).length >= 4 && squash(e.context).includes(squash(s));
+    const name = (s) => typeof s === 'string' && s.trim().length <= 40 && s.trim() ? (L.matchName(s.trim(), e.names) || (e.context.includes(s.trim()) ? s.trim() : null)) : null;
+    const by = answer.by === null ? null : name(answer.by), to = answer.to.map(name);
+    if ((answer.by !== null && (!by || !proof(answer.byEvidence))) || to.some((n) => !n) || (to.length && (!by || !proof(answer.toEvidence)))) continue;
+    const same = (a, b) => a === b || e.names.some((n) => (n === a || L.nameKeys(n).includes(a)) && (n === b || L.nameKeys(n).includes(b)));
+    const recipient = [...new Set(to.filter((n) => !same(n, by)))].join('·') || null;
+    if (e.q.by !== by || e.q.to !== recipient) changed++;
+    e.q.by = by; e.q.to = recipient; e.q.attributionChecked = 1;
+  }
+  return changed;
+}
+
 // Use the original message and known participants; never invent a listener when evidence is ambiguous.
 function recipientCandidates(store, messages, limit = 20, attempted = new Set()) {
   const byNumber = new Map(messages.map((m) => [m.number, m]));
@@ -1731,6 +1769,8 @@ module.exports = {
   parseScenesReply,
   attachTranslations,
   attachLedgerTranslations,
+  attributionCandidates,
+  applyAttributionResults,
   recipientCandidates,
   applyRecipientResults,
   uncited,
