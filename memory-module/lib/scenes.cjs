@@ -74,7 +74,7 @@ const SCENE_PROMPT = `너는 장기 롤플레이의 기억 관리자야. 지나�
 - summary: 1~2문장. 무슨 일이 있었고 무엇이 바뀌었는지.
 - events: 중요한 일 3~6개를 순서대로. 각 사건은 한두 문장(text)과, 그 순간을 보여 주는 대사나 문장(quotes) 1~4개.
   날짜·기한·시각·금액·횟수·장소·조건("~하면 ~하기로")이 나오면 사건 text에 빠뜨리지 말고 그대로 적어. 예) "하준이 서아에게 원서 접수가 7월 20일 마감이라고 알려 줌".
-  사건은 실제 발생 순서대로 쓰고, 서로 떨어진 두 발화 사이에 반응이나 행동이 있으면 이를 별도 사건으로 나눠. 각 사건의 인용도 원문 순서대로 배치해. 뒤의 메시지에 작중 시각이 있으면 해당 사건의 time에 적어. 한 번 한 행동을 반복되는 습관으로 단정하지 마.
+  사건은 실제 발생 순서대로 쓰고, 서로 떨어진 두 발화 사이에 반응이나 행동이 있으면 이를 별도 사건으로 나눠. 각 사건의 인용도 원문 순서대로 배치해. 뒤의 메시지에 작중 시각이 있으면 해당 사건의 time에 적어. 한 번 한 행동을 반복되는 습관이나 버릇으로 단정하지 마. 다른 인물이 대사의 뜻을 잘못 이해한 경우 그 오해를 사실로 쓰지 말고, 원문 발언과 해석을 구분해.
   대사가 있으면 대사를 우선해. 고백, 약속, 폭로, 결정적인 말은 꼭 대사로 남겨.
   [사용자 캐릭터]의 말도 요약하지 말고 대사 그대로 남겨. 나중에 다른 인물이 "너 그때 이렇게 말했잖아"라고 꺼낼 수 있어야 해. 특히 부탁, 약속, 고백, 질문, 변명, 감정을 드러낸 말, 그 장면을 움직인 말. 그 말에 대한 다른 인물의 대답이 있으면 같은 사건에 함께 넣어. 묻고 답하는 대화는 질문과 대답을 모두 인용해(사건 하나에 대사 최대 6개).
   사용자 캐릭터의 대사가 있는 장면이면 적어도 한두 개는 꼭 인용해.
@@ -667,7 +667,20 @@ function applyScenes(store, result, slice, required, now = new Date().toISOStrin
   if (!made.length) return { error: '쓸 수 있는 장면이 없습니다' };
   const speakers = new Map(slice.map((m) => [m.number, m.speaker]));
   placeStray(made, stray, (n) => speakers.get(n));
-  for (const scene of made) supportEvents(scene, index, slice, quoteMode);
+  for (const scene of made) {
+    if (scene.loose) scene.loose.sort((a, b) => a.number - b.number || a.sentence - b.sentence);
+    supportEvents(scene, index, slice, quoteMode);
+  }
+  // A cluster of lines filed under another scene is a sign that the model omitted a
+  // whole event. Ask for a corrected result once; partial fallback still preserves
+  // the original lines rather than forcing a speculative link.
+  if (!partial) {
+    const scene = made.find((s) => (s.loose || []).length >= 2);
+    if (scene) {
+      const refs = scene.loose.map((q) => `${q.number}.${q.sentence}`).join(', ');
+      return { error: `장면 "${scene.title}"(${scene.start}~${scene.end}번)의 ${refs} 인용이 사건에 연결되지 않았습니다. 해당 메시지의 사건이 빠졌는지 확인하고 필요하면 새 사건을 만들어 그 장면에 직접 연결해 주세요. 불확실한 내용은 지어내지 마세요.` };
+    }
+  }
   // A scene whose lines all come from a few of its messages skipped the rest: those would be lost.
   const bad = made.findIndex((scene, i) => uncited(scene, slice, newFacts) > MAX_UNCITED);
   if (bad >= 0) {
