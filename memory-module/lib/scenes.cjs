@@ -822,12 +822,15 @@ function attributionCandidates(store, messages, limit = 20, attempted = new Set(
   for (const scene of store.scenes || []) {
     if (scene.edited) continue;
     const names = [...new Set([...(store.cast || []), ...(scene.present || []), ...(store.personas || []), ...(scene.recollections || []).map((r) => r.who)].filter((n) => typeof n === 'string' && n.trim()))];
-    for (const quotes of [...(scene.events || []).map((e) => e.quotes || []), scene.loose || []]) for (const q of quotes) {
-      if (attempted.has(q) || q.attributionChecked === 1 || !isSpoken(parseLine(q.text).text)) continue;
+    for (const event of [...(scene.events || []), { quotes: scene.loose || [] }]) for (const q of event.quotes || []) {
+      if (attempted.has(q) || q.attributionChecked === 2 || !isSpoken(parseLine(q.text).text)) continue;
       const m = byNumber.get(q.number), source = m?.sentences?.[q.sentence - 1];
       if (!source || (q.messageId && q.messageId !== m.id) || !parseLine(q.text).text.includes(parseLine(source).text)) continue;
-      const context = m.sentences.slice(Math.max(0, q.sentence - 7), q.sentence + 6).join('\n').slice(0, 8000);
-      result.push({ id: String(result.length), q, scene, names, context });
+      const before = m.sentences.slice(Math.max(0, q.sentence - 9), q.sentence - 1);
+      const after = m.sentences.slice(q.sentence, q.sentence + 8);
+      const context = [...before, source, ...after].join('\n');
+      const externalContext = [...before, ...after].join('\n');
+      result.push({ id: String(result.length), q, scene, names, context, externalContext, source, eventText: event.text || '' });
       if (result.length >= limit) return result;
     }
   }
@@ -844,12 +847,21 @@ function applyAttributionResults(candidates, results) {
     if (!(answer.by === null || typeof answer.by === 'string') || !Array.isArray(answer.to)) continue;
     const proof = (s) => typeof s === 'string' && squash(s).length >= 4 && squash(e.context).includes(squash(s));
     const name = (s) => typeof s === 'string' && s.trim().length <= 40 && s.trim() ? (L.matchName(s.trim(), e.names) || (e.context.includes(s.trim()) ? s.trim() : null)) : null;
-    const by = answer.by === null ? null : name(answer.by), to = answer.to.map(name);
-    if ((answer.by !== null && (!by || !proof(answer.byEvidence))) || to.some((n) => !n) || (to.length && (!by || !proof(answer.toEvidence)))) continue;
+    let by = answer.by === null ? null : name(answer.by);
+    const to = answer.to.map(name);
+    if (answer.by !== null && (!by || !proof(answer.byEvidence))) continue;
+    // A name inside the speech may be the person being addressed, not its speaker.
+    // Require independent source context (or an explicit source label) for attribution.
+    const externalProof = typeof answer.byEvidence === 'string' && squash(answer.byEvidence).length >= 4 && squash(e.externalContext).includes(squash(answer.byEvidence));
+    const sourceLabel = parseLine(e.source).by;
+    const labelMatches = sourceLabel && by && L.matchName(sourceLabel, e.names) && L.matchName(sourceLabel, e.names) === L.matchName(by, e.names);
+    if (by && !externalProof && !labelMatches) by = null;
+    if (to.some((n) => !n) || (to.length && !proof(answer.toEvidence))) continue;
+    if (!by) to.length = 0;
     const same = (a, b) => a === b || e.names.some((n) => (n === a || L.nameKeys(n).includes(a)) && (n === b || L.nameKeys(n).includes(b)));
     const recipient = [...new Set(to.filter((n) => !same(n, by)))].join('·') || null;
     if (e.q.by !== by || e.q.to !== recipient) changed++;
-    e.q.by = by; e.q.to = recipient; e.q.attributionChecked = 1;
+    e.q.by = by; e.q.to = recipient; e.q.attributionChecked = 2;
   }
   return changed;
 }

@@ -1,0 +1,18 @@
+const assert = require('node:assert/strict');
+const S = require('../memory-module/lib/scenes.cjs');
+const q = {number:1,sentence:2,text:'"Signor Rossi, mi perdoni!" (로시 씨, 죄송합니다!)',by:'로시',to:null,attributionChecked:1};
+const scene = {events:[{text:'직원 민수가 로시에게 사과한다.',quotes:[q]}],present:['민수','로시']};
+const store = {scenes:[scene]};
+const messages = [{number:1,sentences:['직원의 말이 끊겼다.','"Signor Rossi, mi perdoni!" (로시 씨, 죄송합니다!)','그는 고개를 숙였다.']}];
+let entries = S.attributionCandidates(store,messages);
+assert.equal(entries.length,1); assert.equal(entries[0].eventText,scene.events[0].text);
+S.applyAttributionResults(entries,[{id:'0',by:'로시',to:[],byEvidence:'로시 씨, 죄송합니다',toEvidence:''}]);
+assert.equal(q.by,null,'A name addressed within the quote is not proof of who spoke');
+delete q.attributionChecked;
+entries = S.attributionCandidates(store,messages);
+S.applyAttributionResults(entries,[{id:'0',by:'민수',to:['로시'],byEvidence:'직원의 말이 끊겼다',toEvidence:'로시 씨, 죄송합니다'}]);
+assert.equal(q.by,'민수'); assert.equal(q.to,'로시');
+assert.equal(S.attributionCandidates(store,messages).length,0);
+delete q.attributionChecked; scene.edited=true;
+assert.equal(S.attributionCandidates(store,messages).length,0);
+console.log('attribution context tests passed');
