@@ -800,19 +800,21 @@ function attributionCandidates(store, messages, limit = 20, attempted = new Set(
     if (scene.edited) continue;
     const names = [...new Set([...(store.cast || []), ...(scene.present || []), ...(store.personas || []), ...(scene.recollections || []).map((r) => r.who)].filter((n) => typeof n === 'string' && n.trim()))];
     for (const event of [...(scene.events || []), { quotes: scene.loose || [] }]) for (const q of event.quotes || []) {
-      if (attempted.has(q) || q.attributionChecked === 3 || !isSpoken(parseLine(q.text).text)) continue;
+      if (attempted.has(q) || q.attributionChecked === 4 || !isSpoken(parseLine(q.text).text)) continue;
       const m = byNumber.get(q.number), source = m?.sentences?.[q.sentence - 1];
       if (!source || (q.messageId && q.messageId !== m.id) || !parseLine(q.text).text.includes(parseLine(source).text)) continue;
       const before = m.sentences.slice(Math.max(0, q.sentence - 9), q.sentence - 1);
-      const after = m.sentences.slice(q.sentence, q.sentence + 8);
+      const after = m.sentences.slice(q.sentence, q.sentence + 20);
       const position = messages.findIndex((item) => item.number === m.number);
       const previous = messages[position - 1]?.sentences?.slice(-6) || [];
       const context = [...previous, ...before, source, ...after].join('\n');
       const externalContext = [...before, ...after].join('\n');
-      // A user message consisting of exactly one unlabelled utterance has an identifiable sender.
-      // Do not use this shortcut for multi-voice or narratively framed user messages.
-      const sender = m.role === 'user' && m.speaker && m.speaker !== 'User' && m.sentences.length === 1 && q.sentence === 1 && !parseLine(source).by ? m.speaker : null;
-      result.push({ id: String(result.length), q, scene, names, context, externalContext, source, sender, eventText: event.text || '' });
+      // Include the sender as a candidate when a user message has one unlabelled utterance.
+      // Auto-fill only when the entire message consists of that utterance.
+      const onlySpeech = m.sentences.filter((part) => isSpoken(parseLine(part).text)).length === 1;
+      const sender = m.role === 'user' && m.speaker && m.speaker !== 'User' && onlySpeech && !parseLine(source).by ? m.speaker : null;
+      const senderAlone = sender && m.sentences.length === 1;
+      result.push({ id: String(result.length), q, scene, names, context, externalContext, source, sender, senderAlone, eventText: event.text || '' });
       if (result.length >= limit) return result;
     }
   }
@@ -839,13 +841,13 @@ function applyAttributionResults(candidates, results) {
     const sourceLabel = parseLine(e.source).by;
     const labelMatches = sourceLabel && by && L.matchName(sourceLabel, e.names) && L.matchName(sourceLabel, e.names) === L.matchName(by, e.names);
     if (by && !externalProof && !labelMatches && !senderMatches) by = null;
-    if (!by && e.sender && answer.by === null) by = e.sender;
+    if (!by && e.senderAlone && answer.by === null) by = e.sender;
     if (to.some((n) => !n) || (to.length && !proof(answer.toEvidence))) to.length = 0;
     if (!by) to.length = 0;
     const same = (a, b) => a === b || e.names.some((n) => (n === a || L.nameKeys(n).includes(a)) && (n === b || L.nameKeys(n).includes(b)));
     const recipient = [...new Set(to.filter((n) => !same(n, by)))].join('·') || null;
     if (e.q.by !== by || e.q.to !== recipient) changed++;
-    e.q.by = by; e.q.to = recipient; e.q.attributionChecked = 3;
+    e.q.by = by; e.q.to = recipient; e.q.attributionChecked = 4;
   }
   return changed;
 }

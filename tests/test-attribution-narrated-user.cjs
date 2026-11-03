@@ -1,0 +1,12 @@
+const assert = require('node:assert/strict');
+const S = require('../memory-module/lib/scenes.cjs');
+const q={number:2,sentence:1,text:'"안녕하세요."',by:null,to:null,attributionChecked:3};
+const sc={events:[{text:'가은이 이름을 말한다.',quotes:[q]}],present:['가은','도윤']};
+const m=[{number:1,sentences:['도윤이 물었다.']},{number:2,role:'user',speaker:'가은',sentences:[q.text,'가은이 차를 마셨다.','표정이 풀렸다.']}];
+let c=S.attributionCandidates({scenes:[sc]},m); assert.equal(c[0].sender,'가은'); assert.ok(!c[0].senderAlone);
+S.applyAttributionResults(c,[{id:'0',by:'가은',to:[],byEvidence:'',toEvidence:''}]); assert.equal(q.by,'가은');
+delete q.attributionChecked;q.by=null;
+S.applyAttributionResults(S.attributionCandidates({scenes:[sc]},m),[{id:'0',by:null,to:[],byEvidence:'',toEvidence:''}]); assert.equal(q.by,null,'narrated user messages cannot be automatically attributed to the sender');
+const q2={number:3,sentence:1,text:'"실례합니다."',by:null};const near=Array.from({length:15},(_,i)=>'서술 '+i);near[14]='점원이 자기 이름을 밝혔다.';
+const c2=S.attributionCandidates({scenes:[{events:[{quotes:[q2]}]}]},[{number:3,sentences:[q2.text,...near]}]);assert.ok(c2[0].context.includes('점원이 자기 이름을 밝혔다.'));
+console.log('narrated user and longer context tests passed');
