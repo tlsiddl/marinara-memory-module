@@ -57,3 +57,20 @@ test('evidenced completion closes the invitation while an ongoing condition stay
   assert.equal(ledger.threads[0].status,'closed');
   assert.equal(ledger.threads[1].status,'open');
 });
+
+test('a cluster of misplaced lines requests a retry, then remains safe in a partial fallback', () => {
+  const batch=L.prepareMessages([
+    {id:'u',number:1,speaker:'손님',role:'user',content:'"이름은 별입니다."'},
+    {id:'a',number:2,speaker:'민',role:'assistant',content:'"어디에서 왔나요?" "이름이 독특하네요."'},
+    {id:'u2',number:3,speaker:'손님',role:'user',content:'"멀리서 왔어요."'},
+    {id:'a2',number:4,speaker:'민',role:'assistant',content:'"그렇군요."'},
+  ]);
+  const input={scenes:[
+    {end:2,title:'소개',events:[{text:'손님이 이름을 말함',quotes:[{n:'1.1'}]}]},
+    {end:4,title:'다음',events:[{text:'민이 별에게 출신과 이름에 관해 묻는다',quotes:[{n:'2.1'},{n:'2.2'}]},{text:'대답을 듣는다',quotes:[{n:'3.1'}]}]},
+  ]};
+  assert.match(S.applyScenes(S.emptyStore(),input,batch,4).error,/새 사건/);
+  const fallback=S.applyScenes(S.emptyStore(),input,batch,4,undefined,{partial:true});
+  assert.ok(!fallback.error, fallback.error);
+  assert.deepEqual(fallback.scenes[0].loose.map(q=>q.sentence),[1,2]);
+});
