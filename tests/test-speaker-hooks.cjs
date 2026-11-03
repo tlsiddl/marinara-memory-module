@@ -92,3 +92,11 @@ test('native guidance remains scoped to roleplay and never directs impersonated 
   for(const mode of ['conversation','game'])assert.equal(run(mode,{chatId:'room',impersonate:false}).length,0);
   assert.equal(run('roleplay',{chatId:'room',impersonate:true}).length,0);
 });
+
+
+test('legacy hook forwards a defined individual target and still runs when the target is missing', () => {
+  let seen=[];const withTarget=source.replace('usesIndividualGroupGeneration, charInfo}', 'usesIndividualGroupGeneration, charInfo, targetCharId}');
+  const run=vm.runInNewContext(RT.patchSource(withTarget,legacy)+'; run',{globalThis:{__marinaraMemory:{fixSpeakers:(text,o)=>{seen.push(o.targetCharId);return 'fixed:'+text;}}}});
+  assert.equal(run('원문',{...options,targetCharId:'char-123'}).saved,'fixed:원문');
+  assert.equal(run('원문',options).saved,'fixed:원문');assert.deepEqual(seen,['char-123',undefined]);
+});

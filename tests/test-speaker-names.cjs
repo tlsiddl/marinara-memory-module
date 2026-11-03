@@ -13,7 +13,7 @@ test('visible names and speaker tags remain independently configurable in one-to
     const svc = require('../memory-module/lib/service.cjs');
     const RT = require('../memory-module/marinara-memory-runtime.cjs');
     const patch = RT.PATCHES.find(p => p.name === 'speakerNamesPrompt');
-    const source = 'function run(chatMode,isGroupChat,input,charInfo) { const finalMessages=[]; function injectIntoOutputFormatOrLastUser(a,b){a.push(b)}; if (isGroupChat) {\n          // Inject group chat instructions at the end of the last user message\n } return finalMessages; }';
+    const source = 'function run(chatMode,isGroupChat,input,charInfo) { const finalMessages=[]; function injectIntoOutputFormatOrLastUser(a,b){a.push(b)};\n if (isGroupChat) {\n          // Inject group chat instructions at the end of the last user message\n } return finalMessages; }';
     const patched = RT.patchSource(source, patch);
     assert.ok(patched);
     const run = vm.runInNewContext(patched + ';run', {globalThis:{__marinaraMemory:svc}});
