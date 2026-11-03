@@ -689,7 +689,7 @@ function applyScenes(store, result, slice, required, now = new Date().toISOStrin
     const s = made[bad];
     const missed = missing(s);
     const problem = missed.length ? `장면 "${s.title}"에서 ${missed.join(", ")}번 메시지의 사건과 원문 인용이 빠졌습니다. 그 메시지의 중요한 일을 사건에 직접 연결하거나 장면을 적절히 나눠 주세요.` : `장면 "${s.title}"(${s.start}~${s.end}번)은 인용 없이 넘어간 메시지가 ${uncited(s, slice, newFacts)}개 이어집니다. 그 메시지들의 일도 사건으로 적거나, 장면을 나눠 주세요.`;
-    if (!partial || bad === 0) return { error: problem };
+    if (!partial || bad === 0) return { error: problem, errorCode: missed.length ? 'coverage_missing' : 'uncited_run' };
     made.length = bad;
     startAt = made.at(-1)._to + 1;
     const kept = new Set(made.map((x) => x.id));
