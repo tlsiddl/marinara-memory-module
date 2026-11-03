@@ -800,7 +800,7 @@ function attributionCandidates(store, messages, limit = 20, attempted = new Set(
     if (scene.edited) continue;
     const names = [...new Set([...(store.cast || []), ...(scene.present || []), ...(store.personas || []), ...(scene.recollections || []).map((r) => r.who)].filter((n) => typeof n === 'string' && n.trim()))];
     for (const event of [...(scene.events || []), { quotes: scene.loose || [] }]) for (const q of event.quotes || []) {
-      if (attempted.has(q) || (q.attributionChecked === 6 && (!retryUnresolved || (q.by && q.to))) || !isSpoken(parseLine(q.text).text)) continue;
+      if (attempted.has(q) || (q.attributionChecked === 7 && !retryUnresolved) || !isSpoken(parseLine(q.text).text)) continue;
       const m = byNumber.get(q.number), source = m?.sentences?.[q.sentence - 1];
       if (!source || (q.messageId && q.messageId !== m.id) || !parseLine(q.text).text.includes(parseLine(source).text)) continue;
       const before = m.sentences.slice(Math.max(0, q.sentence - 9), q.sentence - 1);
@@ -847,7 +847,7 @@ function applyAttributionResults(candidates, results) {
     const same = (a, b) => a === b || e.names.some((n) => (n === a || L.nameKeys(n).includes(a)) && (n === b || L.nameKeys(n).includes(b)));
     const recipient = [...new Set(to.filter((n) => !same(n, by)))].join('·') || null;
     if (e.q.by !== by || e.q.to !== recipient) changed++;
-    e.q.by = by; e.q.to = recipient; e.q.attributionChecked = 6;
+    e.q.by = by; e.q.to = recipient; e.q.attributionChecked = 7;
   }
   return changed;
 }
@@ -870,6 +870,23 @@ function confirmAttributionResults(candidates, first, second) {
     out.push({ id, independentReview: true, by: sameBy ? a.by : null, byEvidence: sameBy ? a.byEvidence : '', to: sameBy && sameTo ? a.to : [], toEvidence: sameBy && sameTo ? a.toEvidence : '' });
   }
   return out;
+}
+
+// Diagnostics deliberately omit source text, quotations, and evidence excerpts.
+// They live only in the current in-memory job and disappear after the next run or restart.
+function attributionDiagnostics(candidates, first, second, agreed, before) {
+  const maps = [first, second, agreed].map((items) => new Map((Array.isArray(items) ? items : []).map((x) => [String(x?.id), x])));
+  const clean = (item, context, externalContext) => {
+    if (!item) return null;
+    const name = (x) => typeof x === 'string' ? x.trim().slice(0, 40) : null;
+    const proof = (x) => typeof x === 'string' && squash(x).length >= 4 && squash(context).includes(squash(x));
+    return { by: name(item.by), to: Array.isArray(item.to) ? item.to.map(name).filter(Boolean).slice(0, 5) : [], byEvidenceFound: proof(item.byEvidence), byExternalEvidenceFound: typeof item.byEvidence === 'string' && squash(item.byEvidence).length >= 4 && squash(externalContext).includes(squash(item.byEvidence)), toEvidenceFound: proof(item.toEvidence) };
+  };
+  return candidates.map((e, i) => ({
+    scene: e.scene.id || '', number: e.q.number, sentence: e.q.sentence,
+    before: before[i], first: clean(maps[0].get(e.id), e.context, e.externalContext), second: clean(maps[1].get(e.id), e.context, e.externalContext),
+    agreed: clean(maps[2].get(e.id), e.context, e.externalContext), after: { by: e.q.by || null, to: e.q.to || null },
+  }));
 }
 
 // Move only events whose source ranges are strictly reversed; overlapping or unanchored events stay put.
@@ -1816,6 +1833,7 @@ module.exports = {
   parseScenesReply,
   attachTranslations,
   orderSceneEvents,
+  attributionDiagnostics,
   confirmAttributionResults,
   attributionCandidates,
   applyAttributionResults,
