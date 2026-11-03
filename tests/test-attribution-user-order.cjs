@@ -1,0 +1,17 @@
+const assert = require('node:assert/strict');
+const S = require('../memory-module/lib/scenes.cjs');
+const q = {number:2,sentence:1,text:'"아니, 난 스무 살이야."',by:null,to:null,attributionChecked:2};
+const scene = {events:[{text:'이름을 밝힘',quotes:[q]}],present:['가은','도윤']};
+const msgs = [{id:'a',number:1,role:'assistant',speaker:'도윤',sentences:['도윤이 가은에게 물었다.','"몇 살이야?"']},{id:'b',number:2,role:'user',speaker:'가은',sentences:[q.text]}];
+let list=S.attributionCandidates({scenes:[scene]},msgs);
+assert.equal(list.length,1); assert.equal(list[0].sender,'가은'); assert.ok(list[0].context.includes('몇 살이야'));
+S.applyAttributionResults(list,[{id:'0',by:null,to:[],byEvidence:'',toEvidence:''}]);
+assert.equal(q.by,'가은'); assert.equal(q.attributionChecked,3);
+const multi={...msgs[1],sentences:[q.text,'"다른 사람이 한 말."']};
+delete q.attributionChecked; assert.equal(S.attributionCandidates({scenes:[scene]},[msgs[0],multi])[0].sender,null);
+const e1={text:'나중',quotes:[{number:4,sentence:2,text:'나중 행동'}]};
+const e2={text:'먼저',quotes:[{number:4,sentence:1,text:'먼저 행동'}]};
+const sm={number:4,sentences:['먼저 행동','나중 행동']};
+const book={scenes:[{events:[e1,e2]}]}; assert.equal(S.orderSceneEvents(book,[sm]),1); assert.equal(book.scenes[0].events[0],e2);
+book.scenes[0].events=[e1,e2];book.scenes[0].edited=true;assert.equal(S.orderSceneEvents(book,[sm]),0);
+console.log('user turn and event ordering tests passed');

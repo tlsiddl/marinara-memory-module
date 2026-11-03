@@ -800,14 +800,19 @@ function attributionCandidates(store, messages, limit = 20, attempted = new Set(
     if (scene.edited) continue;
     const names = [...new Set([...(store.cast || []), ...(scene.present || []), ...(store.personas || []), ...(scene.recollections || []).map((r) => r.who)].filter((n) => typeof n === 'string' && n.trim()))];
     for (const event of [...(scene.events || []), { quotes: scene.loose || [] }]) for (const q of event.quotes || []) {
-      if (attempted.has(q) || q.attributionChecked === 2 || !isSpoken(parseLine(q.text).text)) continue;
+      if (attempted.has(q) || q.attributionChecked === 3 || !isSpoken(parseLine(q.text).text)) continue;
       const m = byNumber.get(q.number), source = m?.sentences?.[q.sentence - 1];
       if (!source || (q.messageId && q.messageId !== m.id) || !parseLine(q.text).text.includes(parseLine(source).text)) continue;
       const before = m.sentences.slice(Math.max(0, q.sentence - 9), q.sentence - 1);
       const after = m.sentences.slice(q.sentence, q.sentence + 8);
-      const context = [...before, source, ...after].join('\n');
+      const position = messages.findIndex((item) => item.number === m.number);
+      const previous = messages[position - 1]?.sentences?.slice(-6) || [];
+      const context = [...previous, ...before, source, ...after].join('\n');
       const externalContext = [...before, ...after].join('\n');
-      result.push({ id: String(result.length), q, scene, names, context, externalContext, source, eventText: event.text || '' });
+      // A user message consisting of exactly one unlabelled utterance has an identifiable sender.
+      // Do not use this shortcut for multi-voice or narratively framed user messages.
+      const sender = m.role === 'user' && m.speaker && m.speaker !== 'User' && m.sentences.length === 1 && q.sentence === 1 && !parseLine(source).by ? m.speaker : null;
+      result.push({ id: String(result.length), q, scene, names, context, externalContext, source, sender, eventText: event.text || '' });
       if (result.length >= limit) return result;
     }
   }
@@ -826,21 +831,52 @@ function applyAttributionResults(candidates, results) {
     const name = (s) => typeof s === 'string' && s.trim().length <= 40 && s.trim() ? (L.matchName(s.trim(), e.names) || (e.context.includes(s.trim()) ? s.trim() : null)) : null;
     let by = answer.by === null ? null : name(answer.by);
     const to = answer.to.map(name);
-    if (answer.by !== null && (!by || !proof(answer.byEvidence))) continue;
+    const senderMatches = e.sender && by && (by === e.sender || L.matchName(by, e.names) === e.sender);
+    if (answer.by !== null && (!by || (!proof(answer.byEvidence) && !senderMatches))) by = null;
     // A name inside the speech may be the person being addressed, not its speaker.
     // Require independent source context (or an explicit source label) for attribution.
     const externalProof = typeof answer.byEvidence === 'string' && squash(answer.byEvidence).length >= 4 && squash(e.externalContext).includes(squash(answer.byEvidence));
     const sourceLabel = parseLine(e.source).by;
     const labelMatches = sourceLabel && by && L.matchName(sourceLabel, e.names) && L.matchName(sourceLabel, e.names) === L.matchName(by, e.names);
-    if (by && !externalProof && !labelMatches) by = null;
-    if (to.some((n) => !n) || (to.length && !proof(answer.toEvidence))) continue;
+    if (by && !externalProof && !labelMatches && !senderMatches) by = null;
+    if (!by && e.sender && answer.by === null) by = e.sender;
+    if (to.some((n) => !n) || (to.length && !proof(answer.toEvidence))) to.length = 0;
     if (!by) to.length = 0;
     const same = (a, b) => a === b || e.names.some((n) => (n === a || L.nameKeys(n).includes(a)) && (n === b || L.nameKeys(n).includes(b)));
     const recipient = [...new Set(to.filter((n) => !same(n, by)))].join('·') || null;
     if (e.q.by !== by || e.q.to !== recipient) changed++;
-    e.q.by = by; e.q.to = recipient; e.q.attributionChecked = 2;
+    e.q.by = by; e.q.to = recipient; e.q.attributionChecked = 3;
   }
   return changed;
+}
+
+// Move only events whose source ranges are strictly reversed; overlapping or unanchored events stay put.
+function orderSceneEvents(store, messages) {
+  const byNumber = new Map(messages.map((m) => [m.number, m]));
+  let swaps = 0;
+  const range = (event) => {
+    const positions = (event.quotes || []).filter((q) => {
+      const m = byNumber.get(q.number), source = m?.sentences?.[q.sentence - 1];
+      return source && (!q.messageId || q.messageId === m.id) && parseLine(q.text).text.includes(parseLine(source).text);
+    }).map((q) => [q.number, q.sentence]).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    return positions.length ? [positions[0], positions.at(-1)] : null;
+  };
+  const earlier = (a, b) => a[0] < b[0] || (a[0] === b[0] && a[1] < b[1]);
+  for (const scene of store.scenes || []) {
+    if (scene.edited || !Array.isArray(scene.events)) continue;
+    for (let pass = 0; pass < scene.events.length; pass++) {
+      let moved = false;
+      for (let i = 0; i + 1 < scene.events.length; i++) {
+        const left = range(scene.events[i]), right = range(scene.events[i + 1]);
+        if (left && right && earlier(right[1], left[0])) {
+          [scene.events[i], scene.events[i + 1]] = [scene.events[i + 1], scene.events[i]];
+          swaps++; moved = true;
+        }
+      }
+      if (!moved) break;
+    }
+  }
+  return swaps;
 }
 
 // Use the original message and known participants; never invent a listener when evidence is ambiguous.
@@ -1757,6 +1793,7 @@ module.exports = {
   applyLearned,
   parseScenesReply,
   attachTranslations,
+  orderSceneEvents,
   attributionCandidates,
   applyAttributionResults,
   recipientCandidates,
