@@ -853,7 +853,7 @@ async function tidyLedger(model, ledger, messages) {
 async function foldScenes(chatId, store, messages, window, model, job, { minPending = 1 } = {}) {
   let calls = 0;
   for (;;) {
-    const next = S.nextSlice(store, messages, window, { minPending: calls ? 1 : minPending });
+    const next = S.nextSlice(store, messages, window, { minPending: calls ? 1 : minPending, maxMessages: 8 });
     if (!next) break;
     if (job?.cancel) throw Error('중단했습니다. 다시 시작하면 이어서 정리합니다.');
     if (job) job.stage = `장면 정리 (${next.slice[0].number}번부터)`;
