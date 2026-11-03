@@ -15,7 +15,7 @@ const { fileURLToPath } = require('node:url');
 const TAG = '[memory-module]';
 /** The Marinara version these patches were made and tested against. */
 const TESTED_MARINARA = '2.4.6';
-const VERSION = '0.11.28-marinara.2.4.6.35';
+const VERSION = '0.11.28-marinara.2.4.6.36';
 const NOTES_DIR = process.env.MEMORY_MODULE_NOTES_DIR || path.join(__dirname, 'notes');
 const DEFAULT_NOTE = '_default.txt';
 /** Last safety net only: the service already keeps the memory within its own limit (40,000 by default). */
@@ -45,7 +45,7 @@ const PATCHES = [
     skipIf: /\bcleanGeneratedReply\s*\(/,
     anchor: 'if (contentReplaced) {',
     before: true,
-    insert: 'try { const fixed = globalThis.__marinaraMemory?.fixSpeakers?.(fullResponse, { chatId: input.chatId, chatMode, isGroupChat, usesIndividualGroupGeneration, impersonate: input.impersonate, charInfo, targetCharId }); if (typeof fixed === "string" && fixed !== fullResponse) { fullResponse = fixed; contentReplaced = true; } } catch {}\n',
+    insert: 'try { const fixed = globalThis.__marinaraMemory?.fixSpeakers?.(fullResponse, { chatId: input.chatId, chatMode, isGroupChat, usesIndividualGroupGeneration, impersonate: input.impersonate, charInfo, targetCharId: typeof targetCharId === "undefined" ? undefined : targetCharId }); if (typeof fixed === "string" && fixed !== fullResponse) { fullResponse = fixed; contentReplaced = true; } } catch {}\n',
     ok: 'speaker tags are put back before reply streaming and saving (legacy route)',
   },
   {
