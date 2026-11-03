@@ -1,0 +1,16 @@
+const assert = require('node:assert/strict');
+const S = require('../memory-module/lib/scenes.cjs');
+const quote={number:1,sentence:1,text:'"실례합니다."',by:'나현',to:'상민'};
+const scene={events:[{quotes:[quote]}],present:['나현','상민','직원']};
+const messages=[{number:1,sentences:[quote.text,'직원의 말이 중단되었다.','상민이 직원에게 이름을 물었다.']}];
+let c=S.attributionCandidates({scenes:[scene]},messages);
+const a={id:'0',by:'직원',to:['상민'],byEvidence:'직원의 말이 중단되었다.',toEvidence:'상민이 직원에게 이름을 물었다.'};
+const b={...a}; let agreed=S.confirmAttributionResults(c,[a],[b]);
+S.applyAttributionResults(c,agreed);assert.equal(quote.by,'직원');assert.equal(quote.to,'상민');
+delete quote.attributionChecked;
+c=S.attributionCandidates({scenes:[scene]},messages);
+const wrong={...a,by:'상민',to:['직원']};agreed=S.confirmAttributionResults(c,[a],[wrong]);
+S.applyAttributionResults(c,agreed);assert.equal(quote.by,null);assert.equal(quote.to,null);
+delete quote.attributionChecked;quote.by='직원';
+assert.equal(S.confirmAttributionResults(c,[a],[]).length,0);assert.equal(quote.by,'직원');
+console.log('independent attribution tests passed');
