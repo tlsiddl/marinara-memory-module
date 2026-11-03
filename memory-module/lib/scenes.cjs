@@ -823,7 +823,7 @@ function attributionCandidates(store, messages, limit = 20, attempted = new Set(
     if (scene.edited) continue;
     const names = [...new Set([...(store.cast || []), ...(scene.present || []), ...(store.personas || []), ...(scene.recollections || []).map((r) => r.who)].filter((n) => typeof n === 'string' && n.trim()))];
     for (const event of [...(scene.events || []), { quotes: scene.loose || [] }]) for (const q of event.quotes || []) {
-      if (attempted.has(q) || (q.attributionChecked === 5 && (!retryUnresolved || (q.by && q.to))) || !isSpoken(parseLine(q.text).text)) continue;
+      if (attempted.has(q) || (q.attributionChecked === 6 && (!retryUnresolved || (q.by && q.to))) || !isSpoken(parseLine(q.text).text)) continue;
       const m = byNumber.get(q.number), source = m?.sentences?.[q.sentence - 1];
       if (!source || (q.messageId && q.messageId !== m.id) || !parseLine(q.text).text.includes(parseLine(source).text)) continue;
       const before = m.sentences.slice(Math.max(0, q.sentence - 9), q.sentence - 1);
@@ -864,17 +864,35 @@ function applyAttributionResults(candidates, results) {
     const sourceLabel = parseLine(e.source).by;
     const labelMatches = sourceLabel && by && L.matchName(sourceLabel, e.names) && L.matchName(sourceLabel, e.names) === L.matchName(by, e.names);
     if (by && !externalProof && !labelMatches && !senderMatches) by = null;
-    if (!by && e.senderAlone && answer.by === null) by = e.sender;
-    // A null answer is uncertainty, not evidence that a previously attributed speaker is wrong.
-    if (!by && answer.by === null) by = e.q.by || null;
+    if (!by && e.senderAlone && answer.by === null && !answer.independentReview) by = e.sender;
     if (to.some((n) => !n) || (to.length && !proof(answer.toEvidence))) to.length = 0;
     if (!by) to.length = 0;
     const same = (a, b) => a === b || e.names.some((n) => (n === a || L.nameKeys(n).includes(a)) && (n === b || L.nameKeys(n).includes(b)));
-    const recipient = [...new Set(to.filter((n) => !same(n, by)))].join('·') || (e.q.by === by ? e.q.to || null : null);
+    const recipient = [...new Set(to.filter((n) => !same(n, by)))].join('·') || null;
     if (e.q.by !== by || e.q.to !== recipient) changed++;
-    e.q.by = by; e.q.to = recipient; e.q.attributionChecked = 5;
+    e.q.by = by; e.q.to = recipient; e.q.attributionChecked = 6;
   }
   return changed;
+}
+
+// Two independent reviews must agree before a person is recorded. Missing replies leave the quote untouched.
+function confirmAttributionResults(candidates, first, second) {
+  if (!Array.isArray(first) || !Array.isArray(second)) return [];
+  const b = new Map(second.map((x) => [String(x?.id), x]));
+  const entries = new Map(candidates.map((x) => [x.id, x]));
+  const out = [];
+  for (const a of first) {
+    const id = String(a?.id), other = b.get(id), entry = entries.get(id);
+    if (!entry || !other || !(a.by === null || typeof a.by === 'string') || !(other.by === null || typeof other.by === 'string') || !Array.isArray(a.to) || !Array.isArray(other.to)) continue;
+    const canonical = (name) => typeof name === 'string' ? L.matchName(name, entry.names) || name.trim() : null;
+    const byA = canonical(a.by), byB = canonical(other.by);
+    const list = (value) => [...new Set(value.map(canonical).filter(Boolean))].sort();
+    const toA = list(a.to), toB = list(other.to);
+    const sameBy = byA === byB;
+    const sameTo = JSON.stringify(toA) === JSON.stringify(toB);
+    out.push({ id, independentReview: true, by: sameBy ? a.by : null, byEvidence: sameBy ? a.byEvidence : '', to: sameBy && sameTo ? a.to : [], toEvidence: sameBy && sameTo ? a.toEvidence : '' });
+  }
+  return out;
 }
 
 // Move only events whose source ranges are strictly reversed; overlapping or unanchored events stay put.
@@ -1822,6 +1840,7 @@ module.exports = {
   attachTranslations,
   attachLedgerTranslations,
   orderSceneEvents,
+  confirmAttributionResults,
   attributionCandidates,
   applyAttributionResults,
   recipientCandidates,

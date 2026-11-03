@@ -6,7 +6,7 @@ const msgs = [{id:'a',number:1,role:'assistant',speaker:'도윤',sentences:['도
 let list=S.attributionCandidates({scenes:[scene]},msgs);
 assert.equal(list.length,1); assert.equal(list[0].sender,'가은'); assert.ok(list[0].context.includes('몇 살이야'));
 S.applyAttributionResults(list,[{id:'0',by:null,to:[],byEvidence:'',toEvidence:''}]);
-assert.equal(q.by,'가은'); assert.equal(q.attributionChecked,5);
+assert.equal(q.by,'가은'); assert.equal(q.attributionChecked,6);
 const multi={...msgs[1],sentences:[q.text,'"다른 사람이 한 말."']};
 delete q.attributionChecked; assert.equal(S.attributionCandidates({scenes:[scene]},[msgs[0],multi])[0].sender,null);
 const e1={text:'나중',quotes:[{number:4,sentence:2,text:'나중 행동'}]};
