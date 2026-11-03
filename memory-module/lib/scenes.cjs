@@ -26,7 +26,7 @@ function emptyStore() {
  * The newest `minVisible` messages are never folded: they are the ones a reroll or edit touches.
  * Returns { slice, required }: the model must close scenes at least through message number `required`.
  */
-function nextSlice(store, messages, window, { maxChars = 20000, lookahead = 6, lead = 8, minVisible = 8, minPending = 1 } = {}) {
+function nextSlice(store, messages, window, { maxChars = 20000, maxMessages = Infinity, lookahead = 6, lead = 8, minVisible = 8, minPending = 1 } = {}) {
   const foldLine = Math.max(0, messages.length - Math.max(window - lead, minVisible));
   const from = store.covered.length;
   if (foldLine - from < Math.max(1, minPending)) return null;
@@ -36,7 +36,7 @@ function nextSlice(store, messages, window, { maxChars = 20000, lookahead = 6, l
     const cost = messages[i].content.length + 40;
     // A reply right after a user message comes along even past the size limit.
     const answers = slice.length && slice.at(-1).role === 'user' && messages[i].role !== 'user';
-    if (slice.length && size + cost > maxChars && !answers) break;
+    if (slice.length && (size + cost > maxChars || slice.length >= maxMessages) && !answers) break;
     slice.push(messages[i]);
     size += cost;
   }
@@ -671,16 +671,6 @@ function applyScenes(store, result, slice, required, now = new Date().toISOStrin
   for (const scene of made) {
     if (scene.loose) scene.loose.sort((a, b) => a.number - b.number || a.sentence - b.sentence);
     supportEvents(scene, index, slice, quoteMode);
-  }
-  // A cluster of lines filed under another scene is a sign that the model omitted a
-  // whole event. Ask for a corrected result once; partial fallback still preserves
-  // the original lines rather than forcing a speculative link.
-  if (!partial) {
-    const scene = made.find((s) => (s.loose || []).length >= 2);
-    if (scene) {
-      const refs = scene.loose.map((q) => `${q.number}.${q.sentence}`).join(', ');
-      return { error: `장면 "${scene.title}"(${scene.start}~${scene.end}번)의 ${refs} 인용이 사건에 연결되지 않았습니다. 해당 메시지의 사건이 빠졌는지 확인하고 필요하면 새 사건을 만들어 그 장면에 직접 연결해 주세요. 불확실한 내용은 지어내지 마세요.` };
-    }
   }
   // A scene whose lines all come from a few of its messages skipped the rest: those would be lost.
   const bad = made.findIndex((scene, i) => uncited(scene, slice, newFacts) > MAX_UNCITED);
