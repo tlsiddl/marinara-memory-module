@@ -19,7 +19,8 @@ $files = @(
   'memory-module/lib/recall.cjs',
   'memory-module/lib/speakers.cjs',
   'memory-module/lib/vectors.cjs',
-  'memory-module/lib/translate.cjs'
+  'memory-module/lib/translate.cjs',
+  'memory-module/lib/selected.cjs'
 )
 
 function Get-Version($path) {

@@ -344,6 +344,12 @@
     return notes.length ? `<div class="note">${notes.map(esc).join('<br>')}</div>` : '';
   }
 
+  function selectedMemoriesHtml() {
+    const list = info?.selectedMemories || [];
+    if (!list.length) return '';
+    return `<div class="paper"><h2>직접 선택한 기억 · ${list.length}개</h2><p class="hint">채팅에서 선택해 정리한 기억입니다. 관련된 내용이 나오면 원문과 함께 참고합니다.</p>${list.map(x => `<details><summary>${esc(x.title)}${x.stale ? ' · 원문 변경됨' : ''}</summary><p>${esc(x.summary)}</p>${x.parts.map(p => `<blockquote>${esc(p.text)}</blockquote>`).join('')}<button data-act="deleteSelectedMemory" data-selected-id="${esc(x.id)}">삭제</button></details>`).join('')}</div>`;
+  }
+
   function viewHome() {
     if (!info) return emptyRoom();
     const openCount = (info.threads || []).filter((t) => t.status === 'open').length;
@@ -356,6 +362,7 @@
       <h1>${esc(roomName())}</h1>
       <p class="intro">지나간 대화를 장면·사실·장부로 정리해, 답변할 때마다 필요한 기억을 넣어 주는 서버 기억 모듈입니다. 이 방에서 기억을 켜 두면 답변마다 자동으로 정리되며, 여기서 고친 내용은 다음 답변부터 반영됩니다.</p>
       ${healthNote()}
+      ${selectedMemoriesHtml()}
       ${info.summary?.needsRebuild ? `<div class="note">예전 메시지가 수정·삭제되어 장부(아직 끝나지 않은 일·최근 생활)를 처음부터 다시 정리해야 합니다. ${info.summary.rebuildFrom ? `다시 정리하기 전까지는 ${esc(info.summary.rebuildFrom)}번 메시지 전에 정리된 내용만 기억 칸에 넣습니다.` : '다시 정리하기 전까지는 장부 내용을 기억 칸에 넣지 않습니다.'} 아래 '처음부터 다시 정리'를 눌러 주세요(장면 기억은 영향이 없습니다).</div>` : ''}
       <div class="metric-row">
         <div class="metric"><strong>${info.scenes?.count ?? 0}</strong><small>장면 · 메시지 ${info.scenes?.coveredThrough ?? '-'}번까지</small></div>
@@ -760,6 +767,8 @@
         <label class="setting-switch"><span>기억 사용<small>켜면 답변마다 장부와 장면을 자동으로 갱신합니다.</small></span><input type="checkbox" id="setEnabled" ${info.enabled ? 'checked' : ''}></label>
         <label class="setting-switch"><span>말풍선 태그 되살리기<small>화자 색상이 켜진 '합쳐서' 그룹 RP에서 모델이 원래의 숨은 화자 태그를 출력하도록 지침을 보강합니다. 보이는 이름표 없이 따옴표만 쓰는 대사에도 적용됩니다.</small></span><input type="checkbox" id="setTags" ${info.speakerTags ? 'checked' : ''}></label>
         <label class="setting-switch"><span>대사 앞에 이름 표시<small>캐릭터 대사에 '이름 | 대사'를 출력하도록 요청합니다. 말풍선 태그 기능과 독립적으로 설정할 수 있습니다.</small></span><input type="checkbox" id="setSpeakerNames" ${info.speakerNames ? 'checked' : ''}></label>
+        <label>주변 인물 정리<select id="setNpcCoverage"><option value="standard" ${info.organize?.npcCoverage !== 'expanded' ? 'selected' : ''}>기본</option><option value="expanded" ${info.organize?.npcCoverage === 'expanded' ? 'selected' : ''}>NPC·모브 자세히</option></select></label>
+        <label>원문 인용 방식<select id="setQuoteMode"><option value="dialogue" ${!info.organize?.quoteMode || info.organize.quoteMode === 'dialogue' ? 'selected' : ''}>대사 위주</option><option value="narration" ${info.organize?.quoteMode === 'narration' ? 'selected' : ''}>서술 위주</option><option value="both" ${info.organize?.quoteMode === 'both' ? 'selected' : ''}>대사 + 서술 둘 다 · 토큰량 높음</option></select></label><p class="hint">저장 후 새로 정리하는 내용부터 적용됩니다. 서술 위주에서도 중요한 대사는 남깁니다.</p><div class="buttons"><button data-act="saveOrganizePreferences">이 방의 정리 방식 저장</button></div>
       </div>
       <div class="paper"><h2>모든 방 공통</h2>
         <label>기억 정리에 쓸 연결<select id="setConnection">${connections.map((c) => `<option value="${esc(c.id)}" ${c.id === current ? 'selected' : ''}>${esc(c.name)}${c.model ? ` · ${esc(c.model)}` : ''}</option>`).join('')}</select></label>
@@ -895,6 +904,9 @@
           const result = await api('POST', `/chats/${chat}/translations/retry`);
           notice = result.alreadyWorking ? '이미 번역 중입니다.' : result.missing === 0 ? '남은 번역이 없습니다.' : '남은 항목을 번역하고 있습니다.';
         });
+      case 'deleteSelectedMemory':
+        if (!confirm('선택한 기억을 삭제하시겠습니까?')) return;
+        return act(() => api('DELETE', `/chats/${chat}/selected-memory/${encodeURIComponent(el.dataset.selectedId)}`), '선택한 기억을 삭제했습니다.');
       case 'refresh':
         rooms = [];
         return act(refresh, '새로 불러왔습니다.', { reload: false });
@@ -1016,6 +1028,11 @@
           : writeChanged
             ? '기억 언어를 저장했습니다. 새 기억부터 채팅 언어로 정리합니다.'
             : memoryLanguage === 'auto' ? '기억 언어를 저장했습니다.' : '기억 언어를 저장했습니다. 다시 정리할 필요 없이, 이 방의 기억을 바로 번역해 둡니다.');
+      }
+      case 'saveOrganizePreferences': {
+        const npcCoverage = root.querySelector('#setNpcCoverage')?.value, quoteMode = root.querySelector('#setQuoteMode')?.value;
+        if (!room) throw Error('현재 채팅방을 먼저 선택해 주세요.');
+        return act(async () => { await api('POST', `/chats/${encodeURIComponent(room)}/organize-preferences`, { npcCoverage, quoteMode }); }, '정리 방식을 저장했습니다. 새로 정리할 내용부터 적용됩니다.');
       }
       case 'saveSettings': {
         // Read every choice before act() redraws the page (a redraw puts the saved values back in the form).
@@ -1211,6 +1228,46 @@
     if (launcher && launcher.offsetParent !== null && root?.activeElement) launcher.focus({ preventScroll: true });
   }
 
+  let selectedButton = null, selectionTimer = null, selectedPending = null;
+  function selectionChanged() {
+    clearTimeout(selectionTimer);
+    selectionTimer = setTimeout(() => {
+      if (!selectedButton || disposed || open || busy) { if(selectedButton) selectedButton.hidden = true; return; }
+      const sel = window.getSelection?.();
+      if (!sel || sel.isCollapsed || sel.rangeCount !== 1 || !activeChatId()) { selectedButton.hidden = true; return; }
+      const range = sel.getRangeAt(0), element = n => n?.nodeType === 1 ? n : n?.parentElement;
+      const first = element(range.startContainer)?.closest?.('[data-message-id]'), last = element(range.endContainer)?.closest?.('[data-message-id]');
+      if (!first || !last) { selectedButton.hidden = true; return; }
+      const parts = [];
+      for (const node of document.querySelectorAll('[data-message-id]')) {
+        if (!node.dataset.messageId || !range.intersectsNode(node)) continue;
+        const r = range.cloneRange(); r.selectNodeContents(node);
+        if (node === first) r.setStart(range.startContainer, range.startOffset);
+        if (node === last) r.setEnd(range.endContainer, range.endOffset);
+        const text = r.toString().trim(); if (text) parts.push({sourceId:node.dataset.messageId,text});
+      }
+      const boxes = range.getClientRects(), rect = boxes[boxes.length - 1];
+      if (!rect || !parts.length || parts.length > 30 || parts.reduce((n,p) => n+p.text.length,0) > 50000) { selectedButton.hidden = true; return; }
+      selectedPending = {chatId:activeChatId(),parts};
+      selectedButton.style.left = Math.max(8,Math.min(window.innerWidth-150,rect.right-140))+'px';
+      selectedButton.style.top = Math.max(8,rect.top-46)+'px'; selectedButton.hidden = false;
+    }, 120);
+  }
+  function hideSelectedButton() { if (selectedButton) selectedButton.hidden = true; }
+  function installSelectionButton() {
+    selectedButton = document.createElement('button'); selectedButton.type='button'; selectedButton.textContent='기억으로 정리'; selectedButton.hidden=true;
+    selectedButton.setAttribute('style','position:fixed;z-index:2147483647;pointer-events:auto;padding:9px 13px;border:1px solid #d4c9bc;border-radius:12px;background:#fffaf3;color:#423b37;font:600 13px sans-serif;box-shadow:0 4px 16px #0003;touch-action:manipulation');
+    root.append(selectedButton);
+    selectedButton.addEventListener('mousedown',e=>e.preventDefault()); selectedButton.addEventListener('touchstart',e=>e.preventDefault(),{passive:false});
+    const save = e => { e.preventDefault();e.stopPropagation();const selected=selectedPending;selectedPending=null;hideSelectedButton();if(!selected || busy)return;
+      if(activeChatId()!==selected.chatId){alert('채팅방이 바뀌었습니다. 다시 선택해 주세요.');return;}
+      room=selected.chatId;store=null;storeRoom='';tab='home';open=true;render();
+      void act(() => api('POST', `/chats/${encodeURIComponent(selected.chatId)}/selected-memory`, {parts:selected.parts}), '선택한 글을 기억으로 정리했습니다.');
+    };
+    selectedButton.addEventListener('click',save);selectedButton.addEventListener('touchend',save,{passive:false});
+    document.addEventListener('selectionchange',selectionChanged);window.addEventListener?.('scroll',hideSelectedButton,true);
+  }
+
   function install() {
     const element = document.createElement('div');
     element.id = 'memory-module-library';
@@ -1237,6 +1294,7 @@
     (document.body || document.documentElement).append(element);
     root.host.setAttribute('data-theme', theme);
     launcher?.setAttribute('data-theme', theme);
+    installSelectionButton();
 
     // Shadow DOM retargets input events to our DIV at the page boundary. Keep
     // host shortcuts from treating typing (notably '?') as a page command.
@@ -1405,6 +1463,7 @@
 
   function cleanup() {
     disposed = true;
+    clearTimeout(selectionTimer);document.removeEventListener('selectionchange', selectionChanged);window.removeEventListener?.('scroll',hideSelectedButton,true);selectedButton?.remove();
     clearTimeout(pollTimer);
     root?.host?.remove();
     launcher?.remove();
