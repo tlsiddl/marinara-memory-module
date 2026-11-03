@@ -767,6 +767,7 @@
         <label class="setting-switch"><span>기억 사용<small>켜면 답변마다 장부와 장면을 자동으로 갱신합니다.</small></span><input type="checkbox" id="setEnabled" ${info.enabled ? 'checked' : ''}></label>
         <label class="setting-switch"><span>말풍선 태그 되살리기<small>화자 색상이 켜진 '합쳐서' 그룹 RP에서 모델이 원래의 숨은 화자 태그를 출력하도록 지침을 보강합니다. 보이는 이름표 없이 따옴표만 쓰는 대사에도 적용됩니다.</small></span><input type="checkbox" id="setTags" ${info.speakerTags ? 'checked' : ''}></label>
         <label class="setting-switch"><span>대사 앞에 이름 표시<small>캐릭터 대사에 '이름 | 대사'를 출력하도록 요청합니다. 말풍선 태그 기능과 독립적으로 설정할 수 있습니다.</small></span><input type="checkbox" id="setSpeakerNames" ${info.speakerNames ? 'checked' : ''}></label>
+        <label>장면의 디테일<select id="setDetailLevel"><option value="standard" ${!info.organize?.detailLevel || info.organize.detailLevel === 'standard' ? 'selected' : ''}>보통</option><option value="detailed" ${info.organize?.detailLevel === 'detailed' ? 'selected' : ''}>자세히</option><option value="very_detailed" ${info.organize?.detailLevel === 'very_detailed' ? 'selected' : ''}>아주 자세히</option></select></label><p class="hint">자세할수록 행동과 반응, 사건의 앞뒤를 더 세밀하게 기록하도록 요청합니다. 정리와 회상에 쓰이는 토큰이 늘어날 수 있습니다.</p>
         <label>주변 인물 정리<select id="setNpcCoverage"><option value="standard" ${info.organize?.npcCoverage !== 'expanded' ? 'selected' : ''}>기본</option><option value="expanded" ${info.organize?.npcCoverage === 'expanded' ? 'selected' : ''}>NPC·모브 자세히</option></select></label>
         <p class="hint">기본은 기존 방식으로 정리합니다. NPC·모브 자세히를 선택하면 1:1 채팅에서도 주변 인물의 역할·행동·대화와 사건에 미친 영향을 더 자세히 정리하도록 요청합니다.</p>
         <label>원문 인용 방식<select id="setQuoteMode"><option value="dialogue" ${!info.organize?.quoteMode || info.organize.quoteMode === 'dialogue' ? 'selected' : ''}>대사 위주</option><option value="narration" ${info.organize?.quoteMode === 'narration' ? 'selected' : ''}>서술 위주</option><option value="both" ${info.organize?.quoteMode === 'both' ? 'selected' : ''}>대사 + 서술 둘 다 · 토큰량 높음</option></select></label><p class="hint">대사 위주는 중요한 대사를 중심으로, 서술 위주는 장면의 행동·상황을 보여 주는 서술을 중심으로 인용합니다. 서술 위주에서도 중요한 대사는 함께 보존하도록 요청합니다. 둘 다를 선택하면 대사와 서술을 더 넉넉히 인용하므로 정리와 회상에 쓰이는 토큰이 늘어날 수 있습니다.</p><p class="hint">이 방에만 적용됩니다. 저장 후 새로 정리하는 장면부터 적용되며, 이미 정리한 장면을 바꾸려면 원문부터 다시 정리해야 합니다. 실제 정리 결과는 사용하는 모델에 따라 달라질 수 있습니다.</p><div class="buttons"><button data-act="saveOrganizePreferences">이 방의 정리 방식 저장</button></div>
@@ -1031,9 +1032,9 @@
             : memoryLanguage === 'auto' ? '기억 언어를 저장했습니다.' : '기억 언어를 저장했습니다. 다시 정리할 필요 없이, 이 방의 기억을 바로 번역해 둡니다.');
       }
       case 'saveOrganizePreferences': {
-        const npcCoverage = root.querySelector('#setNpcCoverage')?.value, quoteMode = root.querySelector('#setQuoteMode')?.value;
+        const npcCoverage = root.querySelector('#setNpcCoverage')?.value, quoteMode = root.querySelector('#setQuoteMode')?.value, detailLevel = root.querySelector('#setDetailLevel')?.value;
         if (!room) throw Error('현재 채팅방을 먼저 선택해 주세요.');
-        return act(async () => { await api('POST', `/chats/${encodeURIComponent(room)}/organize-preferences`, { npcCoverage, quoteMode }); }, '정리 방식을 저장했습니다. 새로 정리할 내용부터 적용됩니다.');
+        return act(async () => { await api('POST', `/chats/${encodeURIComponent(room)}/organize-preferences`, { npcCoverage, quoteMode, detailLevel }); }, '정리 방식을 저장했습니다. 새로 정리할 내용부터 적용됩니다.');
       }
       case 'saveSettings': {
         // Read every choice before act() redraws the page (a redraw puts the saved values back in the form).

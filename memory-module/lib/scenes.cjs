@@ -78,7 +78,7 @@ const SCENE_PROMPT = `너는 장기 롤플레이의 기억 관리자야. 지나�
   대사가 있으면 대사를 우선해. 고백, 약속, 폭로, 결정적인 말은 꼭 대사로 남겨.
   [사용자 캐릭터]의 말도 요약하지 말고 대사 그대로 남겨. 나중에 다른 인물이 "너 그때 이렇게 말했잖아"라고 꺼낼 수 있어야 해. 특히 부탁, 약속, 고백, 질문, 변명, 감정을 드러낸 말, 그 장면을 움직인 말. 그 말에 대한 다른 인물의 대답이 있으면 같은 사건에 함께 넣어. 묻고 답하는 대화는 질문과 대답을 모두 인용해(사건 하나에 대사 최대 6개).
   사용자 캐릭터의 대사가 있는 장면이면 적어도 한두 개는 꼭 인용해.
-  대사마다 by(말한 사람)와 to(들은 사람, 여럿이면 "도윤·하준")를 적어. 서술 문장이면 둘 다 null.
+  대사마다 by(말한 사람)와 to(직접 말을 건 상대, 여럿이면 "도윤·하준")를 적어. 이름표가 없는 대사도 주변 행동과 대화의 흐름에서 화자를 파악해. 주인공이 듣고 있거나 메시지를 작성했다는 이유만으로 상대나 화자를 정하지 마. 대화가 누구에게 향하는지 불분명하면 to는 null, 화자가 불분명하면 by는 null로 둬. byEvidence와 toEvidence에 각각 판단을 뒷받침하는 원문 구절을 정확히 옮겨(없으면 null). 서술 문장이면 모두 null.
   사건 text는 '누가 누구에게 무엇을 어떻게 했는지'가 드러나게 써. 그 일이 일어난 작중 시각이 보이면 time에, 그렇게 한 이유나 계기가 원문에 있으면 why에 적어(없으면 null, 짐작 금지). 이유에 조건이나 날짜가 있으면 줄이지 마.
   인용은 그 장면 안의 메시지에서만 골라. 다른 장면의 대사를 붙이지 마.
   장면 안의 모든 메시지가 사건 몇 개로든 다뤄져야 해. 인용 없이 넘어간 메시지가 몇 개씩 이어지면 안 돼.
@@ -130,7 +130,7 @@ const SCENE_PROMPT = `너는 장기 롤플레이의 기억 관리자야. 지나�
 
 출력 형식:
 {"scenes":[{"end":25,"time":"…","place":"…","weather":"… 또는 null","title":"…","summary":"…","present":["인물"],
- "events":[{"text":"누가 누구에게 무엇을 어떻게","time":"작중 시각 또는 null","why":"이유·계기 또는 null","importance":"critical|major|minor","quotes":[{"n":"23.4","q":"…","by":"말한 사람 또는 null","to":"들은 사람 또는 null"}]}],
+ "events":[{"text":"누가 누구에게 무엇을 어떻게","time":"작중 시각 또는 null","why":"이유·계기 또는 null","importance":"critical|major|minor","quotes":[{"n":"23.4","q":"…","by":"말한 사람 또는 null","to":"들은 사람 또는 null","byEvidence":"화자 근거 또는 null","toEvidence":"수신자 근거 또는 null"}]}],
  "recollections":[{"who":"인물","text":"…","remembers":"full|partial|none","why":"…또는 null","kept":"…또는 null"}],
  "facts":[{"about":"인물","text":"…","evidence":[{"n":"23.9","q":"…"}],"replaces":null,"unaware":[{"who":"인물","why":"이유","guess":false}]}],
  "learned":[],"later":[]}]}`;
@@ -270,6 +270,8 @@ function buildScenePrompt(store, slice, required, problem = null, preferences = 
     message.sentences.forEach((sentence, index) => parts.push(`[${message.number}.${index + 1}] ${String(sentence).replace(/\s*\n\s*/g, ' / ')}`));
   }
   const guidance = [];
+  if (preferences.detailLevel === 'detailed') guidance.push('장면의 중요한 사건을 빠뜨리지 않도록 행동, 반응, 대화의 맥락과 상황 변화를 구체적으로 기록해. 서로 다른 단계나 반응은 시간순으로 구분해. 추측은 사실로 쓰지 마. 사건이 많으면 한 장면에 우겨 넣지 말고 장면을 나눠.');
+  if (preferences.detailLevel === 'very_detailed') guidance.push('장면을 아주 자세히 기록해. 사건의 계기, 행동, 표정, 접촉, 상대의 반응과 상황 변화, 중요한 대화의 앞뒤를 순서대로 구분해. 반복을 만들어 내거나 추측을 사실로 쓰지 마. 8개 사건을 넘길 흐름은 여러 장면으로 나눠 각 부분을 보존해.');
   if (preferences.npcCoverage === 'expanded') guidance.push('1:1 대화에서도 주변 NPC·모브가 실제로 한 말·행동과 역할, 사건에 미친 영향 및 상대 반응을 구체적으로 정리해. 이름이 없으면 원문에 있는 직책으로 구분하고 이름이나 성격을 지어내지 마.');
   if (preferences.quoteMode === 'narration') guidance.push('인용은 사건의 중요한 서술 문장 위주로 골라. 중요 문답·약속·거절의 대사도 함께 보존해. 서술의 by와 to는 null로 둬.');
   if (preferences.quoteMode === 'both') guidance.push('사건의 대사와 중요한 서술을 모두 인용해. 각 사건에서 중요한 대사와 행동·표정·접촉·상황 변화의 서술을 각각 원문 문장 번호로 인용해. 대사가 있는 사건도 관련 서술이 있으면 최소 한 문장을 별도 quotes 항목으로 넣어. 원문에 없으면 만들지 마. 사건마다 최대 12개. 질문과 답변은 함께 보존하고 서술의 by와 to는 null로 둬. 이름·철자 공개 뒤의 질문과 반응처럼 새 전개가 있으면 별도 사건을 만들어 그 대사를 직접 연결해.');
@@ -337,7 +339,7 @@ function bilingualQuote(pointer, index) {
   return pointer;
 }
 
-function resolveQuotes(items, index, slice) {
+function resolveQuotes(items, index, slice, verifyAttribution = false) {
   const roles = new Map(slice.map((m) => [m.number, m]));
   const out = [];
   const seen = new Set();
@@ -354,8 +356,13 @@ function resolveQuotes(items, index, slice) {
     const line = parseLine(pointer.text);
     const message = roles.get(pointer.number);
     const spoken = isSpoken(line.text);
-    const by = line.by || (spoken ? cleanText(raw?.by, 40) || (message?.role === 'user' ? message.speaker : null) : null);
-    out.push({ ...pointer, text: line.text, by, to: by ? cleanText(raw?.to, 60) : null });
+    const nearby = (message?.sentences || []).slice(Math.max(0, pointer.sentence - 4), pointer.sentence + 3).join(' ');
+    const hasProof = (proof) => typeof proof === 'string' && squash(proof).length >= 4 && squash(nearby).includes(squash(proof));
+    const modelBy = cleanText(raw?.by, 40);
+    const by = line.by || (spoken ? (verifyAttribution && !hasProof(raw?.byEvidence) ? null : modelBy) || (message?.role === 'user' ? message.speaker : null) : null);
+    let to = by ? cleanText(raw?.to, 60) : null;
+    if (to && (to === by || (verifyAttribution && !hasProof(raw?.toEvidence)))) to = null;
+    out.push({ ...pointer, text: line.text, by, to });
   }
   return out;
 }
@@ -550,7 +557,7 @@ function supportEvents(scene, index, slice, quoteMode) {
  * Turn a model result into scenes for this slice. Scenes follow each other with no gap, from the slice start,
  * and the last one must reach `required`. Returns { scenes, facts, covered } or { error }.
  */
-function applyScenes(store, result, slice, required, now = new Date().toISOString(), { partial = false, quoteMode = 'dialogue' } = {}) {
+function applyScenes(store, result, slice, required, now = new Date().toISOString(), { partial = false, quoteMode = 'dialogue', verifyAttribution = false, strictCoverage = false } = {}) {
   const raw = Array.isArray(result?.scenes) ? result.scenes : null;
   if (!raw || !raw.length) return { error: '장면이 비어 있습니다' };
   const index = L.indexBatch(slice);
@@ -574,7 +581,7 @@ function applyScenes(store, result, slice, required, now = new Date().toISOStrin
     const inScene = (p) => p.number >= lo && p.number <= hi;
     const events = (Array.isArray(item.events) ? item.events : [])
       .map((e) => {
-        const all = resolveQuotes(e?.quotes, index, slice);
+        const all = resolveQuotes(e?.quotes, index, slice, verifyAttribution);
         const text = cleanText(e?.text, 500);
         for (const q of all) if (!inScene(q) && text) stray.push({ quote: q, about: text });
         return { text, time: cleanText(e?.time, 40), why: cleanText(e?.why, 300), importance: ['critical', 'major', 'minor'].includes(e?.importance) ? e.importance : 'major', quotes: limitQuotes(all.filter(inScene), quoteMode) };
@@ -673,10 +680,16 @@ function applyScenes(store, result, slice, required, now = new Date().toISOStrin
     supportEvents(scene, index, slice, quoteMode);
   }
   // A scene whose lines all come from a few of its messages skipped the rest: those would be lost.
-  const bad = made.findIndex((scene, i) => uncited(scene, slice, newFacts) > MAX_UNCITED);
+  const missing = (scene) => {
+    if (!strictCoverage) return [];
+    const cited = new Set(scene.events.flatMap((event) => event.quotes.map((q) => q.number)));
+    return slice.slice(scene._from, scene._to + 1).filter((m) => String(m.content || '').trim().length >= 80 && !cited.has(m.number)).map((m) => m.number);
+  };
+  const bad = made.findIndex((scene) => uncited(scene, slice, newFacts) > MAX_UNCITED || missing(scene).length);
   if (bad >= 0) {
     const s = made[bad];
-    const problem = `장면 "${s.title}"(${s.start}~${s.end}번)은 인용 없이 넘어간 메시지가 ${uncited(s, slice, newFacts)}개 이어집니다. 그 메시지들의 일도 사건으로 적거나, 장면을 나눠 주세요.`;
+    const missed = missing(s);
+    const problem = missed.length ? `장면 "${s.title}"에서 ${missed.join(", ")}번 메시지의 사건과 원문 인용이 빠졌습니다. 그 메시지의 중요한 일을 사건에 직접 연결하거나 장면을 적절히 나눠 주세요.` : `장면 "${s.title}"(${s.start}~${s.end}번)은 인용 없이 넘어간 메시지가 ${uncited(s, slice, newFacts)}개 이어집니다. 그 메시지들의 일도 사건으로 적거나, 장면을 나눠 주세요.`;
     if (!partial || bad === 0) return { error: problem };
     made.length = bad;
     startAt = made.at(-1)._to + 1;

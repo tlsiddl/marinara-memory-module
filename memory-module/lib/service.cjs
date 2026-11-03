@@ -822,7 +822,7 @@ async function tidyLedger(model, ledger, messages) {
       const parsed = L.parseJsonObject(await askModel(model, L.buildTidyPrompt(view, recent)));
       total.calls++;
       if (!parsed) continue;
-      const stats = L.applyTidy(ledger, parsed);
+      const stats = L.applyTidy(ledger, parsed, undefined, { strictCloseEvidence: true });
       total.closed += stats.closed;
       total.merged += stats.merged;
     }
@@ -853,7 +853,7 @@ async function tidyLedger(model, ledger, messages) {
 async function foldScenes(chatId, store, messages, window, model, job, { minPending = 1 } = {}) {
   let calls = 0;
   for (;;) {
-    const next = S.nextSlice(store, messages, window, { minPending: calls ? 1 : minPending, maxMessages: 8 });
+    const next = S.nextSlice(store, messages, window, { minPending: calls ? 1 : minPending, maxMessages: settings().chats?.[chatId]?.organize?.detailLevel === 'very_detailed' ? 6 : 8 });
     if (!next) break;
     if (job?.cancel) throw Error('중단했습니다. 다시 시작하면 이어서 정리합니다.');
     if (job) job.stage = `장면 정리 (${next.slice[0].number}번부터)`;
@@ -862,28 +862,28 @@ async function foldScenes(chatId, store, messages, window, model, job, { minPend
     let lastParsed = null;
     let lastReply = '';
     for (let attempt = 0; attempt < 2 && !applied; attempt++) {
-      const reply = await askModel(model, S.buildScenePrompt(store, next.slice, next.required, lastError || null, settings().chats?.[chatId]?.organize || {}), { maxTokens: settings().chats?.[chatId]?.organize?.quoteMode === 'both' ? 12288 : 8192 });
+      const reply = await askModel(model, S.buildScenePrompt(store, next.slice, next.required, lastError || null, settings().chats?.[chatId]?.organize || {}), { maxTokens: (settings().chats?.[chatId]?.organize?.quoteMode === 'both' || settings().chats?.[chatId]?.organize?.detailLevel === 'very_detailed') ? 12288 : 8192 });
       calls++;
       lastReply = String(reply || '');
       const { result: parsed, truncated } = S.parseScenesReply(reply);
       if (parsed) lastParsed = parsed;
       if (truncated) {
         // Cut off by the length limit: keep the whole scenes it did write; the rest is read in the next round.
-        const part = parsed ? S.applyScenes(store, parsed, next.slice, next.required, undefined, { partial: true, quoteMode: settings().chats?.[chatId]?.organize?.quoteMode }) : { error: '응답이 너무 길어서 잘렸습니다' };
+        const part = parsed ? S.applyScenes(store, parsed, next.slice, next.required, undefined, { partial: true, quoteMode: settings().chats?.[chatId]?.organize?.quoteMode, verifyAttribution: true, strictCoverage: true }) : { error: '응답이 너무 길어서 잘렸습니다' };
         if (!part.error) {
           applied = part;
           log(`chat ${chatId}: reply was cut off, kept ${part.scenes.length} whole scene(s)`);
         } else lastError = part.error;
         continue;
       }
-      const result = parsed ? S.applyScenes(store, parsed, next.slice, next.required, undefined, {quoteMode: settings().chats?.[chatId]?.organize?.quoteMode}) : { error: '응답을 읽지 못했습니다' };
+      const result = parsed ? S.applyScenes(store, parsed, next.slice, next.required, undefined, {quoteMode: settings().chats?.[chatId]?.organize?.quoteMode, verifyAttribution: true, strictCoverage: true}) : { error: '응답을 읽지 못했습니다' };
       if (result.error) lastError = result.error;
       else applied = result;
     }
     if (!applied) saveLastReply(chatId, lastError, lastReply);
     // Still skipping messages after two tries: keep the good scenes before the gap; the rest is read again next.
     if (!applied && lastParsed) {
-      const part = S.applyScenes(store, lastParsed, next.slice, next.required, undefined, { partial: true, quoteMode: settings().chats?.[chatId]?.organize?.quoteMode });
+      const part = S.applyScenes(store, lastParsed, next.slice, next.required, undefined, { partial: true, quoteMode: settings().chats?.[chatId]?.organize?.quoteMode, verifyAttribution: true, strictCoverage: true });
       if (!part.error) {
         applied = part;
         log(`chat ${chatId}: kept ${part.scenes.length} good scene(s), reading the rest again (${lastError})`);
@@ -1086,7 +1086,7 @@ function processChat(chatId, { rebuild = false, reason = 'auto' } = {}) {
         if (job.cancel) throw Error('중단했습니다. 다시 시작하면 이어서 정리합니다.');
         for (const part of parts) {
           L.beginBatch(ledger, messages.indexOf(part.batch[0]));
-          const stats = L.applyResult(ledger, part.parsed, part.batch);
+          const stats = L.applyResult(ledger, part.parsed, part.batch, undefined, { strictCloseEvidence: true });
           S.attachLedgerTranslations(ledger, part.batch);
           L.commitBatch(ledger, part.batch);
           if (stats.dropped) log(`chat ${chatId}: dropped ${stats.dropped} ungrounded item(s)`);
@@ -1313,7 +1313,7 @@ async function startTrial(chatId, from, to) {
       for (const batch of batches) {
         const at = messages.indexOf(batch[0]);
         for (const part of await readBatch(model, ledger, batch, messages.slice(Math.max(0, at - CONTEXT_MESSAGES), at))) {
-          dropped += L.applyResult(ledger, part.parsed, part.batch).dropped;
+          dropped += L.applyResult(ledger, part.parsed, part.batch, undefined, { strictCloseEvidence: true }).dropped;
         }
         trial.done++;
       }
@@ -1328,8 +1328,8 @@ async function startTrial(chatId, from, to) {
         if (!next) break;
         let applied = null;
         for (let attempt = 0; attempt < 2 && !applied; attempt++) {
-          const parsed = L.parseJsonObject(await askModel(model, S.buildScenePrompt(scenes, next.slice, next.required, null, settings().chats?.[chatId]?.organize || {}), { maxTokens: settings().chats?.[chatId]?.organize?.quoteMode === 'both' ? 12288 : 8192 }));
-          const result = parsed ? S.applyScenes(scenes, parsed, next.slice, next.required, undefined, {quoteMode: settings().chats?.[chatId]?.organize?.quoteMode}) : { error: '응답을 읽지 못했습니다' };
+          const parsed = L.parseJsonObject(await askModel(model, S.buildScenePrompt(scenes, next.slice, next.required, null, settings().chats?.[chatId]?.organize || {}), { maxTokens: (settings().chats?.[chatId]?.organize?.quoteMode === 'both' || settings().chats?.[chatId]?.organize?.detailLevel === 'very_detailed') ? 12288 : 8192 }));
+          const result = parsed ? S.applyScenes(scenes, parsed, next.slice, next.required, undefined, {quoteMode: settings().chats?.[chatId]?.organize?.quoteMode, verifyAttribution: true, strictCoverage: true}) : { error: '응답을 읽지 못했습니다' };
           if (!result.error) applied = result;
           else trial.sceneError = result.error;
         }
@@ -2138,7 +2138,7 @@ async function routes(app) {
       speakerTags: speakerTagsOn(chatId),
       selectedMemories: fs.existsSync(selectedFile(chatId)) ? selectedForView(chatId, await chatMessages(chatId)) : [],
       speakerNames: speakerNamesOn(chatId),
-      organize: settings().chats?.[chatId]?.organize || { npcCoverage: 'standard', quoteMode: 'dialogue' },
+      organize: settings().chats?.[chatId]?.organize || { npcCoverage: 'standard', quoteMode: 'dialogue', detailLevel: 'standard' },
       routine: ledger ? L.renderRoutine(ledger, storyNow.get(chatId) || ledger.storyTime || null) : '',
       routineItems: (ledger?.routine || []).map((r) => ({ ...r, displayWhat: L.routineDisplayKind(r), key: L.routineKey(r) })),
       storyNow: storyNow.get(chatId) || ledger?.storyTime || null,
@@ -2333,8 +2333,10 @@ async function routes(app) {
   }));
   app.post('/chats/:id/organize-preferences', guard(async (req) => {
     const chatId = safeChatId(req.params.id), npcCoverage = String(req.body?.npcCoverage || 'standard'), quoteMode = String(req.body?.quoteMode || 'dialogue');
-    if (!['standard', 'expanded'].includes(npcCoverage) || !['dialogue', 'narration', 'both'].includes(quoteMode)) throw Error('정리 방식을 확인해 주세요.');
-    const next = settings(); next.chats ||= {}; next.chats[chatId] = { ...(next.chats[chatId] || {}), organize: { npcCoverage, quoteMode } }; saveSettings(next);
+    const next = settings(); next.chats ||= {};
+    const detailLevel = String(req.body?.detailLevel ?? next.chats[chatId]?.organize?.detailLevel ?? 'standard');
+    if (!['standard', 'expanded'].includes(npcCoverage) || !['dialogue', 'narration', 'both'].includes(quoteMode) || !['standard', 'detailed', 'very_detailed'].includes(detailLevel)) throw Error('정리 방식을 확인해 주세요.');
+    next.chats[chatId] = { ...(next.chats[chatId] || {}), organize: { npcCoverage, quoteMode, detailLevel } }; saveSettings(next);
     return { organize: next.chats[chatId].organize };
   }));
   app.post('/chats/:id/speaker-tags', guard(async (req) => {
