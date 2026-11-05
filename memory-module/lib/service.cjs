@@ -1145,7 +1145,40 @@ const ATTRIBUTION_BATCH = 16;
 // Only positions, names and reasons are stored: no line text and no evidence text.
 const attributionLogFile = (chatId) => path.join(CHAT_DIR, `${safeChatId(chatId)}.attribution-log.json`);
 const ATTRIBUTION_RUNS = 5;
-const ATTRIBUTION_ENTRIES = 200;
+// Per run: every changed, flagged, rejected or skipped line up to this many (and about this much on disk); lines
+// checked with nothing to report are counted per scene instead of listed.
+const ATTRIBUTION_ENTRIES = 2000;
+const ATTRIBUTION_BYTES = 800000;
+/** A checked line with nothing to report: same values before and after, asked once, no rule or reason against it. */
+const routineEntry = (x) => (x.decision === 'unchanged' || x.decision === 'settled') && x.asked !== 2 && !x.flags?.length && !x.rejected?.length && !x.violations?.length && !!x.after?.by;
+/** The record kept for one run: what needs reading listed in story order, the rest counted per scene. */
+function keptAttributionRun(run) {
+  const byScene = new Map();
+  const tally = (scene, key, n = 1) => { const row = byScene.get(scene) || { scene, listed: 0, unchanged: 0, settled: 0, skipped: 0, changed: 0, moved: 0 }; row[key] += n; byScene.set(scene, row); };
+  for (const [scene, n] of Object.entries(run.skippedByScene || {})) tally(scene, 'skipped', n);
+  const listed = [];
+  for (const x of run.entries) {
+    if (x.decision === 'applied') tally(x.scene, 'changed');
+    if (x.decision === 'relocated') tally(x.scene, 'moved');
+    if (routineEntry(x)) tally(x.scene, x.decision === 'settled' ? 'settled' : 'unchanged');
+    else listed.push(x);
+  }
+  // Changes, flags and rejections first; lines skipped because their source moved only where room is left.
+  const rank = (x) => (x.decision === 'skipped' && x.source === 'rule' ? 1 : 0);
+  const ordered = listed.map((x, i) => [x, i]).sort((a, b) => rank(a[0]) - rank(b[0]) || a[1] - b[1]);
+  const kept = [];
+  let bytes = 0;
+  for (const [x] of ordered) {
+    const size = JSON.stringify(x).length;
+    if (kept.length >= ATTRIBUTION_ENTRIES || bytes + size > ATTRIBUTION_BYTES) break;
+    kept.push(x); bytes += size;
+  }
+  kept.sort((a, b) => a.number - b.number || a.sentence - b.sentence);
+  for (const x of kept) tally(x.scene, 'listed');
+  const order = (id) => Number(String(id).replace(/\D/g, '')) || 0;
+  const { skippedByScene, ...rest } = run;
+  return { ...rest, entries: kept, dropped: listed.length - kept.length, summary: [...byScene.values()].sort((a, b) => order(a.scene) - order(b.scene)), notes: run.notes.slice(-20) };
+}
 function loadAttributionLog(chatId) {
   const data = readJson(attributionLogFile(chatId), null, { replaceable: true });
   return data && data.version === 1 && Array.isArray(data.runs) ? data : { version: 1, runs: [] };
@@ -1158,9 +1191,8 @@ function saveAttributionRun(chatId, run) {
     // Lines whose source moved are recorded when first found, not again on every later run.
     const known = moved(stored.runs[0]);
     const newlyMoved = [...moved(run)].some((k) => !known.has(k));
-    if (!run.notes.length && !newlyMoved && !run.entries.some((x) => x.source !== 'rule' || x.decision === 'applied' || x.decision === 'settled')) return;
-    const entries = [...run.entries].sort((a, b) => a.number - b.number || a.sentence - b.sentence);
-    const kept = { ...run, entries: entries.slice(-ATTRIBUTION_ENTRIES), dropped: Math.max(0, run.entries.length - ATTRIBUTION_ENTRIES), notes: run.notes.slice(-20) };
+    if (!run.notes.length && !newlyMoved && !run.entries.some((x) => x.source !== 'rule' || x.decision === 'applied' || x.decision === 'settled' || x.decision === 'relocated')) return;
+    const kept = keptAttributionRun(run);
     writeJson(attributionLogFile(chatId), { version: 1, runs: [kept, ...stored.runs].slice(0, ATTRIBUTION_RUNS) });
   } catch (error) {
     log(`chat ${chatId}: could not keep the dialogue check record (${error?.message || error})`);
@@ -1186,19 +1218,22 @@ async function reviewAttributions(chatId, store, messages, getModel, job, reason
   const unchanged = () => JSON.stringify(loadScenes(chatId)) === seen;
   const save = () => { saveScenes(chatId, store); seen = JSON.stringify(store); };
   const progress = () => { job.stage = `대사 화자와 상대 확인 · 확인 ${counts.reviewed}/${counts.toReview} · 건너뜀 ${counts.skipped + counts.settled} · 전체 ${counts.total}`; };
-  const rulePass = () => {
+  const rulePass = (last = false) => {
     const ruled = S.enforceAttributionRules(store, messages);
-    if (ruled.some((x) => x.decision === 'applied')) { save(); recalls.delete(chatId); }
-    run.entries.push(...ruled.map((x) => ({ ...x, source: 'rule' })));
+    // A line found under another number or sentence of its own message has its pointer updated and saved.
+    if (ruled.some((x) => x.decision === 'applied' || x.decision === 'relocated')) { save(); recalls.delete(chatId); }
+    // The pass after the answers only adds what it changed: lines it skips were recorded by the first pass.
+    run.entries.push(...ruled.filter((x) => !last || x.decision !== 'skipped').map((x) => ({ ...x, source: 'rule' })));
     const fixed = ruled.filter((x) => x.decision === 'applied').length;
     if (fixed) log(`chat ${chatId}: dialogue rules corrected ${fixed} line(s)`);
   };
   try {
     // The rules first: whatever they settle needs no model, and they still run when the check is stopped early.
     if (unchanged()) rulePass();
-    const stats = { skipped: 0 };
+    const stats = { skipped: 0, byScene: {} };
     const all = S.attributionCandidates(store, messages, Infinity, new Set(), { stats });
     counts.skipped = stats.skipped;
+    run.skippedByScene = stats.byScene;
     counts.total = all.length + stats.skipped;
     const ask = [];
     for (const e of all) {
@@ -1280,7 +1315,7 @@ async function reviewAttributions(chatId, store, messages, getModel, job, reason
     };
     await Promise.all(Array.from({ length: Math.min(ATTRIBUTION_CONCURRENCY, batches.length) }, runner));
     // After the answers: a line that now has a speaker may answer the one before it.
-    if (!job.cancel && !changedUnderneath && unchanged()) rulePass();
+    if (!job.cancel && !changedUnderneath && unchanged()) rulePass(true);
   } finally {
     saveAttributionRun(chatId, run);
   }
