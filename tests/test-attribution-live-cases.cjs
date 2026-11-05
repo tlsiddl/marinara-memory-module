@@ -14,9 +14,9 @@ const S = require('../memory-module/lib/scenes.cjs');
 const X = require('../memory-module/lib/service.cjs')._test;
 test.after(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-// Invented cast: the user's character 리나, staff member Tommaso (written in Latin letters in the cast list),
+// Invented cast: the user's character 하담, staff member Tommaso (written in Latin letters in the cast list),
 // and two others.
-const PERSONA = '리나';
+const PERSONA = '하담';
 const filler = (n) => Array.from({ length: n }, (_, i) => `창밖으로 비가 ${i + 1}번째로 내렸다.`);
 const model = (reply, seen = { calls: 0, inFlight: 0, maxInFlight: 0 }) => async () => ({
   provider: {

@@ -40,6 +40,8 @@
   let selectedGroup = null;
   let selectedArc = '';
   let searchDraft = '';
+  // The quote id typed into the dialogue check record's filter ("#1.24", "1.2").
+  let attributionFilter = '';
   let searchQuery = '';
   /** Folded lists the person opened (kept open when the screen is drawn again). */
   const openLists = new Set();
@@ -316,7 +318,7 @@
     const prefix = text.match(/^\s*([^|"“(]{1,20}?)\s*\|\s*/);
     const by = q.by || (prefix ? prefix[1].trim() : '');
     if (prefix) text = text.slice(prefix[0].length);
-    return { who: by ? `${by}${q.to ? ` → ${q.to}` : ''}` : (/^\s*["“'‘「『]/.test(text) ? '대사' : '서술'), text: text.trim() };
+    return { who: by ? `${by}${q.to ? ` → ${q.to}` : ''}` : q.to ? `화자 미확정 → ${q.to}` : (/^\s*["“'‘「『]/.test(text) ? '대사' : '서술'), text: text.trim() };
   }
 
   /** A warning when this Marinara is not the version the module was tested on, or a patch could not go in. */
@@ -530,10 +532,10 @@
           <label>중요도<select data-f="importance">${Object.entries(IMPORTANCE).map(([k, v]) => `<option value="${k}" ${(e.importance || 'major') === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
           <label class="full">계기 (원문에 있을 때만)<input data-f="why" value="${esc(e.why || '')}"></label>${trNote(e.why)}
         </div>
-        ${e.quotes.map((q, qi) => { const l = quoteLine(q); return `<div class="quote-card" data-quote="${qi}"><small>${esc(l.who)} · #${q.number}.${q.sentence}</small><blockquote>${esc(l.text)}</blockquote>${trNote(q.text)}<label>말한 사람<input data-quote-by value="${esc(q.by || '')}" placeholder="모르면 비워 두기"></label><label>들은 사람<input data-quote-to value="${esc(q.to || '')}" placeholder="모르면 비워 두기"></label></div>`; }).join('')}
+        ${e.quotes.map((q, qi) => [q, qi]).sort(([a], [b]) => (a.number ?? 0) - (b.number ?? 0) || (a.sentence ?? 0) - (b.sentence ?? 0)).map(([q, qi]) => { const l = quoteLine(q); return `<div class="quote-card" data-quote="${qi}"><small>${esc(l.who)} · #${q.number}.${q.sentence}</small><blockquote>${esc(l.text)}</blockquote>${trNote(q.text)}<label>말한 사람<input data-quote-by value="${esc(q.by || '')}" placeholder="모르면 비워 두기"></label><label>들은 사람<input data-quote-to value="${esc(q.to || '')}" placeholder="모르면 비워 두기"></label></div>`; }).join('')}
       </article>`)
       .join('');
-    const loose = (s.loose || []).map((q) => { const l = quoteLine(q); return `<div class="quote-card loose"><small>${esc(l.who)} · #${q.number}.${q.sentence} · 연결 미확정</small><blockquote>${esc(l.text)}</blockquote>${trNote(q.text)}</div>`; }).join('');
+    const loose = [...(s.loose || [])].sort((a, b) => (a.number ?? 0) - (b.number ?? 0) || (a.sentence ?? 0) - (b.sentence ?? 0)).map((q) => { const l = quoteLine(q); return `<div class="quote-card loose"><small>${esc(l.who)} · #${q.number}.${q.sentence} · 연결 미확정</small><blockquote>${esc(l.text)}</blockquote>${trNote(q.text)}</div>`; }).join('');
     const recs = s.recollections
       .map((r, i) => {
         const persona = personas.includes(r.who);
@@ -864,12 +866,14 @@
     settled: '규칙으로 확정', 'settled-label': '규칙으로 확정 · 화자 표기', 'settled-narration': '규칙으로 확정 · 옆 서술', 'settled-sender': '규칙으로 확정 · 메시지 작성자',
     'differs-from-stored': '저장 값과 다른 판단', 'listener-differs': '상대가 저장 값과 다름', 'listener-rejected': '상대 근거 부족', role: '역할로만 나온 화자',
     'listener-evidence': '상대 근거가 원문에 없음', 'listener-relay': '전해 달라는 제3자', 'listener-unknown-name': '모르는 상대 이름',
+    'kept-agreed': '두 판단과 부른 상대가 맞아 기존 값 유지', 'empty-speaker': '저장된 화자가 없음', relocated: '원문 위치를 고침', 'pointer-updated': '같은 메시지에서 대사를 찾아 위치를 고침',
   };
   const attributionWord = (code) => String(code || '').split(',').filter(Boolean).map((c) => ATTRIBUTION_WORDS[c] || c).join(', ');
   function attributionEntryHtml(d) {
     const who = (a) => a ? `${esc(a.by || '미확정')} → ${esc(Array.isArray(a.to) ? a.to.join('·') || '미확정' : a.to || '미확정')}` : '응답 없음';
     const why = (a) => a?.byReason ? ` (${esc(attributionWord(a.byReason))})` : '';
-    const lines = [`<strong>${esc(d.scene)} · #${esc(d.number)}.${esc(d.sentence)}</strong>${d.source === 'rule' ? ' · 규칙' : ''}`];
+    const lines = [`<strong>${esc(d.scene)} · #${esc(d.number)}.${esc(d.sentence)}</strong>${d.source === 'rule' ? ' · 규칙' : ''}${d.from ? ` · 전에는 #${esc(d.from.number)}.${esc(d.from.sentence)}` : ''}`];
+    if (d.role) lines.push(`역할: ${esc(d.role)}${d.roleName ? ` → ${esc(d.roleName)}` : ' (장면에서 이름을 못 찾음)'}`);
     if (d.first !== undefined && d.source !== 'rule') lines.push(`첫 판단: ${who(d.first)}${why(d.first)}`, d.asked === 1 ? '두 번째 판단: 묻지 않음 (첫 판단에 문제 없음)' : `두 번째 판단: ${who(d.second)}${why(d.second)}`);
     if (d.reask) lines.push(`다시 물음: ${who(d.reask)}${why(d.reask)}`);
     if (d.violations?.length) lines.push(`검토 이유: ${esc(attributionWord(d.violations.join(',')))}`);
@@ -879,7 +883,20 @@
     if (d.before) lines.push(`저장 전: ${who(d.before)}`);
     if (d.after) lines.push(`저장 후: ${who(d.after)}`);
     lines.push(`결과: ${esc(attributionWord(d.decision))}${d.rule ? ` · ${esc(attributionWord(d.rule))}` : d.agreed?.reason ? ` · ${esc(attributionWord(d.agreed.reason))}` : ''}`);
-    return `<p>${lines.join('<br>')}</p>`;
+    const at = `${d.number}.${d.sentence}`;
+    return `<p data-at="${esc(at)}"${attributionHidden(at) ? ' hidden' : ''}>${lines.join('<br>')}</p>`;
+  }
+  /** Whether the filter hides the entry for this quote id: "1.2" shows #1.2 and #1.20–#1.29, "1" all of message 1. */
+  const attributionHidden = (at) => {
+    const f = attributionFilter.trim().replace(/^#/, '');
+    return !!f && !(at === f || at.startsWith(f.includes('.') ? f : `${f}.`));
+  };
+  /** Per scene: how many lines a run listed, and how many it only counted (checked with nothing to report). */
+  function attributionSummaryHtml(r) {
+    const rows = (r.summary || []).filter((x) => x.unchanged || x.settled || x.skipped || x.changed || x.moved);
+    if (!rows.length) return '';
+    const part = (n, word) => (n ? `${word} ${n}` : '');
+    return `<p class="hint">${rows.map((x) => `${esc(x.scene || '?')}: ${[part(x.changed, '바뀜'), part(x.listed, '목록'), part(x.unchanged, '그대로'), part(x.settled, '규칙 확정'), part(x.skipped, '변화 없어 건너뜀'), part(x.moved, '위치 고침')].filter(Boolean).join(' · ')}`).join('<br>')}</p>`;
   }
   function attributionLogHtml(info, sj) {
     const runs = Array.isArray(info.attributionLog) ? info.attributionLog : [];
@@ -888,8 +905,8 @@
     const tally = (c) => c ? ` · 확인 ${c.reviewed ?? 0} · 두 번 물음 ${c.second ?? 0} · 건너뜀 ${(c.skipped ?? 0) + (c.settled ?? 0)} · 모델 호출 ${c.calls ?? 0}` : '';
     if (!runs.length && !live) return '';
     const changed = (entries) => entries.filter((d) => d.decision === 'applied').length;
-    const run = (r, i) => `<details${i === 0 && !live ? ' open' : ''}><summary>${esc((r.at || '').replace('T', ' ').slice(0, 16))} · ${esc(r.reason || '')} · ${r.entries.length}줄 · 바뀜 ${changed(r.entries)}${esc(tally(r.counts))}${r.dropped ? ` · 앞 ${r.dropped}줄 생략` : ''}</summary>${(r.notes || []).map((n) => `<p class="hint">${esc(n)}</p>`).join('')}${r.entries.map(attributionEntryHtml).join('')}</details>`;
-    return `<details><summary>대사 확인 기록 (${runs.length}회${live ? ' · 진행 중' : ''})</summary><p class="hint">화자·상대 판단과 저장 결과입니다. 서버에 방마다 최근 5회까지 남고, 정리가 끝나거나 서버를 다시 켜도 유지됩니다. 대사 원문과 근거 문구는 기록하지 않습니다.</p>${live ? `<details open><summary>진행 중 (${live.length}${esc(tally(sj.attributionProgress))})</summary>${live.map(attributionEntryHtml).join('')}</details>` : ''}${runs.map(run).join('')}</details>`;
+    const run = (r, i) => `<details${i === 0 && !live ? ' open' : ''}><summary>${esc((r.at || '').replace('T', ' ').slice(0, 16))} · ${esc(r.reason || '')} · ${r.entries.length}줄 · 바뀜 ${changed(r.entries)}${esc(tally(r.counts))}${r.dropped ? ` · ${r.dropped}줄은 기록 한도로 생략` : ''}</summary>${(r.notes || []).map((n) => `<p class="hint">${esc(n)}</p>`).join('')}${attributionSummaryHtml(r)}${r.entries.map(attributionEntryHtml).join('')}</details>`;
+    return `<details${attributionFilter ? ' open' : ''}><summary>대사 확인 기록 (${runs.length}회${live ? ' · 진행 중' : ''})</summary><p class="hint">화자·상대 판단과 저장 결과입니다. 서버에 방마다 최근 5회까지 남고, 정리가 끝나거나 서버를 다시 켜도 유지됩니다. 바뀌었거나 다시 물었거나 받아들이지 않은 대사는 모두 남고, 문제없이 그대로인 대사는 장면별 개수로만 보입니다. 대사 원문과 근거 문구는 기록하지 않습니다.</p><label>대사 번호로 찾기<input id="attributionFilter" value="${esc(attributionFilter)}" placeholder="예: #1.24" autocomplete="off"></label>${live ? `<details open><summary>진행 중 (${live.length}${esc(tally(sj.attributionProgress))})</summary>${live.map(attributionEntryHtml).join('')}</details>` : ''}${runs.map(run).join('')}</details>`;
   }
 
   const VIEWS = { home: viewHome, scenes: viewScenes, search: viewSearch, facts: viewFacts, ledger: viewLedger, life: viewLife, inject: viewInject, settings: viewSettings };
@@ -1354,6 +1371,11 @@
     for (const type of ['keydown', 'keypress', 'keyup']) root.addEventListener(type, (e) => e.stopPropagation());
     root.addEventListener('input', (e) => {
       if (e.target.id === 'memorySearchInput') searchDraft = e.target.value;
+      if (e.target.id === 'attributionFilter') {
+        attributionFilter = e.target.value;
+        // Shown and hidden in place, so typing keeps the focus and the open sections.
+        for (const el of root.querySelectorAll('[data-at]')) el.hidden = attributionHidden(el.dataset.at);
+      }
     });
     root.addEventListener('submit', (e) => {
       if (e.target.id !== 'memorySearch') return;
