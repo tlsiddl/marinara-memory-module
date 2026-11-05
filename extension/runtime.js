@@ -858,15 +858,24 @@
     'self-listener': '화자가 상대에 포함', 'vocative-listener': '불린 사람을 상대로', reply: '앞 대사에 대한 대답', 'narration-conflict': '옆 서술과 다른 화자',
     'evidence-missing': '근거가 원문에 없음', 'evidence-in-quote': '근거가 대사 안에만 있음', 'evidence-unanchored': '근거에 화자 이름·역할이 없음', 'role-unresolved': '역할의 이름을 원문에서 못 찾음',
     'unknown-name': '모르는 이름', label: '화자 표기', evidence: '서술 근거', blank: '비움', applied: '저장', unchanged: '그대로', skipped: '건너뜀',
+    'single-clean': '한 번 확인 (문제 없음)', 'swapped-reversed': '화자·상대가 뒤바뀌어 바로잡음', 'cleared-reversed': '두 판단 모두 저장된 화자를 상대로 봐서 지움',
+    'cleared-label': '화자 표기가 서술과 맞지 않아 지움', 'label-contradicted': '화자 표기가 옆 서술과 맞지 않음', 'kept-listener': '두 판단이 같은 기존 상대 유지',
+    'agreed-listener': '두 판단이 같은 상대 추가', 'reversed-listener': '저장됐던 화자를 상대로', 'title-listener': '호칭으로 불린 사람을 상대로',
+    settled: '규칙으로 확정', 'settled-label': '규칙으로 확정 · 화자 표기', 'settled-narration': '규칙으로 확정 · 옆 서술', 'settled-sender': '규칙으로 확정 · 메시지 작성자',
+    'differs-from-stored': '저장 값과 다른 판단', 'listener-differs': '상대가 저장 값과 다름', 'listener-rejected': '상대 근거 부족', role: '역할로만 나온 화자',
+    'listener-evidence': '상대 근거가 원문에 없음', 'listener-relay': '전해 달라는 제3자', 'listener-unknown-name': '모르는 상대 이름',
   };
   const attributionWord = (code) => String(code || '').split(',').filter(Boolean).map((c) => ATTRIBUTION_WORDS[c] || c).join(', ');
   function attributionEntryHtml(d) {
     const who = (a) => a ? `${esc(a.by || '미확정')} → ${esc(Array.isArray(a.to) ? a.to.join('·') || '미확정' : a.to || '미확정')}` : '응답 없음';
     const why = (a) => a?.byReason ? ` (${esc(attributionWord(a.byReason))})` : '';
     const lines = [`<strong>${esc(d.scene)} · #${esc(d.number)}.${esc(d.sentence)}</strong>${d.source === 'rule' ? ' · 규칙' : ''}`];
-    if (d.first !== undefined && d.source !== 'rule') lines.push(`첫 판단: ${who(d.first)}${why(d.first)}`, `두 번째 판단: ${who(d.second)}${why(d.second)}`);
+    if (d.first !== undefined && d.source !== 'rule') lines.push(`첫 판단: ${who(d.first)}${why(d.first)}`, d.asked === 1 ? '두 번째 판단: 묻지 않음 (첫 판단에 문제 없음)' : `두 번째 판단: ${who(d.second)}${why(d.second)}`);
     if (d.reask) lines.push(`다시 물음: ${who(d.reask)}${why(d.reask)}`);
     if (d.violations?.length) lines.push(`검토 이유: ${esc(attributionWord(d.violations.join(',')))}`);
+    if (d.asked === 2 && d.flags?.length) lines.push(`다시 물은 이유: ${esc(attributionWord(d.flags.join(',')))}`);
+    if (d.fired?.length) lines.push(`적용한 규칙: ${esc(attributionWord(d.fired.join(',')))}`);
+    if (d.rejected?.length) lines.push(`받아들이지 않은 이유: ${esc(attributionWord(d.rejected.join(',')))}`);
     if (d.before) lines.push(`저장 전: ${who(d.before)}`);
     if (d.after) lines.push(`저장 후: ${who(d.after)}`);
     lines.push(`결과: ${esc(attributionWord(d.decision))}${d.rule ? ` · ${esc(attributionWord(d.rule))}` : d.agreed?.reason ? ` · ${esc(attributionWord(d.agreed.reason))}` : ''}`);
@@ -874,11 +883,13 @@
   }
   function attributionLogHtml(info, sj) {
     const runs = Array.isArray(info.attributionLog) ? info.attributionLog : [];
-    const live = sj.state === 'running' && (sj.attributionDiagnostics || []).length ? sj.attributionDiagnostics : null;
+    const byPlace = (a, b) => a.number - b.number || a.sentence - b.sentence;
+    const live = sj.state === 'running' && (sj.attributionDiagnostics || []).length ? [...sj.attributionDiagnostics].sort(byPlace) : null;
+    const tally = (c) => c ? ` · 확인 ${c.reviewed ?? 0} · 두 번 물음 ${c.second ?? 0} · 건너뜀 ${(c.skipped ?? 0) + (c.settled ?? 0)} · 모델 호출 ${c.calls ?? 0}` : '';
     if (!runs.length && !live) return '';
     const changed = (entries) => entries.filter((d) => d.decision === 'applied').length;
-    const run = (r, i) => `<details${i === 0 && !live ? ' open' : ''}><summary>${esc((r.at || '').replace('T', ' ').slice(0, 16))} · ${esc(r.reason || '')} · ${r.entries.length}줄 · 바뀜 ${changed(r.entries)}${r.dropped ? ` · 앞 ${r.dropped}줄 생략` : ''}</summary>${(r.notes || []).map((n) => `<p class="hint">${esc(n)}</p>`).join('')}${r.entries.map(attributionEntryHtml).join('')}</details>`;
-    return `<details><summary>대사 확인 기록 (${runs.length}회${live ? ' · 진행 중' : ''})</summary><p class="hint">화자·상대 판단과 저장 결과입니다. 서버에 방마다 최근 5회까지 남고, 정리가 끝나거나 서버를 다시 켜도 유지됩니다. 대사 원문과 근거 문구는 기록하지 않습니다.</p>${live ? `<details open><summary>진행 중 (${live.length})</summary>${live.map(attributionEntryHtml).join('')}</details>` : ''}${runs.map(run).join('')}</details>`;
+    const run = (r, i) => `<details${i === 0 && !live ? ' open' : ''}><summary>${esc((r.at || '').replace('T', ' ').slice(0, 16))} · ${esc(r.reason || '')} · ${r.entries.length}줄 · 바뀜 ${changed(r.entries)}${esc(tally(r.counts))}${r.dropped ? ` · 앞 ${r.dropped}줄 생략` : ''}</summary>${(r.notes || []).map((n) => `<p class="hint">${esc(n)}</p>`).join('')}${r.entries.map(attributionEntryHtml).join('')}</details>`;
+    return `<details><summary>대사 확인 기록 (${runs.length}회${live ? ' · 진행 중' : ''})</summary><p class="hint">화자·상대 판단과 저장 결과입니다. 서버에 방마다 최근 5회까지 남고, 정리가 끝나거나 서버를 다시 켜도 유지됩니다. 대사 원문과 근거 문구는 기록하지 않습니다.</p>${live ? `<details open><summary>진행 중 (${live.length}${esc(tally(sj.attributionProgress))})</summary>${live.map(attributionEntryHtml).join('')}</details>` : ''}${runs.map(run).join('')}</details>`;
   }
 
   const VIEWS = { home: viewHome, scenes: viewScenes, search: viewSearch, facts: viewFacts, ledger: viewLedger, life: viewLife, inject: viewInject, settings: viewSettings };

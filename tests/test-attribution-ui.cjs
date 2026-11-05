@@ -53,7 +53,8 @@ test('the overview shows the stored dialogue check record while no job runs', as
   const run = { at: '2026-01-02T03:04:05.000Z', reason: 'resume', notes: [], entries: [
     { scene: 'S1', number: 1, sentence: 7, before: { by: '도라', to: '파비오' }, first: { by: '도라', to: ['파비오'], byReason: 'vocative' }, second: { by: '도라', to: [], byReason: 'vocative' }, reask: { by: '파비오', to: ['도라'], byReason: 'evidence' }, violations: ['vocative-speaker'], decision: 'applied', rule: 'reask', after: { by: '파비오', to: '도라' } },
     { scene: 'S1', number: 1, sentence: 9, source: 'rule', decision: 'applied', rule: 'reply', before: { by: '렌조', to: null }, after: { by: '렌조', to: '니코' } },
-  ] };
+    { scene: 'S1', number: 1, sentence: 11, before: { by: '니코', to: '렌조' }, first: { by: '니코', to: ['렌조', '도라'], byReason: 'narration', toRejected: ['evidence'] }, second: null, asked: 1, flags: [], decision: 'unchanged', rule: 'single-clean,kept-listener', fired: ['kept-listener'], rejected: ['listener-evidence'], after: { by: '니코', to: '렌조·도라' } },
+  ], counts: { total: 30, skipped: 25, settled: 2, reviewed: 3, second: 1, calls: 2 } };
   const info = { enabled: true, threads: [], scenes: { count: 1 }, job: { state: 'done' }, sceneJob: { state: 'done' }, attributionLog: [run] };
   const elements = new Map();
   const document = {
@@ -78,5 +79,9 @@ test('the overview shows the stored dialogue check record while no job runs', as
   assert.match(content.innerHTML, /첫 판단: 도라 → 파비오 \(대사 안에서 불린 사람을 화자로 답함\)/);
   assert.match(content.innerHTML, /다시 물음: 파비오 → 도라/);
   assert.match(content.innerHTML, /앞 대사에 대한 대답/);
+  assert.match(content.innerHTML, /확인 3 · 두 번 물음 1 · 건너뜀 27 · 모델 호출 2/);
+  assert.match(content.innerHTML, /두 번째 판단: 묻지 않음 \(첫 판단에 문제 없음\)/);
+  assert.match(content.innerHTML, /적용한 규칙: 두 판단이 같은 기존 상대 유지/);
+  assert.match(content.innerHTML, /받아들이지 않은 이유: 상대 근거가 원문에 없음/);
   root.querySelector('#close').onclick();
 });
