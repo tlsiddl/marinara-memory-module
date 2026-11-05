@@ -2,7 +2,9 @@ const assert = require('node:assert/strict');
 const S = require('../memory-module/lib/scenes.cjs');
 const q={number:1,sentence:1,text:'"안녕하세요."',by:null,to:null,attributionChecked:7};
 const store={scenes:[{events:[{quotes:[q]}]}]}, messages=[{number:1,sentences:[q.text]}];
-assert.equal(S.attributionCandidates(store,messages,4,new Set()).length,0);
+// Checked under older rules (no fingerprint): checked once more under the current rules, then left alone.
+let first=S.attributionCandidates(store,messages,4,new Set());assert.equal(first.length,1);
+S.stampAttribution(first[0]);assert.equal(S.attributionCandidates(store,messages,4,new Set()).length,0);
 let list=S.attributionCandidates(store,messages,4,new Set(),{retryUnresolved:true});assert.equal(list.length,1);
 const attempts=new Set([q]);assert.equal(S.attributionCandidates(store,messages,4,attempts,{retryUnresolved:true}).length,0);
 q.by='가은'; q.to='도윤';

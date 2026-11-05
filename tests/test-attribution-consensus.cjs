@@ -7,7 +7,7 @@ let c=S.attributionCandidates({scenes:[scene]},messages);
 const a={id:'0',by:'직원',to:['상민'],byEvidence:'직원의 말이 중단되었다.',toEvidence:'상민이 직원에게 이름을 물었다.'};
 const b={...a}; let agreed=S.confirmAttributionResults(c,[a],[b]);
 S.applyAttributionResults(c,agreed);assert.equal(quote.by,'직원');assert.equal(quote.to,'상민');
-delete quote.attributionChecked;
+delete quote.attributionChecked;delete quote.attributionFp;
 c=S.attributionCandidates({scenes:[scene]},messages);
 // Narration right after the line ("직원의 말이 중단되었다") names the speaker: another answer cannot outvote it.
 const wrong={...a,by:'상민',to:['직원'],byEvidence:'상민이 직원에게 이름을 물었다.'};agreed=S.confirmAttributionResults(c,[a],[wrong]);
@@ -20,10 +20,10 @@ agreed=S.confirmAttributionResults(c2,[{id:'0',by:'나현',to:['상민'],byEvide
 assert.equal(agreed[0].reason,'disagree');S.applyAttributionResults(c2,agreed);assert.equal(q2.by,'나현');assert.equal(q2.to,'상민');
 assert.equal(c2[0].outcome.rule,'kept-disagree');
 // An answer without proof is no disagreement: the proven one is used.
-delete quote.attributionChecked;quote.by=null;quote.to=null;c=S.attributionCandidates({scenes:[scene]},messages);
+delete quote.attributionChecked;delete quote.attributionFp;quote.by=null;quote.to=null;c=S.attributionCandidates({scenes:[scene]},messages);
 agreed=S.confirmAttributionResults(c,[a],[{...wrong,byEvidence:'직원의 말이 중단되었다.'}]);assert.equal(agreed[0].reason,'one-proven');
 S.applyAttributionResults(c,agreed);assert.equal(quote.by,'직원');
 // Both answers missing: nothing to apply, the value stays.
-delete quote.attributionChecked;c=S.attributionCandidates({scenes:[scene]},messages);
+delete quote.attributionChecked;delete quote.attributionFp;c=S.attributionCandidates({scenes:[scene]},messages);
 assert.equal(S.confirmAttributionResults(c,[],[]).length,0);assert.equal(S.confirmAttributionResults(c,null,undefined).length,0);assert.equal(quote.by,'직원');
 console.log('independent attribution tests passed');

@@ -27,28 +27,29 @@ function setUp() {
 }
 const model = (reply) => async () => ({ provider: { chatComplete: async (prompt) => ({ content: JSON.stringify(await reply(prompt)) }) } });
 
-test('a reversed answer is rejected, re-asked, and the record is kept on disk without line text', async () => {
+test('a reversed answer is rejected, asked a second time, and the record is kept on disk without line text', async () => {
   const { store, apology, steady, messages } = setUp();
   const asked = [];
   const job = { cancel: false };
   const calls = await X.reviewAttributions(CHAT, store, messages, model((prompt) => {
-    const items = JSON.parse(prompt[1].content);
+    const items = JSON.parse(prompt[1].content).items;
     asked.push(items.map((x) => x.notSpeaker || null));
     const id = items.find((x) => x.quote === SECRET)?.id;
-    if (/notSpeaker는 화자가 아니다/.test(prompt[0].content)) return { items: [{ id, by: '파비오', to: ['도라 벨 카로'], byEvidence: '파비오가 고개를 숙였다.', toEvidence: SECRET }] };
+    if (/notSpeaker에 있는 사람은/.test(prompt[0].content)) return { items: [{ id, by: '파비오', to: ['도라 벨 카로'], byEvidence: '파비오가 고개를 숙였다.', toEvidence: SECRET }] };
     return { items: [{ id, by: '도라 벨 카로', to: ['파비오'], byEvidence: '파비오가 고개를 숙였다.', toEvidence: '' }] };
   }), job, 'auto');
-  assert.equal(calls, 3);
-  assert.deepEqual(asked[2], [['도라 벨 카로']]);
+  // One question for the group, and a second one only for the lines whose first answer needed it.
+  assert.equal(calls, 2);
+  assert.deepEqual(asked[1], [['도라 벨 카로'], null]);
   assert.equal(apology.by, '파비오'); assert.equal(apology.to, '도라 벨 카로');
-  assert.equal(steady.by, '도라 벨 카로', 'a line that breaks no rule is not re-asked on an automatic run');
+  assert.equal(steady.by, '도라 벨 카로', 'an unanswered line keeps its value');
   const file = path.join(dir, 'memory-module', 'chats', `${CHAT}.attribution-log.json`);
   const raw = fs.readFileSync(file, 'utf8');
   assert.ok(!raw.includes('perdoni') && !raw.includes('고개를'), 'no line or evidence text on disk');
   const run = X.loadAttributionLog(CHAT).runs[0];
-  const entry = run.entries.find((e) => e.sentence === 2);
+  const entry = run.entries.find((e) => e.sentence === 2 && e.source !== 'rule');
   assert.equal(entry.first.by, '도라 벨 카로'); assert.equal(entry.first.byReason, 'vocative');
-  assert.equal(entry.reask.by, '파비오'); assert.equal(entry.decision, 'applied'); assert.equal(entry.after.by, '파비오');
+  assert.equal(entry.second.by, '파비오'); assert.equal(entry.asked, 2); assert.equal(entry.decision, 'applied'); assert.equal(entry.after.by, '파비오');
 
   // A later automatic run with nothing to check does not push the record out.
   await X.reviewAttributions(CHAT, store, messages, model(() => assert.fail('no call expected')), { cancel: false }, 'auto');
@@ -57,7 +58,7 @@ test('a reversed answer is rejected, re-asked, and the record is kept on disk wi
   // After a restart (a fresh module) the record is still there.
   delete require.cache[servicePath];
   X = require(servicePath)._test;
-  assert.equal(X.loadAttributionLog(CHAT).runs[0].entries.find((e) => e.sentence === 2).after.by, '파비오');
+  assert.equal(X.loadAttributionLog(CHAT).runs[0].entries.find((e) => e.sentence === 2 && e.source !== 'rule').after.by, '파비오');
 });
 
 test('a failing model keeps stored values that break no rule and is recorded', async () => {

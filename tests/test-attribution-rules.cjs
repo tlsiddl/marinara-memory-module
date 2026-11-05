@@ -2,7 +2,7 @@
 const assert = require('node:assert/strict');
 const S = require('../memory-module/lib/scenes.cjs');
 
-const fresh = (q) => { delete q.attributionChecked; return q; };
+const fresh = (q) => { delete q.attributionChecked; delete q.attributionFp; return q; };
 const answer = (by, to, byEvidence = '', toEvidence = '') => ({ id: '0', by, to, byEvidence, toEvidence });
 
 // 1. Unlabelled staff guidance, then an apology that opens by calling the guest by her family name.
