@@ -10,8 +10,9 @@ assert.equal(S.applyAttributionResults(candidates,[{id:'0',by:'민수',to:['하�
 assert.equal(q.by,'민수'); assert.equal(q.to,'하준 서·영희');
 assert.equal(S.attributionCandidates(store,messages).length,0);
 delete q.attributionChecked;
-assert.equal(S.applyAttributionResults(S.attributionCandidates(store,messages),[{id:'0',by:'민수',to:['영희'],byEvidence:'없는 근거',toEvidence:'민수가 둘에게 인사했다.'}]),1);
-assert.equal(q.by,null); assert.equal(q.to,null);
+// Evidence that is not in the source proves nothing, and it does not erase the earlier proven value either.
+assert.equal(S.applyAttributionResults(S.attributionCandidates(store,messages),[{id:'0',by:'민수',to:['영희'],byEvidence:'없는 근거',toEvidence:'민수가 둘에게 인사했다.'}]),0);
+assert.equal(q.by,'민수'); assert.equal(q.to,'하준 서·영희');
 scene.edited=true; assert.equal(S.attributionCandidates(store,messages).length,0);
 scene.edited=false; q.messageId='different'; messages[0].id='source'; assert.equal(S.attributionCandidates(store,messages).length,0);
 console.log('attribution tests passed');
