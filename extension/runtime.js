@@ -376,7 +376,7 @@
         <p class="hint">장부: ${esc(STATE[job.state] || job.state || '쉬는 중')}${job.stage ? ` · ${esc(job.stage)}` : ''}${job.total ? ` (${job.done}/${job.total})` : ''}<br>
         장면: ${esc(STATE[sj.state] || sj.state || '쉬는 중')}${sj.stage ? ` · ${esc(sj.stage)}` : ''}${lt ? `<br>마지막 장부 점검: 닫음 ${lt.closed}${lt.feelingsResolved != null ? ` (풀린 감정 ${lt.feelingsResolved})` : ''} · 합침 ${lt.merged}` : ''}</p>
         ${job.error ? `<div class="note">${esc(job.error)}</div>` : ''}${sj.error ? `<div class="note">${esc(sj.error)}</div>` : ''}
-        ${(sj.attributionDiagnostics || []).length ? `<details><summary>대사 확인 기록 (${sj.attributionDiagnostics.length})</summary><p class="hint">이번 정리의 화자·상대 판단과 저장 결과입니다. 대사 원문은 기록하지 않으며 다음 정리나 서버 재시작 시 사라집니다.</p>${sj.attributionDiagnostics.map((d) => { const who = (a) => a ? `${esc(a.by || '미확정')} → ${esc(Array.isArray(a.to) ? a.to.join('·') || '미확정' : a.to || '미확정')}` : '응답 없음'; const proof = (a) => a ? ` (화자 근거 ${a.byEvidenceFound ? '있음' : '없음'}, 대사 밖 ${a.byExternalEvidenceFound ? '있음' : '없음'}, 상대 근거 ${a.toEvidenceFound ? '있음' : '없음'})` : ''; return `<p><strong>${esc(d.scene)} · #${esc(d.number)}.${esc(d.sentence)}</strong><br>첫 판단: ${who(d.first)}${proof(d.first)}<br>두 번째 판단: ${who(d.second)}${proof(d.second)}<br>저장 전: ${who(d.before)}<br>저장 후: ${who(d.after)}</p>`; }).join('')}</details>` : ''}
+        ${attributionLogHtml(info, sj)}
         <div class="buttons">
           <button class="primary" data-act="start" ${running() ? 'disabled' : ''}>${icon('refresh')} 이어서 정리</button>
           <button data-act="tidy" ${running() ? 'disabled' : ''}>장부 점검</button>
@@ -584,7 +584,10 @@
       const quotes = old.quotes.map((q, i) => {
         const input = el.querySelector(`[data-quote="${i}"] [data-quote-to]`);
         const speaker = el.querySelector(`[data-quote="${i}"] [data-quote-by]`);
-        return input ? { ...q, by: speaker?.value.trim() || null, to: input.value.trim() || null } : q;
+        if (!input) return q;
+        const by = speaker?.value.trim() || null, to = input.value.trim() || null;
+        // A changed speaker or listener is the user's: automatic checks leave it alone from now on.
+        return by !== (q.by || null) || to !== (q.to || null) ? { ...q, by, to, manual: true } : { ...q, by, to };
       });
       return { ...old, quotes, text: val(el, 'text'), time: val(el, 'time'), why: val(el, 'why'), importance: val(el, 'importance') };
     });
@@ -842,6 +845,40 @@
       <div class="rail-divider"></div>
       <div class="rail-note">${icon('spark')}<h3>기억은 서버에 있습니다</h3><p>여기서 고친 내용은 서버의 기억 모듈에 바로 저장되고, 다음 답변부터 반영됩니다.</p></div>
       <div class="rail-footer">기억 서재 · 기억 모듈판 v${VERSION}</div>`;
+  }
+
+  // Who said a line and to whom, as the server checked it: kept on the server for the last few runs.
+  const ATTRIBUTION_WORDS = {
+    agree: '두 판단 일치', 'one-proven': '한 판단만 근거 확인', 'single-answer': '한 판단만 받음', disagree: '두 판단이 다름', reask: '다시 물어 확인',
+    'no-proven-speaker': '근거 있는 화자 없음', vocative: '대사 안에서 불린 사람을 화자로 답함', kept: '기존 값 유지', 'kept-disagree': '판단이 달라 기존 값 유지',
+    'cleared-vocative': '불린 사람이 화자로 저장되어 지움', 'cleared-narration': '옆 서술과 맞지 않아 지움', narration: '옆 서술이 가리킨 화자', sender: '메시지 작성자',
+    manual: '직접 고친 대사라 건너뜀', 'changed-during-check': '확인 중 바뀌어 건너뜀', malformed: '응답 형식 오류', unanswered: '응답 없음',
+    'message-missing': '원문 메시지 없음', 'message-changed': '원문 메시지가 바뀜', 'pointer-mismatch': '원문 위치가 맞지 않음',
+    'vocative-speaker': '불린 사람이 화자', 'narration-speaker': '옆 서술과 다른 화자', 'narration-fill': '옆 서술로 화자 채움', 'relay-listener': '전해 달라는 제3자를 상대에서 뺌',
+    'self-listener': '화자가 상대에 포함', 'vocative-listener': '불린 사람을 상대로', reply: '앞 대사에 대한 대답', 'narration-conflict': '옆 서술과 다른 화자',
+    'evidence-missing': '근거가 원문에 없음', 'evidence-in-quote': '근거가 대사 안에만 있음', 'evidence-unanchored': '근거에 화자 이름·역할이 없음', 'role-unresolved': '역할의 이름을 원문에서 못 찾음',
+    'unknown-name': '모르는 이름', label: '화자 표기', evidence: '서술 근거', blank: '비움', applied: '저장', unchanged: '그대로', skipped: '건너뜀',
+  };
+  const attributionWord = (code) => String(code || '').split(',').filter(Boolean).map((c) => ATTRIBUTION_WORDS[c] || c).join(', ');
+  function attributionEntryHtml(d) {
+    const who = (a) => a ? `${esc(a.by || '미확정')} → ${esc(Array.isArray(a.to) ? a.to.join('·') || '미확정' : a.to || '미확정')}` : '응답 없음';
+    const why = (a) => a?.byReason ? ` (${esc(attributionWord(a.byReason))})` : '';
+    const lines = [`<strong>${esc(d.scene)} · #${esc(d.number)}.${esc(d.sentence)}</strong>${d.source === 'rule' ? ' · 규칙' : ''}`];
+    if (d.first !== undefined && d.source !== 'rule') lines.push(`첫 판단: ${who(d.first)}${why(d.first)}`, `두 번째 판단: ${who(d.second)}${why(d.second)}`);
+    if (d.reask) lines.push(`다시 물음: ${who(d.reask)}${why(d.reask)}`);
+    if (d.violations?.length) lines.push(`검토 이유: ${esc(attributionWord(d.violations.join(',')))}`);
+    if (d.before) lines.push(`저장 전: ${who(d.before)}`);
+    if (d.after) lines.push(`저장 후: ${who(d.after)}`);
+    lines.push(`결과: ${esc(attributionWord(d.decision))}${d.rule ? ` · ${esc(attributionWord(d.rule))}` : d.agreed?.reason ? ` · ${esc(attributionWord(d.agreed.reason))}` : ''}`);
+    return `<p>${lines.join('<br>')}</p>`;
+  }
+  function attributionLogHtml(info, sj) {
+    const runs = Array.isArray(info.attributionLog) ? info.attributionLog : [];
+    const live = sj.state === 'running' && (sj.attributionDiagnostics || []).length ? sj.attributionDiagnostics : null;
+    if (!runs.length && !live) return '';
+    const changed = (entries) => entries.filter((d) => d.decision === 'applied').length;
+    const run = (r, i) => `<details${i === 0 && !live ? ' open' : ''}><summary>${esc((r.at || '').replace('T', ' ').slice(0, 16))} · ${esc(r.reason || '')} · ${r.entries.length}줄 · 바뀜 ${changed(r.entries)}${r.dropped ? ` · 앞 ${r.dropped}줄 생략` : ''}</summary>${(r.notes || []).map((n) => `<p class="hint">${esc(n)}</p>`).join('')}${r.entries.map(attributionEntryHtml).join('')}</details>`;
+    return `<details><summary>대사 확인 기록 (${runs.length}회${live ? ' · 진행 중' : ''})</summary><p class="hint">화자·상대 판단과 저장 결과입니다. 서버에 방마다 최근 5회까지 남고, 정리가 끝나거나 서버를 다시 켜도 유지됩니다. 대사 원문과 근거 문구는 기록하지 않습니다.</p>${live ? `<details open><summary>진행 중 (${live.length})</summary>${live.map(attributionEntryHtml).join('')}</details>` : ''}${runs.map(run).join('')}</details>`;
   }
 
   const VIEWS = { home: viewHome, scenes: viewScenes, search: viewSearch, facts: viewFacts, ledger: viewLedger, life: viewLife, inject: viewInject, settings: viewSettings };

@@ -11,6 +11,10 @@ assert.equal(q.by,null,'A name addressed within the quote is not proof of who sp
 delete q.attributionChecked;
 entries = S.attributionCandidates(store,messages);
 S.applyAttributionResults(entries,[{id:'0',by:'민수',to:['로시'],byEvidence:'직원의 말이 끊겼다',toEvidence:'로시 씨, 죄송합니다'}]);
+assert.equal(q.by,null,'A role is not a name until the source says who has it');
+messages[0].sentences.push('직원은 자신을 민수라고 소개했다.'); delete q.attributionChecked;
+entries = S.attributionCandidates(store,messages);
+S.applyAttributionResults(entries,[{id:'0',by:'민수',to:['로시'],byEvidence:'직원의 말이 끊겼다',toEvidence:'로시 씨, 죄송합니다'}]);
 assert.equal(q.by,'민수'); assert.equal(q.to,'로시');
 assert.equal(S.attributionCandidates(store,messages).length,0);
 delete q.attributionChecked; scene.edited=true;
