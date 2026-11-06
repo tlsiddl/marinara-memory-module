@@ -229,6 +229,40 @@ test('a branch inherits character cards and places: the user\'s edits stay, the 
   for (const n of ['state', 'places']) assert.ok(fs.existsSync(path.join(dir, `memory-module/chats/child3.${n}.json`)), n);
 });
 
+test('a branch inherits the answers to record conflicts and the keepsakes, worked out again on the facts and scenes it really has', async () => {
+  const Cf = require('../memory-module/lib/conflicts.cjs');
+  const Ks = require('../memory-module/lib/keepsakes.cjs');
+  const f = fixture();
+  const at = (i) => f.source[i].number;
+  const ev = (i) => [{ messageId: f.source[i].id, number: at(i), sentence: 1, text: '근거' }];
+  f.scenes.facts = [
+    { id: 'F1', about: '도윤', text: '커피를 즐겨 마신다', sceneId: 'S1', evidence: ev(0), unaware: [], guess: [] },
+    { id: 'F2', about: '도윤', text: '커피를 즐겨 마시지 않는다', sceneId: 'S1', evidence: ev(1), unaware: [], guess: [] },
+    { id: 'F3', about: '도윤', text: '동생이 7살이다', sceneId: 'S3', evidence: ev(4), unaware: [], guess: [] },
+    { id: 'F4', about: '도윤', text: '동생이 9살이다', sceneId: 'S3', evidence: ev(4), unaware: [], guess: [] },
+  ];
+  f.scenes.nextFact = 5;
+  f.scenes.scenes[0].keepsakes = [{ name: '은반지', owner: '도윤', meaning: '약속', evidence: [{ number: at(0), sentence: 1 }] }];
+  f.scenes.scenes[2].keepsakes = [{ name: '나침반', owner: '도윤', evidence: [{ number: at(4), sentence: 1 }] }];
+  T.setEngine(mockEngine(f, 'child4', 4));
+  T.saveLedger('parent', f.ledger); T.saveScenes('parent', f.scenes);
+  T.saveSettings({ connection: null, chats: { parent: { enabled: true } } });
+  let conflicts = Cf.fold(f.scenes, null);
+  assert.equal(conflicts.conflicts.length, 2);
+  conflicts = Cf.answer(Cf.answer(conflicts, 'C1', 'keepA'), 'C2', 'both');
+  T.saveConflicts('parent', conflicts);
+  T.saveKeepsakes('parent', Ks.fold(f.scenes, null));
+  assert.equal(T.loadKeepsakes('parent').items.length, 2);
+  const payload = JSON.stringify({ id: 'child4', name: '분기' });
+  await T.branchOnSend({ method: 'POST', raw: { url: '/api/chats/parent/branch' } }, { statusCode: 200 }, payload);
+  const child = T.loadConflicts('child4');
+  assert.deepEqual(child.conflicts.map((c) => [c.a, c.b, c.status]), [['F1', 'F2', 'keepA']], 'the answer came along; the pair that only exists after the branch point did not');
+  assert.deepEqual(T.loadKeepsakes('child4').items.map((i) => i.name), ['은반지'], 'the later scene is not in this branch');
+  assert.equal(T.loadConflicts('parent').conflicts.length, 2, 'the parent is untouched');
+  assert.equal(T.loadKeepsakes('parent').items.length, 2);
+  for (const n of ['conflicts', 'keepsakes']) assert.ok(fs.existsSync(path.join(dir, `memory-module/chats/child4.${n}.json`)), n);
+});
+
 test('failed/unrelated branch requests and corrupt destinations remain untouched', async () => {
   const payload = JSON.stringify({ id: 'never' });
   for (const [method, url, statusCode] of [['POST', '/api/chats/parent/branch', 500], ['GET', '/api/chats/parent/branch', 200], ['POST', '/api/chats/parent', 200]]) {

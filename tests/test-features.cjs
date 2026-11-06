@@ -26,9 +26,10 @@ const call = async (key, id, body) => {
 const settingsFile = path.join(dir, 'memory-module/settings.json');
 const onDisk = () => JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
 
-const READY = ['recentLife', 'addressBook', 'learnFromEdits', 'characterState', 'places'];
-test('registry: Korean labels, recentLife on by default, every other feature off; only the implemented ones are ready', () => {
-  const keys = ['recentLife', 'addressBook', 'learnFromEdits', 'characterState', 'places', 'knowledge', 'conflicts', 'recallReasons'];
+const READY = ['recentLife', 'characterState', 'places', 'keepsakes'];
+const BUILTIN = ['addressBook', 'learnFromEdits', 'knowledge', 'conflicts'];
+test('registry: Korean labels, recentLife on by default, every other feature off; only the implemented ones are ready; built-in ones are not in it', () => {
+  const keys = ['recentLife', 'characterState', 'places', 'keepsakes', 'recallReasons'];
   assert.deepEqual(Object.keys(F.FEATURES), keys);
   for (const [key, f] of Object.entries(F.FEATURES)) {
     assert.match(f.label, /[가-힣]/, key);
@@ -37,6 +38,11 @@ test('registry: Korean labels, recentLife on by default, every other feature off
     assert.equal(typeof f.ready, 'boolean');
     if (key === 'recentLife') assert.equal(f.default, true); else assert.equal(f.default, false, key);
     assert.equal(f.ready, READY.includes(key), key);
+  }
+  assert.deepEqual(F.BUILTIN, BUILTIN);
+  for (const key of BUILTIN) {
+    assert.equal(F.known(key), false, key);
+    assert.deepEqual(F.resolve({ features: { [key]: false }, chats: { a: { features: { [key]: 'off' } } } }, 'a', key), { global: true, room: 'default', enabled: true, ready: true, builtin: true }, 'stored values are ignored');
   }
 });
 
@@ -60,20 +66,22 @@ test('featureOn on the server: new features default off and never run while not 
   X.saveSettings({ connection: null, chats: {} });
   assert.equal(X.featureOn('room', 'recentLife'), true);
   for (const key of Object.keys(F.FEATURES).filter((k) => k !== 'recentLife')) assert.equal(X.featureOn('room', key), false, key);
-  X.saveSettings({ connection: null, chats: { room: { features: { addressBook: 'on' } } } });
-  assert.equal(X.featureOn('room', 'addressBook'), true, 'addressBook is implemented: a stored choice applies');
+  // Built in: always on, whatever is stored.
+  for (const key of BUILTIN) assert.equal(X.featureOn('room', key), true, key);
+  X.saveSettings({ connection: null, chats: { room: { features: { addressBook: 'off', knowledge: 'off' } } }, features: { conflicts: false } });
+  for (const key of BUILTIN) assert.equal(X.featureOn('room', key), true, key + ': an old stored "off" is ignored');
   assert.equal(X.featureOn('room', 'nonsense'), false);
   // Stored "on" is still off while the feature is not implemented.
-  X.saveSettings({ chats: { room: { features: { knowledge: 'on' } } }, features: { knowledge: true } });
-  assert.equal(X.featureOn('room', 'knowledge'), false);
-  const was = F.FEATURES.knowledge.ready;
+  X.saveSettings({ chats: { room: { features: { recallReasons: 'on' } } }, features: { recallReasons: true } });
+  assert.equal(X.featureOn('room', 'recallReasons'), false);
+  const was = F.FEATURES.recallReasons.ready;
   try {
-    F.FEATURES.knowledge.ready = true;
-    assert.equal(X.featureOn('room', 'knowledge'), true, 'implemented: the stored choice applies');
-    X.saveSettings({ chats: { room: { features: { knowledge: 'off' } } }, features: { knowledge: true } });
-    assert.equal(X.featureOn('room', 'knowledge'), false);
-    assert.equal(X.featureOn('other', 'knowledge'), true);
-  } finally { F.FEATURES.knowledge.ready = was; }
+    F.FEATURES.recallReasons.ready = true;
+    assert.equal(X.featureOn('room', 'recallReasons'), true, 'implemented: the stored choice applies');
+    X.saveSettings({ chats: { room: { features: { recallReasons: 'off' } } }, features: { recallReasons: true } });
+    assert.equal(X.featureOn('room', 'recallReasons'), false);
+    assert.equal(X.featureOn('other', 'recallReasons'), true);
+  } finally { F.FEATURES.recallReasons.ready = was; }
 });
 
 test('recentLife keeps working with settings files written before the registry', () => {
@@ -108,26 +116,30 @@ test('routes persist switches; recentLife writes its old keys, the others the ne
   assert.equal(X.featureOn('r1', 'recentLife'), true, 'the older route moves the same switch');
 
   // a feature that is ready
-  const was = F.FEATURES.knowledge.ready;
-  F.FEATURES.knowledge.ready = true;
+  const was = F.FEATURES.recallReasons.ready;
+  F.FEATURES.recallReasons.ready = true;
   try {
-    assert.ifError((await call('POST /settings/features', null, { key: 'knowledge', on: true })).error);
-    assert.deepEqual(onDisk().features, { knowledge: true });
-    assert.deepEqual((await call('POST /chats/:id/feature-mode', 'r2', { key: 'knowledge', mode: 'off' })).result.feature, { key: 'knowledge', global: true, room: 'off', enabled: false, ready: true });
-    assert.deepEqual(onDisk().chats.r2.features, { knowledge: 'off' });
-    assert.equal(X.featureOn('r2', 'knowledge'), false);
-    assert.equal(X.featureOn('r3', 'knowledge'), true);
-    await call('POST /chats/:id/feature-mode', 'r2', { key: 'knowledge', mode: 'default' });
+    assert.ifError((await call('POST /settings/features', null, { key: 'recallReasons', on: true })).error);
+    assert.deepEqual(onDisk().features, { recallReasons: true });
+    assert.deepEqual((await call('POST /chats/:id/feature-mode', 'r2', { key: 'recallReasons', mode: 'off' })).result.feature, { key: 'recallReasons', global: true, room: 'off', enabled: false, ready: true });
+    assert.deepEqual(onDisk().chats.r2.features, { recallReasons: 'off' });
+    assert.equal(X.featureOn('r2', 'recallReasons'), false);
+    assert.equal(X.featureOn('r3', 'recallReasons'), true);
+    await call('POST /chats/:id/feature-mode', 'r2', { key: 'recallReasons', mode: 'default' });
     assert.equal('features' in onDisk().chats.r2, false, 'an empty override is not kept');
-    assert.match((await call('POST /settings/features', null, { key: 'knowledge', on: 'yes' })).error, /on: true 또는 false/);
-    assert.match((await call('POST /chats/:id/feature-mode', 'r2', { key: 'knowledge', mode: 'maybe' })).error, /default, on, off/);
-    assert.match((await call('POST /chats/:id/feature-mode', '../x', { key: 'knowledge', mode: 'on' })).error, /invalid chat id/);
-  } finally { F.FEATURES.knowledge.ready = was; }
-  // not implemented / unknown: refused, nothing stored
-  assert.match((await call('POST /settings/features', null, { key: 'conflicts', on: true })).error, /준비 중/);
-  assert.match((await call('POST /chats/:id/feature-mode', 'r1', { key: 'conflicts', mode: 'on' })).error, /준비 중/);
+    assert.match((await call('POST /settings/features', null, { key: 'recallReasons', on: 'yes' })).error, /on: true 또는 false/);
+    assert.match((await call('POST /chats/:id/feature-mode', 'r2', { key: 'recallReasons', mode: 'maybe' })).error, /default, on, off/);
+    assert.match((await call('POST /chats/:id/feature-mode', '../x', { key: 'recallReasons', mode: 'on' })).error, /invalid chat id/);
+  } finally { F.FEATURES.recallReasons.ready = was; }
+  // not implemented / built in / unknown: refused, nothing stored
+  assert.match((await call('POST /settings/features', null, { key: 'recallReasons', on: false })).error, /준비 중/);
+  assert.match((await call('POST /chats/:id/feature-mode', 'r1', { key: 'recallReasons', mode: 'on' })).error, /준비 중/);
+  for (const key of BUILTIN) {
+    assert.match((await call('POST /settings/features', null, { key, on: false })).error, /항상 켜져 있어/, key);
+    assert.match((await call('POST /chats/:id/feature-mode', 'r1', { key, mode: 'off' })).error, /항상 켜져 있어/, key);
+  }
   assert.match((await call('POST /settings/features', null, { key: 'bogus', on: true })).error, /알 수 없는 기능/);
-  assert.equal(onDisk().features?.conflicts, undefined);
+  assert.equal(onDisk().features?.addressBook, undefined);
 });
 
 test('the room view lists only implemented features with their state', () => {
@@ -164,6 +176,9 @@ test('the 추가 기능 section: a row per implemented feature with the global c
   assert.match(checked, /value="default" selected>/);
   assert.doesNotMatch(checked, /준비 중/);
   assert.doesNotMatch(featuresPaper(F.view({}, 'r').filter((f) => f.key === 'recentLife')), /호칭/);
+  const all = featuresPaper(F.view({}, 'r'));
+  for (const gone of ['addressBook', 'learnFromEdits', 'knowledge', 'conflicts']) assert.doesNotMatch(all, new RegExp('data-feature="' + gone + '"'), gone + ' is built in: no switch');
+  assert.match(all, /data-feature="keepsakes"/);
   assert.doesNotMatch(featuresPaper([{ key: 'x', label: '<b>', description: '"', default: true, global: true, room: 'default' }]), /<b>/, 'text is escaped');
 });
 

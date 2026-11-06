@@ -51,7 +51,10 @@
   let world = null;
   let worldRoom = '';
   let worldError = '';
-  let worldForm = { person: '', place: '' };
+  let worldForm = { person: '', place: '', keep: '', keepOwner: '' };
+  // 알게 된 사실 tab: the conflicts between facts (null while not loaded; a failure only hides the banner).
+  let conflicts = null;
+  let conflictsRoom = '';
   let namesError = '';
   let nameForm = { source: '', target: '', display: '', text: true };
   // The 호칭 사전 form (id is set while an entry is being edited).
@@ -161,6 +164,8 @@
     if (sequence !== roomLoadSequence || room !== id || disposed) return;
     if (needsWorld()) await loadWorld(id);
     if (sequence !== roomLoadSequence || room !== id || disposed) return;
+    if (needsConflicts()) await loadConflicts(id);
+    if (sequence !== roomLoadSequence || room !== id || disposed) return;
     if (!needsScenes()) return;
     if (storeRoom !== id || !store) {
       const scenes = await api('GET', `/chats/${encodeURIComponent(id)}/scenes`);
@@ -190,6 +195,23 @@
   async function ensureWorld() {
     if (!needsWorld() || !room || (world && worldRoom === room)) return;
     await loadWorld(room);
+    render();
+  }
+  const needsConflicts = () => tab === 'facts';
+  async function loadConflicts(id) {
+    try {
+      const c = await api('GET', `/chats/${encodeURIComponent(id)}/conflicts`);
+      if (room !== id || disposed) return;
+      conflicts = c;
+      conflictsRoom = id;
+    } catch {
+      // An older server has no such route: the facts are shown without the banner.
+      if (room === id) { conflicts = null; conflictsRoom = id; }
+    }
+  }
+  async function ensureConflicts() {
+    if (!needsConflicts() || !room) return;
+    await loadConflicts(room);
     render();
   }
   async function loadNames(id) {
@@ -683,18 +705,51 @@
       groups.get(key).push(f);
     }
     if (!groups.size) return `<h1>알게 된 사실</h1><div class="empty">${icon('person')}아직 없습니다.</div>`;
+    // Facts the user decided against in a conflict ("앞의 것 유지" / "뒤의 것 유지") are left out of the memory text.
+    const superseded = new Set();
+    for (const c of conflicts?.conflicts || []) {
+      if (c.status === 'keepA') superseded.add(c.b);
+      else if (c.status === 'keepB') superseded.add(c.a);
+    }
     return `<div class="eyebrow">FACTS · ${store.facts.length}</div><h1>알게 된 사실</h1>
       <p class="intro">인물마다 앞으로도 계속 유효한 설정·성격·과거·관계입니다. 인물마다 최신 것부터 고르게 기억 칸에 들어가고, 많이 쌓이면 같은 주제끼리 합쳐집니다.</p>
+      ${conflictsPaper(conflicts, store)}
       ${[...groups].map(([who, list]) => `<div class="paper"><h2>${esc(who)}</h2>${list
         .map((f) => {
           const replaced = f.replacedBy && ids.has(f.replacedBy);
-          return `<div class="fact-row" data-fact="${esc(f.id)}"><label>${esc(f.id)}${f.unaware?.length ? ` · 모름: ${esc(f.unaware.join('·'))}` : ''}${f.guess?.length ? ` · 짐작만: ${esc(f.guess.join('·'))}` : ''}${f.edited || f.knowSet?.length ? ' · 직접 고침' : ''}${replaced ? ` · ${esc(f.replacedBy)}로 바뀜(기억 칸에서 제외)` : ''}</label>
+          return `<div class="fact-row" data-fact="${esc(f.id)}"><label>${esc(f.id)}${f.unaware?.length ? ` · 모름: ${esc(f.unaware.join('·'))}` : ''}${f.guess?.length ? ` · 짐작만: ${esc(f.guess.join('·'))}` : ''}${f.edited || f.knowSet?.length || f.knownLock ? ' · 직접 고침' : ''}${replaced ? ` · ${esc(f.replacedBy)}로 바뀜(기억 칸에서 제외)` : ''}${superseded.has(f.id) ? ' · 기록 충돌에서 뒤로 물림(기억 칸에서 제외)' : ''}</label>
             ${f.sceneId ? `<p class="record-links">${sceneLink(store.scenes.find((x) => x.id === f.sceneId), '에서 알게 됨')}</p>` : ''}
+            ${knowChips(f)}
             <textarea class="event-field">${esc(f.text)}</textarea>${trNote(f.text)}
-            ${group() ? `<div class="form-grid"><label>아직 모르는 인물 (쉼표로 구분)<input data-f="unaware" value="${esc((f.unaware || []).join(', '))}" placeholder="모두 알면 비워 두세요"></label><label>짐작만 하는 인물<input data-f="guess" value="${esc((f.guess || []).join(', '))}" placeholder="없으면 비워 두세요"></label></div>` : ''}
+            ${group() ? `<div class="form-grid"><label>아는 사람 (쉼표로 구분)<input data-f="knownBy" value="${esc((f.knownBy || []).join(', '))}" placeholder="비워 두면 따로 정하지 않음"></label><label>아직 모르는 인물 (쉼표로 구분)<input data-f="unaware" value="${esc((f.unaware || []).join(', '))}" placeholder="모두 알면 비워 두세요"></label><label>짐작만 하는 인물<input data-f="guess" value="${esc((f.guess || []).join(', '))}" placeholder="없으면 비워 두세요"></label></div>` : ''}
             <div class="buttons"><button data-act="saveFact" data-id="${esc(f.id)}">저장</button><button class="ghost" data-act="deleteFact" data-id="${esc(f.id)}">${armed === `fact:${f.id}` ? '한 번 더 누르면 삭제됩니다' : '삭제'}</button></div></div>`;
         })
         .join('')}</div>`).join('')}`;
+  }
+
+  /** 아는 사람 / 모르는 사람 chips of one fact (a fact that says neither shows nothing). */
+  function knowChips(f) {
+    const known = Array.isArray(f.knownBy) ? f.knownBy : [];
+    const unknown = Array.isArray(f.unaware) ? f.unaware : [];
+    if (!known.length && !unknown.length) return '';
+    const chips = (list, cls) => list.map((n) => `<span class="kchip ${cls}">${esc(n)}</span>`).join('');
+    return `<p class="know-chips">${known.length ? `<span class="know-label">아는 사람</span>${chips(known, 'is-known')}` : ''}${unknown.length ? `<span class="know-label">모르는 사람</span>${chips(unknown, 'is-unknown')}` : ''}</p>`;
+  }
+
+  /** 알게 된 사실 → 서로 다른 기록: both facts side by side and four answers; nothing is decided by itself. */
+  function conflictsPaper(c, st) {
+    if (!c || !Array.isArray(c.conflicts) || !c.conflicts.length) return '';
+    const ANSWER = { keepA: '앞의 것을 남김', keepB: '뒤의 것을 남김', both: '둘 다 맞음', dismissed: '무시함' };
+    const scene = (id) => (id ? (st?.scenes || []).find((x) => x.id === id) : null);
+    const side = (label, fid, text, sid) => `<div><small>${label} · ${esc(fid)}${sid ? ` · ${esc(sid)}${scene(sid)?.title ? ` ${esc(scene(sid).title)}` : ''}` : ''}</small><p>${esc(text)}</p></div>`;
+    const row = (x) => `<div class="conflict-row" data-cid="${esc(x.id)}"><p class="conflict-head">${esc(x.about)} · ${esc(x.reason)}</p>
+      <div class="conflict-pair">${side('앞', x.a, x.aText, x.aScene)}${side('뒤', x.b, x.bText, x.bScene)}</div>
+      ${x.status === 'open'
+        ? `<div class="buttons"><button data-act="conflictAnswer" data-id="${esc(x.id)}" data-answer="keepA">앞의 것 유지</button><button data-act="conflictAnswer" data-id="${esc(x.id)}" data-answer="keepB">뒤의 것 유지</button><button data-act="conflictAnswer" data-id="${esc(x.id)}" data-answer="both">둘 다 맞음</button><button class="ghost" data-act="conflictAnswer" data-id="${esc(x.id)}" data-answer="dismiss">무시</button></div>`
+        : `<p class="hint">내 답: ${esc(ANSWER[x.status] || x.status)} <button class="ghost" data-act="conflictAnswer" data-id="${esc(x.id)}" data-answer="reopen">다시 열기</button></p>`}</div>`;
+    return `<div class="paper conflict-paper"><h2>${c.open ? `서로 다른 기록 ${esc(c.open)}건` : '서로 다른 기록 · 모두 답함'}</h2>
+      <p class="hint">같은 인물·대상에 대한 기록 가운데 서로 어긋나 보이는 것입니다. 모델을 부르지 않고 글을 비교한 것이라 틀릴 수 있습니다. 저절로 지우거나 바꾸지 않습니다. ‘앞의 것 유지’·‘뒤의 것 유지’는 남기지 않은 쪽을 기억 칸에서만 빼고(지우지 않습니다), ‘둘 다 맞음’·‘무시’는 아무것도 바꾸지 않습니다. 답할 때까지는 둘 다 그대로 들어갑니다.</p>
+      ${c.conflicts.map(row).join('')}</div>`;
   }
 
   function threadRow(t) {
@@ -839,12 +894,13 @@
   function viewWorld() {
     if (!info) return emptyRoom();
     if (!world || worldRoom !== room) return worldError ? `<div class="note" role="alert">인물·장소를 불러오지 못했습니다. ${esc(worldError)} 서버의 기억 모듈도 함께 업데이트했는지 확인해 주세요.</div>` : `<div class="empty">${icon('refresh')}불러오는 중입니다…</div>`;
-    const off = !world.characterState && !world.places;
+    const off = !world.characterState && !world.places && !world.keepsakes;
     return `<div class="eyebrow">STORY NOW</div><h1>인물·장소</h1>
-      <p class="intro">장면을 정리할 때 같은 모델 호출에서 함께 읽어 둔 인물의 현재 상태와 장소의 모습입니다. 켠 뒤에 새로 정리하는 장면부터 채워지고, 원문에 보인 것만 적습니다. 고친 칸은 잠겨서 자동 기록이 덮어쓰지 않습니다.</p>
-      ${off ? '<div class="note" role="status">이 방에서는 <b>인물 현재 상태</b>와 <b>장소 기억</b>이 모두 꺼져 있습니다. <button data-tab="settings">설정 → 추가 기능에서 켜기</button></div>' : ''}
+      <p class="intro">장면을 정리할 때 같은 모델 호출에서 함께 읽어 둔 인물의 현재 상태, 장소의 모습, 소중한 물건입니다. 켠 뒤에 새로 정리하는 장면부터 채워지고, 원문에 보인 것만 적습니다. 고친 칸은 잠겨서 자동 기록이 덮어쓰지 않습니다.</p>
+      ${off ? '<div class="note" role="status">이 방에서는 <b>인물 현재 상태</b>·<b>장소 기억</b>·<b>소중한 물건</b>이 모두 꺼져 있습니다. <button data-tab="settings">설정 → 추가 기능에서 켜기</button></div>' : ''}
       ${statePaper(world, worldForm, armed)}
-      ${placesPaper(world, worldForm, armed)}`;
+      ${placesPaper(world, worldForm, armed)}
+      ${keepsakesPaper(world, worldForm, armed)}`;
   }
 
   /** 인물 상태 cards: every field is an input (editing locks it), a locked field has a button that gives it back to the scenes. */
@@ -897,6 +953,36 @@
       ${list.length ? list.map(place).join('') : '<p class="hint">아직 없습니다. 켠 뒤에 정리되는 장면부터 채워집니다.</p>'}
       <h3>장소 직접 추가</h3>
       <div class="routine-row"><input id="placeNewName" value="${esc(form?.place || '')}" placeholder="장소 이름" aria-label="장소 이름"><button class="primary" data-act="placeAdd">추가</button></div></div>`;
+  }
+
+  /** 소중한 물건: owner, from, meaning and status of each item, editable (editing locks it); other names, merge and delete. */
+  function keepsakesPaper(w, form, armedNow) {
+    if (!w || !w.keepsakes) return '';
+    const list = w.keepList || [];
+    const titles = w.sceneTitles || {};
+    const STATUS = [['kept', '간직함'], ['given', '남에게 줌'], ['lost', '잃어버림'], ['broken', '망가짐'], ['unknown', '모름']];
+    const sceneAt = (id) => (id ? `<a href="#" class="record-link" data-goto-scene="${esc(id)}">${esc(id)}${titles[id] ? ` · ${esc(titles[id])}` : ''}</a>` : '');
+    const item = (it) => {
+      const locked = (k) => it.sources?.[k] === 'user';
+      const unlock = (k) => (locked(k) ? `<button class="ghost lock" data-act="keepUnlock" data-id="${esc(it.id)}" data-field="${k}">자동으로 되돌리기</button><small>직접 고침</small>` : '');
+      const input = (key, label, value, hint) => `<div class="world-field"><span>${label}</span><input data-keep-id="${esc(it.id)}" data-keep-field="${key}" value="${esc(value)}" placeholder="${hint}" aria-label="${esc(it.name)} ${label}">${key === 'aliases' ? '' : unlock(key)}</div>`;
+      const others = list.filter((x) => x.id !== it.id);
+      const history = (it.history || []).map((h) => `<li>${sceneAt(h.scene)} · ${esc(h.event)}</li>`).join('');
+      return `<div class="world-card" data-keep="${esc(it.id)}"><h3>${esc(it.name)}</h3>
+        ${input('owner', '가진 사람', it.owner || '', '지금 가진 사람')}
+        ${input('from', '준 사람·유래', it.from || '', '준 사람이나 유래')}
+        ${input('meaning', '담긴 뜻', it.meaning || '', '한 구절')}
+        <div class="world-field"><span>상태</span><select data-keep-id="${esc(it.id)}" data-keep-field="status" aria-label="${esc(it.name)} 상태">${STATUS.map(([v, t]) => `<option value="${v}" ${(it.status || 'unknown') === v ? 'selected' : ''}>${t}</option>`).join('')}</select>${unlock('status')}</div>
+        ${input('aliases', '다른 이름', (it.aliases || []).join(' · '), '같은 물건의 다른 이름, · 로 나눠 적기')}
+        <p class="hint">${it.gotAt?.scene ? `처음 ${sceneAt(it.gotAt.scene)}${it.gotAt.date ? ` (${esc(it.gotAt.date)})` : ''}` : '장면에 연결되지 않은 물건'}</p>
+        ${history ? `<ul class="hint">${history}</ul>` : ''}
+        <div class="routine-row">${others.length ? `<select data-keep-merge="${esc(it.id)}" aria-label="합칠 물건"><option value="">다른 물건에 합치기…</option>${others.map((o) => `<option value="${esc(o.id)}">${esc(o.name)}</option>`).join('')}</select>` : ''}<button class="ghost" data-act="keepDelete" data-id="${esc(it.id)}">${armedNow === `keepDelete:${it.id}` ? '한 번 더 누르면 지웁니다' : '이 물건 지우기'}</button></div></div>`;
+    };
+    return `<div class="paper"><h2>소중한 물건 · ${list.length}개</h2>
+      <p class="hint">선물·기념품·유품처럼 이야기에서 뜻이 있는 물건입니다. 평범한 소품이나 지금 들고 있는 물건은 ‘인물 현재 상태’의 가진 것에 있습니다. 같은 물건의 다른 이름은 자동으로 합치지 않으니 ‘다른 이름’이나 ‘합치기’를 쓰세요. 답변에는 지금 장면에 있는 사람의 물건만 한 줄로 들어갑니다.</p>
+      ${list.length ? list.map(item).join('') : '<p class="hint">아직 없습니다. 켠 뒤에 정리되는 장면부터 채워집니다.</p>'}
+      <h3>물건 직접 추가</h3>
+      <div class="routine-row"><input id="keepNewName" value="${esc(form?.keep || '')}" placeholder="물건 이름" aria-label="물건 이름"><input id="keepNewOwner" value="${esc(form?.keepOwner || '')}" placeholder="가진 사람(선택)" aria-label="가진 사람"><button class="primary" data-act="keepAdd">추가</button></div></div>`;
   }
 
   function viewNames() {
@@ -1296,7 +1382,7 @@
   async function handle(actName, el) {
     const id = el?.dataset?.id;
     const chat = encodeURIComponent(room);
-    if (actName !== 'fresh' && !actName.startsWith('deleteFact') && actName !== 'closeThread' && actName !== 'rebuildChapters' && actName !== 'deleteRoutine' && !['nameApply', 'mergeApply', 'aliasApply', 'nameUndo', 'backupDownload', 'restoreApply', 'restoreUndo', 'addressDelete', 'stateReset', 'placeDelete'].includes(actName)) armed = '';
+    if (actName !== 'fresh' && !actName.startsWith('deleteFact') && actName !== 'closeThread' && actName !== 'rebuildChapters' && actName !== 'deleteRoutine' && !['nameApply', 'mergeApply', 'aliasApply', 'nameUndo', 'backupDownload', 'restoreApply', 'restoreUndo', 'addressDelete', 'stateReset', 'placeDelete', 'keepDelete'].includes(actName)) armed = '';
     switch (actName) {
       case 'retryTranslation':
         return act(async () => {
@@ -1469,6 +1555,38 @@
           await api('POST', `/chats/${chat}/places`, { action: 'delete', id });
           world = null;
         }, '장소를 지웠습니다.');
+      case 'conflictAnswer': {
+        const answer = el.dataset.answer;
+        const text = { keepA: '앞의 것을 남기고 뒤의 것은 기억 칸에서 뺐습니다.', keepB: '뒤의 것을 남기고 앞의 것은 기억 칸에서 뺐습니다.', both: '둘 다 맞는 것으로 표시했습니다.', dismiss: '이 충돌을 무시했습니다.', reopen: '다시 열었습니다.' }[answer];
+        if (!text) return;
+        return act(async () => {
+          await api('POST', `/chats/${chat}/conflicts/${encodeURIComponent(id)}`, { action: answer });
+          conflicts = null;
+        }, text);
+      }
+      case 'keepUnlock':
+        return act(async () => {
+          await api('POST', `/chats/${chat}/keepsakes`, { action: 'unlock', id, field: el.dataset.field });
+          world = null;
+        }, '이 항목을 자동 기록으로 되돌렸습니다.');
+      case 'keepAdd': {
+        const name = (root.querySelector('#keepNewName')?.value || '').trim();
+        const owner = (root.querySelector('#keepNewOwner')?.value || '').trim();
+        if (!name) return;
+        return act(async () => {
+          await api('POST', `/chats/${chat}/keepsakes`, { action: 'add', name, owner });
+          worldForm.keep = '';
+          worldForm.keepOwner = '';
+          world = null;
+        }, '소중한 물건을 추가했습니다.');
+      }
+      case 'keepDelete':
+        if (armed !== `keepDelete:${id}`) { armed = `keepDelete:${id}`; return render(); }
+        armed = '';
+        return act(async () => {
+          await api('POST', `/chats/${chat}/keepsakes`, { action: 'delete', id });
+          world = null;
+        }, '소중한 물건을 지웠습니다.');
       case 'addressSave': {
         readAddressForm();
         const form = { ...addressForm };
@@ -1564,7 +1682,8 @@
         const row = root.querySelector(`[data-fact="${CSS.escape(id)}"]`);
         const unaware = row.querySelector('[data-f="unaware"]');
         const guess = row.querySelector('[data-f="guess"]');
-        return act(() => api('PATCH', `/chats/${chat}/facts/${encodeURIComponent(id)}`, { text: row.querySelector('textarea').value, ...(unaware ? { unaware: unaware.value, guess: guess.value } : {}) }), '사실을 저장했습니다.');
+        const knownBy = row.querySelector('[data-f="knownBy"]');
+        return act(() => api('PATCH', `/chats/${chat}/facts/${encodeURIComponent(id)}`, { text: row.querySelector('textarea').value, ...(unaware ? { unaware: unaware.value, guess: guess.value } : {}), ...(knownBy ? { knownBy: knownBy.value } : {}) }), '사실을 저장했습니다.');
       }
       case 'deleteFact':
         if (armed !== `fact:${id}`) {
@@ -1903,6 +2022,8 @@
       if (['addrFrom', 'addrTo', 'addrTerm', 'addrNote'].includes(e.target.id)) readAddressForm();
       if (e.target.id === 'stateNewName') worldForm.person = e.target.value;
       if (e.target.id === 'placeNewName') worldForm.place = e.target.value;
+      if (e.target.id === 'keepNewName') worldForm.keep = e.target.value;
+      if (e.target.id === 'keepNewOwner') worldForm.keepOwner = e.target.value;
       if (e.target.id === 'attributionFilter') {
         attributionFilter = e.target.value;
         // Shown and hidden in place, so typing keeps the focus and the open sections.
@@ -2013,6 +2134,24 @@
           world = null;
         }, '두 장소를 하나로 합쳤습니다. 합친 쪽 이름은 다른 이름으로 남습니다.');
       }
+      if (e.target.dataset?.keepField) {
+        const field = e.target.dataset.keepField;
+        const id = e.target.dataset.keepId;
+        const body = field === 'aliases' ? { action: 'aliases', id, value: e.target.value } : { action: 'set', id, field, value: e.target.value };
+        void act(async () => {
+          await api('POST', `/chats/${encodeURIComponent(room)}/keepsakes`, body);
+          world = null;
+        }, field === 'aliases' ? '다른 이름을 저장했습니다.' : '고친 항목을 저장했습니다. 이 항목은 자동 기록이 덮어쓰지 않습니다.');
+      }
+      if (e.target.dataset?.keepMerge) {
+        const from = e.target.dataset.keepMerge;
+        const into = e.target.value;
+        if (!into) return;
+        void act(async () => {
+          await api('POST', `/chats/${encodeURIComponent(room)}/keepsakes`, { action: 'merge', id: from, into });
+          world = null;
+        }, '두 물건을 하나로 합쳤습니다. 합친 쪽 이름은 다른 이름으로 남습니다.');
+      }
       if (e.target.dataset?.addressUse) {
         const id = e.target.dataset.addressUse;
         const on = e.target.checked;
@@ -2098,6 +2237,7 @@
         void ensureScenes();
         void ensureNames();
         void ensureWorld();
+        void ensureConflicts();
         return render();
       }
       if (n.dataset.group !== undefined) {

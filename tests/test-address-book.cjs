@@ -189,13 +189,10 @@ function seedRoom(room) {
   return store;
 }
 
-test('service: off collects and injects nothing; on collects, injects only the people present, and the book survives switching off', () => {
+test('service: always on (an old stored "off" is ignored); collects and injects only the people present', () => {
   seedRoom('ra');
   settingsOn('ra', 'off');
-  assert.equal(X.refreshAddress('ra', X.loadScenes('ra')), false);
-  assert.equal(fs.existsSync(path.join(CHATS, 'ra.address.json')), false);
-  assert.doesNotMatch(X.renderMemorySource('ra'), /\[호칭\]/);
-  settingsOn('ra', 'on');
+  assert.equal(X.featureOn('ra', 'addressBook'), true, 'built in: an old stored "off" changes nothing');
   assert.equal(X.refreshAddress('ra', X.loadScenes('ra')), true);
   const stored = JSON.parse(fs.readFileSync(path.join(CHATS, 'ra.address.json'), 'utf8'));
   assert.equal(stored.version, 1);
@@ -207,20 +204,17 @@ test('service: off collects and injects nothing; on collects, injects only the p
   assert.match(line, /아델→비토: Zuzu/);
   assert.doesNotMatch(line, /네로|Capitano/, 'Nero is not in the scene');
   assert.ok(line.length <= 120);
-  // Off again: the line is gone and the file stays.
+  // A stored "off" from an older version does not hide the line.
   settingsOn('ra', 'off');
-  assert.doesNotMatch(X.renderMemorySource('ra'), /\[호칭\]/);
-  assert.equal(fs.existsSync(path.join(CHATS, 'ra.address.json')), true);
+  assert.match(X.renderMemorySource('ra'), /\[호칭\]/);
   // The same line when the memory goes to English: kept as written, no translation asked for.
   settingsOn('ra', 'on');
   assert.deepEqual(T.translateText(text, 'en', () => null).missing.filter((l) => l.startsWith('[호칭]')), []);
 });
 
-test('routes: add, edit, delete, toggle; refused while off; bad input refused', async () => {
+test('routes: add, edit, delete, toggle; never refused for a switch; bad input refused', async () => {
   seedRoom('rb');
   settingsOn('rb', 'off');
-  assert.match((await call('POST /chats/:id/address', 'rb', { action: 'add', entry: { from: ADEL, to: VITO, term: 'Zuzu' } })).error, /꺼져 있습니다/);
-  settingsOn('rb', 'on');
   let r = await call('POST /chats/:id/address', 'rb', { action: 'add', entry: { from: ADEL, to: VITO, term: ' Zuzu ', note: '애칭' } });
   assert.ifError(r.error);
   assert.deepEqual({ ...r.result.entry, id: undefined }, { id: undefined, from: ADEL, to: VITO, term: 'Zuzu', count: 0, firstSeen: null, lastSeen: null, source: 'user', useForCheck: true, note: '애칭' });
@@ -258,12 +252,11 @@ test('routes: add, edit, delete, toggle; refused while off; bad input refused', 
   assert.ok(!r.result.entries.some((e) => e.term === 'Capo'));
   const get = (await call('GET /chats/:id/address', 'rb')).result;
   assert.equal(get.addressBook, true);
-  assert.equal(get.learnFromEdits, false);
-  // the names tab carries it; off and nothing to show: null
+  assert.equal(get.learnFromEdits, true);
+  // the names tab always carries it, whatever an old settings file says
   assert.equal((await call('GET /chats/:id/names', 'rb')).result.address.addressBook, true);
   settingsOn('rb', 'off');
-  assert.equal((await call('GET /chats/:id/names', 'rb')).result.address, null);
-  assert.deepEqual((await call('GET /chats/:id/address', 'rb')).result.entries, []);
+  assert.equal((await call('GET /chats/:id/names', 'rb')).result.address.addressBook, true);
 });
 
 test('a hand-corrected listener is counted as the user\'s evidence even when the book first gave it', () => {
