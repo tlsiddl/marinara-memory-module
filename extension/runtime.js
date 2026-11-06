@@ -981,7 +981,7 @@
     'message-missing': '원문 메시지 없음', 'message-changed': '원문 메시지가 바뀜', 'pointer-mismatch': '원문 위치가 맞지 않음',
     'vocative-speaker': '불린 사람이 화자', 'narration-speaker': '옆 서술과 다른 화자', 'narration-fill': '옆 서술로 화자 채움', 'relay-listener': '전해 달라는 제3자를 상대에서 뺌',
     'self-listener': '화자가 상대에 포함', 'vocative-listener': '불린 사람을 상대로', reply: '앞 대사에 대한 대답', 'narration-conflict': '옆 서술과 다른 화자',
-    'evidence-missing': '근거가 원문에 없음', 'evidence-in-quote': '근거가 대사 안에만 있음', 'evidence-unanchored': '근거에 화자 이름·역할이 없음', 'role-unresolved': '역할의 이름을 원문에서 못 찾음',
+    'role-name': '옆 서술의 역할을 장면에서 이름으로 확인', 'evidence-missing': '근거가 원문에 없음', 'evidence-in-quote': '근거가 대사 안에만 있음', 'evidence-unanchored': '근거에 화자 이름·역할이 없음', 'role-unresolved': '역할의 이름을 원문에서 못 찾음',
     'unknown-name': '모르는 이름', label: '화자 표기', evidence: '서술 근거', blank: '비움', applied: '저장', unchanged: '그대로', skipped: '건너뜀',
     'single-clean': '한 번 확인 (문제 없음)', 'swapped-reversed': '화자·상대가 뒤바뀌어 바로잡음', 'cleared-reversed': '두 판단 모두 저장된 화자를 상대로 봐서 지움',
     'cleared-label': '화자 표기가 서술과 맞지 않아 지움', 'label-contradicted': '화자 표기가 옆 서술과 맞지 않음', 'kept-listener': '두 판단이 같은 기존 상대 유지',

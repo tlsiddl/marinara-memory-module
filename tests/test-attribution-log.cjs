@@ -66,7 +66,7 @@ test('a failing model keeps stored values that break no rule and is recorded', a
   await X.reviewAttributions(CHAT, store, messages, async () => ({ provider: { chatComplete: async () => { throw Error('connection refused'); } } }), { cancel: false }, 'resume');
   assert.equal(steady.by, '도라 벨 카로'); assert.equal(steady.to, '파비오');
   const run = X.loadAttributionLog(CHAT).runs[0];
-  assert.ok(run.notes.some((n) => /model error: connection refused/.test(n)));
+  assert.ok(run.notes.some((n) => /모델 오류: connection refused/.test(n)));
   // The deterministic rules still ran: the speaker the line calls by name is removed.
   // A bow is not a speech cue, so no speaker is guessed: the line is left blank rather than reversed.
   assert.equal(store.scenes[0].events[0].quotes[0].by, null);
@@ -86,5 +86,5 @@ test('a hand edit saved while the model is asked is not overwritten', async () =
   }), { cancel: false }, 'resume');
   const saved = X.loadScenes(CHAT).scenes[0].events[0].quotes[1];
   assert.equal(saved.by, '파비오'); assert.equal(saved.manual, true);
-  assert.ok(X.loadAttributionLog(CHAT).runs[0].notes.some((n) => /changed during the check/.test(n)));
+  assert.ok(X.loadAttributionLog(CHAT).runs[0].notes.some((n) => /확인 중 장면이 바뀌어/.test(n)));
 });
