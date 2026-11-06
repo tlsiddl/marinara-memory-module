@@ -13,9 +13,9 @@ const { registerHooks } = require('node:module');
 const { fileURLToPath } = require('node:url');
 
 const TAG = '[memory-module]';
-/** The Marinara version these patches were made and tested against. */
-const TESTED_MARINARA = '2.5.1';
-const VERSION = '0.11.45';
+/** The Marinara versions these patches were made and tested against. */
+const TESTED_MARINARA = ['2.5.1', '2.5.2'];
+const VERSION = '0.11.46';
 const NOTES_DIR = process.env.MEMORY_MODULE_NOTES_DIR || path.join(__dirname, 'notes');
 const DEFAULT_NOTE = '_default.txt';
 /** Last safety net only: the service already keeps the memory within its own limit (40,000 by default). */
@@ -40,7 +40,9 @@ const PATCHES = [
   {
     name: 'speakers',
     target: /[\\/]packages[\\/]server[\\/]dist[\\/]routes[\\/]generate[\\/]reply-text-cleanup\.js$/,
-    anchor: '    return { text: fullResponse, changed, oocMessages };',
+    // 2.5.1 returns { text, changed, oocMessages }; 2.5.2 adds trimmedEnding. The repair goes in right before
+    // that return either way and leaves the returned object as Marinara wrote it.
+    anchorRegex: /^[ \t]*return \{ text: fullResponse, changed, (?:trimmedEnding, )?oocMessages \};/gm,
     before: true,
     insert:
       '    try { const fixed = globalThis.__marinaraMemory?.fixSpeakers?.(fullResponse, o); if (typeof fixed === "string" && fixed !== fullResponse) { fullResponse = fixed; changed = true; } } catch {}\n',

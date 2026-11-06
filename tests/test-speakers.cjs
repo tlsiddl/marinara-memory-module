@@ -44,7 +44,7 @@ test('the reply-cleanup patch fits Marinara 2.5.1 and puts the call right before
   assert.ok(patch.target.test(file));
   const out = RT.patchSource(fs.readFileSync(file, 'utf8'), patch);
   assert.ok(out);
-  assert.match(out, /fixSpeakers\?\.\(fullResponse, o\)[^\n]*\n    return \{ text: fullResponse, changed, oocMessages \};/);
+  assert.match(out, /fixSpeakers\?\.\(fullResponse, o\)[^\n]*\n    return \{ text: fullResponse, changed, (?:trimmedEnding, )?oocMessages \};/);
 });
 
 test('generation guidance uses native exact-name tags without visible name prefixes or speech guessing', () => {
