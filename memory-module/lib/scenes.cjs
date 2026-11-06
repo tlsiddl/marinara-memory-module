@@ -1590,6 +1590,8 @@ function judgeAnswer(e, a) {
     else if (f.narration) { by = who; byReason = 'narration'; }
     else if (f.labelWrong && same(f.tag, who)) byReason = 'label-contradicted';
     else if (e.sender && same(e.sender, who)) { by = who; byReason = 'sender'; }
+    // The narration next to the line has a role as its subject and the scene names that role as this person.
+    else if (f.narrationRole && same(resolveRole(f.narrationRole, e.scope, e.names), who)) { by = who; byReason = 'role-name'; }
     else if (!outside(a.byEvidence)) byReason = inContext(a.byEvidence) ? 'evidence-in-quote' : 'evidence-missing';
     else if (!anchors(a.byEvidence, who, e)) byReason = 'evidence-unanchored';
     else { by = who; byReason = 'evidence'; }

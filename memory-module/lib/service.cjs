@@ -1312,6 +1312,10 @@ async function reviewAttributions(chatId, store, messages, getModel, job, reason
     // The rules first: whatever they settle needs no model, and they still run when the check is stopped early.
     if (unchanged()) rulePass();
     const stats = { skipped: 0, byScene: {} };
+    // Whether anyone else saved the scenes, asked BEFORE this job changes its own copy in memory: after the rule step
+    // saved, that copy is the very object the cache holds, so the job's own unsaved changes would look like
+    // somebody else's edit and every answer would be thrown away.
+    const clean = unchanged();
     const all = S.attributionCandidates(store, messages, Infinity, new Set(), { stats });
     counts.skipped = stats.skipped;
     run.skippedByScene = stats.byScene;
@@ -1324,7 +1328,7 @@ async function reviewAttributions(chatId, store, messages, getModel, job, reason
       counts.settled++;
       run.entries.push({ scene: e.scene.id || '', number: e.q.number, sentence: e.q.sentence, source: 'rule', decision: 'settled', rule: settled, fired: [settled], before: { by: e.q.by || null, to: e.q.to || null }, after: { by: e.q.by || null, to: e.q.to || null } });
     }
-    if (counts.settled && unchanged()) save();
+    if (counts.settled && clean) save();
     counts.toReview = ask.length;
     progress();
     const batches = S.attributionBatches(ask, { maxItems: ATTRIBUTION_BATCH });
@@ -1335,7 +1339,7 @@ async function reviewAttributions(chatId, store, messages, getModel, job, reason
         return Array.isArray(parsed?.items) ? parsed.items : null;
       } catch (error) {
         if (job.cancel) throw error;
-        run.notes.push(`model error: ${String(error?.message || error).slice(0, 160)}`);
+        run.notes.push(`모델 오류: ${String(error?.message || error).slice(0, 160)}`);
         return null;
       } finally {
         counts.calls++;
@@ -1363,7 +1367,7 @@ async function reviewAttributions(chatId, store, messages, getModel, job, reason
       if (!unchanged()) {
         changedUnderneath = true;
         stop = true;
-        run.notes.push('scenes changed during the check; batch left unsaved');
+        run.notes.push('확인 중 장면이 바뀌어 이 묶음은 저장하지 않음');
         run.entries.push(...S.attributionDiagnostics(batch, first, second, decided, beforeValues).map((d) => ({ ...d, decision: 'skipped', rule: 'changed-during-check' })));
         return;
       }
@@ -1371,7 +1375,7 @@ async function reviewAttributions(chatId, store, messages, getModel, job, reason
       run.entries.push(...S.attributionDiagnostics(batch, first, second, decided, beforeValues));
       counts.reviewed += batch.length;
       counts.second += second ? flagged.length : 0;
-      if (!first && !second) { run.notes.push('no usable answer; values left as they were'); stop = true; progress(); return; }
+      if (!first && !second) { run.notes.push('쓸 수 있는 답이 없어 값은 그대로 둠'); stop = true; progress(); return; }
       // Answered but nothing provable (or left out of the answer): marked as checked, so a later run does not ask
       // again while nothing about the line changes.
       for (const e of batch) if (!e.outcome && !e.q.manual && !e.scene.edited) S.stampAttribution(e);

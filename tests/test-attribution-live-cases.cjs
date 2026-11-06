@@ -261,5 +261,5 @@ test('groups run three at a time, in story order, and keep hand edits and edits 
   assert.equal(saved.scenes[0].events[0].quotes[0].to, '루치오', 'the first group, answered before the edit, was saved');
   assert.equal(saved.scenes[1].events[0].quotes[1].to, null, 'the second group was not saved over the edit');
   assert.equal(saved.scenes[2].events[0].quotes[0].to, null, 'nor anything after it');
-  assert.ok(X.loadAttributionLog('room-par').runs[0].notes.some((x) => /changed during the check/.test(x)));
+  assert.ok(X.loadAttributionLog('room-par').runs[0].notes.some((x) => /확인 중 장면이 바뀌어/.test(x)));
 });
