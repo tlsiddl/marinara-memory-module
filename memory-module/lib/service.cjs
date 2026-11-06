@@ -2066,13 +2066,14 @@ function translateMissing(chatId, target, texts, { max = TRANSLATE_MAX_PER_RUN }
 
 /** The memory lines that may go into a reply: what goes in now, and every scene as it is shown when recalled. */
 function injectionLines(chatId, target) {
+  const npc = settings().chats?.[chatId]?.organize?.npcCoverage === 'expanded';
   const lines = [];
   const add = (text) => lines.push(...T.translateText(text, target, () => null).missing);
   add(renderMemorySource(chatId));
   const store = scenesForReply(chatId);
   if (store) {
     const cast = S.castOf(store);
-    store.scenes.forEach((scene, i) => add(S.renderExpanded(scene, i, store.personas || [], cast)));
+    store.scenes.forEach((scene, i) => add(S.renderExpanded(scene, i, store.personas || [], cast, { npc })));
   }
   return [...new Set(lines)];
 }
@@ -2238,6 +2239,7 @@ function renderMemorySource(chatId, maxChars = MEMORY_MAX_CHARS) {
   const story = [];
   if (scenes && room > 500) {
     const firstInside = windows.get(chatId) ?? scenes.window?.firstInside ?? null;
+    const npc = settings().chats?.[chatId]?.organize?.npcCoverage === 'expanded';
     const amount = RECALL_AMOUNTS[settings().recallAmount] || RECALL_AMOUNTS.normal;
     const recall = recalls.get(chatId);
     const picks = R.shownPicks(recall?.picks || [], amount.scenes);
@@ -2247,12 +2249,12 @@ function renderMemorySource(chatId, maxChars = MEMORY_MAX_CHARS) {
     const total = 9000 + 4500 + chapterChars;
     const overviewMax = Math.min(total, Math.floor(room * (chapterChars > CHAPTER_LENGTHS.normal ? 0.65 : 0.5)));
     const scale = Math.min(1, overviewMax / total);
-    const overview = S.renderScenes(scenes, firstInside, { maxChars: Math.floor(9000 * scale), factChars: Math.floor(4500 * scale), chapterChars: Math.floor(chapterChars * scale), query, today });
+    const overview = S.renderScenes(scenes, firstInside, { maxChars: Math.floor(9000 * scale), factChars: Math.floor(4500 * scale), chapterChars: Math.floor(chapterChars * scale), query, today, npc });
     if (overview) {
       story.push(overview);
       room -= overview.length + 2;
     }
-    const recalled = room > 500 ? R.renderRecalled(scenes, picks, { maxChars: Math.min(amount.sceneChars, room) }) : '';
+    const recalled = room > 500 ? R.renderRecalled(scenes, picks, { maxChars: Math.min(amount.sceneChars, room), npc }) : '';
     if (recalled) {
       story.push(recalled);
       room -= recalled.length + 2;
@@ -2736,7 +2738,11 @@ async function routes(app) {
       for (const field of ['title', 'summary', 'time', 'place', 'weather']) if (typeof req.body?.[field] === 'string') scene[field] = req.body[field].trim();
       // The chapter (and arc) that summarized this scene no longer says what it says now.
       S.markStale(store, { scene: scene.id });
-      if (req.body?.present !== undefined) scene.present = nameList(req.body.present);
+      if (req.body?.present !== undefined) {
+        scene.present = nameList(req.body.present);
+        const extras = S.extrasOf(scene.present, store);
+        if (extras.length) scene.extras = extras; else delete scene.extras;
+      }
       const str = (v) => (typeof v === 'string' && v.trim() ? v.trim() : null);
       // A speaker or listener changed by hand is marked, so later automatic checks never overwrite it.
       const oldQuotes = new Map([...(scene.events || []).flatMap((e) => e.quotes || []), ...(scene.loose || [])].map((q) => [`${q.number}.${q.sentence}`, q]));

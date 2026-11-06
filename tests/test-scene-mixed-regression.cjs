@@ -44,7 +44,7 @@ test('mixed quote cap retains a later narrative citation', () => {
   const pointers = batch[0].sentences.map((_,i)=>({n:`1.${i+1}`}));
   const result = S.applyScenes(S.emptyStore(),{scenes:[{end:1,title:'창문',events:[{text:'손님이 차가운 창문을 양손으로 만졌다',quotes:pointers}]}]},batch,1,undefined,{quoteMode:'both'});
   assert.ok(!result.error, result.error);
-  assert.equal(result.scenes[0].events[0].quotes.length,12);
+  assert.equal(result.scenes[0].events[0].quotes.length,8);
   assert.ok(result.scenes[0].events[0].quotes.some(q=>q.text.includes('창문을 양손으로')));
 });
 

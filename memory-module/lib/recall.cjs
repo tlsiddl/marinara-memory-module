@@ -313,13 +313,13 @@ function shownPicks(picks, max) {
   return out;
 }
 
-function renderRecalled(store, picks, { maxChars = 16000 } = {}) {
+function renderRecalled(store, picks, { maxChars = 16000, npc = false } = {}) {
   const blocks = [];
   let used = 0;
   for (const pick of picks) {
     const index = store.scenes.findIndex((s) => s.id === pick.id);
     if (index < 0) continue;
-    const body = S.renderExpanded(store.scenes[index], index, store.personas || [], S.castOf(store));
+    const body = S.renderExpanded(store.scenes[index], index, store.personas || [], S.castOf(store), { npc });
     const block = pick.follow ? `(${pick.from}에 이어진 장면)\n${body}` : body;
     if (used + block.length > maxChars) break;
     blocks.push(block);
