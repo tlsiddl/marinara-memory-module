@@ -6,6 +6,8 @@
 
 const L = require('./ledger.cjs');
 const A = require('./aliases.cjs');
+const St = require('./state.cjs');
+const Pl = require('./places.cjs');
 
 const SCENES_VERSION = 1;
 const REMEMBERS = ['full', 'partial', 'none'];
@@ -282,8 +284,12 @@ function buildScenePrompt(store, slice, required, problem = null, preferences = 
   if (preferences.npcCoverage === 'expanded') guidance.push('1:1 대화에서도 주변 NPC·모브가 실제로 한 말·행동과 역할, 사건에 미친 영향 및 상대 반응을 구체적으로 정리해. 이름이 없는 단역(경비원, 운전기사, 웨이터 두 명 등)이 등장해 행동하거나 말하면 장면 present에 역할 이름("경비원", "운전기사", "웨이터")으로 적고, 그 자리에 실제로 있던 사건의 with에도 넣어. 이들의 눈에 띄는 행동·대사는 사건 text에 적어. 이름이나 성격을 지어내지 마. 같은 역할은 장면이 달라도 같은 호칭으로 적어.');
   if (preferences.quoteMode === 'narration') guidance.push('인용은 사건의 중요한 서술 문장 위주로 골라. 중요 문답·약속·거절의 대사도 함께 보존해. 서술의 by와 to는 null로 둬.');
   if (preferences.quoteMode === 'both') guidance.push(`사건의 대사와 중요한 서술을 모두 인용해. 각 사건에서 중요한 대사와 행동·표정·접촉·상황 변화의 서술을 각각 원문 문장 번호로 인용해. 대사가 있는 사건도 관련 서술이 있으면 최소 한 문장을 별도 quotes 항목으로 넣어. 원문에 없으면 만들지 마. 사건마다 최대 ${quoteLimit('both')}개. 질문과 답변은 함께 보존하고 서술의 by와 to는 null로 둬. 이름·철자 공개 뒤의 질문과 반응처럼 새 전개가 있으면 별도 사건을 만들어 그 대사를 직접 연결해.`);
+  // Optional records (인물 상태, 장소): added only while the room's switch is on, so a room without them gets the same prompt as before.
+  const extras = [];
+  if (preferences.characterState) extras.push(St.PROMPT);
+  if (preferences.places) extras.push(Pl.PROMPT);
   return [
-    { role: 'system', content: base + (guidance.length ? '\n\n사용자가 선택한 정리 우선순위 (위의 대사 우선 규칙보다 우선):\n' + guidance.join('\n') : '') },
+    { role: 'system', content: base + (guidance.length ? '\n\n사용자가 선택한 정리 우선순위 (위의 대사 우선 규칙보다 우선):\n' + guidance.join('\n') : '') + (extras.length ? '\n\n' + extras.join('\n\n') : '') },
     { role: 'user', content: parts.join('\n') },
   ];
 }
@@ -652,11 +658,37 @@ function supportEvents(scene, index, slice, quoteMode) {
   }
 }
 
+/** The people whose state changed in a scene, cleaned: only people of the story, only with evidence from this scene's own sentences. */
+function sceneStateOf(raw, { cast, personas, index, inScene }) {
+  const out = [];
+  for (const entry of Array.isArray(raw) ? raw : []) {
+    const who = L.matchName(String(entry?.who ?? '').trim(), [...cast, ...personas]);
+    const cleaned = who && St.cleanEntry(entry, who, { isUser: personas.includes(who) });
+    if (!cleaned) continue;
+    const evidence = L.resolveEvidence(entry.evidence, index).filter(inScene).slice(0, 4).map((p) => ({ number: p.number, sentence: p.sentence }));
+    if (!evidence.length) continue;
+    const at = out.findIndex((x) => x.who === who);
+    if (at >= 0) out[at] = { ...out[at], ...cleaned, evidence: [...out[at].evidence, ...evidence].slice(0, 4) };
+    else out.push({ ...cleaned, evidence });
+  }
+  return out.slice(0, 8);
+}
+/** Details of the places of a scene, cleaned. */
+function sceneNotesOf(raw, scenePlace) {
+  const out = [];
+  const list = Array.isArray(raw) ? raw : [];
+  for (const item of list) {
+    const note = Pl.cleanNote(item, list.length === 1 ? scenePlace : null);
+    if (note) out.push(note);
+  }
+  return out.slice(0, 3);
+}
+
 /**
  * Turn a model result into scenes for this slice. Scenes follow each other with no gap, from the slice start,
  * and the last one must reach `required`. Returns { scenes, facts, covered } or { error }.
  */
-function applyScenes(store, result, slice, required, now = new Date().toISOString(), { partial = false, quoteMode = 'dialogue', verifyAttribution = false, strictCoverage = false } = {}) {
+function applyScenes(store, result, slice, required, now = new Date().toISOString(), { partial = false, quoteMode = 'dialogue', verifyAttribution = false, strictCoverage = false, characterState = false, places = false } = {}) {
   const raw = Array.isArray(result?.scenes) ? result.scenes : null;
   if (!raw || !raw.length) return { error: '장면이 비어 있습니다' };
   const index = L.indexBatch(slice);
@@ -702,6 +734,9 @@ function applyScenes(store, result, slice, required, now = new Date().toISOStrin
     const present = [...new Set([...castNames(item.present, cast), ...splitNames(item.present).filter((n) => personas.includes(n) || !castNames([n], cast).length)])];
     const extras = extrasOf(present, store);
     const id = `S${store.nextScene + made.length}`;
+    // Optional records, read only while the room asked for them (the prompt asked for them too).
+    const stateNotes = characterState ? sceneStateOf(item.state, { cast, personas, index, inScene }) : [];
+    const placeNotes = places ? sceneNotesOf(item.placeNotes, cleanText(item.place, 60)) : [];
     made.push({
       id,
       start: messages[0].number,
@@ -716,6 +751,8 @@ function applyScenes(store, result, slice, required, now = new Date().toISOStrin
       recollections,
       present,
       ...(extras.length ? { extras } : {}),
+      ...(stateNotes.length ? { state: stateNotes } : {}),
+      ...(placeNotes.length ? { placeNotes } : {}),
       heardLater: [],
       edited: false,
       createdAt: now,
@@ -1195,6 +1232,15 @@ function setAddressProvider(fn) {
 }
 function addressMap() {
   try { return addressProvider ? addressProvider() : null; } catch { return null; }
+}
+// ---- the character state cards (인물 상태): where someone is, as a filter for guessed listeners ----
+let placeKeyProvider = null;
+/** How the service says whether the room keeps character states: () => (place name -> comparable key) or null. */
+function setStateProvider(fn) {
+  placeKeyProvider = typeof fn === 'function' ? fn : null;
+}
+function placeKeyFn() {
+  try { return placeKeyProvider ? placeKeyProvider() : null; } catch { return null; }
 }
 const TITLE_WORD = /^(?:signor(?:e|a|ina)?|sig\.?(?:ra)?|mr|mrs|ms|miss|sir|madam|don|donna|dott(?:ore|oressa|or)?\.?|avvocato|capo|zio|zia)$/i;
 const NOT_A_TERM = new Set(['yes', 'no', 'sì', 'si', 'ok', 'okay', 'well', 'so', 'but', 'and', 'then', 'now', 'please', 'thanks', 'sorry', 'grazie', 'prego', 'ma', 'allora', 'certo', 'bene', 'dunque', 'beh', 'ah', 'oh', 'eh', 'hey', 'hi', 'hello', 'ciao', 'what', 'why', 'how', 'when', 'where', 'who', 'look', 'listen', 'wait', 'come', 'go', 'right', 'sure', 'fine', 'good', 'great', 'maybe', 'anyway', 'here', 'there', 'dio', 'madonna', 'basta', 'forza', 'dai', 'scusa', 'scusi', 'fermo', 'aspetta', 'senti', 'ascolta', 'guarda', 'dimmi', 'vieni', 'andiamo', 'cosa', 'perché', 'dove', 'quando', 'chi', 'oddio', 'mamma',
@@ -1677,7 +1723,8 @@ function guessListeners(e, by, answers) {
   const f = e.facts;
   const around = e.around || { speakers: [], named: [] };
   const present = [...around.speakers, ...(e.presence || e.scene.present || [])];
-  const usable = (n) => !same(n, by) && !(f.relay.names.some((r) => same(r, n)) && !f.addressed.some((a) => same(a, n)));
+  const elsewhere = (n) => (e.away || []).some((a) => same(a, n)) && !around.speakers.some((s) => same(s, n));
+  const usable = (n) => !same(n, by) && !(f.relay.names.some((r) => same(r, n)) && !f.addressed.some((a) => same(a, n))) && !elsewhere(n);
   const lists = answers.filter((j) => j?.valid)
     .map((j) => (j.guessNamed.length ? j.guessNamed : j.toNamed).filter((n) => usable(n) && present.some((p) => same(p, n))))
     .filter((l) => l.length);
@@ -1703,7 +1750,7 @@ function roleNotes(scope, role, source) {
 function attributionCandidates(store, messages, limit = 20, attempted = new Set(), { retryUnresolved = false, force = retryUnresolved, stats = null } = {}) {
   const byNumber = new Map(messages.map((m) => [m.number, m]));
   const order = new Map(messages.map((m, i) => [m.number, i]));
-  const ctx = { titles: titleMap(store), address: addressMap(), personas: store.personas || [], byId: new Map(messages.map((m) => [m.id, m])) };
+  const ctx = { titles: titleMap(store), address: addressMap(), placeKey: placeKeyFn(), personas: store.personas || [], byId: new Map(messages.map((m) => [m.id, m])) };
   const result = [];
   for (const scene of store.scenes || []) {
     if (scene.edited) continue;
@@ -1740,6 +1787,8 @@ function attributionCandidates(store, messages, limit = 20, attempted = new Set(
       }
       e.eventAt = eventAt(scene, event, q);
       e.presence = presenceOf(scene, e.eventAt);
+      // An event with no list of who was there: people whose recorded place clearly differs from the scene's are probably only on the phone.
+      if (ctx.placeKey && !e.eventAt?.with?.length) e.away = St.awayFrom(store, scene, ctx.placeKey);
       if (q.by) e.around = peopleAround(lines, at, names, window, order, e.presence, e.eventAt);
       result.push(e);
       if (result.length >= limit) return result;
@@ -3187,6 +3236,9 @@ module.exports = {
   addressedIn,
   vocativeTerms,
   setAddressProvider,
+  setStateProvider,
+  sceneStateOf,
+  sceneNotesOf,
   sceneNames,
   isDialogue,
   quoteText,

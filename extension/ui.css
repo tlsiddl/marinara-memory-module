@@ -180,6 +180,13 @@ a.record-row .chip-arrow{color:var(--im-accent)}
 :host([data-theme=dark]) .chapter-chip.is-selected{color:#211a30}:host([data-theme=dark]) .chapter-chip.is-selected .chip-id{color:#211a30;background:#ffffff55}
 
 /* Daily life rows: what · when · what exactly · flags · buttons, wrapping on a phone. */
+/* 인물·장소 cards. */
+.world-card{border-top:1px solid var(--im-line);padding:12px 0}
+.world-card h3{margin:0 0 6px}
+.world-field{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:4px 0}
+.world-field>span{flex:0 0 64px;font-size:11px}
+.world-field input{flex:1 1 200px;width:auto}
+.world-field button{padding:7px 12px;font-size:11px}
 .routine-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px 0;border-bottom:1px solid var(--im-line)}
 .routine-row:last-child{border-bottom:0}
 .routine-row select{width:auto;flex:0 0 92px}
