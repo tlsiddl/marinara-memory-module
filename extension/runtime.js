@@ -784,12 +784,15 @@
     if (!namePreview || namePreview.room !== room) return '';
     const p = namePreview.data;
     const merge = namePreview.kind === 'merge';
+    const alias = namePreview.kind === 'alias';
     const rows = AREA_ORDER.map((k) => `<tr><th>${esc(p.areas?.[k] || k)}</th><td>${p.counts?.[k] || 0}곳</td></tr>`).join('');
     const samples = (p.samples || []).map((x) => `<div class="quote-card"><small>${esc(x.areaName)} · ${esc(x.label)}</small><p><s>${esc(x.before)}</s></p><p>→ ${esc(x.after)}</p></div>`).join('');
-    const what = merge
+    const what = alias
+      ? `<p>글 속 <b>${esc(p.source)}</b> → <b>${esc(p.display)}</b> (요약·사건·사실·챕터·할 일·생활 기록의 글만)</p><p class="hint">이름 칸과 원문 대사(번역 포함), 직접 고친 항목은 바꾸지 않습니다. 이름 표는 그대로입니다.</p>`
+      : merge
       ? `<p>${(p.items || []).map((i) => `<b>${esc(i.source)}</b> → <b>${esc(i.target)}</b>`).join(', ')}</p><p class="hint">이름 칸(말한 사람·들은 사람·인물·누구)만 합칩니다. 글 속 표현은 그대로 둡니다.</p>`
       : `<p><b>${esc(p.source)}</b> → <b>${esc(p.target)}</b>${p.text ? ` · 글 속에는 <b>${esc(p.display)}</b>(으)로 씁니다` : ' · 이름 칸만 바꿉니다'}</p>`;
-    const armedKey = merge ? 'mergeApply' : 'nameApply';
+    const armedKey = alias ? 'aliasApply' : merge ? 'mergeApply' : 'nameApply';
     return `<div class="paper"><h2>미리 보기 · 모두 ${p.total || 0}곳</h2>${what}
       <table class="counts">${rows}</table>
       ${samples ? `<h3>바뀌는 예</h3>${samples}` : ''}
@@ -823,9 +826,16 @@
     const sug = (names.suggestions || []).map((x) => `<div class="routine-row"><span><b>${esc(x.source)}</b> (${x.sourceCount}곳) → <b>${esc(x.target)}</b> (${x.targetCount}곳) · ${esc(x.label)}</span>
       <button data-act="nameSuggest" data-source="${esc(x.source)}" data-target="${esc(x.target)}">같은 사람 · 미리 보기</button><button class="ghost" data-act="nameDismiss" data-source="${esc(x.source)}" data-target="${esc(x.target)}">다른 사람</button></div>`).join('');
     const dup = (names.duplicates || []).map((g) => `<li><b>${esc(g.target)}</b> ← ${g.variants.map((v) => `${esc(v.name)} (${v.count}곳)`).join(', ')}</li>`).join('');
-    const table = Object.entries(names.people || {}).filter(([, v]) => v.aliases?.length || v.display).map(([k, v]) => `<li><b>${esc(k)}</b>${v.display ? ` · 글에는 ${esc(v.display)}` : ''}${v.aliases?.length ? ` · 별칭: ${v.aliases.map(esc).join(', ')}` : ''}</li>`).join('');
+    let aliasN = 0;
+    const shortOf = (name) => String(name).split(/\s+/).filter(Boolean)[0] || name;
+    const aliasRow = (canon, a) => {
+      const id = `aliasShow${aliasN++}`;
+      return `<div class="routine-row alias-row"><span>${esc(a)}</span><input id="${id}" value="${esc(shortOf(canon))}" aria-label="${esc(a)} 대신 글에 쓸 표기">
+        <button data-act="aliasPreview" data-alias="${esc(a)}" data-input="${id}">글 속 표기 바꾸기</button></div>`;
+    };
+    const table = Object.entries(names.people || {}).filter(([, v]) => v.aliases?.length || v.display).map(([k, v]) => `<li><b>${esc(k)}</b>${v.display ? ` · 글에는 ${esc(v.display)}` : ''}${v.aliases?.length ? ` · 별칭: ${v.aliases.map(esc).join(', ')}` : ''}${v.aliases?.length ? v.aliases.map((a) => aliasRow(k, a)).join('') : ''}</li>`).join('');
     const last = (names.history || []).at(-1);
-    const history = (names.history || []).slice().reverse().map((h) => `<li>${esc(day(h.at))} · ${h.kind === 'merge' ? '중복 합치기' : '이름 바꾸기'}: ${esc(h.source)} → ${esc(h.target)} (${h.changes}곳)</li>`).join('');
+    const history = (names.history || []).slice().reverse().map((h) => `<li>${esc(day(h.at))} · ${h.kind === 'merge' ? '중복 합치기' : h.kind === 'alias-text' ? '글 속 표기 바꾸기' : '이름 바꾸기'}: ${esc(h.source)} → ${esc(h.target)} (${h.changes}곳)</li>`).join('');
     return `<div class="eyebrow">NAMES</div><h1>이름 정리</h1>
       <p class="intro">같은 사람이 여러 이름(한국어·영어 표기, 애칭, 오타)으로 따로 저장된 것을 한 사람으로 모읍니다. 카드와 사용자 캐릭터 이름은 자동으로 기준 이름이 됩니다.</p>
       ${names.busy ? '<div class="note" role="status">지금 이 방의 기억을 정리하는 중입니다. 미리 보기는 되지만 적용은 정리가 끝난 뒤에 할 수 있습니다.</div>' : ''}
@@ -1191,6 +1201,23 @@
           namePreview = null;
           names = null;
         }, '중복 이름을 합쳤습니다.');
+      }
+      case 'aliasPreview': {
+        const form = { alias: el.dataset.alias, display: (root.querySelector(`#${el.dataset.input}`)?.value || '').trim() };
+        if (!form.display) { lastError = '글에 쓸 표기를 적어 주세요.'; return render(); }
+        return act(async () => {
+          namePreview = { kind: 'alias', room, form, data: await api('POST', `/chats/${chat}/names/alias-text-preview`, form) };
+        }, '', { reload: false });
+      }
+      case 'aliasApply': {
+        if (armed !== 'aliasApply') { armed = 'aliasApply'; return render(); }
+        armed = '';
+        const { form, data } = namePreview;
+        return act(async () => {
+          await api('POST', `/chats/${chat}/names/alias-text-apply`, { ...form, token: data.token, confirm: true });
+          namePreview = null;
+          names = null;
+        }, `글 속 ${form.alias} → ${form.display}: 표기를 바꿨습니다.`);
       }
       case 'nameCancel':
         namePreview = null;

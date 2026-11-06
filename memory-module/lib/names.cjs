@@ -266,6 +266,47 @@ function planMany(store, ledger, table, items) {
   };
 }
 
+/**
+ * An alias left in running text after a merge (the alias can no longer be picked as a rename source): every whole
+ * `alias` in summaries, event texts, titles, recollections, facts, chapters, threads and daily life is written as
+ * `display`. Never quoted lines or their translations, never a name field, never an item the user edited by hand;
+ * longer names that contain the alias are left alone. Records nothing in the name table.
+ * options: { alias, display }
+ */
+function planAliasText(store, ledger, table, options) {
+  const alias = A.tidy(options.alias);
+  const display = A.tidy(options.display);
+  if (!alias || !display) throw Error('바꿀 표기와 새 표기를 모두 적어 주세요.');
+  if (alias.length > 60 || display.length > 60) throw Error('이름이 너무 깁니다.');
+  if (A.fold(alias) === A.fold(display)) throw Error('같은 표기입니다.');
+  const canon = A.canonOf(alias, table);
+  if (!canon || A.fold(canon) === A.fold(alias)) throw Error('이름 표에 있는 다른 이름(별칭)만 고를 수 있습니다.');
+  const others = [...knownPeople(store, ledger, table).flatMap((n) => A.formsOf(n, table)), ...usedNames(store, ledger).map((u) => u.name)];
+  const protect = [...new Set([display, ...A.formsOf(canon, table), ...others])].filter((x) => A.fold(x) !== A.fold(alias));
+  const docs = { scenes: store, ledger };
+  const byRename = new Set();
+  for (const h of table?.history || []) for (const c of h.changes || []) if (c.path?.at(-1) === 'edited' && c.after === true && !c.before) byRename.add(`${c.doc}:${JSON.stringify(c.path.slice(0, -1))}`);
+  const changes = [];
+  const counts = Object.fromEntries(Object.keys(AREAS).map((k) => [k, 0]));
+  const samples = [];
+  for (const field of fieldsOf(store, ledger)) {
+    if (field.kind !== 'text' && field.kind !== 'texts') continue;
+    // The owner of the field (a scene, fact, chapter, thread, entry) edited by hand is the user's own text. A mark that
+    // only an earlier rename put there (kept in the history) is not an edit of the text.
+    const owner = field.mark ? getPath(docs[field.doc], field.mark.path) : null;
+    if (owner && (owner.manual || (owner.edited && !byRename.has(`${field.doc}:${JSON.stringify(field.mark.path)}`)))) continue;
+    const before = getPath(docs[field.doc], field.path);
+    const after = renamed(field, before, { source: alias, target: display, display, text: true, protect });
+    if (after === undefined || same(after, before)) continue;
+    changes.push({ doc: field.doc, path: field.path, before, after });
+    if (field.area in counts) {
+      counts[field.area]++;
+      if (samples.length < SAMPLE_MAX && !samples.some((x) => x.area === field.area && x.label === field.label)) samples.push({ area: field.area, areaName: AREAS[field.area], label: field.label, ...snippet(before, after) });
+    }
+  }
+  return { kind: 'alias-text', source: alias, target: display, display, text: true, items: [], counts, areas: AREAS, total: Object.values(counts).reduce((a, b) => a + b, 0), samples, changes, marks: [] };
+}
+
 /** One merged, story-ordered daily-life list: the same entry saved twice (same person, kind and message) once. */
 function mergeRoutine(ledger) {
   const before = ledger.routine || [];
@@ -458,4 +499,4 @@ function suggestions(store, ledger, table) {
   return out;
 }
 
-module.exports = { AREAS, fieldsOf, plan, planMany, apply, undo, usedNames, knownPeople, duplicates, suggestions, lookAlike, mergeRoutine, getPath };
+module.exports = { AREAS, fieldsOf, plan, planAliasText, planMany, apply, undo, usedNames, knownPeople, duplicates, suggestions, lookAlike, mergeRoutine, getPath };

@@ -84,6 +84,7 @@ const SCENE_PROMPT = `너는 장기 롤플레이의 기억 관리자야. 지나�
   인용은 그 장면 안의 메시지에서만 골라. 다른 장면의 대사를 붙이지 마.
   장면 안의 모든 메시지가 사건 몇 개로든 다뤄져야 해. 인용 없이 넘어간 메시지가 몇 개씩 이어지면 안 돼.
   사건마다 importance를 적어: critical(관계나 이야기가 바뀌는 일: 고백, 폭로, 결정적 약속, 처음 있는 일), major(나중에 다시 꺼낼 만한 일), minor(그 장면 안의 일).
+  각 사건에는 with도 적어: 그 사건이 일어난 자리에 실제로 같이 있던 사람(그 자리에 없는데 이름만 나오거나 떠올리거나 이야기에 오른 사람은 넣지 마). 장면 안에서 장소가 바뀌거나 둘로 나뉘면 사건마다 다르게 적어. 전화·문자로 이어진 사람은 그 통화·문자 사건의 with에만 넣어.
 - present: 장면에 실제로 있던 인물 모두(사용자 캐릭터 포함, [등장인물]에 없는 주변 인물도 이름이나 호칭 그대로). 전화·문자로만 이어진 사람도 넣되, 그 사람이 보거나 듣지 못한 일은 아래 unaware로 따로 적어.
 - recollections: 장면에 실제로 있었던 인물마다 1~2문장. 그 인물 입장에서 이 장면이 어떻게 남았는지, 그때 무엇을 느꼈고 무엇이 마음에 걸렸는지.
   그 인물이 보지 못한 일, 다른 인물의 속마음은 넣지 마. 속마음은 이 장면 본문에 드러난 것만 써. 뒤에서 밝혀질 진짜 이유를 앞 장면 회상에 미리 넣지 마.
@@ -131,7 +132,7 @@ const SCENE_PROMPT = `너는 장기 롤플레이의 기억 관리자야. 지나�
 
 출력 형식:
 {"scenes":[{"end":25,"time":"…","place":"…","weather":"… 또는 null","title":"…","summary":"…","present":["인물"],
- "events":[{"text":"누가 누구에게 무엇을 어떻게","time":"작중 시각 또는 null","why":"이유·계기 또는 null","importance":"critical|major|minor","quotes":[{"n":"23.4","q":"…","by":"말한 사람 또는 null","to":"들은 사람 또는 null","byEvidence":"화자 근거 또는 null","toEvidence":"수신자 근거 또는 null"}]}],
+ "events":[{"text":"누가 누구에게 무엇을 어떻게","time":"작중 시각 또는 null","why":"이유·계기 또는 null","importance":"critical|major|minor","with":["그 사건 때 그 자리에 있던 인물"],"quotes":[{"n":"23.4","q":"…","by":"말한 사람 또는 null","to":"들은 사람 또는 null","byEvidence":"화자 근거 또는 null","toEvidence":"수신자 근거 또는 null"}]}],
  "recollections":[{"who":"인물","text":"…","remembers":"full|partial|none","why":"…또는 null","kept":"…또는 null"}],
  "facts":[{"about":"인물","text":"…","evidence":[{"n":"23.9","q":"…"}],"replaces":null,"unaware":[{"who":"인물","why":"이유","guess":false}]}],
  "learned":[],"later":[]}]}`;
@@ -485,6 +486,27 @@ function ownEvents(item) {
   return (Array.isArray(item?.events) ? item.events : []).filter((e) => cleanText(e?.text, 500)).slice(0, MAX_EVENTS);
 }
 
+/**
+ * Who was physically there for one line: the people of its event, or (a line not linked to an event) of the event nearest
+ * to it in the story; an event with no such list, or an older scene without any, falls back to the whole scene's list.
+ */
+function eventAt(scene, event, q) {
+  let at = event;
+  if (!at && Array.isArray(scene.events)) {
+    const key = (x) => x.number * 10000 + (x.sentence || 0);
+    let best = Infinity;
+    for (const ev of scene.events) for (const x of ev.quotes || []) { const d = Math.abs(key(x) - key(q)); if (d < best) { best = d; at = ev; } }
+  }
+  return at || null;
+}
+const presenceOf = (scene, at) => (at?.with?.length ? at.with : scene.present || []);
+
+/** The people the model gave as being at one event: cast and the user's character by their full name, others as written. */
+function eventPresence(raw, cast, personas) {
+  const list = splitNames(raw);
+  return [...new Set([...castNames(list, cast), ...list.filter((n) => personas.includes(n) || !castNames([n], cast).length)])];
+}
+
 function joinAnswers(raw, slice, byNumber) {
   const out = [];
   for (const item of raw) {
@@ -647,7 +669,8 @@ function applyScenes(store, result, slice, required, now = new Date().toISOStrin
         const all = resolveQuotes(e?.quotes, index, slice, verifyAttribution, [...new Set([...cast, ...personas, ...splitNames(item.present)])]);
         const text = cleanText(e?.text, 500);
         for (const q of all) if (!inScene(q) && text) stray.push({ quote: q, about: text });
-        return { text, time: cleanText(e?.time, 40), why: cleanText(e?.why, 300), importance: ['critical', 'major', 'minor'].includes(e?.importance) ? e.importance : 'major', quotes: limitQuotes(all.filter(inScene), quoteMode) };
+        const withList = eventPresence(e?.with, cast, personas);
+        return { text, time: cleanText(e?.time, 40), why: cleanText(e?.why, 300), ...(withList.length ? { with: withList } : {}), importance: ['critical', 'major', 'minor'].includes(e?.importance) ? e.importance : 'major', quotes: limitQuotes(all.filter(inScene), quoteMode) };
       })
       .filter((e) => e.text)
       .slice(0, item._maxEvents || MAX_EVENTS);
@@ -1395,6 +1418,9 @@ const certainTo = (q) => (q.toGuess ? [] : splitTo(q.to));
 const GUESS_RULE = '추정한 상대';
 // Lines with a speaker and no listener are checked once more to get a guess; this marks the ones already asked.
 const GUESS_CHECKED = 1;
+// Which rule made a guessed listener. A guess stamped with an older number (or none) is checked once more; a certain
+// listener is never re-checked because of it. 2: a person only mentioned in narration is not present.
+const GUESS_RULE_VERSION = 2;
 const samePerson = (a, b, names) => !!a && !!b && (a === b || (matchAlias(a, names) || a) === (matchAlias(b, names) || b));
 
 /** Which rules the stored speaker and listener break. */
@@ -1411,7 +1437,7 @@ function ruleViolations(q, facts, names) {
 }
 
 function sceneNames(store, scene) {
-  return [...new Set([...(store.cast || []), ...(scene.present || []), ...(store.personas || []), ...(scene.recollections || []).map((r) => r.who)].filter((n) => typeof n === 'string' && n.trim()))];
+  return [...new Set([...(store.cast || []), ...(scene.present || []), ...(scene.events || []).flatMap((e) => e?.with || []), ...(store.personas || []), ...(scene.recollections || []).map((r) => r.who)].filter((n) => typeof n === 'string' && n.trim()))];
 }
 /**
  * All sentences of the scene's messages and of the message right after it, where a role may be given a name.
@@ -1529,9 +1555,10 @@ function attributionFingerprint(e) {
  * The people around one line, for a guess at its listener: the other speakers of the lines near it (this message and
  * the ones right before and after) and the characters the narration near it names. Known names only; the speaker is
  * left out by the caller. The scene's own list of who is present counts as present too, but only for checking a
- * model's guess, never for the fallback.
+ * model's guess. A name only mentioned in narration counts only when the scene's present list holds that person (an
+ * empty or missing list: not at all); someone merely thought of or talked about is not in the room.
  */
-function peopleAround(lines, at, names, window, order) {
+function peopleAround(lines, at, names, window, order, present = [], hereEvent = null) {
   const known = (n) => (typeof n === 'string' && n.trim() ? matchAlias(n, names) : null);
   const uniq = (list) => list.filter((n, i) => n && list.findIndex((u) => u && samePerson(u, n, names)) === i);
   const here = lines[at];
@@ -1540,12 +1567,15 @@ function peopleAround(lines, at, names, window, order) {
   for (let j = Math.max(0, at - 6); j <= Math.min(lines.length - 1, at + 3); j++) {
     const other = lines[j];
     if (j === at || other.stale || Math.abs(order.get(other.m.number) - near) > 1) continue;
+    // An event that lists who was there: a speaker of another event counts only if that list holds them too.
+    if (hereEvent?.with?.length && other.event !== hereEvent && !(present || []).some((p) => samePerson(p, other.q.by, names))) continue;
     speakers.push(known(other.q.by));
   }
   // The user's message is written by the user's character, who is then in the scene without being named.
   for (const m of [here.m, window.previousMessage]) if (m?.role === 'user') speakers.push(known(m.speaker));
   const narrated = [...window.previous.slice(-3), ...window.before.slice(-6), ...window.after.slice(0, 6)].filter((s) => !isSpoken(parseLine(s).text) && !isTranslation(s));
-  const named = names.filter((n) => narrated.some((s) => mentions(s, n)));
+  const inScene = (n) => (present || []).some((p) => samePerson(p, n, names));
+  const named = names.filter((n) => inScene(n) && narrated.some((s) => mentions(s, n)));
   return { speakers: uniq(speakers), named: uniq(named) };
 }
 
@@ -1558,7 +1588,7 @@ function guessListeners(e, by, answers) {
   const same = (x, y) => samePerson(x, y, e.names);
   const f = e.facts;
   const around = e.around || { speakers: [], named: [] };
-  const present = [...around.speakers, ...around.named, ...(e.scene.present || [])];
+  const present = [...around.speakers, ...(e.presence || e.scene.present || [])];
   const usable = (n) => !same(n, by) && !(f.relay.names.some((r) => same(r, n)) && !f.addressed.some((a) => same(a, n)));
   const lists = answers.filter((j) => j?.valid)
     .map((j) => (j.guessNamed.length ? j.guessNamed : j.toNamed).filter((n) => usable(n) && present.some((p) => same(p, n))))
@@ -1612,13 +1642,17 @@ function attributionCandidates(store, messages, limit = 20, attempted = new Set(
       e.fingerprint = attributionFingerprint(e);
       // A speaker with no listener is asked once more for a guess, even when it was checked before; only these.
       const wantsGuess = !!q.by && !q.to && !q.toGuess && q.toGuessChecked !== GUESS_CHECKED;
+      // A guessed listener made under an older guess rule is checked once more (certain listeners never are).
+      const staleGuess = !!q.by && !!q.toGuess && q.guessRule !== GUESS_RULE_VERSION;
       // Checked before with exactly this input: the same question would get the same answer. A rule the saved
       // values still break is part of the fingerprint, so it was weighed when they were saved.
-      if (!force && !wantsGuess && q.attributionFp === e.fingerprint) {
+      if (!force && !wantsGuess && !staleGuess && q.attributionFp === e.fingerprint) {
         if (stats) { stats.skipped = (stats.skipped || 0) + 1; if (stats.byScene) stats.byScene[scene.id || ''] = (stats.byScene[scene.id || ''] || 0) + 1; }
         continue;
       }
-      if (q.by) e.around = peopleAround(lines, at, names, window, order);
+      e.eventAt = eventAt(scene, event, q);
+      e.presence = presenceOf(scene, e.eventAt);
+      if (q.by) e.around = peopleAround(lines, at, names, window, order, e.presence, e.eventAt);
       result.push(e);
       if (result.length >= limit) return result;
     }
@@ -1943,7 +1977,7 @@ function applyAttributionResults(candidates, results) {
     const recipient = [...new Set(to)].join('·') || null;
     if (e.q.by !== by || (e.q.to || null) !== recipient || prevGuess !== !!guess) changed++;
     e.q.by = by; e.q.to = recipient;
-    if (guess) e.q.toGuess = true; else delete e.q.toGuess;
+    if (guess) { e.q.toGuess = true; e.q.guessRule = GUESS_RULE_VERSION; } else { delete e.q.toGuess; delete e.q.guessRule; }
     stampAttribution(e);
     e.outcome = { decision: prev.by === by && prev.to === recipient && prevGuess === !!guess ? 'unchanged' : 'applied', rule: [rule, ...fired].filter(Boolean).join(','), fired, before: prev, after: { by, to: recipient, ...(guess ? { guess: true } : {}) } };
   }
@@ -3071,6 +3105,7 @@ module.exports = {
   quoteSource,
   sceneScope,
   ATTRIBUTION_RULES_VERSION,
+  GUESS_RULE_VERSION,
   applyAttributionResults,
   recipientCandidates,
   applyRecipientResults,

@@ -2725,6 +2725,7 @@ async function routes(app) {
             text: e.text.trim(),
             time: str(e.time),
             why: str(e.why),
+            ...(Array.isArray(e.with) && nameList(e.with).length ? { with: nameList(e.with) } : {}),
             importance: ['critical', 'major', 'minor'].includes(e.importance) ? e.importance : 'major',
             quotes: Array.isArray(e.quotes) ? e.quotes.map(markManual) : [],
           }));
@@ -2888,6 +2889,19 @@ async function routes(app) {
       if (!items.length) throw Error('합칠 중복 이름이 없습니다.');
       return checkToken(N.planMany(store, ledger, table, items), req.body?.token);
     });
+  }));
+  // An alias left in running text after a merge: written in the text as the form the user types; text only.
+  const aliasTextOptions = (body) => ({ alias: body?.alias, display: body?.display });
+  app.post('/chats/:id/names/alias-text-preview', guard(async (req) => {
+    const chatId = safeChatId(req.params.id);
+    const { store, ledger, table } = namesState(chatId);
+    return planView(A.using(table, () => N.planAliasText(store, ledger, table, aliasTextOptions(req.body))));
+  }));
+  app.post('/chats/:id/names/alias-text-apply', guard(async (req) => {
+    const chatId = safeChatId(req.params.id);
+    if (req.body?.confirm !== true) throw Error('미리 보기를 확인한 뒤 적용해 주세요.');
+    refuseBusy(chatId);
+    return applyPlanned(chatId, (store, ledger, table) => checkToken(N.planAliasText(store, ledger, table, aliasTextOptions(req.body)), req.body?.token));
   }));
   app.post('/chats/:id/names/undo', guard(async (req) => {
     const chatId = safeChatId(req.params.id);
