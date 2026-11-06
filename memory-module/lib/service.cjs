@@ -4164,8 +4164,15 @@ async function computeRecall(chatId, store, view, userMessage, { mode, firstInsi
 
 function attach(app) {
   app.register(routes, { prefix: '/api/memory-module' });
-  app.addHook('onSend', branchOnSend);
-  app.addHook('onSend', deleteOnSend);
+  app.addHook('onSend', (req, reply, payload, done) => {
+    const url = String(req.raw?.url || '').split('?')[0];
+    if (req.method !== 'POST' || !/^\/api\/chats\/[A-Za-z0-9_-]{1,128}\/branch\/?$/.test(url) || reply.statusCode < 200 || reply.statusCode >= 300) return done(null, payload);
+    branchOnSend(req, reply, payload).then(value => done(null, value), done);
+  });
+  app.addHook('onSend', (req, reply, payload, done) => {
+    if (!req.mmDeleteIds?.length || reply.statusCode < 200 || reply.statusCode >= 300) return done(null, payload);
+    deleteOnSend(req, reply, payload).then(value => done(null, value), done);
+  });
   app.addHook('preHandler', deletePrepare);
   app.addHook('preHandler', async (req) => {
     try {

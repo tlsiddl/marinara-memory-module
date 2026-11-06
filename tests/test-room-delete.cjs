@@ -54,6 +54,36 @@ function reset() {
 
 const deleteReq = (id, url) => ({ method: 'DELETE', raw: { url: url || `/api/chats/${id}` } });
 
+test('registered response hooks skip unrelated and failed responses synchronously', () => {
+  const hooks = [];
+  service.attach({ register() {}, addHook(name, fn) { if (name === 'onSend') hooks.push(fn); } });
+  assert.equal(hooks.length, 2);
+  for (const hook of hooks) {
+    for (const req of [{ method: 'GET', raw: { url: '/api/access/status' } }, { method: 'POST', raw: { url: '/api/chats/room/branch' }, mmDeleteIds: ['room'] }]) {
+      let called = false;
+      hook(req, { statusCode: 403 }, 'denied', (err, payload) => { assert.ifError(err); assert.equal(payload, 'denied'); called = true; });
+      assert.equal(called, true);
+    }
+  }
+});
+
+let Fastify;
+try { Fastify = require('fastify'); } catch {}
+test('Fastify finishes deleting memory before sending a successful delete response', { skip: !Fastify && 'Fastify is optional' }, async () => {
+  reset(); seed('http-delete');
+  let alive = true;
+  T.setEngine({ chats: { getById: async id => alive && id === 'http-delete' ? { id } : null } });
+  const app = Fastify();
+  service.attach(app);
+  app.delete('/api/chats/:id', async (_req, reply) => { alive = false; return reply.code(204).send(); });
+  try {
+    const res = await app.inject({ method: 'DELETE', url: '/api/chats/http-delete' });
+    assert.equal(res.statusCode, 204);
+    assert.deepEqual(filesOf('http-delete'), []);
+    assert.equal(T.settings().chats['http-delete'], undefined);
+  } finally { await app.close(); }
+});
+
 test('single delete: 2xx and the room is gone removes every file, the settings entry and the caches, only for that room', async () => {
   seed('room-a'); seed('room-b'); seed('room-b-branch');
   assert.equal(filesOf('room-a').length, SUFFIXES.length);
