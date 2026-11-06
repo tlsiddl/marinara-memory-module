@@ -527,6 +527,16 @@ function describeOrphan(chatId) {
   };
 }
 
+/**
+ * The rooms the module shows. Marinara's own helper chats (Professor Mari's assistant, metadata.internalAssistant) are
+ * not rooms: Marinara hides them from its chat list, so they are left out here too, unless memory was explicitly turned
+ * on for one. Orphan checks use the whole storage list, so a helper chat is never taken for a deleted room.
+ */
+async function listRooms() {
+  const e = await engine();
+  return (await e.chats.list()).filter((chat) => !parseExtra(chat?.metadata).internalAssistant || chatEnabled(chat.id));
+}
+
 /** Memory kept for rooms Marinara no longer has (files and settings entries alike). Nothing is deleted here. */
 async function listOrphans() {
   const e = await engine();
@@ -1491,7 +1501,7 @@ function saveAttributionRun(chatId, run) {
  */
 async function reviewAttributions(chatId, store, messages, getModel, job, reason) {
   const counts = { total: 0, skipped: 0, settled: 0, toReview: 0, reviewed: 0, second: 0, calls: 0 };
-  const run = { at: new Date().toISOString(), reason, entries: [], notes: [], counts };
+  const run = { at: new Date().toISOString(), reason, entries: [], notes: (job.pendingNotes || []).splice(0), counts };
   job.attributionDiagnostics = run.entries;
   job.attributionProgress = counts;
   let changedUnderneath = false;
@@ -1633,6 +1643,8 @@ function processScenes(chatId, { rebuild = false, reason = 'auto' } = {}) {
           saveScenes(chatId, store);
         }
         if (rebuild && !store.scenes.length) saveScenes(chatId, store);
+        // Quotes an older split left as pieces of a line are made whole again (no model call).
+        const fragments = S.repairFragmentQuotes(store, messages);
         const translated = S.attachTranslations(store, messages) + S.tidyKnowledge(store);
         const personas = L.personaNames(messages);
         const cast = await chatCast(chatId);
@@ -1642,9 +1654,14 @@ function processScenes(chatId, { rebuild = false, reason = 'auto' } = {}) {
           store.cast = cast;
         }
         seedNames(chatId, [...cast, ...personas]);
-        if (translated || personasChanged) {
+        if (translated || personasChanged || fragments.repaired) {
           saveScenes(chatId, store);
-          log(`chat ${chatId}: added the translation to ${translated} saved line(s)`);
+          if (translated) log(`chat ${chatId}: added the translation to ${translated} saved line(s)`);
+          if (fragments.repaired) {
+            const note = `잘린 대사 ${fragments.repaired}개를 원문대로 고침${fragments.merged ? ` (같은 대사의 조각 ${fragments.merged}개는 하나로 합침)` : ''}`;
+            log(`chat ${chatId}: ${note}`);
+            (job.pendingNotes ||= []).push(note);
+          }
         }
         let model = null;
         const getModel = async () => (model ||= { ...(await memoryModel()), signal: job.abort.signal, lang: await writeLanguageOf(chatId) });
@@ -2584,8 +2601,7 @@ async function routes(app) {
     return { connection: { id: row.id, name: row.name, model: row.model } };
   }));
   app.get('/chats', guard(async () => {
-    const e = await engine();
-    const list = await e.chats.list();
+    const list = await listRooms();
     return list.map((chat) => ({
       id: chat.id,
       name: chat.name,
@@ -3246,7 +3262,7 @@ function attach(app) {
   log('admin API ready at /api/memory-module');
 }
 
-module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { purgeChatMemory, purgeIfGone, deleteOnSend, deletePrepare, listOrphans, deleteOrphans, goneChats, loadNames, saveNames, enqueue, foldScenes, reviewAttributions, loadAttributionLog, sceneJobs, selectedForView, loadSelected, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, loadTranslations, saveTranslations, chatLangs, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, jobs, writeLanguage, memoryCallOptions, routineSetting, routineEnabled, connectionWithKey, memoryModel, startTrial, trials } };
+module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { listRooms, purgeChatMemory, purgeIfGone, deleteOnSend, deletePrepare, listOrphans, deleteOrphans, goneChats, loadNames, saveNames, enqueue, foldScenes, reviewAttributions, loadAttributionLog, sceneJobs, selectedForView, loadSelected, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, loadTranslations, saveTranslations, chatLangs, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, jobs, writeLanguage, memoryCallOptions, routineSetting, routineEnabled, connectionWithKey, memoryModel, startTrial, trials } };
 
 
 
