@@ -603,7 +603,7 @@
 
   function chapterEditor(c) {
     return `<div class="paper chapter-paper" id="chapterEditor" data-id="${esc(c.id)}">
-      <div class="paper-toolbar"><h2>${esc(c.id)} · ${esc(c.scenes[0])}~${esc(c.scenes.at(-1))}${c.time ? ` · ${esc(c.time)}` : ''}</h2>${c.edited ? '<span class="pill">직접 고침</span>' : ''}</div>
+      <div class="paper-toolbar"><h2>${esc(c.id)} · ${esc(c.scenes[0])}~${esc(c.scenes.at(-1))}${c.time ? ` · ${esc(c.time)}` : ''}</h2>${c.edited ? '<span class="pill">직접 고침</span>' : ''}${markButtons(c.id, info?.recallPrefs)}</div>
       <div class="form-grid">
         <label class="full">챕터 제목<input id="cTitle" value="${esc(c.title)}"></label>${trNote(c.title)}
         <label class="full">챕터 요약 (기억 칸의 '지난 이야기 흐름'에 들어갑니다)<textarea id="cSummary" class="event-field" style="min-height:120px">${esc(c.summary)}</textarea></label>${trNote(c.summary)}
@@ -642,7 +642,7 @@
       })
       .join('');
     return `<div class="paper" id="sceneEditor" data-id="${esc(s.id)}">
-      <div class="paper-toolbar"><h2>${esc(s.id)} · 메시지 ${s.start}~${s.end}번</h2>${s.edited ? '<span class="pill">직접 고침</span>' : ''}</div>
+      <div class="paper-toolbar"><h2>${esc(s.id)} · 메시지 ${s.start}~${s.end}번</h2>${s.edited ? '<span class="pill">직접 고침</span>' : ''}${markButtons(s.id, info?.recallPrefs)}</div>
       <div class="form-grid">
         <label class="full">제목<input id="sTitle" value="${esc(s.title)}"></label>${trNote(s.title)}
         <label>작중 시간<input id="sTime" value="${esc(s.time || '')}"></label>
@@ -725,7 +725,7 @@
             ${knowChips(f)}
             <textarea class="event-field">${esc(f.text)}</textarea>${trNote(f.text)}
             ${group() ? `<div class="form-grid"><label>아는 사람 (쉼표로 구분)<input data-f="knownBy" value="${esc((f.knownBy || []).join(', '))}" placeholder="비워 두면 따로 정하지 않음"></label><label>아직 모르는 인물 (쉼표로 구분)<input data-f="unaware" value="${esc((f.unaware || []).join(', '))}" placeholder="모두 알면 비워 두세요"></label><label>짐작만 하는 인물<input data-f="guess" value="${esc((f.guess || []).join(', '))}" placeholder="없으면 비워 두세요"></label></div>` : ''}
-            <div class="buttons"><button data-act="saveFact" data-id="${esc(f.id)}">저장</button><button class="ghost" data-act="deleteFact" data-id="${esc(f.id)}">${armed === `fact:${f.id}` ? '한 번 더 누르면 삭제됩니다' : '삭제'}</button></div></div>`;
+            <div class="buttons"><button data-act="saveFact" data-id="${esc(f.id)}">저장</button><button class="ghost" data-act="deleteFact" data-id="${esc(f.id)}">${armed === `fact:${f.id}` ? '한 번 더 누르면 삭제됩니다' : '삭제'}</button>${replaced ? '' : markButtons(f.id, info?.recallPrefs)}</div></div>`;
         })
         .join('')}</div>`).join('')}`;
   }
@@ -778,7 +778,7 @@
         ${t.cause ? `<p><small>원인</small><br>${esc(t.cause)}</p>` : ''}
         ${t.latest ? `<p><small>최근</small><br>${esc(t.latest.text)}</p>` : ''}
         ${t.evidence?.[0] ? `<div class="quote-card"><small>처음 원문 · #${t.evidence[0].number}</small><blockquote>${esc(quoteLine(t.evidence[0]).text)}</blockquote></div>` : ''}
-        <div class="buttons"><button data-act="editThread" data-id="${esc(t.id)}">고친 내용 저장</button>${closed ? `<button data-act="reopen" data-id="${esc(t.id)}">다시 열기</button>` : `<button data-act="closeThread" data-id="${esc(t.id)}">${armed === `close:${t.id}` ? '한 번 더 누르면 닫힙니다' : '끝난 일로 닫기'}</button>`}</div>
+        <div class="buttons"><button data-act="editThread" data-id="${esc(t.id)}">고친 내용 저장</button>${closed ? `<button data-act="reopen" data-id="${esc(t.id)}">다시 열기</button>` : `<button data-act="closeThread" data-id="${esc(t.id)}">${armed === `close:${t.id}` ? '한 번 더 누르면 닫힙니다' : '끝난 일로 닫기'}</button>`}${closed ? '' : markButtons(t.id, info?.recallPrefs)}</div>
       </div></details>`;
   }
 
@@ -1073,8 +1073,30 @@
     if (!info) return emptyRoom();
     return `<div class="eyebrow">INJECTION · 약 ${tokens(info.rendered)} 토큰</div><h1>주입 확인</h1>
       <p class="intro">지금 프리셋의 {{기억}} 자리에 들어가는 내용 그대로입니다. 회상한 장면은 답변마다 바뀝니다.</p>
-      ${recallCard()}${recallTestCard()}
+      ${recallCard()}${recallTestCard()}${recallReasonsPaper(info.recallReport, info.recallPrefs)}
       ${info.rendered ? `<pre>${esc(info.rendered)}</pre>` : `<div class="empty">${info.enabled ? '아직 들어가는 기억이 없습니다.' : '이 방에서 기억 사용이 꺼져 있어 {{기억}} 자리에 아무것도 들어가지 않습니다. 저장된 기억은 그대로 남아 있습니다.'}</div>`}`;
+  }
+
+  /** 중요 / 빼기 buttons of one scene, chapter, fact or open thread; the same button again takes the mark off. */
+  function markButtons(id, prefs) {
+    const pinned = (prefs?.pinned || []).includes(id);
+    const left = (prefs?.excluded || []).includes(id);
+    const button = (mark, on, onText, offText, hint) => `<button class="ghost mark-button ${on ? 'is-on' : ''}" data-act="recallMark" data-id="${esc(id)}" data-mark="${mark}" aria-pressed="${on ? 'true' : 'false'}" title="${esc(hint)}">${on ? onText : offText}</button>`;
+    return `<span class="recall-marks">${button('pin', pinned, '중요 해제', '중요', '기억 칸에 먼저 넣습니다(정해진 크기 안에서). 한 번 더 누르면 풀립니다.')}${button('exclude', left, '다시 넣기', '빼기', '자동으로는 기억 칸에 넣지 않습니다. 기록은 그대로 남습니다. 한 번 더 누르면 되돌립니다.')}</span>`;
+  }
+
+  /** 주입 확인: why each memory in the reply was chosen, with its 중요 / 빼기 buttons; marked items that are not in the reply are listed to undo. */
+  function recallReasonsPaper(report, prefs) {
+    if (!report) return '';
+    const TITLES = { chapters: '지난 이야기 흐름', overview: '지난 장면들 (한 줄 요약)', recalled: '지금 떠오르는 지난 장면', near: '뜻이 가까운 지난 사건', raw: '원문에서 떠오른 대목', facts: '알게 된 사실', threads: '아직 끝나지 않은 일', selected: '직접 선택한 기억' };
+    const chips = (list) => (list || []).map((r) => `<span class="pill ${r.kind === 'pinned' ? 'green' : 'neutral'}" title="${esc(r.why || '')}">${esc(r.label)}</span>`).join('');
+    const row = (it) => `<div class="reason-row"><span class="row-main"><b>${esc(it.title)}</b>${it.id ? `<small>${esc(it.id)}</small>` : ''}<span class="reason-chips">${chips(it.reasons)}</span></span>${it.id ? markButtons(it.id, prefs) : ''}</div>`;
+    const sections = (report.sections || []).map((s) => `<h3>${esc(TITLES[s.section] || s.section)} · ${s.items.length}</h3><div class="reason-list">${s.items.map(row).join('')}</div>`).join('');
+    const shown = (id) => (report.sections || []).some((s) => s.items.some((it) => it.id === id));
+    const marks = (report.marks || []).filter((m) => m.state === 'excluded' || !shown(m.id));
+    const left = marks.length ? `<h3>중요·뺀 항목 중 지금 들어가지 않는 것 · ${marks.length}</h3><div class="reason-list">${marks.map((m) => `<div class="reason-row"><span class="row-main"><b>${esc(m.title)}</b><small>${esc(m.id)}</small><span class="reason-chips"><span class="pill neutral">${m.state === 'pinned' ? '중요' : '뺌'}</span></span></span>${markButtons(m.id, prefs)}</div>`).join('')}</div>` : '';
+    if (!sections && !left) return '';
+    return `<div class="paper"><h2>왜 이 기억이 들어갔나</h2><p class="hint">아래 이유는 보여 주기만 하며, 기억 칸의 글에는 들어가지 않습니다. <b>중요</b>는 정해진 크기 안에서 먼저 넣고, <b>빼기</b>는 자동으로 넣지 않습니다(기록은 지워지지 않고 서재에 그대로 있습니다).</p>${sections}${left}</div>`;
   }
 
   /** Which scenes came up for the last reply, and why; plus what the meaning search found. */
@@ -1661,6 +1683,8 @@
         armed = '';
         return act(() => api('POST', `/chats/${chat}/routine`, { action: 'delete', key }), '생활 기록을 지웠습니다.');
       }
+      case 'recallMark':
+        return act(() => api('POST', `/chats/${chat}/recall-prefs`, { id, action: el.dataset.mark }), el.dataset.mark === 'pin' ? '중요 표시를 바꿨습니다.' : '빼기 표시를 바꿨습니다.');
       case 'recallTest': {
         recallTestText = root.querySelector('#recallTestText').value;
         return act(async () => {

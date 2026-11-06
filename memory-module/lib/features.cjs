@@ -15,8 +15,8 @@
 // always on, are not in the registry, are not shown under 추가 기능 and ignore whatever an older settings file stored.
 
 const MODES = ['default', 'on', 'off'];
-/** 호칭 사전, 직접 고친 것 배우기, 아는 사람·모르는 사람, 기록 충돌 알림: always on. */
-const BUILTIN = ['addressBook', 'learnFromEdits', 'knowledge', 'conflicts'];
+/** 호칭 사전, 직접 고친 것 배우기, 아는 사람·모르는 사람, 기록 충돌 알림, 회상 이유·중요/빼기: always on. */
+const BUILTIN = ['addressBook', 'learnFromEdits', 'knowledge', 'conflicts', 'recallReasons'];
 const isBuiltin = (key) => BUILTIN.includes(key);
 
 const FEATURES = {
@@ -45,7 +45,6 @@ const FEATURES = {
     default: false,
     ready: true,
   },
-  recallReasons: { label: '회상 이유 보기', description: '왜 그 기억이 골라졌는지 이유를 보여 줍니다.', default: false, ready: false },
 };
 
 const known = (key) => Object.prototype.hasOwnProperty.call(FEATURES, key);

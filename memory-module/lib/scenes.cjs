@@ -2819,7 +2819,7 @@ function commitChapter(store, chapter) {
 }
 
 /** "[지난 이야기 흐름]": newest chapters whole, older ones shorter, the oldest just their titles, in order. */
-function renderChapters(store, limit = 4000, query = '', today = null) {
+function renderChapters(store, limit = 4000, query = '', today = null, { pin = null, trace = null } = {}) {
   // A chapter or arc whose parts were changed by hand is left out until it is summarized again: its scenes (or
   // chapters) are shown instead, so the hand fix is what goes in, never the old summary.
   const all = (store.chapters || []).filter((c) => !c.stale);
@@ -2836,6 +2836,8 @@ function renderChapters(store, limit = 4000, query = '', today = null) {
       ? all.filter((c) => arced.has(c.id)).map((c) => ({ c, s: overlap(`${c.title} ${c.summary} ${(c.keep || []).join(' ')}`, query) })).filter((x) => x.s >= 0.3).sort((a, b) => b.s - a.s).slice(0, 3)
       : [];
     for (const x of touched) pinned.add(x.c.id);
+    // Chapters the user marked 중요 are named on their own even inside an arc.
+    for (const id of pin || []) if (all.some((c) => c.id === id && arced.has(id))) pinned.add(id);
     if (today) {
       const ahead = all.filter((c) => arced.has(c.id) && (c.keep || []).some((t) => (L.parseClock(t, today)?.date || '') >= today));
       for (const c of ahead.slice(-3)) pinned.add(c.id);
@@ -2879,6 +2881,8 @@ function renderChapters(store, limit = 4000, query = '', today = null) {
     const touched = query
       ? list.map((c, i) => ({ i, s: overlap(`${c.title} ${c.summary} ${(c.keep || []).join(' ')}`, query) })).filter((x) => x.s >= 0.3).sort((a, b) => b.s - a.s).slice(0, 5)
       : [];
+    // Marked 중요: named first, so they win the room over the rest.
+    list.forEach((c, i) => { if (pin?.has(c.id)) add(i); });
     for (const x of touched) add(x.i);
     for (const i of [...new Set(details.filter((d) => rank(d) === 1).map((d) => d.i))].slice(0, 5)) add(i);
     for (let i = list.length - 1; i >= 0; i--) if (!shown.has(i) && !add(i)) break;
@@ -2924,6 +2928,7 @@ function renderChapters(store, limit = 4000, query = '', today = null) {
       lines[i] = next;
     }
   }
+  if (trace) list.forEach((c, i) => { if (lines[i] !== null) trace.push(c.id); });
   return `${HEAD}${[...arcText, ...folded()].join('\n')}`;
 }
 
@@ -3186,19 +3191,22 @@ function applyFactMerge(store, about, facts, result, now = new Date().toISOStrin
  * The memory text for scenes that have left the context window (start before `firstInside`).
  * All of them get a one-line summary (newest `maxSummaries`); the newest `expand` get events and recollections.
  */
-function renderScenes(store, firstInside, { maxChars = 9000, maxSummaries = 40, expand = 2, maxFacts = 70, factChars = 4500, chapterChars = 4000, query = '', today = null, npc = false, present = [], hideFacts = null } = {}) {
+function renderScenes(store, firstInside, { maxChars = 9000, maxSummaries = 40, expand = 2, maxFacts = 70, factChars = 4500, chapterChars = 4000, query = '', today = null, npc = false, present = [], hideFacts = null, skipScenes = null, skipChapters = null, pin = null, trace = null } = {}) {
   // Scenes already folded into a chapter are told by the chapter.
   // (a chapter waiting to be summarized again after a hand edit does not count: its scenes speak for themselves)
   const chaptered = new Set((store.chapters || []).filter((c) => !c.stale).flatMap((c) => c.scenes));
-  const outside = store.scenes.filter((s) => (firstInside == null || s.start < firstInside) && !chaptered.has(s.id));
+  const outside = store.scenes.filter((s) => (firstInside == null || s.start < firstInside) && !chaptered.has(s.id) && !skipScenes?.has(s.id));
   const out = [];
-  const flow = renderChapters(store, chapterChars, query, today);
+  // Chapters the user left out (빼기) are not told; their scenes stay out too (skipScenes).
+  const told = skipChapters?.size ? { ...store, chapters: (store.chapters || []).filter((c) => !skipChapters.has(c.id)) } : store;
+  const flow = renderChapters(told, chapterChars, query, today, { pin: pin?.chapters, trace: trace?.chapters });
   if (flow) out.push(flow);
   if (outside.length) {
     const shown = outside.slice(-maxSummaries);
     const offset = outside.length - shown.length;
     const cast = castOf(store);
     const blocks = shown.map((s, i) => `${sceneHead(s, offset + i)}: ${s.summary}${memoryNote(s, cast)}`);
+    const blockIds = shown.map((s) => s.id);
     let used = blocks.join('\n').length;
     // Expand the newest scenes first, as long as the budget holds.
     for (let k = 0; k < Math.min(expand, shown.length); k++) {
@@ -3208,7 +3216,8 @@ function renderScenes(store, firstInside, { maxChars = 9000, maxSummaries = 40, 
       used += full.length - blocks[i].length;
       blocks[i] = full;
     }
-    while (blocks.length > 1 && blocks.join('\n').length > maxChars) blocks.shift();
+    while (blocks.length > 1 && blocks.join('\n').length > maxChars) { blocks.shift(); blockIds.shift(); }
+    if (trace) trace.scenes?.push(...blockIds);
     // One-line summaries sit together; an expanded scene gets a blank line around it.
     const text = blocks.reduce((acc, block, i) => {
       if (!i) return block;
@@ -3229,15 +3238,33 @@ function renderScenes(store, firstInside, { maxChars = 9000, maxSummaries = 40, 
   if (facts.length) {
     const groups = new Map();
     let used = 0;
-    for (const f of facts) {
+    // Facts marked 중요 take their room first; the rest keep the story order in what is left.
+    let accepted = null;
+    if (pin?.facts?.size) {
+      accepted = new Set();
+      let spent = 0;
+      const fits = (f) => {
+        const base = stripAbout(f.text, f.about);
+        const when = f.when || store.scenes.find((s) => s.id === f.sceneId)?.time;
+        const dated = when && DATED.test(base) && !/\d{2}-\d{1,2}-\d{1,2}/.test(base) ? `${base} (${when.split(/[~·]/)[0].trim()})` : base;
+        const marks = group ? [f.unaware?.length ? `모름: ${f.unaware.join('·')}` : null, f.guess?.length ? `짐작만: ${f.guess.join('·')}` : null].filter(Boolean) : [];
+        const unknown = K.unknownMarker(f, here, { personas: store.personas || [], covered: group ? f.unaware || [] : [] });
+        return ((marks.length ? `${dated} [${marks.join(' / ')}]` : dated) + unknown).length + 4;
+      };
+      const marked = liveFacts(store).filter((f) => pin.facts.has(f.id) && !hideFacts?.has(f.id));
+      for (const f of marked) { const c = fits(f); if (spent + c > factChars) continue; accepted.add(f.id); spent += c; }
+      for (const f of facts) { if (accepted.has(f.id)) continue; const c = fits(f); if (spent + c > factChars) break; accepted.add(f.id); spent += c; }
+    }
+    for (const f of accepted ? liveFacts(store).filter((x) => accepted.has(x.id)) : facts) {
       const base = stripAbout(f.text, f.about);
       const when = f.when || store.scenes.find((s) => s.id === f.sceneId)?.time;
       const dated = when && DATED.test(base) && !/\d{2}-\d{1,2}-\d{1,2}/.test(base) ? `${base} (${when.split(/[~·]/)[0].trim()})` : base;
       const marks = group ? [f.unaware?.length ? `모름: ${f.unaware.join('·')}` : null, f.guess?.length ? `짐작만: ${f.guess.join('·')}` : null].filter(Boolean) : [];
       const unknown = K.unknownMarker(f, here, { personas: store.personas || [], covered: group ? f.unaware || [] : [] });
       const text = (marks.length ? `${dated} [${marks.join(' / ')}]` : dated) + unknown;
-      if (used + text.length + 4 > factChars) break;
+      if (!accepted && used + text.length + 4 > factChars) break;
       used += text.length + 4;
+      trace?.facts?.push(f.id);
       const key = f.about || '기타';
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push(text);

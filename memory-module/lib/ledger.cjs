@@ -2082,13 +2082,15 @@ function compactLine(ledger, t, kind, today = ledger.storyDate) {
  * mentioned; an overdue one nobody mentions any more is shelved and comes back when the talk touches it (`query`).
  * Without a story date, dated items keep their order and are never shelved.
  */
-function renderCompact(ledger, { maxChars = 2400, query = '', today = ledger?.storyDate || null } = {}) {
+function renderCompact(ledger, { maxChars = 2400, query = '', today = ledger?.storyDate || null, exclude = null, pin = null, trace = null } = {}) {
   const threads = ledger?.threads || [];
   const lastNumber = ledger?.lastNumber ?? Math.max(0, ...threads.map(lastSeen));
   const lines = [];
   let used = 0;
-  const open = threads.filter((t) => t.status === 'open');
-  const dated = open.filter((t) => deadlineOf(t));
+  // Items the user left out (빼기) never go in by themselves; items marked 중요 go first, even when faded or shelved.
+  const open = threads.filter((t) => t.status === 'open' && !exclude?.has(t.id));
+  const marked = pin?.size ? open.filter((t) => pin.has(t.id)) : [];
+  const dated = open.filter((t) => deadlineOf(t) && !marked.includes(t));
   const due = dated
     .filter((t) => !shelved(t, today, lastNumber))
     .sort((a, b) => deadlineOf(a).localeCompare(deadlineOf(b)) || String(a.due?.time || '').localeCompare(String(b.due?.time || '')) || lastSeen(b) - lastSeen(a))
@@ -2096,11 +2098,12 @@ function renderCompact(ledger, { maxChars = 2400, query = '', today = ledger?.st
   const asked = query
     ? dated.filter((t) => shelved(t, today, lastNumber) && sharedPairs(`${t.title} ${t.detail || ''}`, query) >= 0.3).slice(0, 3)
     : [];
-  const shown = new Set([...due, ...asked]);
-  for (const t of [...due, ...asked]) {
+  const shown = new Set([...marked, ...due, ...asked]);
+  for (const t of [...marked, ...due, ...asked]) {
     const line = compactLine(ledger, t, t.kind, today) + (asked.includes(t) ? ' (기한이 지나고 한동안 말이 없던 일)' : '');
     if (used + line.length + 1 > maxChars) break;
     lines.push(line);
+    trace?.push(t.id);
     used += line.length + 1;
   }
   for (const kind of RENDER_ORDER) {
@@ -2112,6 +2115,7 @@ function renderCompact(ledger, { maxChars = 2400, query = '', today = ledger?.st
       const line = compactLine(ledger, t, kind, today);
       if (used + line.length + 1 > maxChars) break;
       lines.push(line);
+      trace?.push(t.id);
       used += line.length + 1;
     }
   }
