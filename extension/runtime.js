@@ -703,9 +703,23 @@
     if (!info) return emptyRoom();
     return `<div class="eyebrow">DAILY LIFE</div><h1>최근 생활</h1>
       <p class="intro">인물마다 마지막 식사·씻기·꾸밈·잠·약을 보여 드립니다. 몇 끼째인지, 몇 시간 잤는지는 지문의 작중 시각으로 프로그램이 계산합니다.</p>
+      ${routineNote()}
       ${namesNote()}
       ${info.routine ? `<pre>${esc(info.routine)}</pre>` : '<div class="empty">아직 기록이 없습니다.</div>'}
       ${routineEditor()}`;
+  }
+
+  /** Whether daily life is recorded in this room, and the messages read while it was off. */
+  function routineNote() {
+    const r = info?.routineSetting;
+    if (r && !r.enabled) {
+      const why = r.room === 'off' ? '이 방 설정에서 꺼 두었습니다' : '모든 방 기본값이 꺼짐이고, 이 방은 기본값을 따릅니다';
+      return `<div class="note" role="status"><b>이 방에서는 최근 생활 기록이 꺼져 있습니다</b> (${why}). 새 메시지에서 생활을 읽지 않고 기억 칸에도 넣지 않습니다(기억 모델 호출 없음). 이미 있는 기록은 지우지 않고 그대로 둡니다.
+        <div class="buttons"><button class="primary" data-act="routineOnHere">이 방에서 켜기</button><button data-tab="settings">설정에서 보기</button></div></div>`;
+    }
+    const gaps = info?.routineGaps || [];
+    if (!gaps.length) return '';
+    return `<p class="hint">메시지 ${gaps.map((g) => g.from === g.to ? `${esc(g.from)}번` : `${esc(g.from)}~${esc(g.to)}번`).join(', ')}은(는) 최근 생활 기록이 꺼져 있던 동안 정리해서 생활 기록이 없습니다. 다시 켠 뒤에는 새 메시지부터 기록합니다. 그 구간도 채우려면 한눈에 → <b>처음부터 다시 정리</b>를 눌러 주세요(전체를 다시 읽어 비용이 듭니다).</p>`;
   }
 
   const ROUTINE_LABEL = { meal: '식사', wash: '씻기', groom: '꾸밈', sleep: '잠듦', wake: '깸', medicine: '약' };
@@ -876,6 +890,11 @@
       <div class="paper"><h2>이 방</h2>
         <label class="setting-switch"><span>기억 사용<small>켜면 답변마다 장부와 장면을 자동으로 갱신합니다.</small></span><input type="checkbox" id="setEnabled" ${info.enabled ? 'checked' : ''}></label>
         <label class="setting-switch"><span>말풍선 태그 되살리기<small>화자 색상이 켜진 '합쳐서' 그룹 RP에서 모델이 원래의 숨은 화자 태그를 출력하도록 지침을 보강합니다. 보이는 이름표 없이 따옴표만 쓰는 대사에도 적용됩니다.</small></span><input type="checkbox" id="setTags" ${info.speakerTags ? 'checked' : ''}></label>
+        <label>최근 생활 기록<select id="setRoutineRoom">
+          <option value="default" ${(info.routineSetting?.room || 'default') === 'default' ? 'selected' : ''}>기본값 따름 (지금 모든 방 기본값: ${serverSettings?.routine === false ? '끄기' : '켜기'})</option>
+          <option value="on" ${info.routineSetting?.room === 'on' ? 'selected' : ''}>켜기</option>
+          <option value="off" ${info.routineSetting?.room === 'off' ? 'selected' : ''}>끄기</option></select></label>
+        <p class="hint">끄면 이 방에서는 식사·씻기·잠·약 기록을 새로 읽지 않고(그만큼 기억 모델에 보내는 지침이 짧아집니다) 기억 칸에도 넣지 않습니다. 이미 있는 기록은 지우지 않으며, 다시 켜면 그대로 보이고 그 뒤 새 메시지부터 이어서 기록합니다. 꺼져 있던 동안의 메시지는 '처음부터 다시 정리'를 해야 채워집니다.</p>
         <label class="setting-switch"><span>대사 앞에 이름 표시<small>캐릭터 대사에 '이름 | 대사'를 출력하도록 요청합니다. 말풍선 태그 기능과 독립적으로 설정할 수 있습니다.</small></span><input type="checkbox" id="setSpeakerNames" ${info.speakerNames ? 'checked' : ''}></label>
         <label>장면의 디테일<select id="setDetailLevel"><option value="standard" ${!info.organize?.detailLevel || info.organize.detailLevel === 'standard' ? 'selected' : ''}>보통</option><option value="detailed" ${info.organize?.detailLevel === 'detailed' ? 'selected' : ''}>자세히</option><option value="very_detailed" ${info.organize?.detailLevel === 'very_detailed' ? 'selected' : ''}>아주 자세히</option></select></label><p class="hint">자세할수록 행동과 반응, 사건의 앞뒤를 더 세밀하게 기록하도록 요청합니다. 정리와 회상에 쓰이는 토큰이 늘어날 수 있습니다.</p>
         <label>주변 인물 정리<select id="setNpcCoverage"><option value="standard" ${info.organize?.npcCoverage !== 'expanded' ? 'selected' : ''}>기본</option><option value="expanded" ${info.organize?.npcCoverage === 'expanded' ? 'selected' : ''}>NPC·모브 자세히</option></select></label>
@@ -884,6 +903,7 @@
       </div>
       <div class="paper"><h2>모든 방 공통</h2>
         <label>기억 정리에 쓸 연결<select id="setConnection">${connections.map((c) => `<option value="${esc(c.id)}" ${c.id === current ? 'selected' : ''}>${esc(c.name)}${c.model ? ` · ${esc(c.model)}` : ''}</option>`).join('')}</select></label>
+        <label class="setting-switch"><span>최근 생활 기록 (모든 방 기본값)<small>누가 언제 먹고 씻고 잤는지 기록해 기억 칸에 넣습니다. 방마다 설정 → 이 방 → 최근 생활 기록에서 따로 켜고 끌 수 있습니다. 바꾸면 바로 저장됩니다.</small></span><input type="checkbox" id="setRoutineDefault" ${serverSettings?.routine === false ? '' : 'checked'}></label>
         <label>회상 방식<select id="setRecall">
           <option value="model" ${recall === 'model' ? 'selected' : ''}>기억 모델이 목차를 보고 고르기 (답변마다 호출 1번)</option>
           <option value="fast" ${recall === 'fast' ? 'selected' : ''}>빠른 방식 (낱말과 장부, 호출 없음)</option>
@@ -1257,6 +1277,12 @@
             ? '기억 언어를 저장했습니다. 새 기억부터 채팅 언어로 정리합니다.'
             : memoryLanguage === 'auto' ? '기억 언어를 저장했습니다.' : '기억 언어를 저장했습니다. 다시 정리할 필요 없이, 이 방의 기억을 바로 번역해 둡니다.');
       }
+      case 'routineOnHere': {
+        if (!room) throw Error('현재 채팅방을 먼저 선택해 주세요.');
+        // With the default on, following it is enough; otherwise this room is turned on by itself.
+        const mode = serverSettings?.routine === false ? 'on' : 'default';
+        return act(() => api('POST', `/chats/${encodeURIComponent(room)}/routine-mode`, { mode }), '이 방에서 최근 생활 기록을 켰습니다. 새 메시지부터 이어서 기록합니다.');
+      }
       case 'saveOrganizePreferences': {
         const npcCoverage = root.querySelector('#setNpcCoverage')?.value, quoteMode = root.querySelector('#setQuoteMode')?.value, detailLevel = root.querySelector('#setDetailLevel')?.value;
         if (!room) throw Error('현재 채팅방을 먼저 선택해 주세요.');
@@ -1601,6 +1627,17 @@
       if (e.target.id === 'setSpeakerNames') {
         const on = e.target.checked;
         void act(() => api('POST', `/chats/${encodeURIComponent(room)}/speaker-names`, { on }), on ? '대사 앞에 이름 표시를 켰습니다.' : '대사 앞에 이름 표시를 껐습니다.');
+      }
+      if (e.target.id === 'setRoutineDefault') {
+        const on = e.target.checked;
+        void act(async () => {
+          await api('POST', '/settings/routine', { on });
+          serverSettings = (await api('GET', '/status')).settings;
+        }, on ? '최근 생활 기록 기본값을 켰습니다. 기본값을 따르는 방은 새 메시지부터 기록합니다.' : '최근 생활 기록 기본값을 껐습니다. 기본값을 따르는 방은 새로 기록하지 않고 기억 칸에도 넣지 않습니다(기록은 남아 있습니다).');
+      }
+      if (e.target.id === 'setRoutineRoom') {
+        const mode = e.target.value;
+        void act(() => api('POST', `/chats/${encodeURIComponent(room)}/routine-mode`, { mode }), '이 방의 최근 생활 기록 설정을 저장했습니다.');
       }
       if (e.target.id === 'setTags') {
         const on = e.target.checked;

@@ -496,6 +496,22 @@ function chatEnabled(chatId) {
   return settings().chats?.[chatId]?.enabled === true;
 }
 
+/**
+ * Daily life ("최근 생활"): on for every room unless turned off for all rooms (settings.routine === false), and a
+ * room may follow that ('default'), or be 'on' or 'off' on its own. Off means it is not asked of the model, not
+ * read from replies and not put in the prompt; what was recorded stays and shows again when it is turned back on.
+ */
+const ROUTINE_MODES = ['default', 'on', 'off'];
+function routineSetting(chatId, all = settings()) {
+  const global = all.routine !== false;
+  const raw = all.chats?.[chatId]?.routine;
+  const room = ROUTINE_MODES.includes(raw) ? raw : 'default';
+  return { global, room, enabled: room === 'default' ? global : room === 'on' };
+}
+function routineEnabled(chatId) {
+  return routineSetting(chatId).enabled;
+}
+
 function setChatEnabled(chatId, enabled) {
   const next = settings();
   next.chats = { ...next.chats, [chatId]: { ...(next.chats?.[chatId] || {}), enabled } };
@@ -802,16 +818,16 @@ async function askModel(model, messages, { maxTokens = 4096 } = {}) {
 }
 
 /** Read one batch; an unreadable reply is retried once, then the batch is halved. */
-async function readBatch(model, ledger, batch, context) {
+async function readBatch(model, ledger, batch, context, routine = true) {
   for (let attempt = 0; attempt < 2; attempt++) {
-    const reply = await askModel(model, L.buildPrompt(ledger, batch, context));
+    const reply = await askModel(model, L.buildPrompt(ledger, batch, context, { routine }));
     const parsed = L.parseJsonObject(reply);
     if (parsed) return [{ batch, parsed }];
   }
   if (batch.length < 2) throw Error(`메시지 ${batch[0].number}번의 정리 결과를 읽지 못했습니다.`);
   const half = Math.ceil(batch.length / 2);
-  const first = await readBatch(model, ledger, batch.slice(0, half), context);
-  return [...first, ...(await readBatch(model, ledger, batch.slice(half), batch.slice(half - CONTEXT_MESSAGES, half)))];
+  const first = await readBatch(model, ledger, batch.slice(0, half), context, routine);
+  return [...first, ...(await readBatch(model, ledger, batch.slice(half), batch.slice(half - CONTEXT_MESSAGES, half), routine))];
 }
 
 const TIDY_EVERY_REPLIES = 15;
@@ -819,6 +835,7 @@ const TIDY_CHUNK = 60;
 
 // Semantic food matching affects display only. Raw routine entries and their source remain intact.
 async function reconcileMealDisplays(chatId, ledger, model, job) {
+  if (!routineEnabled(chatId)) return 0;
   const candidates = L.pendingMealDisplays(ledger);
   if (!candidates.length) return 0;
   job.stage = '식사 내용 정리';
@@ -1070,13 +1087,16 @@ function processChat(chatId, { rebuild = false, reason = 'auto' } = {}) {
     try {
       checkFiles(chatId);
       const messages = settled(await chatMessages(chatId));
+      const routine = routineEnabled(chatId);
       // Work on a copy: a stopped or failed run must not leave half its changes in the cached ledger.
       let ledger = rebuild ? L.emptyLedger() : structuredClone(loadLedger(chatId) || L.emptyLedger());
+      // Reading everything again with daily life off keeps what it recorded before.
+      if (rebuild && !routine) ledger.routine = structuredClone(loadLedger(chatId)?.routine || []);
       ledger.cast = await chatCast(chatId);
       ledger.personas = L.personaNames(messages);
       seedNames(chatId, [...ledger.cast, ...ledger.personas]);
       L.tidyKnowledge(ledger);
-      const state = L.reconcile(ledger, messages);
+      const state = L.reconcile(ledger, messages, { keepRoutine: !routine });
       if (state.rebuild) {
         ledger.needsRebuild = { at: new Date().toISOString(), changedAt: state.changedAt, number: changedNumber(ledger, messages, state.changedAt) };
         saveLedger(chatId, ledger);
@@ -1093,7 +1113,7 @@ function processChat(chatId, { rebuild = false, reason = 'auto' } = {}) {
       job.total = batches.length;
       if (!batches.length) {
         if (state.rolledBack) saveLedger(chatId, ledger);
-        if (reason === 'resume' && L.pendingMealDisplays(ledger).length) {
+        if (reason === 'resume' && routine && L.pendingMealDisplays(ledger).length) {
           try {
             const model = { ...(await memoryModel()), signal: job.abort.signal, lang: await writeLanguageOf(chatId) };
             await reconcileMealDisplays(chatId, ledger, model, job);
@@ -1111,11 +1131,12 @@ function processChat(chatId, { rebuild = false, reason = 'auto' } = {}) {
         if (job.cancel) throw Error('중단했습니다. 다시 시작하면 이어서 정리합니다.');
         const at = messages.indexOf(batch[0]);
         const context = messages.slice(Math.max(0, at - CONTEXT_MESSAGES), at);
-        const parts = await readBatch(model, ledger, batch, context);
+        const parts = await readBatch(model, ledger, batch, context, routine);
         if (job.cancel) throw Error('중단했습니다. 다시 시작하면 이어서 정리합니다.');
         for (const part of parts) {
           L.beginBatch(ledger, messages.indexOf(part.batch[0]));
-          const stats = L.applyResult(ledger, part.parsed, part.batch, undefined, { strictCloseEvidence: true });
+          const stats = L.applyResult(ledger, part.parsed, part.batch, undefined, { strictCloseEvidence: true, routine });
+          if (!routine) L.markRoutineGap(ledger, part.batch);
           L.commitBatch(ledger, part.batch);
           if (stats.dropped) log(`chat ${chatId}: dropped ${stats.dropped} ungrounded item(s)`);
         }
@@ -1138,7 +1159,7 @@ function processChat(chatId, { rebuild = false, reason = 'auto' } = {}) {
         }
         saveLedger(chatId, ledger);
       }
-      if (L.pendingMealDisplays(ledger).length) {
+      if (routine && L.pendingMealDisplays(ledger).length) {
         try {
           await reconcileMealDisplays(chatId, ledger, model, job);
         } catch (error) {
@@ -1505,8 +1526,9 @@ async function startTrial(chatId, from, to) {
     try {
       for (const batch of batches) {
         const at = messages.indexOf(batch[0]);
-        for (const part of await readBatch(model, ledger, batch, messages.slice(Math.max(0, at - CONTEXT_MESSAGES), at))) {
-          dropped += L.applyResult(ledger, part.parsed, part.batch, undefined, { strictCloseEvidence: true }).dropped;
+        const routine = routineEnabled(chatId);
+        for (const part of await readBatch(model, ledger, batch, messages.slice(Math.max(0, at - CONTEXT_MESSAGES), at), routine)) {
+          dropped += L.applyResult(ledger, part.parsed, part.batch, undefined, { strictCloseEvidence: true, routine }).dropped;
         }
         trial.done++;
       }
@@ -1574,6 +1596,9 @@ const RECALL_STYLES = {
   },
 };
 
+/** The header's line about daily life, left out with it when it is off for the room. */
+const ROUTINE_HEADER_NOTE = '"최근 생활" says when each person last ate, washed and slept: keep daily life believable, and do not repeat a meal or bath that just happened unless the story calls for it. ';
+
 function memoryHeader(style) {
   return (
     '[Memory: what the characters remember from earlier in this story, beyond the recent messages. ' +
@@ -1592,7 +1617,7 @@ function memoryHeader(style) {
     'even though "그때" records what they really said and did. Others may remind them. ' +
     'Each character knows only what they saw, heard or were told: "모름: X" or "자리에 없어 모름" means X does not know it — X must not mention it, hint at it or act on it until X learns it in the story, even while others who know it are in the same scene. "짐작만: X" means X suspects it without the details. ' +
     'Lines are quoted here in a short form for memory only; keep writing the story in its own usual format. ' +
-    '"최근 생활" says when each person last ate, washed and slept: keep daily life believable, and do not repeat a meal or bath that just happened unless the story calls for it. ' +
+    ROUTINE_HEADER_NOTE +
     '"[지난 이야기 흐름]" starts with the oldest parts of the story (A1, A2 …, each covering many chapters) and goes on with chapters (C…); a line "… 줄임" stands for a stretch left out for length. ' +
     '"※" lines under a chapter are details that must stay exact (dates, deadlines, conditions). ' +
     'The weather by a scene is how that day was: a character may recall it naturally ("the night it rained") when that scene comes to mind, but do not bring weather up for its own sake.]'
@@ -1677,7 +1702,7 @@ function holdReplyLedger(chatId, view) {
   if (!stored) return;
   const messages = settled(view);
   const ledger = structuredClone(stored);
-  const state = L.reconcile(ledger, messages);
+  const state = L.reconcile(ledger, messages, { keepRoutine: !routineEnabled(chatId) });
   if (state.rebuild) {
     const number = changedNumber(ledger, messages, state.changedAt);
     replyLedgers.set(chatId, { ledger: L.verifiedBefore(ledger, number) });
@@ -1896,7 +1921,10 @@ function maybePrepareTranslation(chatId) {
 function displayTranslationTexts(chatId) {
   const quotes = settings().translateQuotes === true;
   if (writeLanguage(chatId) !== 'en' && !quotes) return [];
-  return T.displayTexts(loadScenes(chatId), loadLedger(chatId), { quotes }).filter((t) => T.textLanguage(t) === 'en');
+  const ledger = loadLedger(chatId);
+  // Daily life turned off is not translated for the library either (no model calls for it while off).
+  const shown = ledger && !routineEnabled(chatId) ? { ...ledger, routine: [] } : ledger;
+  return T.displayTexts(loadScenes(chatId), shown, { quotes }).filter((t) => T.textLanguage(t) === 'en');
 }
 
 /** Which language the memory goes in for this chat: the setting, or (auto) the language it is written in. */
@@ -1944,10 +1972,11 @@ function renderMemorySource(chatId, maxChars = MEMORY_MAX_CHARS) {
   const query = turnQuery.get(chatId) || '';
   const today = storyToday(chatId, ledger);
   const open = ledger ? L.renderCompact(ledger, { query, today }) : '';
-  const routine = ledger ? L.renderRoutine(ledger, storyNow.get(chatId) || ledger.storyTime || null) : '';
+  const routineOn = routineEnabled(chatId);
+  const routine = ledger && routineOn ? L.renderRoutine(ledger, storyNow.get(chatId) || ledger.storyTime || null) : '';
   const fixed = [open ? `[아직 끝나지 않은 일]\n${open}` : '', routine].filter(Boolean);
   const style = settings().recallStyle;
-  const header = memoryHeader(style);
+  const header = routineOn ? memoryHeader(style) : memoryHeader(style).replace(ROUTINE_HEADER_NOTE, '');
   const footer = memoryFooter(style);
   let room = maxChars - header.length - footer.length - 40;
   // What is still open and daily life come first; if even they are too long, their oldest lines go.
@@ -2282,6 +2311,23 @@ async function routes(app) {
     saveSettings({ ...settings(), recallAmount: amount });
     return { amount };
   }));
+  app.post('/settings/routine', guard(async (req) => {
+    if (typeof req.body?.on !== 'boolean') throw Error('최근 생활 기록 기본값은 on: true 또는 false로 보내 주세요.');
+    saveSettings({ ...settings(), routine: req.body.on });
+    return { routine: req.body.on };
+  }));
+  app.post('/chats/:id/routine-mode', guard(async (req) => {
+    const chatId = safeChatId(req.params.id);
+    const mode = String(req.body?.mode || '').trim();
+    if (!ROUTINE_MODES.includes(mode)) throw Error(`최근 생활 기록은 ${ROUTINE_MODES.join(', ')} 중 하나여야 합니다.`);
+    const next = settings();
+    const room = { ...(next.chats?.[chatId] || {}) };
+    if (mode === 'default') delete room.routine;
+    else room.routine = mode;
+    next.chats = { ...next.chats, [chatId]: room };
+    saveSettings(next);
+    return { routineSetting: routineSetting(chatId) };
+  }));
   app.post('/settings/recall', guard(async (req) => {
     const mode = String(req.body?.mode || '').trim();
     if (!RECALL_MODES.includes(mode)) throw Error(`회상 방식은 ${RECALL_MODES.join(', ')} 중 하나여야 합니다.`);
@@ -2335,6 +2381,8 @@ async function routes(app) {
       organize: settings().chats?.[chatId]?.organize || { npcCoverage: 'standard', quoteMode: 'dialogue', detailLevel: 'standard' },
       routine: ledger ? L.renderRoutine(ledger, storyNow.get(chatId) || ledger.storyTime || null) : '',
       routineItems: (ledger?.routine || []).map((r) => ({ ...r, displayWhat: L.routineDisplayKind(r), key: L.routineKey(r) })),
+      routineSetting: routineSetting(chatId),
+      routineGaps: ledger?.routineGaps || [],
       storyNow: storyNow.get(chatId) || ledger?.storyTime || null,
       personas: scenes?.personas || [],
       cast: (scenes?.cast || ledger?.cast || []).filter((n) => !(scenes?.personas || []).includes(n)),
@@ -2691,7 +2739,7 @@ async function syncBeforeReply(chatId, body) {
       // A broken ledger file is left alone (and shown in the memory library); the reply goes on without it.
       if (!stored && brokenFiles.has(ledgerFile(chatId))) return;
       const ledger = structuredClone(stored || L.emptyLedger());
-      const state = L.reconcile(ledger, settled(view));
+      const state = L.reconcile(ledger, settled(view), { keepRoutine: !routineEnabled(chatId) });
       if (state.rebuild) {
         const number = changedNumber(ledger, settled(view), state.changedAt);
         if (!ledger.needsRebuild || ledger.needsRebuild.number !== number) {
@@ -2943,7 +2991,7 @@ function attach(app) {
   log('admin API ready at /api/memory-module');
 }
 
-module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { loadNames, saveNames, enqueue, foldScenes, reviewAttributions, loadAttributionLog, sceneJobs, selectedForView, loadSelected, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, loadTranslations, saveTranslations, chatLangs, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, jobs, writeLanguage, memoryCallOptions } };
+module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { loadNames, saveNames, enqueue, foldScenes, reviewAttributions, loadAttributionLog, sceneJobs, selectedForView, loadSelected, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, loadTranslations, saveTranslations, chatLangs, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, jobs, writeLanguage, memoryCallOptions, routineSetting, routineEnabled } };
 
 
 
