@@ -25,7 +25,7 @@ const MAX_EDITS = 50;
 const MAX_APPLIED = 50;
 const isOwn = (e) => e?.source === 'user' || e?.source === 'auto-learned';
 /** The most the injected "[호칭]" line may take. */
-const INJECT_CHARS = 120;
+const INJECT_CHARS = 220;
 
 const tidy = (s) => String(s ?? '').normalize('NFC').replace(/\s+/g, ' ').trim();
 const keyOfTerm = (term) => tidy(term).toLowerCase();
@@ -63,10 +63,22 @@ function normalize(book) {
   return [...merged.values()].map((e) => ({ ...e, id: entryId(e) }));
 }
 
+/** A listener share that counts as "the" listener of a term one speaker uses toward several people. */
+const MAJORITY = 0.75;
+
 /** Terms the saved dialogue shows: Map(key) -> { from, to, term, count, firstSeen, lastSeen }. */
 function tally(store) {
-  const out = new Map();
+  const rows = new Map(); // from|listener|term -> row (single-listener lines)
+  const singles = new Set(); // from|listener|term seen in a single-listener line
+  const multi = []; // terms from lines to several listeners, settled below
   const opens = new Map(); // speaker|term -> listeners whose quotes it opens
+  const bump = (map, key, base, at) => {
+    const row = map.get(key) || { ...base, count: 0, firstSeen: at, lastSeen: at };
+    row.count++;
+    if (before(at, row.firstSeen)) row.firstSeen = at;
+    if (before(row.lastSeen, at)) row.lastSeen = at;
+    map.set(key, row);
+  };
   for (const scene of store?.scenes || []) {
     const names = S.sceneNames(store, scene);
     const quotes = [...(scene.events || []).flatMap((e) => e.quotes || []), ...(scene.loose || [])];
@@ -74,33 +86,58 @@ function tally(store) {
       if (!q || !q.by || q.toGuess || !S.isDialogue(q)) continue;
       // A listener the address book itself gave does not count as evidence for the book (unless the user confirmed it).
       if (q.viaBook && !q.manual) continue;
-      const to = S.splitTo(q.to);
-      if (to.length !== 1) continue;
-      const from = A.canonical(q.by), listener = A.canonical(to[0]);
-      if (!from || !listener || from === listener) continue;
+      const listeners = [...new Set(S.splitTo(q.to).map((n) => A.canonical(n)).filter(Boolean))];
+      const from = A.canonical(q.by);
+      if (!from || !listeners.length || listeners.includes(from)) continue;
       const at = { number: q.number, sentence: q.sentence };
-      for (const { term, at: where } of S.vocativeTerms(S.quoteText(q), names)) {
+      for (const { term, at: where } of S.vocativeTerms(S.quoteText(q), names, { mid: true })) {
+        if (listeners.length > 1) { multi.push({ from, listeners, term, at }); continue; }
+        const listener = listeners[0];
         if (where === 'start') {
           const ok = `${from}|${keyOfTerm(term)}`;
           if (!opens.has(ok)) opens.set(ok, new Set());
           opens.get(ok).add(listener);
         }
         const key = `${from}|${listener}|${keyOfTerm(term)}`;
-        const row = out.get(key) || { from, to: listener, term, count: 0, firstSeen: at, lastSeen: at };
-        row.count++;
-        if (before(at, row.firstSeen)) row.firstSeen = at;
-        if (before(row.lastSeen, at)) row.lastSeen = at;
-        out.set(key, row);
+        singles.add(key);
+        bump(rows, key, { from, to: listener, term }, at);
       }
     }
   }
-  // Endearments and generic titles may be said to several people; anything else that opens lines to two or more
-  // listeners of one speaker is a sentence-initial discourse word.
-  for (const [key, row] of out) {
-    if (S.termExempt(row.term)) continue;
-    if ((opens.get(`${row.from}|${keyOfTerm(row.term)}`)?.size || 0) >= 2) out.delete(key);
+  // A term in a line to several people counts toward one of them only when the speaker is known to use it toward
+  // that person in lines to that person alone, and toward only one of them.
+  for (const m of multi) {
+    const own = m.listeners.filter((l) => singles.has(`${m.from}|${l}|${keyOfTerm(m.term)}`));
+    if (own.length === 1) bump(rows, `${m.from}|${own[0]}|${keyOfTerm(m.term)}`, { from: m.from, to: own[0], term: m.term }, m.at);
   }
-  return out;
+  // One term for several listeners of one speaker belongs to the listener with the clear majority of its uses
+  // (at least MIN_COUNT and MAJORITY of all); otherwise it is ambiguous and left out.
+  const totals = new Map();
+  for (const row of rows.values()) {
+    const k = `${row.from}|${keyOfTerm(row.term)}`;
+    totals.set(k, (totals.get(k) || 0) + row.count);
+  }
+  for (const [key, row] of rows) {
+    const total = totals.get(`${row.from}|${keyOfTerm(row.term)}`);
+    if (row.count < total && !(row.count >= MIN_COUNT && row.count / total >= MAJORITY)) rows.delete(key);
+    else if (row.count < total) row.share = row.count / total;
+  }
+  // A term that is (or is a spelling of) the name of a person in the room is a name, not a nickname.
+  const people = new Set([...(store?.cast || []), ...(store?.personas || []).map((p) => p?.name ?? p)].map((n) => A.canonical(n)).filter(Boolean));
+  for (const row of rows.values()) { people.add(row.from); people.add(row.to); }
+  const words = [...people].flatMap((p) => [p, ...p.split(/\s+/)]).filter((w) => w.length >= 2);
+  const lookAlike = require('./names.cjs').lookAlike;
+  for (const [key, row] of rows) {
+    const t = tidy(row.term);
+    if (words.some((w) => keyOfTerm(w) === keyOfTerm(t) || lookAlike(t, w))) rows.delete(key);
+  }
+  // Two-word terms need one more use. Non-endearment terms that open lines to two or more listeners are discourse words.
+  for (const [key, row] of rows) {
+    if (/\s/.test(row.term) && row.count < MIN_COUNT + 1) { rows.delete(key); continue; }
+    if (S.termExempt(row.term)) continue;
+    if ((opens.get(`${row.from}|${keyOfTerm(row.term)}`)?.size || 0) >= 2) rows.delete(key);
+  }
+  return rows;
 }
 
 /**
@@ -146,9 +183,38 @@ function termMap(book) {
   return out;
 }
 
+const skeleton = (o) => o.replace(/V/g, '');
+/** Whether a Korean and a Latin spelling are the same word by sound ("Riri"/"리리", "Kypri"/"키프리", "Boss"/"보스"). */
+function sameSound(a, b) {
+  const ko = /^[가-힣\s]+$/, la = /^[\p{Script=Latin}\s'’.-]+$/u;
+  if (!((ko.test(a) && la.test(b)) || (la.test(a) && ko.test(b)))) return false;
+  try { if (require('./names.cjs').lookAlike(a, b)) return true; } catch { /* fall through */ }
+  const [k, e] = ko.test(a) ? [a, b] : [b, a];
+  const sk = skeleton(S.hangulOutline(k.replace(/\s/g, '')));
+  return sk.length >= 2 && S.latinOutlines(e).some((o) => skeleton(o) === sk);
+}
+
+/** "포시" and "포시이": one call with a stretched ending. */
+const stretched = (a, b) => { const [s, l] = a.length <= b.length ? [a, b] : [b, a]; return l.length === s.length + 1 && l.startsWith(s) && '이야아'.includes(l.slice(-1)) && /[가-힣]$/.test(s); };
+
+/** The terms of one pair with spellings of the same word merged (the more used spelling stays; a tie goes to Korean). */
+function groupTerms(entries) {
+  const list = entries.slice().sort((a, b) => b.count - a.count || (/[가-힣]/.test(b.term) ? 1 : 0) - (/[가-힣]/.test(a.term) ? 1 : 0) || a.term.localeCompare(b.term));
+  const out = [];
+  for (const e of list) {
+    const same = out.find((g) => keyOfTerm(g.term) === keyOfTerm(e.term) || sameSound(g.term, e.term) || stretched(g.term, e.term));
+    if (same) {
+      same.count = Math.max(same.count, e.count);
+      if (!/[가-힣]/.test(same.term) && /[가-힣]/.test(e.term)) same.term = e.term; // the Korean spelling is shown
+    } else out.push({ term: e.term, count: e.count });
+  }
+  return out;
+}
+
 /**
  * "[호칭] A→B: 보스 · B→C: 리리": only pairs where both are in `present`, the most used first, within `max` characters.
- * Several terms of one pair share the pair ("A→B: 보스/대장"). Empty string when nothing qualifies.
+ * Spellings of one word count once. Every pair gets its most used term before any pair gets a second one; the extra
+ * terms of a pair share it ("A→B: 보스/대장"). Empty string when nothing qualifies.
  */
 function injectionBlock(book, present, max = INJECT_CHARS) {
   const here = new Set([...(present || [])].map((n) => A.canonical(n)));
@@ -157,27 +223,24 @@ function injectionBlock(book, present, max = INJECT_CHARS) {
   for (const e of normalize(book)) {
     if (!here.has(e.from) || !here.has(e.to)) continue;
     const key = `${e.from}→${e.to}`;
-    const row = pairs.get(key) || { label: key, terms: [], count: 0 };
-    row.terms.push(e);
+    const row = pairs.get(key) || { label: key, entries: [], count: 0 };
+    row.entries.push(e);
     row.count += e.count;
     pairs.set(key, row);
   }
   const rows = [...pairs.values()].sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
-  let line = '[호칭]';
-  let used = 0;
-  for (const row of rows) {
-    const terms = row.terms.sort((a, b) => b.count - a.count).map((e) => e.term);
-    // Fewer terms rather than none when the whole pair does not fit.
-    let fit = null;
-    for (let n = terms.length; n >= 1 && !fit; n--) {
-      const text = `${row.label}: ${terms.slice(0, n).join('/')}`;
-      if (line.length + (used ? 3 : 1) + text.length <= max) fit = text;
+  for (const row of rows) { row.terms = groupTerms(row.entries).map((g) => g.term); row.n = 0; }
+  const render = () => '[호칭] ' + rows.filter((r) => r.n).map((r) => `${r.label}: ${r.terms.slice(0, r.n).join('/')}`).join(' · ');
+  const fits = () => rows.some((r) => r.n) && render().length <= max;
+  // Round 1: the top term of every pair; later rounds: one more term per pair, in the same order.
+  for (let round = 1; round <= Math.max(0, ...rows.map((r) => r.terms.length)); round++) {
+    for (const row of rows) {
+      if (row.terms.length < round || row.n !== round - 1) continue;
+      row.n = round;
+      if (render().length > max) row.n = round - 1;
     }
-    if (!fit) continue;
-    line += `${used ? ' · ' : ' '}${fit}`;
-    used++;
   }
-  return used ? line : '';
+  return fits() ? render() : '';
 }
 
 /* ---------- hand-made entries ---------- */

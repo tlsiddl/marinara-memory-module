@@ -172,7 +172,7 @@ test('injection block: only pairs of people present, most used first, within the
   assert.equal(Addr.injectionBlock(book, []), '');
   const many = { ...Addr.emptyBook(), entries: Array.from({ length: 30 }, (_, i) => ({ from: ADEL, to: SILVI, term: `Soprannome${i}`, count: 30 - i, source: 'auto' })) };
   const line = Addr.injectionBlock(many, [ADEL, SILVI]);
-  assert.ok(line.length <= 120 && line.startsWith('[호칭] 아델→실비: Soprannome0'), line);
+  assert.ok(line.length <= 220 && line.startsWith('[호칭] 아델→실비: Soprannome0'), line);
   assert.equal(T.planLines(line, 'en')[0].kind, 'keep', 'never sent for translation');
 });
 
@@ -368,9 +368,62 @@ test('filter: a word opening quotes to two listeners of one speaker is dropped; 
   ];
   Addr.refresh(book, storeOf(quotes));
   const have = book.entries.map((e) => `${e.to}:${e.term}`).sort();
-  assert.deepEqual(have, [`${NERO}:Comunque`, `${SILVI}:Tesoro`, `${VITO}:Tesoro`, `${VITO}:Zelmo`].sort());
+  assert.deepEqual(have, [`${NERO}:Comunque`, `${VITO}:Zelmo`].sort(), 'an endearment said equally to two listeners is ambiguous: neither gets it');
   assert.equal(book.entries.find((e) => e.term === 'Besides'), undefined, 'a switched-off stale auto entry is not resurrected');
   assert.equal(Addr.normalize({ entries: [{ from: ADEL, to: VITO, term: 'Still', count: 2, source: 'auto' }] }).length, 0, 'bad auto entries are ignored even before a refresh');
   assert.equal(Addr.normalize({ entries: [{ from: ADEL, to: VITO, term: 'Still', count: 2, source: 'user' }] }).length, 1);
   assert.deepEqual([...Addr.termMap({ entries: [{ from: ADEL, to: VITO, term: 'Besides', count: 2, source: 'auto', useForCheck: true }] })], [], 'attribution never uses a filtered term');
+});
+
+// ---- mid-quote calls, multi-listener lines, majority, duplicate forms, fairness ----
+test('mid-quote: a part set off by a comma anywhere in the line is a term (only when asked); two-word nicknames; no comma, no term', () => {
+  const terms = (text, opts) => S.vocativeTerms(text, names, opts).map((t) => `${t.at}:${t.term}`);
+  assert.deepEqual(terms('"Vieni qui, Zuzu, adesso."'), [], 'the default still takes only the first and the last part');
+  assert.deepEqual(terms('"Vieni qui, Zuzu, adesso."', { mid: true }), ['mid:Zuzu']);
+  assert.deepEqual(terms('"끝났어. 쭈쭈, 너도 와."', { mid: true }), ['mid:쭈쭈'], 'a call after a full stop');
+  assert.deepEqual(terms('"난 잊지 않아, 쭈쭈. 너도 알잖아."', { mid: true }), ['mid:쭈쭈'], 'a call closing the first sentence');
+  assert.deepEqual(terms('"그리고 너, 푸른 고양이… 가만있어."', { mid: true }), ['mid:푸른 고양이'], 'a two-word nickname');
+  assert.deepEqual(terms('"가만있어. 내 친구, 이리 와."', { mid: true }), [], 'a plain noun phrase is not a nickname');
+  assert.deepEqual(terms('"끝났어. 좋아. 그래서 쭈쭈 너도 와."', { mid: true }), [], 'no comma around it: not a call');
+  assert.deepEqual(terms('"끝났어, 정말. 가자."', { mid: true }), [], 'stop words are still filtered');
+});
+
+test('multi-listener lines count toward a listener only when the speaker uses the term to that person alone; one listener only', () => {
+  const q = [];
+  for (let i = 0; i < 2; i++) q.push(dq(1 + i, 1, '"Zuzu, vieni."', ADEL, VITO));
+  q.push(dq(5, 1, '"Vieni qui, Zuzu, adesso."', ADEL, `${VITO}·${SILVI}`));      // Vito uses it: counts for Vito
+  q.push(dq(6, 1, '"Vieni qui, Pippo, adesso."', ADEL, `${VITO}·${SILVI}`));    // nobody alone uses it: skipped
+  q.push(dq(7, 1, '"Vieni qui, Pippo, adesso."', ADEL, `${VITO}·${SILVI}`));
+  q.push(dq(8, 1, '"Vieni qui, Zuzu, adesso."', ADEL, `${VITO}·${SILVI}`));
+  const rows = [...Addr.tally(storeOf(q)).values()].map((r) => `${r.to}:${r.term}:${r.count}`);
+  assert.deepEqual(rows, [`${VITO}:Zuzu:4`]);
+  // two listeners both known to be called so: ambiguous, not counted for either
+  const q2 = [dq(1, 1, '"Zuzu, vieni."', ADEL, VITO), dq(2, 1, '"Zuzu, vieni."', ADEL, VITO), dq(3, 1, '"Zuzu, vieni."', ADEL, SILVI), dq(4, 1, '"Zuzu, vieni."', ADEL, SILVI),
+    dq(5, 1, '"Vieni qui, Zuzu, adesso."', ADEL, `${VITO}·${SILVI}`)];
+  assert.deepEqual([...Addr.tally(storeOf(q2)).values()].map((r) => r.count), [], 'a tie between two listeners is dropped as ambiguous (and the multi line adds to neither)');
+});
+
+test('majority: a term said to several listeners goes to the one with at least 75% of the uses and at least two; otherwise it is ambiguous', () => {
+  const mk = (n, to) => Array.from({ length: n }, (_, i) => dq(100 * (to === VITO ? 1 : 2) + i, 1, '"Tesoro, vieni qui."', ADEL, to));
+  const rows = (a, b) => [...Addr.tally(storeOf([...mk(a, VITO), ...mk(b, SILVI)])).values()].map((r) => `${r.to}:${r.count}`);
+  assert.deepEqual(rows(9, 1), [`${VITO}:9`], '90% to one listener: only that one');
+  assert.deepEqual(rows(3, 1), [`${VITO}:3`], 'exactly 75%');
+  assert.deepEqual(rows(2, 2), [], 'half and half: dropped');
+  assert.deepEqual(rows(5, 3), [], '62%: dropped');
+  assert.deepEqual(rows(2, 0), [`${VITO}:2`]);
+});
+
+test('injection: spellings of one word count once (Korean shown), the cap is 220, every pair gets its top term before any gets a second', () => {
+  const e = (from, to, term, count) => ({ from, to, term, count, source: 'auto' });
+  const dup = { ...Addr.emptyBook(), entries: [e(ADEL, VITO, 'Zuzu', 5), e(ADEL, VITO, '쭈쭈', 4), e(ADEL, VITO, 'Boss', 3), e(ADEL, VITO, '보스', 3), e(ADEL, VITO, 'Zorbo', 2), e(ADEL, VITO, '조르보', 2), e(SILVI, VITO, '몽이', 2), e(SILVI, VITO, '몽이이', 1)] };
+  assert.equal(Addr.injectionBlock(dup, [ADEL, VITO, SILVI]), '[호칭] 아델→비토: 쭈쭈/보스/조르보 · 실비→비토: 몽이');
+  assert.equal(Addr.INJECT_CHARS, 220);
+  // fairness: three pairs with many terms each; the cap leaves room for every pair's first term and then adds seconds in order
+  const many = (from, to, n, c) => Array.from({ length: n }, (_, i) => e(from, to, `Nome${from}${i}`.replace(/[가-힣]/g, 'x'), c - i));
+  const book = { ...Addr.emptyBook(), entries: [...many(ADEL, VITO, 20, 90), ...many(VITO, SILVI, 20, 80), ...many(SILVI, NERO, 20, 70)] };
+  const line = Addr.injectionBlock(book, [ADEL, VITO, SILVI, NERO]);
+  assert.ok(line.length <= 220, line.length + line);
+  for (const label of ['아델→비토', '비토→실비', '실비→네로']) assert.ok(line.includes(label), `${label} is there: ${line}`);
+  const counts = line.split(' · ').map((p) => p.split('/').length);
+  assert.ok(Math.max(...counts) - Math.min(...counts) <= 1, 'terms are spread evenly: ' + line);
 });
