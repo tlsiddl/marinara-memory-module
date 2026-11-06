@@ -10,7 +10,9 @@ const A = require('./aliases.cjs');
 const SCENES_VERSION = 1;
 const REMEMBERS = ['full', 'partial', 'none'];
 const MAX_EVENTS = 8;
-const MAX_QUOTES_PER_EVENT = 6;
+// One source of truth for how many quotes an event keeps, by the room's quote mode.
+const QUOTE_LIMITS = { dialogue: 6, narration: 6, both: 8 };
+const quoteLimit = (mode) => QUOTE_LIMITS[mode] || QUOTE_LIMITS.dialogue;
 const MAX_UNCITED = 5;
 
 function emptyStore() {
@@ -73,7 +75,7 @@ const SCENE_PROMPT = `너는 장기 롤플레이의 기억 관리자야. 지나�
 - weather: 그 장면의 날씨나 하늘(예: "비", "첫눈", "맑고 추움", "장마"). 본문이나 "(… 날씨: …)" 표시에 나온 것만 짧게. 짐작하지 말고, 없으면 null.
 - title: 짧은 제목.
 - summary: 1~2문장. 무슨 일이 있었고 무엇이 바뀌었는지.
-- events: 중요한 일 3~6개를 순서대로. 각 사건은 한두 문장(text)과, 그 순간을 보여 주는 대사나 문장(quotes) 1~4개.
+- events: 중요한 일 3~6개를 순서대로. 각 사건은 한두 문장(text)과, 그 순간을 보여 주는 대사나 문장(quotes) 1~4개, 최대 6개.
   날짜·기한·시각·금액·횟수·장소·조건("~하면 ~하기로")이 나오면 사건 text에 빠뜨리지 말고 그대로 적어. 예) "하준이 서아에게 원서 접수가 7월 20일 마감이라고 알려 줌".
   사건은 실제 발생 순서대로 쓰고, 서로 떨어진 두 발화 사이에 반응이나 행동이 있으면 이를 별도 사건으로 나눠. 각 사건의 인용도 원문 순서대로 배치해. 뒤의 메시지에 작중 시각이 있으면 해당 사건의 time에 적어. 한 번 한 행동을 반복되는 습관이나 버릇으로 단정하지 마. 다른 인물이 대사의 뜻을 잘못 이해한 경우 그 오해를 사실로 쓰지 말고, 원문 발언과 해석을 구분해.
   대사가 있으면 대사를 우선해. 고백, 약속, 폭로, 결정적인 말은 꼭 대사로 남겨.
@@ -272,13 +274,16 @@ function buildScenePrompt(store, slice, required, problem = null, preferences = 
     message.sentences.forEach((sentence, index) => parts.push(`[${message.number}.${index + 1}] ${String(sentence).replace(/\s*\n\s*/g, ' / ')}`));
   }
   const guidance = [];
+  const base = preferences.quoteMode === 'both'
+    ? SCENE_PROMPT.replace('(quotes) 1~4개, 최대 6개', `(quotes) 대사와 서술 합쳐 2~${quoteLimit('both') - 2}개, 최대 ${quoteLimit('both')}개`).replace('(사건 하나에 대사 최대 6개)', `(사건 하나에 인용 최대 ${quoteLimit('both')}개)`)
+    : SCENE_PROMPT;
   if (preferences.detailLevel === 'detailed') guidance.push('장면의 중요한 사건을 빠뜨리지 않도록 행동, 반응, 대화의 맥락과 상황 변화를 구체적으로 기록해. 서로 다른 단계나 반응은 시간순으로 구분해. 추측은 사실로 쓰지 마. 사건이 많으면 한 장면에 우겨 넣지 말고 장면을 나눠.');
   if (preferences.detailLevel === 'very_detailed') guidance.push('장면을 아주 자세히 기록해. 사건의 계기, 행동, 표정, 접촉, 상대의 반응과 상황 변화, 중요한 대화의 앞뒤를 순서대로 구분해. 반복을 만들어 내거나 추측을 사실로 쓰지 마. 8개 사건을 넘길 흐름은 여러 장면으로 나눠 각 부분을 보존해.');
-  if (preferences.npcCoverage === 'expanded') guidance.push('1:1 대화에서도 주변 NPC·모브가 실제로 한 말·행동과 역할, 사건에 미친 영향 및 상대 반응을 구체적으로 정리해. 이름이 없으면 원문에 있는 직책으로 구분하고 이름이나 성격을 지어내지 마.');
+  if (preferences.npcCoverage === 'expanded') guidance.push('1:1 대화에서도 주변 NPC·모브가 실제로 한 말·행동과 역할, 사건에 미친 영향 및 상대 반응을 구체적으로 정리해. 이름이 없는 단역(경비원, 운전기사, 웨이터 두 명 등)이 등장해 행동하거나 말하면 장면 present에 역할 이름("경비원", "운전기사", "웨이터")으로 적고, 그 자리에 실제로 있던 사건의 with에도 넣어. 이들의 눈에 띄는 행동·대사는 사건 text에 적어. 이름이나 성격을 지어내지 마. 같은 역할은 장면이 달라도 같은 호칭으로 적어.');
   if (preferences.quoteMode === 'narration') guidance.push('인용은 사건의 중요한 서술 문장 위주로 골라. 중요 문답·약속·거절의 대사도 함께 보존해. 서술의 by와 to는 null로 둬.');
-  if (preferences.quoteMode === 'both') guidance.push('사건의 대사와 중요한 서술을 모두 인용해. 각 사건에서 중요한 대사와 행동·표정·접촉·상황 변화의 서술을 각각 원문 문장 번호로 인용해. 대사가 있는 사건도 관련 서술이 있으면 최소 한 문장을 별도 quotes 항목으로 넣어. 원문에 없으면 만들지 마. 사건마다 최대 12개. 질문과 답변은 함께 보존하고 서술의 by와 to는 null로 둬. 이름·철자 공개 뒤의 질문과 반응처럼 새 전개가 있으면 별도 사건을 만들어 그 대사를 직접 연결해.');
+  if (preferences.quoteMode === 'both') guidance.push(`사건의 대사와 중요한 서술을 모두 인용해. 각 사건에서 중요한 대사와 행동·표정·접촉·상황 변화의 서술을 각각 원문 문장 번호로 인용해. 대사가 있는 사건도 관련 서술이 있으면 최소 한 문장을 별도 quotes 항목으로 넣어. 원문에 없으면 만들지 마. 사건마다 최대 ${quoteLimit('both')}개. 질문과 답변은 함께 보존하고 서술의 by와 to는 null로 둬. 이름·철자 공개 뒤의 질문과 반응처럼 새 전개가 있으면 별도 사건을 만들어 그 대사를 직접 연결해.`);
   return [
-    { role: 'system', content: SCENE_PROMPT + (guidance.length ? '\n\n사용자가 선택한 정리 우선순위 (위의 대사 우선 규칙보다 우선):\n' + guidance.join('\n') : '') },
+    { role: 'system', content: base + (guidance.length ? '\n\n사용자가 선택한 정리 우선순위 (위의 대사 우선 규칙보다 우선):\n' + guidance.join('\n') : '') },
     { role: 'user', content: parts.join('\n') },
   ];
 }
@@ -324,6 +329,8 @@ const TRANSLATION_LINE = /^[*_\s]*[(（]([\s\S]*[가-힣][\s\S]*)[)）][*_\s]*$/
 const isTranslation = (text) => typeof text === 'string' && TRANSLATION_LINE.test(untag(text));
 const hasTranslation = (text) => /[(（][^()（）]*[가-힣][^()（）]*[)）][*_\s]*$/.test(untag(text));
 const isSpoken = (text) => /^["“'‘「『]/.test(text);
+/** A stored quote's kind: what was recorded when it was made, else read from its text (older data). */
+const isDialogue = (q) => (q?.kind ? q.kind === 'dialogue' : isSpoken(parseLine(q?.text).text));
 
 /** Text in another language than Korean: letters, and Korean (a name, say) at most a small part of them. */
 function mostlyForeign(text) {
@@ -426,17 +433,17 @@ function resolveQuotes(items, index, slice, verifyAttribution = false, names = [
     // A person the line calls by name ("Signor X, …") is the one spoken to, not the speaker.
     if (by && !line.by && names.length && addressedIn(line.text, names).names.some((n) => samePerson(n, by, names))) { by = null; to = null; }
     const parts = splitBilingual(line.text);
-    out.push({ ...pointer, text: parts.text, ...(parts.translation ? { translation: parts.translation } : {}), by, to });
+    out.push({ ...pointer, text: parts.text, ...(parts.translation ? { translation: parts.translation } : {}), kind: spoken ? 'dialogue' : 'narration', by, to });
   }
   return out;
 }
 
 // Keep one narrative source in mixed mode even if the model listed it after many lines.
 function limitQuotes(quotes, mode) {
-  const limit = mode === 'both' ? 12 : MAX_QUOTES_PER_EVENT;
+  const limit = quoteLimit(mode);
   const selected = quotes.slice(0, limit);
-  if (mode === 'both' && !selected.some((q) => !isSpoken(parseLine(q.text).text))) {
-    const narrative = quotes.slice(limit).find((q) => !isSpoken(parseLine(q.text).text));
+  if (mode === 'both' && !selected.some((q) => !isDialogue(q))) {
+    const narrative = quotes.slice(limit).find((q) => !isDialogue(q));
     if (narrative) selected[limit - 1] = narrative;
   }
   return selected.sort((a, b) => a.number - b.number || a.sentence - b.sentence);
@@ -502,6 +509,13 @@ function eventAt(scene, event, q) {
 const presenceOf = (scene, at) => (at?.with?.length ? at.with : scene.present || []);
 
 /** The people the model gave as being at one event: cast and the user's character by their full name, others as written. */
+/** People in a scene who are neither the cast nor the user's characters: the minor characters around them. */
+function extrasOf(present, store) {
+  const personas = store.personas || [];
+  const cast = castOf(store);
+  return [...new Set((present || []).filter((n) => typeof n === 'string' && n && !personas.includes(n) && !L.matchName(n, cast)))];
+}
+
 function eventPresence(raw, cast, personas) {
   const list = splitNames(raw);
   return [...new Set([...castNames(list, cast), ...list.filter((n) => personas.includes(n) || !castNames([n], cast).length)])];
@@ -583,14 +597,14 @@ function linkQuote(scene, quote, speakerOf) {
  * A line cited under the wrong scene goes to the event of its own scene that it clearly fits. When none does,
  * it is kept on that scene as a line not yet linked (scene.loose), and is matched again when the events change.
  */
-function placeStray(made, stray, speakerOf) {
+function placeStray(made, stray, speakerOf, mode = 'dialogue') {
   const same = (a, b) => a.number === b.number && a.sentence === b.sentence;
   for (const { quote } of stray) {
     const scene = made.find((x) => quote.number >= x.start && quote.number <= x.end);
     if (!scene) continue;
     if (scene.events.some((e) => e.quotes.some((q) => same(q, quote))) || (scene.loose || []).some((q) => same(q, quote))) continue;
     const event = linkQuote(scene, quote, speakerOf);
-    if (event && event.quotes.length < MAX_QUOTES_PER_EVENT + 2) event.quotes.push(quote);
+    if (event && event.quotes.length < quoteLimit(mode)) event.quotes.push(quote);
     else (scene.loose ||= []).push(quote);
   }
 }
@@ -616,7 +630,7 @@ function relinkLoose(scene, speakerOf) {
 function supportEvents(scene, index, slice, quoteMode) {
   for (const e of scene.events) {
     const wantNarration = quoteMode === 'both' || quoteMode === 'narration';
-    if (e.quotes.length && (!wantNarration || e.quotes.some((q) => !isSpoken(parseLine(q.text).text)))) continue;
+    if (e.quotes.length && (!wantNarration || e.quotes.some((q) => !isDialogue(q)))) continue;
     const citedMessages = new Set(e.quotes.map((q) => q.number));
     let best = null, score = 0, tied = false;
     for (const p of index.values()) {
@@ -685,6 +699,8 @@ function applyScenes(store, result, slice, required, now = new Date().toISOStrin
       // The user's own character: only how much they remember, never a written-up inner life.
       .map((r) => (personas.includes(r.who) ? { ...r, text: null } : r))
       .filter((r) => r.who && (r.text || personas.includes(r.who)));
+    const present = [...new Set([...castNames(item.present, cast), ...splitNames(item.present).filter((n) => personas.includes(n) || !castNames([n], cast).length)])];
+    const extras = extrasOf(present, store);
     const id = `S${store.nextScene + made.length}`;
     made.push({
       id,
@@ -698,7 +714,8 @@ function applyScenes(store, result, slice, required, now = new Date().toISOStrin
       summary: cleanText(item.summary, 600) || '',
       events,
       recollections,
-      present: [...new Set([...castNames(item.present, cast), ...splitNames(item.present).filter((n) => personas.includes(n) || !castNames([n], cast).length)])],
+      present,
+      ...(extras.length ? { extras } : {}),
       heardLater: [],
       edited: false,
       createdAt: now,
@@ -760,7 +777,7 @@ function applyScenes(store, result, slice, required, now = new Date().toISOStrin
   }
   if (!made.length) return { error: '쓸 수 있는 장면이 없습니다' };
   const speakers = new Map(slice.map((m) => [m.number, m.speaker]));
-  placeStray(made, stray, (n) => speakers.get(n));
+  placeStray(made, stray, (n) => speakers.get(n), quoteMode);
   for (const scene of made) {
     if (scene.loose) scene.loose.sort((a, b) => a.number - b.number || a.sentence - b.sentence);
     supportEvents(scene, index, slice, quoteMode);
@@ -1367,7 +1384,7 @@ function titleMap(store) {
   for (const scene of store.scenes || []) {
     for (const q of [...(scene.events || []).flatMap((e) => e.quotes || []), ...(scene.loose || [])]) {
       const to = splitTo(q.to);
-      if (!q.by || q.toGuess || to.length !== 1 || !isSpoken(parseLine(q.text).text) || !GENERIC_IN.test(quoteText(q))) continue;
+      if (!q.by || q.toGuess || to.length !== 1 || !isDialogue(q) || !GENERIC_IN.test(quoteText(q))) continue;
       const a = addressedIn(quoteText(q), sceneNames(store, scene));
       if (a.names.length || !a.titles.length) continue;
       for (const t of a.titles) {
@@ -1512,7 +1529,7 @@ function sceneLines(store, scene, messages, byNumber, order, ctx) {
   const names = sceneNames(store, scene);
   const byId = ctx.byId || new Map(messages.map((m) => [m.id, m]));
   const lines = [...(scene.events || []).flatMap((event) => (event.quotes || []).map((q) => ({ q, event }))), ...(scene.loose || []).map((q) => ({ q, event: null }))]
-    .filter(({ q }) => isSpoken(parseLine(q.text).text));
+    .filter(({ q }) => isDialogue(q));
   for (const line of lines) {
     const found = quoteSource(line.q, byNumber, byId);
     if (found.stale) { line.stale = found.stale; continue; }
@@ -2159,7 +2176,7 @@ function recipientCandidates(store, messages, limit = 20, attempted = new Set())
     const names = [...new Set([...(scene.present || []), ...(store.personas || []), ...(scene.recollections || []).map((r) => r.who)].filter((x) => typeof x === 'string' && x.trim()))];
     for (const quotes of [...(scene.events || []).map((e) => e.quotes || []), scene.loose || []]) {
       for (const q of quotes) {
-        if (q.to || !q.by || attempted.has(q) || !isSpoken(parseLine(q.text).text)) continue;
+        if (q.to || !q.by || attempted.has(q) || !isDialogue(q)) continue;
         const message = byNumber.get(q.number);
         if (!message || (q.messageId && q.messageId !== message.id)) continue;
         const source = message.sentences?.[q.sentence - 1];
@@ -2430,16 +2447,18 @@ function sceneHead(scene, n) {
 function quoteLine(q) {
   const text = cleanQuote(quoteText(q));
   const by = q.by || parseLine(q.text).by;
-  if (!by) return isSpoken(text) ? text : `(서술) ${text}`;
+  const spoken = q.kind ? q.kind === 'dialogue' : isSpoken(text);
+  if (!by) return spoken ? text : `(서술) ${text}`;
   // A listener that was only guessed is marked, so the story model is not told it is certain.
-  return `${by}${q.to ? ` → ${q.to}${q.toGuess ? '(추정)' : ''}` : ''}: ${isSpoken(text) ? text : `"${text}"`}`;
+  return `${by}${q.to ? ` → ${q.to}${q.toGuess ? '(추정)' : ''}` : ''}: ${spoken ? text : `"${text}"`}`;
 }
 
-function renderExpanded(scene, n, personas = [], cast = []) {
+function renderExpanded(scene, n, personas = [], cast = [], { npc = false } = {}) {
   const lines = [sceneHead(scene, n), scene.summary];
   const note = presenceNotes(scene, cast).join(', ');
   if (scene.present?.length && cast.length >= 2) lines.push(`있던 사람: ${scene.present.join('·')}${note ? ` / ${note}` : ''}`);
   else if (note) lines.push(note);
+  if (npc && scene.extras?.length) lines.push(`주변 인물: ${scene.extras.join('·').slice(0, 60)}`);
   if (scene.events.length) {
     lines.push('사건:');
     for (const e of scene.events) {
@@ -2984,7 +3003,7 @@ function applyFactMerge(store, about, facts, result, now = new Date().toISOStrin
  * The memory text for scenes that have left the context window (start before `firstInside`).
  * All of them get a one-line summary (newest `maxSummaries`); the newest `expand` get events and recollections.
  */
-function renderScenes(store, firstInside, { maxChars = 9000, maxSummaries = 40, expand = 2, maxFacts = 70, factChars = 4500, chapterChars = 4000, query = '', today = null } = {}) {
+function renderScenes(store, firstInside, { maxChars = 9000, maxSummaries = 40, expand = 2, maxFacts = 70, factChars = 4500, chapterChars = 4000, query = '', today = null, npc = false } = {}) {
   // Scenes already folded into a chapter are told by the chapter.
   // (a chapter waiting to be summarized again after a hand edit does not count: its scenes speak for themselves)
   const chaptered = new Set((store.chapters || []).filter((c) => !c.stale).flatMap((c) => c.scenes));
@@ -3001,7 +3020,7 @@ function renderScenes(store, firstInside, { maxChars = 9000, maxSummaries = 40, 
     // Expand the newest scenes first, as long as the budget holds.
     for (let k = 0; k < Math.min(expand, shown.length); k++) {
       const i = shown.length - 1 - k;
-      const full = renderExpanded(shown[i], offset + i, store.personas || [], cast);
+      const full = renderExpanded(shown[i], offset + i, store.personas || [], cast, { npc });
       if (used - blocks[i].length + full.length > maxChars) break;
       used += full.length - blocks[i].length;
       blocks[i] = full;
@@ -3072,6 +3091,10 @@ module.exports = {
   liveFacts,
   castOf,
   castNames,
+  extrasOf,
+  placeStray,
+  quoteLimit,
+  isDialogue,
   reasonedNames,
   tidyKnowledge,
   awarenessIn,
