@@ -217,11 +217,10 @@ details.paper>summary{font-size:13px;font-weight:600;color:var(--im-ink)}
 @media(max-width:720px){.conflict-pair{grid-template-columns:1fr}}
 
 /* 패널은 보이는 화면 안에서만 자라고, 스크롤은 #content 하나만 합니다 (끝까지 내려도 잘리지 않게). */
-#panel{grid-template-rows:minmax(0,1fr)}
 .workspace{overflow:hidden}.inspector{min-height:0}
 .resize-edge,.resize-grip{display:none}
 @media(min-width:721px){
-  #panel{max-width:100vw;max-height:calc(100vh - 16px);max-height:calc(100dvh - 16px)}
+  #panel{grid-template-rows:minmax(0,1fr);max-width:100vw;max-height:calc(100vh - 16px);max-height:calc(100dvh - 16px)}
   .sidebar{min-height:0;overflow:auto}
   .topbar{cursor:move;user-select:none;-webkit-user-select:none;touch-action:none}
   .topbar :is(button,select,input,label,a,.room-menu){cursor:auto;user-select:auto;-webkit-user-select:auto}
