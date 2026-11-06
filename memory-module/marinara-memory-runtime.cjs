@@ -15,7 +15,7 @@ const { fileURLToPath } = require('node:url');
 const TAG = '[memory-module]';
 /** The Marinara version these patches were made and tested against. */
 const TESTED_MARINARA = '2.4.6';
-const VERSION = '0.11.28-marinara.2.4.6.58';
+const VERSION = '0.11.28-marinara.2.4.6.59';
 const NOTES_DIR = process.env.MEMORY_MODULE_NOTES_DIR || path.join(__dirname, 'notes');
 const DEFAULT_NOTE = '_default.txt';
 /** Last safety net only: the service already keeps the memory within its own limit (40,000 by default). */
@@ -51,7 +51,9 @@ const PATCHES = [
   {
     name: 'speakerNamesPrompt',
     target: /[\\/]packages[\\/]server[\\/]dist[\\/]routes[\\/]generate\.routes\.js$/,
-    anchorRegex: /^[ \t]*if \(isGroupChat\) \{\r?\n[ \t]*\/\/ Inject group chat instructions at the end of the last user message/gm,
+    // Must not depend on comments (Android's esbuild build drops them): the block that opens with the
+    // group-chat instruction list. Comments and blank lines in between are tolerated, not required.
+    anchorRegex: /^[ \t]*if \(isGroupChat\) \{(?=(?:\s|\/\/[^\n]*|\/\*[\s\S]*?\*\/)*const groupInstructions\b)/gm,
     before: true,
     insert: 'try { if (chatMode === "roleplay" && !input.impersonate) { const memoryNameInstruction = globalThis.__marinaraMemory?.nameInstructions?.(input.chatId, charInfo.map((c) => c.name)); if (memoryNameInstruction) injectIntoOutputFormatOrLastUser(finalMessages, memoryNameInstruction, { indent: true }); } } catch {}\n',
     ok: 'roleplay has visible dialogue name instructions',
