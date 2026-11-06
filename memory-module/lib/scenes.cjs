@@ -1240,7 +1240,9 @@ function hangulWords(text) {
 
 const HONORIFIC = /^(?:(?:signor(?:e|a|ina)?|sig\.?(?:ra)?|mr|mrs|ms|miss|sir|madam|don|donna|dott(?:ore|oressa|or)?\.?|avvocato|capo|zio|zia|caro|cara|mio|mia|dear|ehi|hey|oh|ah|eh|senti|ascolta|scusi|scusa|ciao|salve|buongiorno|buonasera|grazie|dai|allora|yo|hi|hello|well|저기|어이|야|자|네)[.,]?\s+)+/i;
 const GENERIC = /^(?:boss|capo|signore|signora|signorina|sir|madam|ma'am|보스|두목|사장님|손님|선생님|형님|아가씨)$/i;
-const KO_CALL = /\s?(?:씨|님|군|양|선생님|아|야)$/;
+// Words that open a plain noun phrase ("그 사람", "내 친구"): not the first word of a two-word nickname.
+const KO_DETERMINER = /^(?:그|이|저|내|네|제|우리|너희|당신|어떤|무슨|모든|이런|그런|저런|다른|같은|아무|어느|나의|너의|새|옛|한|두|세)$/;
+const KO_CALL =/\s?(?:씨|님|군|양|선생님|아|야)$/;
 /**
  * People called directly inside the line ("Signora Bel Caro, …", "Hai capito, Nico?", "니코야, …").
  * A part between punctuation counts only when it is a name and nothing else, followed by , ! or ? (or at the
@@ -1303,9 +1305,9 @@ const NOT_A_TERM_IT = new Set(('comunque piuttosto tieni capito guarda senti all
   'senza perché perche siccome sebbene benché nonostante tuttavia eppure oppure ossia cioè cioe sennò altrimenti inoltre almeno soltanto solo ' +
   'vai andiamo andate fermo ferma fermati fermatevi calma piano attento attenta attenzione aspettate venite dimmi dimmelo dammi dacci dammelo fammi lascia lasciami lasciate guardate ascoltate sentite pensa pensaci ricorda ricordati sai sa sapete credi crediamo immagina tranquillo tranquilla coraggio su giù via fuori dentro qui qua lì là ' +
   'che chi cosa come dove quando quanto quale quali ' +
-  'ehi ehm uffa mah boh oddio dio madonna cavolo accidenti diamine caspita mamma ecco eccoci eccomi eccolo basta stop sveglia forza avanti ' +
+  'cazzo merda alzati svegliati porca ehi ehm uffa mah boh oddio dio madonna cavolo accidenti diamine caspita mamma ecco eccoci eccomi eccolo basta stop sveglia forza avanti ' +
   'signore signora signorina dottore dottoressa professore professoressa ragazzi ragazze gente scusi permesso salve buongiorno buonasera buonanotte arrivederci addio').split(/\s+/).filter(Boolean));
-const NOT_A_TERM_KO = new Set(['응', '으응', '으음', '어', '어어', '아', '아아', '네', '예', '그래', '알았어', '알겠어', '알겠습니다', '알았다', '들었지', '들었어', '봐', '봐봐', '자', '저기', '있잖아', '근데', '그러니까', '아니', '뭐', '왜', '진짜', '정말', '좋아', '됐어', '됐다', '맞아', '맞지', '글쎄', '그럼', '그러게', '그렇지', '그렇구나', '아하', '어휴', '에이', '이런', '저런', '그런', '아무래도', '사실', '솔직히', '아마', '혹시', '제발', '빨리', '얼른', '어서', '당장', '이제', '이미', '아직', '여기', '거기', '저쪽', '오늘', '내일', '어제', '나중에', '잠깐', '잠시', '가만', '가만히', '조용', '조용히', '다시', '또', '벌써', '역시', '결국', '일단', '그냥', '자꾸', '계속', '항상', '절대', '분명', '확실히', '물론', '당연', '당연히', '설마', '아이고', '어머나', '세상에', '맙소사', '헐', '앗', '엇', '음', '흠', '응응', '아냐', '아니야', '아니에요', '그만', '들어', '들어봐', '말해', '말해봐', '가자', '가', '와', '오', '이봐', '여봐', '안녕', '고마워', '미안', '미안해', '죄송', '감사']);
+const NOT_A_TERM_KO = new Set(['응', '으응', '으음', '어', '어어', '아', '아아', '네', '예', '그래', '알았어', '알겠어', '알겠습니다', '알았다', '들었지', '들었어', '봐', '봐봐', '자', '저기', '있잖아', '근데', '그러니까', '아니', '뭐', '왜', '진짜', '정말', '좋아', '됐어', '됐다', '맞아', '맞지', '글쎄', '그럼', '그러게', '그렇지', '그렇구나', '아하', '어휴', '에이', '이런', '저런', '그런', '아무래도', '사실', '솔직히', '씨발', '시발', '씨팔', '젠장', '제길', '빌어먹을', '일어나', '일어나요', '멍청', '아마', '혹시', '제발', '빨리', '얼른', '어서', '당장', '이제', '이미', '아직', '여기', '거기', '저쪽', '오늘', '내일', '어제', '나중에', '잠깐', '잠시', '가만', '가만히', '조용', '조용히', '다시', '또', '벌써', '역시', '결국', '일단', '그냥', '자꾸', '계속', '항상', '절대', '분명', '확실히', '물론', '당연', '당연히', '설마', '아이고', '어머나', '세상에', '맙소사', '헐', '앗', '엇', '음', '흠', '응응', '아냐', '아니야', '아니에요', '그만', '들어', '들어봐', '말해', '말해봐', '가자', '가', '와', '오', '이봐', '여봐', '안녕', '고마워', '미안', '미안해', '죄송', '감사']);
 const KO_SOUNDS = /^(?:으+[응음]|어+|아+|음+|응+|흠+|하+|헤+|오+|우+|에+)$/;
 // 지 only on longer words: 수지, 은지 are names, 들었지 is a sentence.
 const KO_ENDING = /(?:어|요|네|다|까|잖아|거든|[가-힣]{2}지)$/;
@@ -1362,7 +1364,8 @@ function plausibleTerm(term) {
  * it); so are interjections and anything that does not read like a name or a title. Returns [{ term, key, at }]: the
  * term as written (a Korean call ending removed), its lower-cased key, and whether it opens ('start') or closes ('end') the line.
  */
-function vocativeTerms(text, names) {
+function vocativeTerms(text, names, opts = {}) {
+  const mid = !!opts.mid;
   const line = parseLine(text).text;
   const pieces = line.split(/(?=\([^()]*\)\s*$)/);
   const found = new Map();
@@ -1372,11 +1375,13 @@ function vocativeTerms(text, names) {
     let last = -2;
     for (let i = 0; i < parts.length; i += 2) if (parts[i].trim()) last = i;
     for (let i = 0; i < parts.length; i += 2) {
-      if (i !== 0 && i !== last) continue;
+      const edge = i === 0 || i === last;
+      if (!edge && !mid) continue;
       const after = parts[i + 1] || '';
       const before = i ? parts[i - 1] : '';
       const tail = !after || /^[.…]/.test(after);
-      if (!/^[,!?]/.test(after) && !(tail && /[,…]/.test(before))) continue;
+      // A part inside the line counts only when a comma sets it off ("…, 아리, 너도…", "…, 아프로스.").
+      if (edge ? (!/^[,!?]/.test(after) && !(tail && /[,…]/.test(before))) : !/,/.test(before + after)) continue;
       const phrase = parts[i].trim();
       const lead = (phrase.match(HONORIFIC) || [''])[0];
       const rest = phrase.slice(lead.length).trim();
@@ -1385,8 +1390,10 @@ function vocativeTerms(text, names) {
       let term = null;
       if (GENERIC.test(rest) || ENDEARMENTS.has(normWord(rest))) term = rest;
       else if (hasHangul(rest)) {
-        const stem = rest.replace(KO_CALL, '').trim();
-        if (/^[가-힣]{2,8}$/.test(stem) && plausibleTerm(stem) && plausibleTerm(rest) && !NOT_A_TERM.has(stem) && !KO_VERBISH.test(stem) && !matchAlias(stem, names) && !matchAlias(rest, names)) term = stem;
+        const stem = /아가씨$/.test(rest) ? rest : rest.replace(KO_CALL, '').trim();
+        // With mid on, a two-word nickname ("고양이 아가씨") is read too.
+        const two = mid && /^[가-힣]{2,6} [가-힣]{2,6}$/.test(stem) && !KO_DETERMINER.test(stem.split(' ')[0]);
+        if ((/^[가-힣]{2,8}$/.test(stem) || two) && plausibleTerm(stem) && plausibleTerm(rest) && !NOT_A_TERM.has(stem) && !KO_VERBISH.test(stem) && !matchAlias(stem, names) && !matchAlias(rest, names)) term = stem;
       } else if (hasLatin(rest)) {
         const words = rest.split(/\s+/);
         if (words.length <= 2 && words.every((w) => /^\p{Lu}[\p{L}'’-]+$/u.test(w) && !NOT_A_TERM.has(w.toLowerCase())) && plausibleTerm(rest) && !matchAlias(rest, names) && !words.some((w) => matchAlias(w, names))) term = rest;
@@ -1394,7 +1401,7 @@ function vocativeTerms(text, names) {
       if (!term) continue;
       if (titles.length && !GENERIC.test(term)) term = `${titles.join(' ')} ${term}`;
       const key = term.normalize('NFC').toLowerCase().replace(/\s+/g, ' ');
-      if (!found.has(key)) found.set(key, { term: term.replace(/\s+/g, ' '), key, at: i === 0 ? 'start' : 'end' });
+      if (!found.has(key)) found.set(key, { term: term.replace(/\s+/g, ' '), key, at: i === 0 ? 'start' : i === last ? 'end' : 'mid' });
     }
   }
   return [...found.values()];
