@@ -56,6 +56,8 @@
   let connections = [];
   let serverEmbedding = null;
   let serverSettings = null;
+  /** Memory left by rooms Marinara no longer has (null until the settings tab asks). */
+  let orphans = null;
   // Korean for memory written in another language (and for quoted lines, when that setting is on).
   let trMap = {};
   let trPending = 0;
@@ -961,7 +963,19 @@
         ${info.vectors ? `<p class="hint">이 방: 장면 ${info.vectors.total}개 중 ${info.vectors.indexed}개 색인됨${info.vectors.indexed < info.vectors.total ? ' (다음 정리 때 이어서 만듭니다)' : ''}</p>` : ''}
         <div class="buttons"><button data-act="saveEmbedding">임베딩 저장·연결 확인</button></div>
       </div>
+      ${orphanSection()}
       <p class="hint">기억 모듈 업데이트는 설치할 때와 같은 명령을 다시 실행하시면 됩니다.</p>`;
+  }
+
+  /** Memory of rooms that were deleted before the module started removing it with the room. Never removed on its own. */
+  function orphanSection() {
+    if (orphans === null) return '';
+    const size = (bytes) => (bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)}MB` : `${Math.max(1, Math.round(bytes / 1024))}KB`);
+    const rows = orphans.map((o) => `<div class="orphan-row"><p class="hint"><b>${esc(o.name || o.hint || o.id)}</b>${o.name || o.hint ? ` · ${esc(o.id)}` : ''}<br>${o.settingsOnly ? '방 설정만 남아 있음' : `장면 ${o.scenes}개 · 파일 ${o.files}개 · ${size(o.bytes)}`}${o.updatedAt ? ` · 마지막 변경 ${esc(day(o.updatedAt))}` : ''}</p>
+        <div class="buttons"><button data-act="orphanDelete" data-orphan-id="${esc(o.id)}">삭제</button></div></div>`).join('');
+    return `<div class="paper"><h2>삭제된 방의 기억</h2>
+      <p class="hint">방을 지우면 그 방의 기억도 함께 영구 삭제됩니다. 이 기능이 생기기 전에 지운 방의 기억은 자동으로 지우지 않고 여기에 남겨 두었습니다. 삭제하면 되돌릴 수 없습니다.</p>
+      ${orphans.length ? `${rows}<div class="buttons"><button data-act="orphanDeleteAll"><span class="warn">모두 삭제 (${orphans.length}개)</span></button></div>` : '<p class="hint">삭제된 방의 기억이 없습니다.</p>'}</div>`;
   }
 
   function inspector() {
@@ -1103,6 +1117,21 @@
       case 'deleteSelectedMemory':
         if (!confirm('선택한 기억을 삭제하시겠습니까?')) return;
         return act(() => api('DELETE', `/chats/${chat}/selected-memory/${encodeURIComponent(el.dataset.selectedId)}`), '선택한 기억을 삭제했습니다.');
+      case 'orphanDelete': {
+        const id = el.dataset.orphanId;
+        if (!id || !confirm('이 삭제된 방의 기억을 영구 삭제합니다. 되돌릴 수 없습니다. 계속할까요?')) return;
+        return act(async () => {
+          await api('DELETE', `/orphans/${encodeURIComponent(id)}`);
+          orphans = (await api('GET', '/orphans')).orphans;
+        }, '삭제된 방의 기억을 지웠습니다.');
+      }
+      case 'orphanDeleteAll':
+        if (!orphans?.length || !confirm(`삭제된 방 ${orphans.length}개의 기억을 모두 영구 삭제합니다. 되돌릴 수 없습니다. 계속할까요?`)) return;
+        return act(async () => {
+          const r = await api('POST', '/orphans/delete-all');
+          orphans = (await api('GET', '/orphans')).orphans;
+          notice = `삭제된 방 ${r.deleted.length}개의 기억을 지웠습니다.`;
+        });
       case 'refresh':
         rooms = [];
         return act(refresh, '새로 불러왔습니다.', { reload: false });
@@ -1328,7 +1357,8 @@
 
   async function openSettings() {
     try {
-      const [status, list] = await Promise.all([api('GET', '/status'), api('GET', '/api/connections').catch(() => [])]);
+      const [status, list, gone] = await Promise.all([api('GET', '/status'), api('GET', '/api/connections').catch(() => []), api('GET', '/orphans').catch(() => null)]);
+      orphans = gone?.orphans || null;
       serverSettings = status.settings;
       serverEmbedding = status.embedding || null;
       connections = (Array.isArray(list) ? list : list?.connections || []).map((c) => ({ id: c.id, name: c.name, model: c.model }));
