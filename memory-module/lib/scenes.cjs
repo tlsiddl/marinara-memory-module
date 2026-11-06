@@ -978,7 +978,7 @@ function repairFragmentQuotes(store, messages) {
     const copy = structuredClone(scene);
     const mine = everyQuote(copy);
     const order = new Map(messages.map((m, i) => [m.number, i]));
-    const ctx = { titles: titleMap(store), personas: store.personas || [], byId };
+    const ctx = { titles: titleMap(store), address: addressMap(), personas: store.personas || [], byId };
     const { names, lines } = sceneLines(store, copy, messages, new Map(messages.map((m) => [m.number, m])), order, ctx);
     const out = new Map();
     for (const line of lines) {
@@ -1209,6 +1209,72 @@ function addressedIn(text, names) {
   return { names: [...found], generic, titles: [...titles] };
 }
 
+// ---- the address book (호칭 사전): terms a speaker uses for the person spoken to ----
+let addressProvider = null;
+/** How the service hands the rules the room's address book: () => Map(lower-cased term -> canonical name) or null. */
+function setAddressProvider(fn) {
+  addressProvider = typeof fn === 'function' ? fn : null;
+}
+function addressMap() {
+  try { return addressProvider ? addressProvider() : null; } catch { return null; }
+}
+const TITLE_WORD = /^(?:signor(?:e|a|ina)?|sig\.?(?:ra)?|mr|mrs|ms|miss|sir|madam|don|donna|dott(?:ore|oressa|or)?\.?|avvocato|capo|zio|zia)$/i;
+const NOT_A_TERM = new Set(['yes', 'no', 'sì', 'si', 'ok', 'okay', 'well', 'so', 'but', 'and', 'then', 'now', 'please', 'thanks', 'sorry', 'grazie', 'prego', 'ma', 'allora', 'certo', 'bene', 'dunque', 'beh', 'ah', 'oh', 'eh', 'hey', 'hi', 'hello', 'ciao', 'what', 'why', 'how', 'when', 'where', 'who', 'look', 'listen', 'wait', 'come', 'go', 'right', 'sure', 'fine', 'good', 'great', 'maybe', 'anyway', 'here', 'there', 'dio', 'madonna', 'basta', 'forza', 'dai', 'scusa', 'scusi', 'fermo', 'aspetta', 'senti', 'ascolta', 'guarda', 'dimmi', 'vieni', 'andiamo', 'cosa', 'perché', 'dove', 'quando', 'chi', 'oddio', 'mamma',
+  '네', '예', '아니', '아니요', '응', '그래', '그래요', '음', '어', '아', '자', '글쎄', '정말', '제발', '미안', '고마워', '감사', '잠깐', '잠시', '여기', '저기', '거기', '이봐', '있잖아', '알겠어', '좋아', '싫어', '맞아', '그럼', '그런데', '하지만', '그리고', '그러니까', '그러면', '왜', '뭐', '어디', '언제', '누구', '어때', '괜찮아', '안녕', '어서', '아이고', '세상에', '맙소사', '진짜', '설마', '빨리', '천천히', '가자', '와', '봐', '들어', '말해', '조심해', '기다려', '잠깐만', '그만', '됐어', '어머', '오', '헉', '흠', '아유', '아니야', '맞지', '그치', '좋지', '알지', '있지', '근데', '아무튼', '어쨌든', '그래도', '그냥', '일단', '먼저', '우선', '역시']);
+const KO_VERBISH = /(?:요|다|죠|까|네|서|게|고|며|면|니|군|걸|데|해|래|자)$/;
+/**
+ * Terms used to call someone inside a line: the first or the last part of the line set off by , ! or ? ("보스,
+ * 가요.", "Hai sentito, Zeno?", "Signor Verdi, venga."). A part that is a known name is left out (addressedIn has
+ * it); so are interjections and anything that does not read like a name or a title. Returns [{ term, key, at }]: the
+ * term as written (a Korean call ending removed), its lower-cased key, and whether it opens ('start') or closes ('end') the line.
+ */
+function vocativeTerms(text, names) {
+  const line = parseLine(text).text;
+  const pieces = line.split(/(?=\([^()]*\)\s*$)/);
+  const found = new Map();
+  for (const piece of pieces) {
+    const body = piece.replace(/^[\s"“'‘「『(]+|[\s"”'’」』)]+$/g, '');
+    const parts = body.split(/([,!?.…;:—–]+)/);
+    let last = -2;
+    for (let i = 0; i < parts.length; i += 2) if (parts[i].trim()) last = i;
+    for (let i = 0; i < parts.length; i += 2) {
+      if (i !== 0 && i !== last) continue;
+      const after = parts[i + 1] || '';
+      const before = i ? parts[i - 1] : '';
+      const tail = !after || /^[.…]/.test(after);
+      if (!/^[,!?]/.test(after) && !(tail && /[,…]/.test(before))) continue;
+      const phrase = parts[i].trim();
+      const lead = (phrase.match(HONORIFIC) || [''])[0];
+      const rest = phrase.slice(lead.length).trim();
+      if (!rest || rest.split(/\s+/).length > 3) continue;
+      const titles = lead.split(/\s+/).map((w) => w.replace(/[.,]$/, '')).filter((w) => TITLE_WORD.test(w));
+      let term = null;
+      if (GENERIC.test(rest)) term = rest;
+      else if (hasHangul(rest)) {
+        const stem = rest.replace(KO_CALL, '').trim();
+        if (/^[가-힣]{2,8}$/.test(stem) && !NOT_A_TERM.has(stem) && !KO_VERBISH.test(stem) && !matchAlias(stem, names) && !matchAlias(rest, names)) term = stem;
+      } else if (hasLatin(rest)) {
+        const words = rest.split(/\s+/);
+        if (words.length <= 2 && words.every((w) => /^\p{Lu}[\p{L}'’-]+$/u.test(w) && !NOT_A_TERM.has(w.toLowerCase())) && !matchAlias(rest, names) && !words.some((w) => matchAlias(w, names))) term = rest;
+      }
+      if (!term) continue;
+      if (titles.length && !GENERIC.test(term)) term = `${titles.join(' ')} ${term}`;
+      const key = term.normalize('NFC').toLowerCase().replace(/\s+/g, ' ');
+      if (!found.has(key)) found.set(key, { term: term.replace(/\s+/g, ' '), key, at: i === 0 ? 'start' : 'end' });
+    }
+  }
+  return [...found.values()];
+}
+/** The people the room's address book says these terms call. */
+function bookedIn(text, names, book) {
+  const out = [];
+  for (const { key } of vocativeTerms(text, names)) {
+    const who = book.get(key);
+    if (who && !out.includes(who)) out.push(who);
+  }
+  return out;
+}
+
 /** Someone the line asks to pass words on to ("전해 줘", "tell him", "dille") is mentioned, not spoken to. */
 function relayIn(text, names) {
   const line = parseLine(text).text;
@@ -1431,6 +1497,8 @@ function quoteFacts(q, message, names, scope, ctx = {}) {
   const at = q.sentence - 1;
   const addressed = addressedIn(quoteText(q), names);
   const titled = [...new Set(addressed.titles.map((t) => ctx.titles?.get(t)).filter(Boolean))];
+  // People the room's address book says these terms call (a nickname the story keeps using for one person).
+  const booked = ctx.address?.size ? bookedIn(quoteText(q), names, ctx.address).filter((n) => !addressed.names.some((a) => samePerson(a, n, names))) : [];
   const tag = parseLine(message.sentences[at]).by || null;
   const narration = narrationSpeaker(message.sentences, at, names, scope);
   const role = narration ? null : narrationRole(message.sentences, at);
@@ -1441,7 +1509,8 @@ function quoteFacts(q, message, names, scope, ctx = {}) {
     label: labelWrong ? null : tag,
     tag,
     labelWrong,
-    addressed: addressed.names,
+    addressed: [...addressed.names, ...booked],
+    booked,
     genericCall: addressed.generic,
     titles: addressed.titles,
     titled,
@@ -1460,6 +1529,8 @@ const GUESS_CHECKED = 1;
 // Which rule made a guessed listener. A guess stamped with an older number (or none) is checked once more; a certain
 // listener is never re-checked because of it. 2: a person only mentioned in narration is not present.
 const GUESS_RULE_VERSION = 2;
+/** The rule that makes a called person a listener: a name in the line, or a term of the address book. */
+const vocativeRule = (facts, n, same) => (facts.booked?.some((b) => same(b, n)) ? 'address-book' : 'vocative-listener');
 const samePerson = (a, b, names) => !!a && !!b && (a === b || (matchAlias(a, names) || a) === (matchAlias(b, names) || b));
 
 /** Which rules the stored speaker and listener break. */
@@ -1587,7 +1658,7 @@ const ATTRIBUTION_RULES_VERSION = 9;
  */
 function attributionFingerprint(e) {
   const violations = e.facts ? ruleViolations(e.q, e.facts, e.names) : [];
-  return L.hashText(JSON.stringify([ATTRIBUTION_RULES_VERSION, e.m.id || null, e.m.h || null, e.context, e.q.by || null, e.q.to || null, e.names, violations, ...(e.q.toGuess ? ['guess'] : [])]));
+  return L.hashText(JSON.stringify([ATTRIBUTION_RULES_VERSION, e.m.id || null, e.m.h || null, e.context, e.q.by || null, e.q.to || null, e.names, violations, ...(e.q.toGuess ? ['guess'] : []), ...(e.facts?.booked?.length ? ['book', ...e.facts.booked] : [])]));
 }
 
 /**
@@ -1654,7 +1725,7 @@ function roleNotes(scope, role, source) {
 function attributionCandidates(store, messages, limit = 20, attempted = new Set(), { retryUnresolved = false, force = retryUnresolved, stats = null } = {}) {
   const byNumber = new Map(messages.map((m) => [m.number, m]));
   const order = new Map(messages.map((m, i) => [m.number, i]));
-  const ctx = { titles: titleMap(store), personas: store.personas || [], byId: new Map(messages.map((m) => [m.id, m])) };
+  const ctx = { titles: titleMap(store), address: addressMap(), personas: store.personas || [], byId: new Map(messages.map((m) => [m.id, m])) };
   const result = [];
   for (const scene of store.scenes || []) {
     if (scene.edited) continue;
@@ -1995,7 +2066,7 @@ function applyAttributionResults(candidates, results) {
       // A listener both answers give, who is called in the line or named around it.
       if (answers.length >= 2) for (const t of answers[0].toNamed) if (answers.slice(1).every((j) => j.toNamed.some((u) => same(t, u))) && (f.titled.some((n) => same(n, t)) || mentions(e.context, t))) add(t, 'agreed-listener');
       if (reversed) add(prev.by, 'reversed-listener');
-      for (const n of f.addressed) add(n, 'vocative-listener');
+      for (const n of f.addressed) add(n, vocativeRule(f, n, same));
       for (const n of f.titled) add(n, 'title-listener');
       if (!to.length && f.reply && same(by, f.reply.listener) && !same(by, f.reply.asker)) add(f.reply.asker, 'reply');
       to = to.filter((t) => !same(t, by) && !relayed(t));
@@ -2016,6 +2087,7 @@ function applyAttributionResults(candidates, results) {
     const recipient = [...new Set(to)].join('·') || null;
     if (e.q.by !== by || (e.q.to || null) !== recipient || prevGuess !== !!guess) changed++;
     e.q.by = by; e.q.to = recipient;
+    if (fired.includes('address-book')) e.q.viaBook = true; else if (recipient !== prev.to) delete e.q.viaBook;
     if (guess) { e.q.toGuess = true; e.q.guessRule = GUESS_RULE_VERSION; } else { delete e.q.toGuess; delete e.q.guessRule; }
     stampAttribution(e);
     e.outcome = { decision: prev.by === by && prev.to === recipient && prevGuess === !!guess ? 'unchanged' : 'applied', rule: [rule, ...fired].filter(Boolean).join(','), fired, before: prev, after: { by, to: recipient, ...(guess ? { guess: true } : {}) } };
@@ -2033,7 +2105,7 @@ function applyAttributionResults(candidates, results) {
 function enforceAttributionRules(store, messages) {
   const byNumber = new Map(messages.map((m) => [m.number, m]));
   const order = new Map(messages.map((m, i) => [m.number, i]));
-  const ctx = { titles: titleMap(store), personas: store.personas || [], byId: new Map(messages.map((m) => [m.id, m])) };
+  const ctx = { titles: titleMap(store), address: addressMap(), personas: store.personas || [], byId: new Map(messages.map((m) => [m.id, m])) };
   const out = [];
   for (const scene of store.scenes || []) {
     if (scene.edited) continue;
@@ -2069,7 +2141,7 @@ function enforceAttributionRules(store, messages) {
       const kept = to.filter((t) => !same(t, by) && !relayed(t));
       if (kept.length !== to.length) rules.push('relay-listener');
       to = kept;
-      for (const n of facts.addressed) if (!same(n, by) && !to.some((t) => same(t, n))) { to.push(n); rules.push('vocative-listener'); }
+      for (const n of facts.addressed) if (!same(n, by) && !to.some((t) => same(t, n))) { to.push(n); rules.push(vocativeRule(facts, n, same)); }
       if (by) {
         for (const n of facts.titled) if (!same(n, by) && !to.some((t) => same(t, n))) { to.push(n); rules.push('title-listener'); }
         if (!to.length && facts.reply && same(by, facts.reply.listener) && !same(by, facts.reply.asker)) { to = [facts.reply.asker]; rules.push('reply'); }
@@ -2084,6 +2156,8 @@ function enforceAttributionRules(store, messages) {
         const window = lineContext(line, messages, order);
         const current = q.attributionFp && q.attributionFp === attributionFingerprint({ m: line.m, q, names, facts, context: window.context });
         q.by = by; q.to = recipient;
+        // A listener the address book gave is marked so that the book never learns from its own answers.
+        if (rules.includes('address-book')) q.viaBook = true; else delete q.viaBook;
         if (keepGuess) q.toGuess = true; else delete q.toGuess;
         if (current) q.attributionFp = attributionFingerprint({ m: line.m, q, names, facts, context: window.context });
         out.push({ scene: scene.id || '', number: q.number, sentence: q.sentence, decision: 'applied', rule: rules.join(','), fired: rules, before, after: { by, to: recipient } });
@@ -3134,6 +3208,13 @@ module.exports = {
   mergeReask,
   judgeAnswer,
   addressedIn,
+  vocativeTerms,
+  setAddressProvider,
+  sceneNames,
+  isDialogue,
+  quoteText,
+  splitTo,
+  samePerson,
   relayIn,
   matchAlias,
   narrationSpeaker,

@@ -16,6 +16,7 @@ const A = require('./aliases.cjs');
 const N = require('./names.cjs');
 const F = require('./features.cjs');
 const B = require('./backup.cjs');
+const Addr = require('./address.cjs');
 
 /**
  * Marinara's own data folder, found the way Marinara finds it: DATA_DIR (relative to the server package) if set,
@@ -222,6 +223,55 @@ function seedNames(chatId, names) {
   }
 }
 
+// The room's address book (호칭 사전) and the suggestions learned from the user's own corrections.
+const addressFile = (chatId) => path.join(CHAT_DIR, `${safeChatId(chatId)}.address.json`);
+const addressCache = new Map();
+function loadAddress(chatId) {
+  if (addressCache.has(chatId)) return addressCache.get(chatId);
+  const file = addressFile(chatId);
+  const stored = supported(file, readJson(file, null), Addr.ADDRESS_VERSION);
+  const book = stored && Array.isArray(stored.entries) ? stored : Addr.emptyBook();
+  addressCache.set(chatId, book);
+  return book;
+}
+function saveAddress(chatId, book) {
+  writeJson(addressFile(chatId), book);
+  addressCache.set(chatId, book);
+}
+// The dialogue rules ask for the terms of the room they are working on, and only while the feature is on.
+S.setAddressProvider(() => {
+  const id = A.roomId();
+  if (!id || !/^[A-Za-z0-9_-]{1,128}$/.test(id) || !featureOn(id, 'addressBook')) return null;
+  const terms = Addr.termMap(loadAddress(id));
+  return terms.size ? terms : null;
+});
+/**
+ * Bring the address book up to date with the saved dialogue (no model call). Does nothing while the feature is off.
+ * Never throws: the book is a helper, and a scan must not fail because of it.
+ */
+function refreshAddress(chatId, store) {
+  try {
+    if (!featureOn(chatId, 'addressBook') || goneChats.has(chatId)) return false;
+    const book = structuredClone(loadAddress(chatId));
+    if (!A.using(chatId, () => Addr.refresh(book, store))) return false;
+    saveAddress(chatId, book);
+    return true;
+  } catch (error) {
+    log(`chat ${chatId}: address book not updated (${error?.message || error})`);
+    return false;
+  }
+}
+/** People present in the scene shown now and in the scenes recalled for it (the ones the reply is about). */
+function presentPeople(chatId, scenes) {
+  if (!scenes?.scenes?.length) return [];
+  const picked = new Set((recalls.get(chatId)?.picks || []).map((p) => p.id));
+  const out = new Set();
+  const add = (scene) => { for (const n of [...(scene.present || []), ...(scene.events || []).flatMap((e) => e.with || [])]) if (typeof n === 'string' && n.trim()) out.add(n); };
+  add(scenes.scenes.at(-1));
+  for (const scene of scenes.scenes) if (picked.has(scene.id)) add(scene);
+  return [...out];
+}
+
 const selectedFile = chatId => path.join(CHAT_DIR, `${safeChatId(chatId)}.selected.json`);
 function loadSelected(chatId) {
   const file = selectedFile(chatId), data = supported(file, readJson(file, null), 1);
@@ -299,6 +349,7 @@ async function inheritBranch(sourceId, targetId) {
   if (sourceId === targetId) throw Error('원본 방에 분기 기억을 쓸 수 없습니다.');
   return enqueue(targetId, async () => {
     const files = [ledgerFile(targetId), scenesFile(targetId), vectorsFile(targetId)];
+    const sourceBook = fs.existsSync(addressFile(sourceId)) ? loadAddress(sourceId) : null;
     // This also makes a repeated hook harmless and protects an existing/broken destination file.
     if (files.some((file) => fs.existsSync(file)) || settings().chats?.[targetId]) return { skipped: true };
     checkFiles(sourceId);
@@ -331,13 +382,14 @@ async function inheritBranch(sourceId, targetId) {
       if (result.ledger) { saveLedger(targetId, result.ledger); written.push(files[0]); }
       if (result.scenes) { saveScenes(targetId, result.scenes); written.push(files[1]); }
       if (copiedVectors) { saveVectors(targetId, copiedVectors); written.push(files[2]); }
+      if (sourceBook && !fs.existsSync(addressFile(targetId))) { saveAddress(targetId, structuredClone(sourceBook)); written.push(addressFile(targetId)); }
       if (sourceSettings) {
         next.chats = { ...next.chats, [targetId]: structuredClone(sourceSettings) };
         saveSettings(next);
       }
     } catch (error) {
       for (const file of written) fs.rmSync(file, { force: true });
-      cache.delete(targetId); sceneCache.delete(targetId); vectorCache.delete(targetId);
+      cache.delete(targetId); sceneCache.delete(targetId); vectorCache.delete(targetId); addressCache.delete(targetId);
       throw error;
     }
     log(`branch ${sourceId} -> ${targetId}: inherited ${result.matched} message(s), ${result.scenes?.scenes.length || 0} scene(s)${result.ledgerReset ? '; old fork: ledger will be read again' : ''}`);
@@ -417,7 +469,7 @@ function removeRoomFiles(chatId) {
 
 /** Everything held in memory for one room (not the files). The next read loads from disk again. */
 function clearRoomCaches(chatId) {
-  for (const map of [cache, windows, sceneCache, namesCache, selectedViews, vectorCache, chatLangs, replyLedgers, translationCache, displayTranslationStatus, preparing, replyViews, speakerColors, recalls, turnQuery, storyDays, storyNow]) map.delete(chatId);
+  for (const map of [cache, windows, sceneCache, namesCache, addressCache, selectedViews, vectorCache, chatLangs, replyLedgers, translationCache, displayTranslationStatus, preparing, replyViews, speakerColors, recalls, turnQuery, storyDays, storyNow]) map.delete(chatId);
   for (const key of [...translating.keys()]) if (String(key).startsWith(`${chatId}:`)) translating.delete(key);
 }
 
@@ -1690,11 +1742,14 @@ function processScenes(chatId, { rebuild = false, reason = 'auto' } = {}) {
         if (reason !== 'edit') {
           const reordered = S.orderSceneEvents(store, messages);
           if (reordered) { saveScenes(chatId, store); recalls.delete(chatId); }
+          // Terms the saved dialogue shows are collected first, so the rules below can already use them.
+          refreshAddress(chatId, store);
           job.calls += await reviewAttributions(chatId, store, messages, getModel, job, reason).catch((error) => {
             if (job.cancel) throw error;
             log(`chat ${chatId}: quote attribution check skipped: ${error?.message || error}`);
             return 0;
           });
+          refreshAddress(chatId, store);
         }
         // A long story: old scenes become chapters, and facts that piled up about one person are merged.
         if (S.nextRedo(store) || S.nextChapter(store) || S.nextArc(store) || S.nextFactMerge(store)) job.calls += await condense(chatId, store, await getModel(), job);
@@ -2288,7 +2343,12 @@ function renderMemorySource(chatId, maxChars = MEMORY_MAX_CHARS) {
   }
   const selected = room > 300 ? Selected.render(selectedViews.get(chatId) || [], query, Math.min(room, 2500)) : '';
   if (selected) story.push(`[직접 선택해 정리한 기억]\n${selected}`);
-  const parts = [...story, ...fixed].filter(Boolean);
+  // Who calls whom what, for the people of this scene only (a single short line).
+  let calls = '';
+  if (scenes && featureOn(chatId, 'addressBook')) {
+    try { calls = A.using(chatId, () => Addr.injectionBlock(loadAddress(chatId), presentPeople(chatId, scenes))); } catch { calls = ''; }
+  }
+  const parts = [...story, calls, ...fixed].filter(Boolean);
   return parts.length ? `${header}\n\n${parts.join('\n\n')}\n\n${footer}` : '';
 }
 
@@ -2758,11 +2818,26 @@ async function routes(app) {
   }));
   // Scenes and facts, for reading and for hand edits (the extension screen uses these).
   app.get('/chats/:id/scenes', guard(async (req) => loadScenes(safeChatId(req.params.id)) || S.emptyStore()));
+  /** Suggestions (never rules) from a scene the user just edited; see address.cjs. No model call, never fails the edit. */
+  const learnFromEdit = (chatId, wasStore, wasScene, scene) => {
+    try {
+      const book = structuredClone(loadAddress(chatId));
+      const made = A.using(chatId, () => Addr.learnFromSceneEdit(book, { store: wasStore, oldScene: wasScene, newScene: scene, table: loadNames(chatId), options: { address: featureOn(chatId, 'addressBook') } }));
+      if (made.address || made.alias || made.guess) {
+        saveAddress(chatId, book);
+        log(`chat ${chatId}: learned from a hand edit (${made.address} call term, ${made.alias} name, ${made.guess} guess suggestion(s))`);
+      }
+    } catch (error) {
+      log(`chat ${chatId}: could not learn from the edit (${error?.message || error})`);
+    }
+  };
   const editScenes = (chatId, edit) =>
     enqueue(`scenes:${chatId}`, async () => {
       const store = structuredClone(loadScenes(chatId) || S.emptyStore());
       const out = edit(store);
       saveScenes(chatId, store);
+      // Corrections the user made may show a term the dialogue now uses (no model call).
+      refreshAddress(chatId, store);
       // What was picked for this turn may rest on the old wording: pick again on the next reply or reroll.
       recalls.delete(chatId);
       // Meaning search: the edited pieces are already left out; their new vectors are made in the background.
@@ -2776,6 +2851,9 @@ async function routes(app) {
     return editScenes(chatId, (store) => {
       const scene = store.scenes.find((x) => x.id === req.params.sceneId);
       if (!scene) throw Error('해당 장면을 찾지 못했습니다.');
+      const learning = featureOn(chatId, 'learnFromEdits');
+      const wasScene = learning ? structuredClone(scene) : null;
+      const wasStore = learning ? structuredClone(store) : null;
       for (const field of ['title', 'summary', 'time', 'place', 'weather']) if (typeof req.body?.[field] === 'string') scene[field] = req.body[field].trim();
       // The chapter (and arc) that summarized this scene no longer says what it says now.
       S.markStale(store, { scene: scene.id });
@@ -2794,7 +2872,7 @@ async function routes(app) {
         // A listener that was only guessed stays marked until the user changes it: saving a new value makes it theirs.
         const guessKept = !!old?.toGuess && !!q.toGuess && (old.to || null) === to;
         const { toGuess, ...plain } = q;
-        if (old && ((old.by || null) !== by || (old.to || null) !== to)) return { ...plain, by, to, ...(guessKept ? { toGuess: true } : {}), manual: true, manualAt: new Date().toISOString() };
+        if (old && ((old.by || null) !== by || (old.to || null) !== to)) return { ...(({ viaBook, ...rest }) => rest)(plain), by, to, ...(guessKept ? { toGuess: true } : {}), manual: true, manualAt: new Date().toISOString() };
         const stay = guessKept ? { ...plain, toGuess: true } : plain;
         return old?.manual ? { ...stay, manual: true, manualAt: old.manualAt || null } : stay;
       };
@@ -2820,6 +2898,7 @@ async function routes(app) {
           });
       scene.edited = true;
       scene.editedAt = new Date().toISOString();
+      if (learning) learnFromEdit(chatId, wasStore, wasScene, scene);
       return scene;
     });
   }));
@@ -3097,6 +3176,71 @@ async function routes(app) {
     if (!token || L.hashText(JSON.stringify(planned.changes)) !== token) throw Error('미리 본 뒤에 기억이 바뀌었습니다. 다시 미리 보기를 해 주세요.');
     return planned;
   };
+  /* ---------- 호칭 사전 and what is learned from the user's edits ---------- */
+  const addressView = (chatId) => {
+    const addressBook = featureOn(chatId, 'addressBook'), learnFromEdits = featureOn(chatId, 'learnFromEdits');
+    if (!addressBook && !learnFromEdits) return null;
+    return A.using(chatId, () => Addr.view(loadAddress(chatId), { addressBook, learnFromEdits }));
+  };
+  const needFeature = (chatId, key) => {
+    if (!featureOn(chatId, key)) throw Error(`이 방에서 ${F.FEATURES[key].label} 기능이 꺼져 있습니다. 설정 → 추가 기능에서 켜 주세요.`);
+  };
+  /** Read-modify-write of the book with no await in between, so a scan and a click cannot overwrite each other. */
+  const changeBook = (chatId, fn) => {
+    const book = structuredClone(loadAddress(chatId));
+    const out = A.using(chatId, () => fn(book));
+    saveAddress(chatId, book);
+    return out;
+  };
+  app.get('/chats/:id/address', guard(async (req) => {
+    const chatId = safeChatId(req.params.id);
+    return addressView(chatId) || { addressBook: false, learnFromEdits: false, entries: [], suggestions: [], edits: [] };
+  }));
+  app.post('/chats/:id/address', guard(async (req) => {
+    const chatId = safeChatId(req.params.id);
+    needFeature(chatId, 'addressBook');
+    const action = String(req.body?.action || '');
+    const id = String(req.body?.id || '');
+    const entry = changeBook(chatId, (book) => {
+      if (action === 'add') return Addr.addEntry(book, req.body?.entry);
+      if (action === 'edit') return Addr.editEntry(book, id, req.body?.entry);
+      if (action === 'delete') return Addr.deleteEntry(book, id);
+      if (action === 'toggle') {
+        if (typeof req.body?.on !== 'boolean') throw Error('on: true 또는 false로 보내 주세요.');
+        return Addr.toggleEntry(book, id, req.body.on);
+      }
+      throw Error('add, edit, delete, toggle 중 하나여야 합니다.');
+    });
+    recalls.delete(chatId);
+    return { entry, ...addressView(chatId) };
+  }));
+  app.post('/chats/:id/address/suggestion/:sid', guard(async (req) => {
+    const chatId = safeChatId(req.params.id);
+    needFeature(chatId, 'learnFromEdits');
+    const action = String(req.body?.action || '');
+    if (!['accept', 'ignore'].includes(action)) throw Error('accept 또는 ignore 중 하나여야 합니다.');
+    const sid = String(req.params.sid || '');
+    const item = (loadAddress(chatId).suggestions || []).find((x) => x.id === sid);
+    if (!item) throw Error('해당 제안을 찾지 못했습니다.');
+    if (item.status !== 'open') throw Error('이미 답한 제안입니다.');
+    if (action === 'accept') {
+      if (item.kind === 'address') {
+        needFeature(chatId, 'addressBook');
+        changeBook(chatId, (book) => { Addr.addEntry(book, { from: item.from, to: item.to, term: item.term }); Addr.answerSuggestion(book, sid, 'done'); });
+      } else if (item.kind === 'alias') {
+        // The name table is changed first; if it refuses, the suggestion stays open.
+        await enqueue(chatId, async () => {
+          const table = structuredClone(loadNames(chatId));
+          A.addAlias(table, item.source, item.target, { rewrite: false });
+          saveNames(chatId, table);
+        });
+        changeBook(chatId, (book) => Addr.answerSuggestion(book, sid, 'done'));
+      } else throw Error('알 수 없는 제안입니다.');
+    } else {
+      changeBook(chatId, (book) => Addr.answerSuggestion(book, sid, 'ignored'));
+    }
+    return { id: sid, status: action === 'accept' ? 'done' : 'ignored', ...addressView(chatId) };
+  }));
   app.get('/chats/:id/names', guard(async (req) => {
     const chatId = safeChatId(req.params.id);
     const { store, ledger, table } = namesState(chatId);
@@ -3109,6 +3253,7 @@ async function routes(app) {
         duplicates: N.duplicates(store, ledger, table),
         suggestions: N.suggestions(store, ledger, table),
         history: historyView(table),
+        address: addressView(chatId),
         busy: roomBusy(chatId),
       };
     });
@@ -3496,7 +3641,7 @@ function attach(app) {
   log('admin API ready at /api/memory-module');
 }
 
-module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { listRooms, purgeChatMemory, purgeIfGone, deleteOnSend, deletePrepare, listOrphans, deleteOrphans, goneChats, loadNames, saveNames, enqueue, foldScenes, reviewAttributions, loadAttributionLog, sceneJobs, selectedForView, loadSelected, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, loadTranslations, saveTranslations, chatLangs, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, jobs, writeLanguage, memoryCallOptions, routineSetting, routineEnabled, featureOn, featureSetting, F, B, clearRoomCaches, RESTORE_UNDO_DIR, connectionWithKey, memoryModel, startTrial, trials } };
+module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { loadAddress, saveAddress, refreshAddress, presentPeople, Addr, listRooms, purgeChatMemory, purgeIfGone, deleteOnSend, deletePrepare, listOrphans, deleteOrphans, goneChats, loadNames, saveNames, enqueue, foldScenes, reviewAttributions, loadAttributionLog, sceneJobs, selectedForView, loadSelected, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, loadTranslations, saveTranslations, chatLangs, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, jobs, writeLanguage, memoryCallOptions, routineSetting, routineEnabled, featureOn, featureSetting, F, B, clearRoomCaches, RESTORE_UNDO_DIR, connectionWithKey, memoryModel, startTrial, trials } };
 
 
 

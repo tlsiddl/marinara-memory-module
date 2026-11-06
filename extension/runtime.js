@@ -48,6 +48,8 @@
   let namesRoom = '';
   let namesError = '';
   let nameForm = { source: '', target: '', display: '', text: true };
+  // The 호칭 사전 form (id is set while an entry is being edited).
+  let addressForm = { id: '', from: '', to: '', term: '', note: '' };
   /** What a rename or merge would change, shown before it is applied: { kind: 'rename' | 'merge', data, form }. */
   let namePreview = null;
   let searchQuery = '';
@@ -848,11 +850,46 @@
       <p class="intro">같은 사람이 여러 이름(한국어·영어 표기, 애칭, 오타)으로 따로 저장된 것을 한 사람으로 모읍니다. 카드와 사용자 캐릭터 이름은 자동으로 기준 이름이 됩니다.</p>
       ${names.busy ? '<div class="note" role="status">지금 이 방의 기억을 정리하는 중입니다. 미리 보기는 되지만 적용은 정리가 끝난 뒤에 할 수 있습니다.</div>' : ''}
       ${previewBox()}
+      ${addressPaper(names.address, addressForm, armed, names.known || [])}
       ${form}
       <div class="paper"><h2>같은 사람일 수 있음 · ${names.suggestions?.length || 0}건</h2><p class="hint">철자나 소리가 비슷할 뿐 확실하지 않아 자동으로 합치지 않습니다. 같은 사람이면 미리 보기 뒤 합치고, 다른 사람이면 '다른 사람'을 눌러 다시 묻지 않게 하세요.</p>${sug || '<p class="hint">없습니다.</p>'}</div>
       <div class="paper"><h2>이미 저장된 중복 · ${names.duplicates?.length || 0}명</h2><p class="hint">별칭이나 이름만 부른 형태(조사 포함)처럼 규칙으로 같은 사람인 이름이 따로 저장된 경우입니다. 합치면 기록은 하나도 버리지 않고 이야기 순서대로 모읍니다(같은 기록이 두 번 저장된 것만 하나로).</p>${dup ? `<ul>${dup}</ul><div class="buttons"><button data-act="mergePreview">중복 합치기 미리 보기</button></div>` : '<p class="hint">없습니다.</p>'}</div>
       <div class="paper"><h2>별칭 표</h2>${table ? `<ul>${table}</ul>` : '<p class="hint">아직 별칭이 없습니다.</p>'}</div>
       <div class="paper"><h2>최근 이름 바꾸기</h2>${history ? `<ul>${history}</ul>` : '<p class="hint">없습니다.</p>'}${last ? `<div class="buttons"><button class="ghost" data-act="nameUndo">${armed === 'nameUndo' ? '한 번 더 누르면 되돌립니다' : `마지막 바꾸기 되돌리기 (${esc(last.source)} → ${esc(last.target)})`}</button></div>` : ''}</div>`;
+  }
+
+  /** 이름 정리 → 호칭 사전 and the suggestions learned from the user's own corrections (null: both features are off). */
+  function addressPaper(a, form, armedNow, known) {
+    if (!a || (!a.addressBook && !a.learnFromEdits)) return '';
+    const f = form || {};
+    const entries = a.entries || [];
+    const suggestions = a.suggestions || [];
+    const row = (e) => `<div class="routine-row address-row" data-aid="${esc(e.id)}"><span><b>${esc(e.from)}</b> → <b>${esc(e.to)}</b>: <b>${esc(e.term)}</b> ×${esc(e.count)} <small>${e.source === 'user' ? '직접 추가' : '자동'}${e.note ? ` · ${esc(e.note)}` : ''}</small></span>
+      <label class="mini"><input type="checkbox" data-address-use="${esc(e.id)}" ${e.useForCheck === false ? '' : 'checked'}>대사 확인에 쓰기</label>
+      <button data-act="addressEdit" data-id="${esc(e.id)}">고치기</button><button class="ghost" data-act="addressDelete" data-id="${esc(e.id)}">${armedNow === `addressDelete:${e.id}` ? '한 번 더 누르면 지웁니다' : '지우기'}</button></div>`;
+    const people = (known || []).map((n) => `<option value="${esc(n)}">`).join('');
+    const book = a.addressBook ? `<div class="paper"><h2>호칭 사전 · ${entries.length}개</h2>
+      <p class="hint">누가 누구를 어떻게 부르는지입니다. 저장된 대사에서 같은 부르는 말을 두 번 이상 쓴 것만 자동으로 올라오고(모델을 부르지 않습니다), 직접 추가한 것은 횟수와 상관없이 남습니다. ‘대사 확인에 쓰기’를 켜 둔 말은 대사의 화자·상대를 확인할 때 쓰입니다(그 말로 불린 사람은 상대이고 화자가 아님). 자동으로 올라온 항목은 다음 정리 때 대사에 맞게 다시 계산되고, 고치면 직접 추가한 것이 됩니다.</p>
+      ${entries.length ? entries.map(row).join('') : '<p class="hint">아직 없습니다.</p>'}
+      <h3>${f.id ? '호칭 고치기' : '호칭 직접 추가'}</h3>
+      <div class="routine-row address-form"><input id="addrFrom" list="addrPeople" value="${esc(f.from)}" placeholder="부르는 사람" aria-label="부르는 사람"><input id="addrTo" list="addrPeople" value="${esc(f.to)}" placeholder="불리는 사람" aria-label="불리는 사람"><input id="addrTerm" value="${esc(f.term)}" placeholder="부르는 말 (예: 보스)" aria-label="부르는 말"><input id="addrNote" value="${esc(f.note)}" placeholder="메모(선택)" aria-label="메모">
+        <datalist id="addrPeople">${people}</datalist>
+        <button class="primary" data-act="addressSave">${f.id ? '저장' : '추가'}</button>${f.id ? '<button class="ghost" data-act="addressCancel">취소</button>' : ''}</div></div>` : '';
+    const suggest = (x) => {
+      const text = x.kind === 'alias'
+        ? `제안: ‘${esc(x.source)}’은(는) ${esc(x.target)}의 다른 이름일까요? (${esc(x.count)}곳에서 쓰임)`
+        : `제안: ‘${esc(x.term)}’은(는) ${esc(x.to)}을(를) 부르는 말일까요? (${esc(x.from)}이(가) 한 말)`;
+      return `<div class="routine-row" data-sid="${esc(x.id)}"><span>${text}</span><button class="primary" data-act="suggestAccept" data-id="${esc(x.id)}">${x.kind === 'alias' ? '같은 사람으로 추가' : '추가'}</button><button class="ghost" data-act="suggestIgnore" data-id="${esc(x.id)}">무시</button></div>`;
+    };
+    const learn = a.learnFromEdits ? `<div class="paper"><h2>직접 고친 것에서 배운 제안 · ${suggestions.length}건</h2>
+      <p class="hint">장면 편집에서 대사의 말한 사람·들은 사람을 직접 고쳤을 때 만들어집니다. 누르기 전까지 아무것도 바뀌지 않고, ‘무시’한 제안은 다시 묻지 않습니다.</p>
+      ${suggestions.length ? suggestions.map(suggest).join('') : '<p class="hint">제안이 없습니다.</p>'}</div>` : '';
+    return book + learn;
+  }
+
+  function readAddressForm() {
+    const v = (id) => root.querySelector(id)?.value.trim() || '';
+    addressForm = { id: addressForm.id, from: v('#addrFrom'), to: v('#addrTo'), term: v('#addrTerm'), note: v('#addrNote') };
   }
 
   function viewInject() {
@@ -1067,7 +1104,7 @@
     'unknown-name': '모르는 이름', label: '화자 표기', evidence: '서술 근거', blank: '비움', applied: '저장', unchanged: '그대로', skipped: '건너뜀',
     'single-clean': '한 번 확인 (문제 없음)', 'swapped-reversed': '화자·상대가 뒤바뀌어 바로잡음', 'cleared-reversed': '두 판단 모두 저장된 화자를 상대로 봐서 지움',
     'cleared-label': '화자 표기가 서술과 맞지 않아 지움', 'label-contradicted': '화자 표기가 옆 서술과 맞지 않음', 'kept-listener': '두 판단이 같은 기존 상대 유지',
-    'agreed-listener': '두 판단이 같은 상대 추가', 'reversed-listener': '저장됐던 화자를 상대로', 'title-listener': '호칭으로 불린 사람을 상대로',
+    'agreed-listener': '두 판단이 같은 상대 추가', 'reversed-listener': '저장됐던 화자를 상대로', 'title-listener': '호칭으로 불린 사람을 상대로', 'address-book': '호칭 사전의 부르는 말로 불린 사람을 상대로',
     settled: '규칙으로 확정', 'settled-label': '규칙으로 확정 · 화자 표기', 'settled-narration': '규칙으로 확정 · 옆 서술', 'settled-sender': '규칙으로 확정 · 메시지 작성자',
     'differs-from-stored': '저장 값과 다른 판단', 'listener-differs': '상대가 저장 값과 다름', 'listener-rejected': '상대 근거 부족', role: '역할로만 나온 화자',
     'listener-evidence': '상대 근거가 원문에 없음', 'listener-relay': '전해 달라는 제3자', 'listener-unknown-name': '모르는 상대 이름',
@@ -1171,7 +1208,7 @@
   async function handle(actName, el) {
     const id = el?.dataset?.id;
     const chat = encodeURIComponent(room);
-    if (actName !== 'fresh' && !actName.startsWith('deleteFact') && actName !== 'closeThread' && actName !== 'rebuildChapters' && actName !== 'deleteRoutine' && !['nameApply', 'mergeApply', 'aliasApply', 'nameUndo', 'backupDownload', 'restoreApply', 'restoreUndo'].includes(actName)) armed = '';
+    if (actName !== 'fresh' && !actName.startsWith('deleteFact') && actName !== 'closeThread' && actName !== 'rebuildChapters' && actName !== 'deleteRoutine' && !['nameApply', 'mergeApply', 'aliasApply', 'nameUndo', 'backupDownload', 'restoreApply', 'restoreUndo', 'addressDelete'].includes(actName)) armed = '';
     switch (actName) {
       case 'retryTranslation':
         return act(async () => {
@@ -1299,6 +1336,41 @@
           namePreview = null;
           names = null;
         }, `글 속 ${form.alias} → ${form.display}: 표기를 바꿨습니다.`);
+      }
+      case 'addressSave': {
+        readAddressForm();
+        const form = { ...addressForm };
+        const body = form.id ? { action: 'edit', id: form.id, entry: form } : { action: 'add', entry: form };
+        return act(async () => {
+          await api('POST', `/chats/${chat}/address`, body);
+          addressForm = { id: '', from: '', to: '', term: '', note: '' };
+          names = null;
+        }, form.id ? '호칭을 고쳤습니다.' : '호칭을 추가했습니다.');
+      }
+      case 'addressEdit': {
+        const e = (names?.address?.entries || []).find((x) => x.id === id);
+        if (!e) return;
+        addressForm = { id: e.id, from: e.from, to: e.to, term: e.term, note: e.note || '' };
+        return render();
+      }
+      case 'addressCancel':
+        addressForm = { id: '', from: '', to: '', term: '', note: '' };
+        return render();
+      case 'addressDelete':
+        if (armed !== `addressDelete:${id}`) { armed = `addressDelete:${id}`; return render(); }
+        armed = '';
+        return act(async () => {
+          await api('POST', `/chats/${chat}/address`, { action: 'delete', id });
+          if (addressForm.id === id) addressForm = { id: '', from: '', to: '', term: '', note: '' };
+          names = null;
+        }, '호칭을 지웠습니다.');
+      case 'suggestAccept':
+      case 'suggestIgnore': {
+        const accept = actName === 'suggestAccept';
+        return act(async () => {
+          await api('POST', `/chats/${chat}/address/suggestion/${encodeURIComponent(id)}`, { action: accept ? 'accept' : 'ignore' });
+          names = null;
+        }, accept ? '제안을 받아들였습니다.' : '제안을 무시했습니다. 다시 묻지 않습니다.');
       }
       case 'nameCancel':
         namePreview = null;
@@ -1696,6 +1768,7 @@
     root.addEventListener('input', (e) => {
       if (e.target.id === 'memorySearchInput') searchDraft = e.target.value;
       if (['nameSource', 'nameTarget', 'nameDisplay'].includes(e.target.id)) readNameForm();
+      if (['addrFrom', 'addrTo', 'addrTerm', 'addrNote'].includes(e.target.id)) readAddressForm();
       if (e.target.id === 'attributionFilter') {
         attributionFilter = e.target.value;
         // Shown and hidden in place, so typing keeps the focus and the open sections.
@@ -1781,6 +1854,14 @@
         const mode = e.target.value;
         const label = (info?.features || []).find((f) => f.key === key)?.label || key;
         void act(() => api('POST', `/chats/${encodeURIComponent(room)}/feature-mode`, { key, mode }), `이 방의 ${label} 설정을 저장했습니다.`);
+      }
+      if (e.target.dataset?.addressUse) {
+        const id = e.target.dataset.addressUse;
+        const on = e.target.checked;
+        void act(async () => {
+          await api('POST', `/chats/${encodeURIComponent(room)}/address`, { action: 'toggle', id, on });
+          names = null;
+        }, on ? '이 호칭을 대사 확인에 쓰도록 했습니다.' : '이 호칭을 대사 확인에 쓰지 않도록 했습니다.');
       }
       if (e.target.id === 'setBackupVectors') {
         backupVectors = e.target.checked;

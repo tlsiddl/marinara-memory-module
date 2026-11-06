@@ -12,7 +12,7 @@ const S = require('../memory-module/lib/scenes.cjs');
 const service = require('../memory-module/lib/service.cjs');
 const T = service._test;
 const chatDir = path.join(dir, 'memory-module/chats');
-const SUFFIXES = ['.json', '.scenes.json', '.names.json', '.selected.json', '.vectors.json', '.attribution-log.json', '.translations.json', '.scene-error.txt'];
+const SUFFIXES = ['.json', '.scenes.json', '.names.json', '.selected.json', '.vectors.json', '.attribution-log.json', '.translations.json', '.address.json', '.scene-error.txt'];
 test.after(() => fs.rmSync(dir, { recursive: true, force: true }));
 
 const file = (id, suffix) => path.join(chatDir, `${id}${suffix}`);

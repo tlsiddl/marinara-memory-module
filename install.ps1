@@ -24,7 +24,8 @@ $files = @(
   'memory-module/lib/aliases.cjs',
   'memory-module/lib/names.cjs',
   'memory-module/lib/features.cjs',
-  'memory-module/lib/backup.cjs'
+  'memory-module/lib/backup.cjs',
+  'memory-module/lib/address.cjs'
 )
 
 function Get-Version($path) {

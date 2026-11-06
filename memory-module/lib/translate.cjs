@@ -77,6 +77,11 @@ function planLines(text, target) {
       out.push({ line, kind: 'keep' });
       continue;
     }
+    // The address-book line is names and the words the story uses for them: kept as written.
+    if (trimmed.startsWith('[호칭] ')) {
+      out.push({ line, kind: 'keep' });
+      continue;
+    }
     if (STATIC[target][trimmed]) {
       out.push({ line, kind: 'static', text: line.replace(trimmed, STATIC[target][trimmed]) });
       inQuoted = QUOTED_BLOCKS.includes(trimmed);
