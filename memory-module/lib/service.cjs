@@ -2852,7 +2852,11 @@ async function routes(app) {
     const index = loadVectors(chatId);
     if (!index || !Object.keys(index.items).length) return { state: 'unavailable', results: [] };
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), QUERY_TIMEOUT_MS);
+    // SIDE B is an explicit, user-initiated search; slow embedding services can
+    // legitimately take longer than the tighter automatic-recall budget.
+    const isSideBSearch = req.body?.scope === 'side-b';
+    let timedOut = false;
+    const timer = setTimeout(() => { timedOut = true; controller.abort(); }, isSideBSearch ? 20000 : QUERY_TIMEOUT_MS);
     const disconnected = () => controller.abort();
     req.raw?.once?.('aborted', disconnected);
     try {
@@ -2869,6 +2873,11 @@ async function routes(app) {
         return { query, hits };
       });
       return { state: 'ok', model: embeddingModel(), results };
+    } catch (error) {
+      // SIDE B can fall back to lexical search without treating a timeout as a
+      // bad request. Preserve disconnect and non-SIDE B error handling.
+      if (isSideBSearch && timedOut) return { state: 'unavailable', reason: 'timeout', results: [] };
+      throw error;
     } finally { clearTimeout(timer); req.raw?.removeListener?.('aborted', disconnected); }
   }));
   // "What would come up if I sent this?" — the recall without a reply, nothing saved.
