@@ -51,6 +51,12 @@ const FEATURES = {
     default: false,
     ready: true,
   },
+  autoApply: {
+    label: '제안 자동 적용',
+    description: '날짜·주기 트래커가 이야기에서 찾은 시작일, 직접 고친 것에서 배운 호칭·다른 이름 제안을 [기록]·[추가]를 누르기 전에 바로 적용합니다. 적용한 것은 해당 화면의 “자동으로 적용함” 목록에 남고(방마다 최근 50개) [되돌리기]로 정확히 그 변경만 취소할 수 있으며, 되돌린 제안은 다시 적용하지 않습니다. 끄면 예전처럼 제안만 보여 주고 직접 누를 때만 바뀝니다. “같은 사람일 수 있음” 합치기와 기록 충돌 해결은 이 설정과 상관없이 항상 직접 고릅니다.',
+    default: true,
+    ready: true,
+  },
 };
 
 const known = (key) => Object.prototype.hasOwnProperty.call(FEATURES, key);

@@ -335,7 +335,7 @@ function loadTrackers(chatId) {
   if (trackersCache.has(chatId)) return trackersCache.get(chatId);
   const file = trackersFile(chatId);
   const stored = supported(file, readJson(file, null), Tk.TRACKERS_VERSION);
-  const value = stored && Array.isArray(stored.items) ? { ...Tk.emptyTrackers(), ...stored, suggestions: Array.isArray(stored.suggestions) ? stored.suggestions : [] } : Tk.emptyTrackers();
+  const value = stored && Array.isArray(stored.items) ? { ...Tk.emptyTrackers(), ...stored, suggestions: Array.isArray(stored.suggestions) ? stored.suggestions : [], applied: Array.isArray(stored.applied) ? stored.applied : [] } : Tk.emptyTrackers();
   trackersCache.set(chatId, value);
   return value;
 }
@@ -437,7 +437,7 @@ function refreshWorld(chatId, store) {
       if (featureOn(chatId, 'trackers')) {
         const old = loadTrackers(chatId);
         if (old.items.some((t) => t.type === 'cycle')) {
-          const next = Tk.suggest(old, store, (scene) => sceneDate(chatId, scene));
+          const next = Tk.suggest(old, store, (scene) => sceneDate(chatId, scene), undefined, { auto: featureOn(chatId, 'autoApply') });
           if (next !== old) { saveTrackers(chatId, next); changed = true; }
         }
       }
@@ -3157,9 +3157,14 @@ async function routes(app) {
   const learnFromEdit = (chatId, wasStore, wasScene, scene) => {
     try {
       const book = structuredClone(loadAddress(chatId));
-      const made = A.using(chatId, () => Addr.learnFromSceneEdit(book, { store: wasStore, oldScene: wasScene, newScene: scene, table: loadNames(chatId), options: { address: true } }));
+      // 제안 자동 적용: the name table is a copy, saved only when an alias was really registered.
+      const auto = featureOn(chatId, 'autoApply');
+      const table = auto ? structuredClone(loadNames(chatId)) : loadNames(chatId);
+      const made = A.using(chatId, () => Addr.learnFromSceneEdit(book, { store: wasStore, oldScene: wasScene, newScene: scene, table, options: { address: true, auto } }));
       if (made.address || made.alias || made.guess) {
+        if (made.appliedAlias) saveNames(chatId, table);
         saveAddress(chatId, book);
+        if (made.applied) log(`chat ${chatId}: applied ${made.applied} suggestion(s) by itself`);
         log(`chat ${chatId}: learned from a hand edit (${made.address} call term, ${made.alias} name, ${made.guess} guess suggestion(s))`);
       }
     } catch (error) {
@@ -3547,6 +3552,25 @@ async function routes(app) {
     recalls.delete(chatId);
     return { entry, ...addressView(chatId) };
   }));
+  // 제안 자동 적용: take one automatic application back (the suggestion then counts as ignored and is never applied again).
+  app.post('/chats/:id/address/applied/:aid/undo', guard(async (req) => {
+    const chatId = safeChatId(req.params.id);
+    const aid = String(req.params.aid || '');
+    const rec = (loadAddress(chatId).applied || []).find((a) => a.id === aid);
+    if (!rec) throw Error('해당 자동 적용 기록을 찾지 못했습니다.');
+    if (rec.undone) throw Error('이미 되돌렸습니다.');
+    let kept = false;
+    // The name table is changed in the same step as the book (names first; nothing awaits in between).
+    await enqueue(chatId, async () => {
+      const table = structuredClone(loadNames(chatId));
+      const book = structuredClone(loadAddress(chatId));
+      kept = A.using(chatId, () => Addr.undoApplied(book, aid, { table })).kept;
+      if (rec.kind === 'alias') saveNames(chatId, table);
+      saveAddress(chatId, book);
+    });
+    recalls.delete(chatId);
+    return { id: aid, kept, ...addressView(chatId) };
+  }));
   app.post('/chats/:id/address/suggestion/:sid', guard(async (req) => {
     const chatId = safeChatId(req.params.id);
     const action = String(req.body?.action || '');
@@ -3588,6 +3612,7 @@ async function routes(app) {
       realDate: Tk.localDate(),
       items: Tk.view(file, { story }),
       suggestions: (file.suggestions || []).filter((s) => s.status === 'open' && labels.has(s.trackerId)).map((s) => ({ id: s.id, trackerId: s.trackerId, label: labels.get(s.trackerId), date: s.date, sceneId: s.sceneId, text: s.text })),
+      applied: Tk.appliedView(file),
       people: N.knownPeople(scenes, ledger, loadNames(chatId)),
       sceneDates,
     };
@@ -3608,7 +3633,7 @@ async function routes(app) {
     const b = req.body || {};
     const action = String(b.action || '');
     const id = String(b.id || '');
-    const ACTIONS = ['add', 'edit', 'delete', 'start', 'addStart', 'removeStart', 'editStart', 'fromScene', 'accept', 'ignore'];
+    const ACTIONS = ['add', 'edit', 'delete', 'start', 'addStart', 'removeStart', 'editStart', 'fromScene', 'accept', 'ignore', 'undoApplied'];
     if (!ACTIONS.includes(action)) throw Error(`${ACTIONS.join(', ')} 중 하나여야 합니다.`);
     // Read, change and save with no await in between, so a scan cannot overwrite the change.
     A.using(chatId, () => {
@@ -3632,7 +3657,8 @@ async function routes(app) {
         const date = sceneDate(chatId, scene);
         if (!date) throw Error('이 장면에는 작중 날짜가 없습니다.');
         next = Tk.startFromDate(file, { trackerId: id, label: b.label, scope: b.scope, people: b.people, clock: 'story', date });
-      } else next = Tk.answerSuggestion(file, String(b.sid || id), action);
+      } else if (action === 'undoApplied') next = Tk.undoApplied(file, String(b.aid || id));
+      else next = Tk.answerSuggestion(file, String(b.sid || id), action);
       saveTrackers(chatId, next);
     });
     return trackersView(chatId);

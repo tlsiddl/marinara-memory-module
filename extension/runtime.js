@@ -1051,9 +1051,12 @@
     const suggestions = (t.suggestions || []).length
       ? `<div class="note" role="status"><b>이야기에서 찾은 시작일</b>${t.suggestions.map((s) => `<p>${esc(s.text)} <a href="#" class="record-link" data-goto-scene="${esc(s.sceneId)}">${esc(s.sceneId)}</a> <button class="primary" data-act="trackerAnswer" data-sid="${esc(s.id)}" data-answer="accept">기록</button> <button class="ghost" data-act="trackerAnswer" data-sid="${esc(s.id)}" data-answer="ignore">무시</button></p>`).join('')}</div>`
       : '';
+    const applied = (t.applied || []).length
+      ? `<div class="note" role="status"><b>자동으로 적용함</b>${t.applied.map((x) => `<p>자동으로 적용함: ${esc(x.text)} <a href="#" class="record-link" data-goto-scene="${esc(x.sceneId)}">${esc(x.sceneId)}</a> <button class="ghost" data-act="trackerUndoApplied" data-aid="${esc(x.id)}">되돌리기</button></p>`).join('')}</div>`
+      : '';
     return `<div class="paper"><h2>날짜·주기 트래커 · ${t.items.length}개</h2>
-      <p class="hint">직접 만든 날짜 기록입니다(모델 호출 없음). 오늘은 ${t.storyDate ? `이야기 속 ${esc(t.storyDate)}` : '이야기 날짜를 아직 모름'} · 실제 ${esc(t.realDate)}. 답변에는 \`[기록] …\` 한 줄(200자 이내)만 들어가고, 주기의 시작이 이야기에 나와도 기록은 제안만 합니다.</p>
-      ${suggestions}
+      <p class="hint">직접 만든 날짜 기록입니다(모델 호출 없음). 오늘은 ${t.storyDate ? `이야기 속 ${esc(t.storyDate)}` : '이야기 날짜를 아직 모름'} · 실제 ${esc(t.realDate)}. 답변에는 \`[기록] …\` 한 줄(200자 이내)만 들어가고, 주기의 시작이 이야기에 나오면 ‘제안 자동 적용’(설정 → 추가 기능)이 켜져 있을 때는 바로 기록하고 ‘자동으로 적용함’에서 되돌릴 수 있으며, 꺼져 있으면 제안만 합니다.</p>
+      ${applied}${suggestions}
       ${t.items.length ? t.items.map(card).join('') : '<p class="hint">아직 없습니다.</p>'}
       <datalist id="trackerPeople">${(t.people || []).map((n) => `<option value="${esc(n)}">`).join('')}</datalist>
       ${trackerForm(t)}</div>`;
@@ -1130,7 +1133,7 @@
     const f = form || {};
     const entries = a.entries || [];
     const suggestions = a.suggestions || [];
-    const row = (e) => `<div class="routine-row address-row" data-aid="${esc(e.id)}"><span><b>${esc(e.from)}</b> → <b>${esc(e.to)}</b>: <b>${esc(e.term)}</b> ×${esc(e.count)} <small>${e.source === 'user' ? '직접 추가' : '자동'}${e.note ? ` · ${esc(e.note)}` : ''}</small></span>
+    const row = (e) => `<div class="routine-row address-row" data-aid="${esc(e.id)}"><span><b>${esc(e.from)}</b> → <b>${esc(e.to)}</b>: <b>${esc(e.term)}</b> ×${esc(e.count)} <small>${e.source === 'user' ? '직접 추가' : e.source === 'auto-learned' ? '자동 적용' : '자동'}${e.note ? ` · ${esc(e.note)}` : ''}</small></span>
       <label class="mini"><input type="checkbox" data-address-use="${esc(e.id)}" ${e.useForCheck === false ? '' : 'checked'}>대사 확인에 쓰기</label>
       <button data-act="addressEdit" data-id="${esc(e.id)}">고치기</button><button class="ghost" data-act="addressDelete" data-id="${esc(e.id)}">${armedNow === `addressDelete:${e.id}` ? '한 번 더 누르면 지웁니다' : '지우기'}</button></div>`;
     const people = (known || []).map((n) => `<option value="${esc(n)}">`).join('');
@@ -1147,8 +1150,10 @@
         : `제안: ‘${esc(x.term)}’은(는) ${esc(x.to)}을(를) 부르는 말일까요? (${esc(x.from)}이(가) 한 말)`;
       return `<div class="routine-row" data-sid="${esc(x.id)}"><span>${text}</span><button class="primary" data-act="suggestAccept" data-id="${esc(x.id)}">${x.kind === 'alias' ? '같은 사람으로 추가' : '추가'}</button><button class="ghost" data-act="suggestIgnore" data-id="${esc(x.id)}">무시</button></div>`;
     };
+    const appliedRow = (x) => `<div class="routine-row" data-applied="${esc(x.id)}"><span>자동으로 적용함: ${esc(x.text)} <small>${x.kind === 'alias' ? '다른 이름' : '호칭'}</small></span><button class="ghost" data-act="suggestUndo" data-id="${esc(x.id)}">되돌리기</button></div>`;
     const learn = a.learnFromEdits ? `<div class="paper"><h2>직접 고친 것에서 배운 제안 · ${suggestions.length}건</h2>
-      <p class="hint">장면 편집에서 대사의 말한 사람·들은 사람을 직접 고쳤을 때 만들어집니다. 누르기 전까지 아무것도 바뀌지 않고, ‘무시’한 제안은 다시 묻지 않습니다.</p>
+      <p class="hint">장면 편집에서 대사의 말한 사람·들은 사람을 직접 고쳤을 때 만들어집니다. ‘제안 자동 적용’(설정 → 추가 기능)이 켜져 있으면 바로 적용하고 아래 ‘자동으로 적용함’에서 되돌릴 수 있으며, 꺼져 있으면 누르기 전까지 아무것도 바뀌지 않습니다. ‘무시’하거나 되돌린 제안은 다시 묻지 않습니다.</p>
+      ${(a.applied || []).map(appliedRow).join('')}
       ${suggestions.length ? suggestions.map(suggest).join('') : '<p class="hint">제안이 없습니다.</p>'}</div>` : '';
     return book + learn;
   }
@@ -1744,6 +1749,11 @@
           world = null;
         }, answer === 'accept' ? '시작일로 기록했습니다.' : '제안을 무시했습니다. 다시 묻지 않습니다.');
       }
+      case 'trackerUndoApplied':
+        return act(async () => {
+          await api('POST', `/chats/${chat}/trackers`, { action: 'undoApplied', aid: el.dataset.aid });
+          world = null;
+        }, '자동으로 적용한 시작일을 되돌렸습니다. 이 제안은 다시 적용하지 않습니다.');
       case 'scenePickOpen':
         scenePicker = scenePicker?.scene === id ? null : { scene: id, trackerId: '', label: '', p1: '', p2: '' };
         return render();
@@ -1810,6 +1820,11 @@
           names = null;
         }, accept ? '제안을 받아들였습니다.' : '제안을 무시했습니다. 다시 묻지 않습니다.');
       }
+      case 'suggestUndo':
+        return act(async () => {
+          await api('POST', `/chats/${chat}/address/applied/${encodeURIComponent(id)}/undo`);
+          names = null;
+        }, '자동으로 적용한 것을 되돌렸습니다. 이 제안은 다시 적용하지 않습니다.');
       case 'nameCancel':
         namePreview = null;
         armed = '';

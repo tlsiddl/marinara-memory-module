@@ -184,6 +184,40 @@ function addAlias(table, source, target, { display, rewrite = true } = {}) {
   return to;
 }
 
+/**
+ * addAlias for a change that may be taken back (제안 자동 적용): the same result, plus what is needed to undo exactly it.
+ * The undo data holds the entries of the table it touches as they were before and right after, and the dismissed pairs it removed.
+ */
+function addAliasUndoable(table, source, target, opts = {}) {
+  const from = tidy(source);
+  const keys = [...new Set([canonOf(target, table) || tidy(target), canonOf(from, table), canonOf(target, table), tidy(target), from].filter(Boolean))];
+  const grab = () => Object.fromEntries(keys.map((k) => [k, table.people?.[k] ? structuredClone(table.people[k]) : null]));
+  const before = grab();
+  const dismissedBefore = structuredClone(table.dismissed || []);
+  const name = addAlias(table, source, target, opts);
+  const gone = dismissedBefore.filter((d) => !(table.dismissed || []).some((x) => fold(x[0]) === fold(d[0]) && fold(x[1]) === fold(d[1])));
+  return { name, undo: { keys, before, after: grab(), dismissedRemoved: gone } };
+}
+
+/** Takes back an addAliasUndoable: each entry still as it was left goes back; one the user changed since only loses the aliases that were added. */
+function undoAlias(table, undo) {
+  table.people ||= {};
+  const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+  for (const k of undo.keys || []) {
+    const now = table.people[k] ?? null;
+    const was = undo.before?.[k] ?? null, left = undo.after?.[k] ?? null;
+    if (same(now, left)) {
+      if (was) table.people[k] = structuredClone(was); else delete table.people[k];
+    } else if (now && left) {
+      const added = (left.aliases || []).filter((a) => !(was?.aliases || []).some((x) => fold(x) === fold(a)));
+      now.aliases = (now.aliases || []).filter((a) => !added.some((x) => fold(x) === fold(a)));
+      if (!was && !now.aliases.length && !now.display && !now.seeded) delete table.people[k];
+    }
+  }
+  for (const d of undo.dismissedRemoved || []) if (!(table.dismissed || []).some((x) => fold(x[0]) === fold(d[0]) && fold(x[1]) === fold(d[1]))) (table.dismissed ||= []).push(d);
+  touch(table);
+}
+
 function dismiss(table, source, target) {
   table.dismissed ||= [];
   if (!table.dismissed.some((d) => fold(d[0]) === fold(source) && fold(d[1]) === fold(target))) table.dismissed.push([tidy(source), tidy(target)]);
@@ -372,6 +406,8 @@ module.exports = {
   addPerson,
   seed,
   addAlias,
+  addAliasUndoable,
+  undoAlias,
   dismiss,
   dismissed,
   pushHistory,

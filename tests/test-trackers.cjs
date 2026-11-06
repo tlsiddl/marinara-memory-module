@@ -274,7 +274,7 @@ test('suggestions: a start the story states becomes an open suggestion; once; ne
 });
 
 // ---- the service ----
-const settingsFor = (room, features = {}) => X.saveSettings({ connection: null, chats: { [room]: { enabled: true, features } } });
+const settingsFor = (room, features = {}) => X.saveSettings({ connection: null, chats: { [room]: { enabled: true, features: { autoApply: 'off', ...features } } } });
 function seedRoom(room, { date = '24-07-16' } = {}) {
   const store = { ...S.emptyStore(), cast, scenes: [
     sc('S1', 3, { title: '만남', summary: '은서와 라온이 처음 만났다.', place: '카페', time: '24-07-04 (목)', present: [EUNSEO, RAON], events: [{ text: '만났다', quotes: [] }] }),
@@ -346,7 +346,7 @@ test('routes: refused while off; add, edit, start, history, delete; bad input re
   assert.equal(fs.existsSync(path.join(CHATS, 'tc.trackers.json')), false);
   settingsFor('tc', { trackers: 'on' });
   const view = (await call('GET /chats/:id/trackers', 'tc')).result;
-  assert.deepEqual({ ...view, items: [], realDate: 'x' }, { on: true, storyDate: '2024-07-16', realDate: 'x', items: [], suggestions: [], people: view.people, sceneDates: { S1: '2024-07-04', S2: '2024-07-16' } });
+  assert.deepEqual({ ...view, items: [], realDate: 'x' }, { on: true, storyDate: '2024-07-16', realDate: 'x', items: [], suggestions: [], applied: [], people: view.people, sceneDates: { S1: '2024-07-04', S2: '2024-07-16' } });
   assert.deepEqual(view.people, cast, 'the names to pick from');
   const bad = async (body, re) => assert.match((await call('POST /chats/:id/trackers', 'tc', body)).error, re);
   await bad({ action: 'fly' }, /중 하나/);

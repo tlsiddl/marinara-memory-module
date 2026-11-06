@@ -1,9 +1,12 @@
 'use strict';
 // 호칭 사전 (addressBook) and 직접 고친 것 배우기 (learnFromEdits): one file per room, <chat>.address.json.
 //
-//   entries      who calls whom what: { id, from, to, term, count, firstSeen, lastSeen, source: 'auto' | 'user',
+//   applied      [{ id, kind: 'address' | 'alias', sid, text, appliedAt, undone, ... }]: what 제안 자동 적용 did by itself (the last
+//                MAX_APPLIED; undone ones stay so that they are never applied again).
+//   entries      who calls whom what: { id, from, to, term, count, firstSeen, lastSeen, source: 'auto' | 'user' | 'auto-learned',
 //                useForCheck, note? }. 'auto' entries are worked out again from the saved dialogue on every scan
-//                (no model call); 'user' entries are never removed or changed by a scan except for their counts.
+//                (no model call); 'user' entries are never removed or changed by a scan except for their counts. 'auto-learned'
+//                entries are the ones 제안 자동 적용 added from a suggestion; a scan treats them like 'user' ones.
 //   suggestions  what the user's own corrections suggest: { id, kind: 'address' | 'alias', ..., status: 'open' |
 //                'ignored' | 'done' }. Nothing here changes any rule until the user accepts it.
 //   edits        a short record of listeners the user changed after the module had only guessed them.
@@ -19,6 +22,8 @@ const MIN_COUNT = 2;
 const MAX_ENTRIES = 400;
 const MAX_SUGGESTIONS = 100;
 const MAX_EDITS = 50;
+const MAX_APPLIED = 50;
+const isOwn = (e) => e?.source === 'user' || e?.source === 'auto-learned';
 /** The most the injected "[호칭]" line may take. */
 const INJECT_CHARS = 120;
 
@@ -27,7 +32,7 @@ const keyOfTerm = (term) => tidy(term).toLowerCase();
 const hash = (...parts) => crypto.createHash('sha1').update(parts.join('\u0000')).digest('hex').slice(0, 10);
 
 function emptyBook() {
-  return { version: ADDRESS_VERSION, entries: [], suggestions: [], edits: [], updatedAt: null };
+  return { version: ADDRESS_VERSION, entries: [], suggestions: [], applied: [], edits: [], updatedAt: null };
 }
 /** Whether a parsed file is a book this module understands. */
 const isBook = (v) => !!v && typeof v === 'object' && v.version === ADDRESS_VERSION && Array.isArray(v.entries);
@@ -50,6 +55,7 @@ function normalize(book) {
     if (e.firstSeen && (!old.firstSeen || before(e.firstSeen, old.firstSeen))) old.firstSeen = e.firstSeen;
     if (e.lastSeen && (!old.lastSeen || before(old.lastSeen, e.lastSeen))) old.lastSeen = e.lastSeen;
     if (e.source === 'user') { old.source = 'user'; if (e.note) old.note = e.note; }
+    else if (e.source === 'auto-learned' && old.source !== 'user') old.source = 'auto-learned';
     if (e.useForCheck === false) old.useForCheck = false;
   }
   return [...merged.values()].map((e) => ({ ...e, id: entryId(e) }));
@@ -94,12 +100,12 @@ function refresh(book, store) {
   const next = [];
   for (const [key, row] of found) {
     const prev = old.get(key);
-    if (prev?.source === 'user') continue;
+    if (isOwn(prev)) continue;
     if (row.count < MIN_COUNT) continue;
     next.push({ id: entryId(row), from: row.from, to: row.to, term: prev?.term || row.term, count: row.count, firstSeen: row.firstSeen, lastSeen: row.lastSeen, source: 'auto', useForCheck: prev?.useForCheck === false ? false : true });
   }
   for (const [key, prev] of old) {
-    if (prev.source !== 'user') continue;
+    if (!isOwn(prev)) continue;
     const row = found.get(key);
     next.push({ ...prev, count: row ? row.count : prev.count || 0, ...(row ? { firstSeen: row.firstSeen, lastSeen: row.lastSeen } : {}) });
   }
@@ -275,6 +281,8 @@ function learnFromSceneEdit(book, { store, oldScene, newScene, table, options = 
   const old = new Map(quotesOf(oldScene).map((q) => [place(q), q]));
   const names = S.sceneNames(store, newScene);
   const made = { address: 0, alias: 0, guess: 0 };
+  const created = [];
+  const push = (s) => { const item = pushSuggestion(book, s); if (item) created.push(item.id); return item; };
   const swapped = new Map();
   const canon = (n) => A.canonical(n, table);
   for (const q of quotesOf(newScene)) {
@@ -293,7 +301,7 @@ function learnFromSceneEdit(book, { store, oldScene, newScene, table, options = 
       if (first?.at === 'start') {
         const from = canon(by), listener = canon(to);
         const exists = normalize(book).some((e) => e.from === from && e.to === listener && keyOfTerm(e.term) === first.key);
-        if (from && listener && from !== listener && !exists && pushSuggestion(book, { kind: 'address', from, to: listener, term: first.term, number: q.number, sentence: q.sentence })) made.address++;
+        if (from && listener && from !== listener && !exists && push({ kind: 'address', from, to: listener, term: first.term, number: q.number, sentence: q.sentence })) made.address++;
       }
     }
     // (b) a name replaced by another one
@@ -307,10 +315,83 @@ function learnFromSceneEdit(book, { store, oldScene, newScene, table, options = 
     const people = [...(newScene.present || []), ...(newScene.events || []).flatMap((e) => e.with || []), ...(store.personas || [])];
     if (people.some((p) => canon(p) === canon(n))) continue;
     if (uses(store, n) < 2) continue;
-    if (pushSuggestion(book, { kind: 'alias', source: n, target: canon(m), count: uses(store, n) })) made.alias++;
+    if (push({ kind: 'alias', source: n, target: canon(m), count: uses(store, n) })) made.alias++;
+  }
+  // 제안 자동 적용: the suggestions this very edit made are applied at once (older open ones wait for a click).
+  if (options.auto) {
+    made.applied = 0;
+    made.appliedAlias = 0;
+    for (const id of created) {
+      const rec = autoApply(book, id, { table });
+      if (rec) { made.applied++; if (rec.kind === 'alias') made.appliedAlias++; }
+    }
   }
   return made;
 }
+
+const appliedId = (sid) => hash('applied', sid);
+
+/**
+ * Applies one open suggestion at once (제안 자동 적용) and records it in book.applied. An address suggestion adds the
+ * entry (source 'auto-learned'); an alias suggestion registers the other name in `table` (rewrite: false, as an accepted
+ * one would). Returns the record, or null when nothing was done: the suggestion is answered, was applied before (an undone
+ * one never again), the entry already exists, or the name table refuses (the suggestion then stays open for a click).
+ */
+function autoApply(book, sid, { table, now = new Date().toISOString() } = {}) {
+  const sug = (book.suggestions || []).find((x) => x.id === sid);
+  if (!sug || sug.status !== 'open') return null;
+  if ((book.applied || []).some((a) => a.sid === sid || a.id === appliedId(sid))) return null;
+  let rec;
+  if (sug.kind === 'address') {
+    const key = entryKey({ from: sug.from, to: sug.to, term: sug.term });
+    if (normalize(book).some((e) => entryKey(e) === key)) return null;
+    let entry;
+    try { entry = addEntry(book, { from: sug.from, to: sug.to, term: sug.term }); } catch { return null; }
+    book.entries = book.entries.map((e) => (e.id === entry.id ? { ...e, source: 'auto-learned' } : e));
+    rec = { id: appliedId(sid), kind: 'address', sid, entryId: entry.id, from: entry.from, to: entry.to, term: entry.term, text: `‘${entry.term}’ = ${entry.from}이(가) ${entry.to}을(를) 부르는 말`, appliedAt: now, undone: false };
+  } else if (sug.kind === 'alias') {
+    if (!table) return null;
+    let made;
+    try { made = A.addAliasUndoable(table, sug.source, sug.target, { rewrite: false }); } catch { return null; }
+    rec = { id: appliedId(sid), kind: 'alias', sid, source: sug.source, target: made.name, text: `‘${sug.source}’ = ${made.name}의 다른 이름`, appliedAt: now, undone: false, undo: made.undo };
+  } else return null;
+  sug.status = 'done';
+  sug.auto = true;
+  sug.answeredAt = now;
+  book.applied = [...(book.applied || []), rec].slice(-MAX_APPLIED);
+  book.updatedAt = now;
+  return rec;
+}
+
+/**
+ * Takes back one automatic application: the entry (or the alias, in `table`) goes again and the suggestion counts as
+ * ignored, so it is never asked or applied again. An entry the user took over since (edited, so 'user') is left alone.
+ * Returns { rec, kept }: kept is true when something was left because the user had changed it.
+ */
+function undoApplied(book, id, { table, now = new Date().toISOString() } = {}) {
+  const rec = (book.applied || []).find((a) => a.id === id);
+  if (!rec) throw Error('해당 자동 적용 기록을 찾지 못했습니다.');
+  if (rec.undone) throw Error('이미 되돌렸습니다.');
+  let kept = false;
+  if (rec.kind === 'address') {
+    const entries = normalize(book);
+    const found = entries.find((e) => e.id === rec.entryId);
+    if (found && found.source === 'auto-learned') book.entries = entries.filter((e) => e.id !== rec.entryId);
+    else if (found) kept = true;
+  } else if (rec.kind === 'alias') {
+    if (!table) throw Error('이름 표를 찾지 못했습니다.');
+    A.undoAlias(table, rec.undo);
+  }
+  const sug = (book.suggestions || []).find((x) => x.id === rec.sid);
+  if (sug) { sug.status = 'ignored'; sug.answeredAt = now; }
+  rec.undone = true;
+  rec.undoneAt = now;
+  book.updatedAt = now;
+  return { rec, kept };
+}
+
+/** What the screen lists under "자동으로 적용함": the ones not undone, newest first. */
+const appliedView = (book) => (book?.applied || []).filter((a) => !a.undone).map((a) => ({ id: a.id, kind: a.kind, text: a.text, appliedAt: a.appliedAt })).reverse();
 
 /** How many saved lines name this exact name as speaker or listener (before the edit). */
 function uses(store, name) {
@@ -338,11 +419,12 @@ function view(book, { addressBook, learnFromEdits }) {
     learnFromEdits: !!learnFromEdits,
     entries: normalize(book).map((e) => ({ ...e })),
     suggestions: (book.suggestions || []).filter((s) => s.status === 'open'),
+    applied: appliedView(book),
     edits: (book.edits || []).slice(-10),
   };
 }
 
 module.exports = {
   ADDRESS_VERSION, MIN_COUNT, INJECT_CHARS, emptyBook, isBook, normalize, tally, refresh, termMap, injectionBlock,
-  addEntry, editEntry, deleteEntry, toggleEntry, pushSuggestion, answerSuggestion, recordEdit, learnFromSceneEdit, view, entryKey, keyOfTerm,
+  MAX_APPLIED, autoApply, undoApplied, appliedView, addEntry, editEntry, deleteEntry, toggleEntry, pushSuggestion, answerSuggestion, recordEdit, learnFromSceneEdit, view, entryKey, keyOfTerm,
 };

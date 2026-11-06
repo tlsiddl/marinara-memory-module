@@ -29,7 +29,7 @@ const bookFile = (room) => path.join(CHATS, `${room}.address.json`);
 
 const ADEL = '아델', VITO = '비토', SILVI = '실비', ELLI = '엘리';
 const dq = (number, sentence, text, by, to, extra = {}) => ({ number, sentence, text, by, to, ...extra });
-const features = (room, learn, book) => X.saveSettings({ connection: null, chats: { [room]: { features: { ...(learn ? { learnFromEdits: 'on' } : {}), ...(book ? { addressBook: 'on' } : {}) } } } });
+const features = (room, learn, book) => X.saveSettings({ connection: null, chats: { [room]: { features: { autoApply: 'off', ...(learn ? { learnFromEdits: 'on' } : {}), ...(book ? { addressBook: 'on' } : {}) } } } });
 
 function seed(room, quotes, present = [ADEL, VITO, SILVI]) {
   const store = S.emptyStore();
@@ -132,7 +132,7 @@ test('(c) a guessed listener the user changed is recorded, nothing is suggested'
 });
 
 test('built in: an old stored "off" is ignored, the edit is saved as before and a suggestion is made', async () => {
-  X.saveSettings({ connection: null, chats: { rf: { features: { learnFromEdits: 'off', addressBook: 'off' } }, }, features: { learnFromEdits: false, addressBook: false } });
+  X.saveSettings({ connection: null, chats: { rf: { features: { learnFromEdits: 'off', addressBook: 'off', autoApply: 'off' } }, }, features: { learnFromEdits: false, addressBook: false } });
   seed('rf', [dq(1, 1, '"Zuzu, vieni qui."', ADEL, null)]);
   const r = await edit('rf', (q) => { q[0].to = VITO; });
   assert.ifError(r.error);
@@ -183,7 +183,7 @@ test('accepting an address suggestion works whatever an old settings file says',
   features('ri', true, true);
   seed('ri', [dq(1, 1, '"Zuzu, vieni qui."', ADEL, null)]);
   await edit('ri', (q) => { q[0].to = VITO; });
-  X.saveSettings({ connection: null, chats: { ri: { features: { addressBook: 'off' } } } });
+  X.saveSettings({ connection: null, chats: { ri: { features: { addressBook: 'off', autoApply: 'off' } } } });
   const id = open('ri')[0].id;
   assert.ifError((await call('POST /chats/:id/address/suggestion/:sid', 'ri', { action: 'accept' }, { sid: id })).error);
   assert.equal(open('ri').length, 0);
