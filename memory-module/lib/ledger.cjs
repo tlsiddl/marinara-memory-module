@@ -45,14 +45,26 @@ const CLOSERS_AFTER_END = new Set(['”', '"', '’', "'", ')', ']', '」', '』
 
 /** Split at sentence ends followed by a space, but never inside a quote or parentheses. */
 function splitSentences(paragraph) {
+  const strict = splitSentencesWith(paragraph, false);
+  if (!strict.unclosed) return strict.parts;
+  // Only a paragraph the strict reading leaves with an unclosed quote is read again, with " “ ” as one kind of
+  // quote mark (a model opens with one and closes with another) and an inch mark (5") ignored. Any other
+  // paragraph keeps exactly the split it always had, so saved sentence numbers do not move.
+  const mixed = splitSentencesWith(paragraph, true);
+  return mixed.unclosed ? strict.parts : mixed.parts;
+}
+
+function splitSentencesWith(paragraph, mixed) {
   const parts = [];
   const stack = [];
   let straightOpen = false;
   let start = 0;
   for (let i = 0; i < paragraph.length; i++) {
     const ch = paragraph[i];
-    if (ch === '"') straightOpen = !straightOpen;
-    else if (OPENERS[ch]) stack.push(OPENERS[ch]);
+    if (mixed && (ch === '“' || ch === '”')) straightOpen = !straightOpen;
+    else if (ch === '"') {
+      if (!(mixed && /\d/.test(paragraph[i - 1] || ''))) straightOpen = !straightOpen;
+    } else if (OPENERS[ch] && !(mixed && ch === '“')) stack.push(OPENERS[ch]);
     else if (stack.length && ch === stack[stack.length - 1]) stack.pop();
     if (stack.length || straightOpen) continue;
     if (ENDERS.has(ch) || (CLOSERS_AFTER_END.has(ch) && ENDERS.has(paragraph[i - 1]))) {
@@ -67,9 +79,10 @@ function splitSentences(paragraph) {
   }
   const rest = paragraph.slice(start);
   // An unclosed quote would swallow the rest of the paragraph: split that rest plainly instead.
-  if (straightOpen || stack.length) parts.push(...rest.split(/(?<=[.!?…。？！])\s+(?=\S)/u));
+  const unclosed = straightOpen || stack.length > 0;
+  if (unclosed) parts.push(...rest.split(/(?<=[.!?…。？！])\s+(?=\S)/u));
   else parts.push(rest);
-  return parts;
+  return { parts, unclosed };
 }
 
 /** rows: [{id, number, speaker, content}] → same with `sentences` and `h` (content hash). */
