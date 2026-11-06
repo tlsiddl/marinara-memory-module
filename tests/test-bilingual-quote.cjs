@@ -22,7 +22,10 @@ test('either side and duplicate selections retain one complete spoken quote', ()
     const { store } = save(indices);
     const quotes = store.scenes[0].events[0].quotes;
     assert.equal(quotes.length, 1);
-    assert.equal(quotes[0].text, english + ' ' + korean);
+    // The original and its translation are kept apart; they are shown together in one form.
+    assert.equal(quotes[0].text, english);
+    assert.equal(quotes[0].translation, korean.slice(1, -1));
+    assert.equal(S.quoteText(quotes[0]), english + ' ' + korean);
     assert.equal(quotes[0].by, '카시안');
     assert.equal(quotes[0].sentence, 1);
     assert.doesNotMatch(S.quoteLine(quotes[0]), /서술/);
@@ -31,13 +34,14 @@ test('either side and duplicate selections retain one complete spoken quote', ()
 test('repair only exact old source matches and preserve manually edited quotes', () => {
   const { store, msgs } = save([2]);
   const q = store.scenes[0].events[0].quotes[0];
-  q.sentence = 2; q.text = korean; q.by = null;
+  q.sentence = 2; q.text = korean; q.by = null; delete q.translation;
   assert.equal(S.attachTranslations(store, msgs), 1);
-  assert.equal(q.text, english + ' ' + korean);
+  assert.equal(q.text, english);
+  assert.equal(q.translation, korean.slice(1, -1));
   assert.equal(q.sentence, 1);
   assert.doesNotMatch(S.quoteLine(q), /서술/);
   assert.equal(S.attachTranslations(store, msgs), 0);
-  q.sentence = 2; q.text = '(직접 수정한 글)';
+  q.sentence = 2; q.text = '(직접 수정한 글)'; delete q.translation;
   assert.equal(S.attachTranslations(store, msgs), 0);
   assert.equal(q.text, '(직접 수정한 글)');
 });

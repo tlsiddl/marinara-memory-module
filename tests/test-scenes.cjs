@@ -171,6 +171,7 @@ test('a translation on the next line comes with the quote, also for lines saved 
   assert.match(text, /- \[02:52\] 하준이 서아에게 고백함 \(계기: 서아가 졸라서\)\n  하준 → 서아: "I love you, Ari\." \(사랑해, 아리\.\)/);
   // A line saved by an older version, without its translation.
   store.scenes[0].events[0].quotes[0].text = '<speaker="하준">하준 | "I love you, Ari."';
+  delete store.scenes[0].events[0].quotes[0].translation;
   assert.equal(S.attachTranslations(store, msgs), 1);
   assert.equal(S.attachTranslations(store, msgs), 0);
   assert.match(S.renderScenes(store, null), /\(사랑해, 아리\.\)/);

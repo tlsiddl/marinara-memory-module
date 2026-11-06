@@ -13,6 +13,7 @@ const MAX_QUERIES = 5;
 
 /** The translation carries the meaning for a Korean question; keep it over the English original. */
 function lineText(q) {
+  if (typeof q.translation === 'string' && q.translation.trim()) return q.translation.trim();
   const t = String(q.text || '');
   const translation = t.match(/\(([^()]*[가-힣][^()]*)\)\s*$/);
   return translation ? translation[1] : t;

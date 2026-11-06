@@ -3,6 +3,7 @@
 // No engine access here, so every piece can be tested on its own.
 
 const crypto = require('node:crypto');
+const A = require('./aliases.cjs');
 
 const KINDS = ['promise', 'emotion', 'secret', 'pending', 'state'];
 const KIND_LABEL = { promise: '약속', emotion: '풀리지 않은 감정', secret: '비밀과 단서', pending: '미해결 일', state: '기간이 있는 상태' };
@@ -541,13 +542,17 @@ const AFTER_NAME = /^(?:\s*(?:이|가|은|는|을|를|의|에게|에게서|한�
 function matchName(raw, cast) {
   const text = String(raw || '').trim();
   if (!text) return null;
-  const exact = cast.find((n) => text === n);
-  if (exact) return exact;
+  // Every name of the cast and each of its aliases in the room's name table, with the person it stands for.
+  const pairs = A.namePairs(cast);
+  const exact = pairs.find(([n]) => text === n);
+  if (exact) return exact[1];
+  const known = A.canonOf(text);
+  if (known) return known;
   const after = (name) => text.startsWith(name) && AFTER_NAME.test(text.slice(name.length));
-  const full = cast.filter(after).sort((a, b) => b.length - a.length);
-  if (full.length) return full.length === 1 || full[0].length > full[1].length ? full[0] : null;
-  const hits = cast.filter((n) => nameKeys(n).some((k) => text === k || after(k)));
-  return hits.length === 1 ? hits[0] : null;
+  const full = pairs.filter(([n]) => after(n)).sort((a, b) => b[0].length - a[0].length);
+  if (full.length) return full.length === 1 || full[0][0].length > full[1][0].length || full[0][1] === full[1][1] ? full[0][1] : null;
+  const hits = new Set(pairs.filter(([n]) => nameKeys(n).some((k) => text === k || after(k))).map(([, person]) => person));
+  return hits.size === 1 ? [...hits][0] : null;
 }
 
 /** "재민·도윤" → "서재민·도윤": every name written to its full form when it is clearly one known person. */
@@ -870,13 +875,18 @@ function applyResult(ledger, result, batch, now = new Date().toISOString(), { st
     const evidence = resolveEvidence(item?.evidence, index);
     if (!what || !evidence.length) continue;
     // "서아·도윤·하준" ate together: one entry each.
-    for (const who of String(item?.who || '').split(/[·,、/&]|\s+및\s+|\s+(?:와|과|랑)\s+/).map((x) => cleanText(x, 40)).filter(Boolean)) {
+    // One person is one entry: a name is written as the room's name table and the cast know it ("재민이" → 서재민,
+    // an alias → its canonical name). A name that only looks or sounds like someone is kept as written and offered
+    // in the library as "같은 사람일 수 있음"; it is never merged on a guess.
+    const people = [...(ledger.cast || []), ...personaNames(batch), ...(ledger.personas || [])];
+    for (const written of String(item?.who || '').split(/[·,、/&]|\s+및\s+|\s+(?:와|과|랑)\s+/).map((x) => cleanText(x, 40)).filter(Boolean)) {
+      const who = matchName(written, people) || A.canonical(written);
       const message = batch.find((m) => m.number === evidence[0].number);
       const at = storyTime([message].filter(Boolean)) || storyTime(batch);
       const text = cleanText(item.text, 80);
-      if (what === 'sleep' && pastSleepAtWake(item, evidence, message, who)) continue;
+      if (what === 'sleep' && (pastSleepAtWake(item, evidence, message, who) || (written !== who && pastSleepAtWake(item, evidence, message, written)))) continue;
       // "도윤이 먹여 준 스테이크" filed under 도윤: he fed it, he did not eat it.
-      if (what === 'meal' && text && new RegExp(`${who.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*(이|가)?\\s*(떠)?먹여`).test(text)) continue;
+      if (what === 'meal' && text && [...new Set([who, written])].some((n) => new RegExp(`${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*(이|가)?\\s*(떠)?먹여`).test(text))) continue;
       const substitute = what === 'meal' && item.how === 'substitute';
       // A drink filed as a proper meal is dropped; one filed as "made do with" is kept as just that.
       if (what === 'meal' && !substitute && notAMeal(text)) continue;
@@ -884,7 +894,7 @@ function applyResult(ledger, result, batch, now = new Date().toISOString(), { st
       const list = (ledger.routine || []).filter((r) => r.who === who && r.what === what);
       if (list.some((r) => r.number === evidence[0].number)) continue;
       ledger.routine = (ledger.routine || []).filter((r) => !(r.who === who && r.what === what) || list.slice(-(ROUTINE_KEEP - 1)).includes(r));
-      ledger.routine.push({ who, what, text, at, number: evidence[0].number, ...(substitute ? { substitute: true } : {}), ...(item.claimed === true ? { claimed: true } : {}) });
+      ledger.routine.push({ who, what, text: A.rewriteText(text), at, number: evidence[0].number, ...(substitute ? { substitute: true } : {}), ...(item.claimed === true ? { claimed: true } : {}) });
     }
   }
   // The story itself may say someone knows or guesses an item they were marked as not knowing.
@@ -901,6 +911,8 @@ function applyResult(ledger, result, batch, now = new Date().toISOString(), { st
       }
     }
   }
+  // People renamed by hand keep the chosen name in what the model wrote just now (items edited by hand stay as they are).
+  for (const t of ledger.threads) if (t.updatedAt === now && !t.edited) A.rewriteDeep(t);
   stats.merged = mergeSimilarFeelings(ledger, now) + mergeSimilarStates(ledger, now);
   return stats;
 }

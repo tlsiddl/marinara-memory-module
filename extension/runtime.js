@@ -14,6 +14,7 @@
     ['facts', '알게 된 사실', 'person'],
     ['ledger', '아직 끝나지 않은 일', 'note'],
     ['life', '최근 생활', 'clock'],
+    ['names', '이름 정리', 'person'],
     ['inject', '주입 확인', 'search'],
     ['settings', '설정', 'settings'],
   ];
@@ -42,6 +43,13 @@
   let searchDraft = '';
   // The quote id typed into the dialogue check record's filter ("#1.24", "1.2").
   let attributionFilter = '';
+  // The room's name table, the names in use, duplicates and "같은 사람일 수 있음" (the 이름 정리 tab).
+  let names = null;
+  let namesRoom = '';
+  let namesError = '';
+  let nameForm = { source: '', target: '', display: '', text: true };
+  /** What a rename or merge would change, shown before it is applied: { kind: 'rename' | 'merge', data, form }. */
+  let namePreview = null;
   let searchQuery = '';
   /** Folded lists the person opened (kept open when the screen is drawn again). */
   const openLists = new Set();
@@ -136,6 +144,8 @@
     // Korean notes for memory in English are shown on every tab (open items, daily life, home), not only scenes.
     await loadTranslations(id);
     if (sequence !== roomLoadSequence || room !== id || disposed) return;
+    if (needsNames()) await loadNames(id);
+    if (sequence !== roomLoadSequence || room !== id || disposed) return;
     if (!needsScenes()) return;
     if (storeRoom !== id || !store) {
       const scenes = await api('GET', `/chats/${encodeURIComponent(id)}/scenes`);
@@ -145,6 +155,26 @@
     }
     if (selectedScene && !store.scenes.some((x) => x.id === selectedScene)) selectedScene = '';
     if (!selectedScene && selectedGroup === null) selectedScene = store.scenes.at(-1)?.id || '';
+  }
+
+  const needsNames = () => ['names', 'life'].includes(tab);
+  async function loadNames(id) {
+    try {
+      const n = await api('GET', `/chats/${encodeURIComponent(id)}/names`);
+      if (room !== id || disposed) return;
+      names = n;
+      namesRoom = id;
+      namesError = '';
+    } catch (error) {
+      if (room !== id) return;
+      names = null;
+      namesError = error?.message || String(error);
+    }
+  }
+  async function ensureNames() {
+    if (!needsNames() || !room || (names && namesRoom === room)) return;
+    await loadNames(room);
+    render();
   }
 
   async function loadTranslations(id) {
@@ -318,6 +348,8 @@
     const prefix = text.match(/^\s*([^|"“(]{1,20}?)\s*\|\s*/);
     const by = q.by || (prefix ? prefix[1].trim() : '');
     if (prefix) text = text.slice(prefix[0].length);
+    // The original and its translation are saved apart and shown in one form: "original" (번역).
+    if (typeof q.translation === 'string' && q.translation.trim()) text = `${text.trim()} (${q.translation.trim()})`;
     return { who: by ? `${by}${q.to ? ` → ${q.to}` : ''}` : q.to ? `화자 미확정 → ${q.to}` : (/^\s*["“'‘「『]/.test(text) ? '대사' : '서술'), text: text.trim() };
   }
 
@@ -532,10 +564,10 @@
           <label>중요도<select data-f="importance">${Object.entries(IMPORTANCE).map(([k, v]) => `<option value="${k}" ${(e.importance || 'major') === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
           <label class="full">계기 (원문에 있을 때만)<input data-f="why" value="${esc(e.why || '')}"></label>${trNote(e.why)}
         </div>
-        ${e.quotes.map((q, qi) => [q, qi]).sort(([a], [b]) => (a.number ?? 0) - (b.number ?? 0) || (a.sentence ?? 0) - (b.sentence ?? 0)).map(([q, qi]) => { const l = quoteLine(q); return `<div class="quote-card" data-quote="${qi}"><small>${esc(l.who)} · #${q.number}.${q.sentence}</small><blockquote>${esc(l.text)}</blockquote>${trNote(q.text)}<label>말한 사람<input data-quote-by value="${esc(q.by || '')}" placeholder="모르면 비워 두기"></label><label>들은 사람<input data-quote-to value="${esc(q.to || '')}" placeholder="모르면 비워 두기"></label></div>`; }).join('')}
+        ${e.quotes.map((q, qi) => [q, qi]).sort(([a], [b]) => (a.number ?? 0) - (b.number ?? 0) || (a.sentence ?? 0) - (b.sentence ?? 0)).map(([q, qi]) => { const l = quoteLine(q); return `<div class="quote-card" data-quote="${qi}"><small>${esc(l.who)} · #${q.number}.${q.sentence}</small><blockquote>${esc(l.text)}</blockquote>${q.translation ? '' : trNote(q.text)}<label>말한 사람<input data-quote-by value="${esc(q.by || '')}" placeholder="모르면 비워 두기"></label><label>들은 사람<input data-quote-to value="${esc(q.to || '')}" placeholder="모르면 비워 두기"></label></div>`; }).join('')}
       </article>`)
       .join('');
-    const loose = [...(s.loose || [])].sort((a, b) => (a.number ?? 0) - (b.number ?? 0) || (a.sentence ?? 0) - (b.sentence ?? 0)).map((q) => { const l = quoteLine(q); return `<div class="quote-card loose"><small>${esc(l.who)} · #${q.number}.${q.sentence} · 연결 미확정</small><blockquote>${esc(l.text)}</blockquote>${trNote(q.text)}</div>`; }).join('');
+    const loose = [...(s.loose || [])].sort((a, b) => (a.number ?? 0) - (b.number ?? 0) || (a.sentence ?? 0) - (b.sentence ?? 0)).map((q) => { const l = quoteLine(q); return `<div class="quote-card loose"><small>${esc(l.who)} · #${q.number}.${q.sentence} · 연결 미확정</small><blockquote>${esc(l.text)}</blockquote>${q.translation ? '' : trNote(q.text)}</div>`; }).join('');
     const recs = s.recollections
       .map((r, i) => {
         const persona = personas.includes(r.who);
@@ -671,6 +703,7 @@
     if (!info) return emptyRoom();
     return `<div class="eyebrow">DAILY LIFE</div><h1>최근 생활</h1>
       <p class="intro">인물마다 마지막 식사·씻기·꾸밈·잠·약을 보여 드립니다. 몇 끼째인지, 몇 시간 잤는지는 지문의 작중 시각으로 프로그램이 계산합니다.</p>
+      ${namesNote()}
       ${info.routine ? `<pre>${esc(info.routine)}</pre>` : '<div class="empty">아직 기록이 없습니다.</div>'}
       ${routineEditor()}`;
   }
@@ -712,9 +745,79 @@
     </div>${blocks}`;
   }
 
+  function readNameForm() {
+    const v = (id) => root.querySelector(id);
+    nameForm = { source: v('#nameSource')?.value.trim() || '', target: v('#nameTarget')?.value.trim() || '', display: v('#nameDisplay')?.value.trim() || '', text: v('#nameText')?.checked !== false };
+  }
+
   function readRoutineRow(row) {
     const val = (f) => row.querySelector(`[data-f="${f}"]`);
     return { what: val('what').value, at: val('at').value, text: val('text').value, substitute: val('substitute').checked, claimed: val('claimed').checked };
+  }
+
+  /** On the daily-life tab: the same person may be saved under more than one name. */
+  function namesNote() {
+    const d = names?.duplicates?.length || 0, s = names?.suggestions?.length || 0;
+    if (!d && !s) return '';
+    return `<div class="note" role="status">같은 사람이 다른 이름 표기로 따로 저장되었을 수 있습니다${d ? ` · 이미 같은 사람으로 알려진 중복 ${d}명` : ''}${s ? ` · 같은 사람일 수 있음 ${s}건` : ''}. <button data-tab="names">이름 정리에서 확인</button></div>`;
+  }
+
+  const AREA_ORDER = ['quoteBy', 'quoteTo', 'events', 'facts', 'threads', 'routine', 'chapters'];
+  function previewBox() {
+    if (!namePreview || namePreview.room !== room) return '';
+    const p = namePreview.data;
+    const merge = namePreview.kind === 'merge';
+    const rows = AREA_ORDER.map((k) => `<tr><th>${esc(p.areas?.[k] || k)}</th><td>${p.counts?.[k] || 0}곳</td></tr>`).join('');
+    const samples = (p.samples || []).map((x) => `<div class="quote-card"><small>${esc(x.areaName)} · ${esc(x.label)}</small><p><s>${esc(x.before)}</s></p><p>→ ${esc(x.after)}</p></div>`).join('');
+    const what = merge
+      ? `<p>${(p.items || []).map((i) => `<b>${esc(i.source)}</b> → <b>${esc(i.target)}</b>`).join(', ')}</p><p class="hint">이름 칸(말한 사람·들은 사람·인물·누구)만 합칩니다. 글 속 표현은 그대로 둡니다.</p>`
+      : `<p><b>${esc(p.source)}</b> → <b>${esc(p.target)}</b>${p.text ? ` · 글 속에는 <b>${esc(p.display)}</b>(으)로 씁니다` : ' · 이름 칸만 바꿉니다'}</p>`;
+    const armedKey = merge ? 'mergeApply' : 'nameApply';
+    return `<div class="paper"><h2>미리 보기 · 모두 ${p.total || 0}곳</h2>${what}
+      <table class="counts">${rows}</table>
+      ${samples ? `<h3>바뀌는 예</h3>${samples}` : ''}
+      <p class="hint">바뀐 기록은 직접 고친 것으로 표시되어 자동 정리·대사 확인이 되돌리지 않습니다. 원문 대사의 글자는 바꾸지 않습니다. 적용한 뒤 '마지막 바꾸기 되돌리기'로 되돌릴 수 있습니다.</p>
+      ${names?.busy ? '<p class="warn">지금 이 방을 정리하는 중이라 적용할 수 없습니다. 정리가 끝난 뒤 다시 미리 보기를 해 주세요.</p>' : ''}
+      <div class="buttons">${p.total ? `<button class="primary" data-act="${armedKey}">${armed === armedKey ? '한 번 더 누르면 적용합니다' : merge ? '합치기' : '적용'}</button>` : '<span class="hint">바뀌는 곳이 없습니다.</span>'}<button class="ghost" data-act="nameCancel">닫기</button></div></div>`;
+  }
+
+  function viewNames() {
+    if (!info) return emptyRoom();
+    if (!names || namesRoom !== room) return namesError ? `<div class="note" role="alert">이름 정보를 불러오지 못했습니다. ${esc(namesError)} 서버의 기억 모듈도 함께 업데이트했는지 확인해 주세요.</div>` : `<div class="empty">${icon('refresh')}불러오는 중입니다…</div>`;
+    const used = names.used || [];
+    const known = names.known || [];
+    const all = [...new Set([...known, ...used.map((u) => u.name)])];
+    const formsOf = (t) => {
+      const p = names.people?.[t];
+      const parts = String(t || '').split(/\s+/).filter((x) => x.length >= 2);
+      return [...new Set([t, ...(parts.length > 1 ? parts : []), ...(p?.aliases || [])].filter(Boolean))];
+    };
+    const f = nameForm;
+    const form = `<div class="paper"><h2>이름 바꾸기·합치기</h2>
+      <p class="hint">처음에 다른 이름(애칭·오타·영어 표기)으로 저장된 사람을 한 이름으로 바꿉니다. 이름 칸은 이름이 정확히 같을 때만, 글 속에서는 이름 단위로만 바꾸고 조사(이/가, 은/는 …)를 새 이름에 맞춥니다. 바꾼 이름은 별칭으로 남아 다음 정리부터 같은 사람으로 봅니다.</p>
+      <label>지금 기억에 쓰인 이름<select id="nameSource"><option value="">고르기</option>${used.map((u) => `<option value="${esc(u.name)}" ${u.name === f.source ? 'selected' : ''}>${esc(u.name)} · ${u.count}곳</option>`).join('')}</select></label>
+      <label>바꿀 이름(기준 이름)<input id="nameTarget" list="nameKnown" value="${esc(f.target)}" placeholder="예: 카드에 적힌 전체 이름"></label>
+      <datalist id="nameKnown">${all.map((n) => `<option value="${esc(n)}">`).join('')}</datalist>
+      <label>글 속에 쓸 이름<input id="nameDisplay" list="nameForms" value="${esc(f.display)}" placeholder="비워 두면 기준 이름"></label>
+      <datalist id="nameForms">${formsOf(f.target).map((n) => `<option value="${esc(n)}">`).join('')}</datalist>
+      <p class="hint">전체 이름이 문장에서 어색하면 짧은 이름(이름만, 성만)을 고르세요. 이름 칸에는 기준 이름이 들어갑니다.</p>
+      <label class="mini"><input id="nameText" type="checkbox" ${f.text ? 'checked' : ''}>글 속 이름도 바꾸기 (요약·사건·사실·할 일·생활 기록·챕터)</label>
+      <div class="buttons"><button class="primary" data-act="namePreview">미리 보기</button></div></div>`;
+    const sug = (names.suggestions || []).map((x) => `<div class="routine-row"><span><b>${esc(x.source)}</b> (${x.sourceCount}곳) → <b>${esc(x.target)}</b> (${x.targetCount}곳) · ${esc(x.label)}</span>
+      <button data-act="nameSuggest" data-source="${esc(x.source)}" data-target="${esc(x.target)}">같은 사람 · 미리 보기</button><button class="ghost" data-act="nameDismiss" data-source="${esc(x.source)}" data-target="${esc(x.target)}">다른 사람</button></div>`).join('');
+    const dup = (names.duplicates || []).map((g) => `<li><b>${esc(g.target)}</b> ← ${g.variants.map((v) => `${esc(v.name)} (${v.count}곳)`).join(', ')}</li>`).join('');
+    const table = Object.entries(names.people || {}).filter(([, v]) => v.aliases?.length || v.display).map(([k, v]) => `<li><b>${esc(k)}</b>${v.display ? ` · 글에는 ${esc(v.display)}` : ''}${v.aliases?.length ? ` · 별칭: ${v.aliases.map(esc).join(', ')}` : ''}</li>`).join('');
+    const last = (names.history || []).at(-1);
+    const history = (names.history || []).slice().reverse().map((h) => `<li>${esc(day(h.at))} · ${h.kind === 'merge' ? '중복 합치기' : '이름 바꾸기'}: ${esc(h.source)} → ${esc(h.target)} (${h.changes}곳)</li>`).join('');
+    return `<div class="eyebrow">NAMES</div><h1>이름 정리</h1>
+      <p class="intro">같은 사람이 여러 이름(한국어·영어 표기, 애칭, 오타)으로 따로 저장된 것을 한 사람으로 모읍니다. 카드와 사용자 캐릭터 이름은 자동으로 기준 이름이 됩니다.</p>
+      ${names.busy ? '<div class="note" role="status">지금 이 방의 기억을 정리하는 중입니다. 미리 보기는 되지만 적용은 정리가 끝난 뒤에 할 수 있습니다.</div>' : ''}
+      ${previewBox()}
+      ${form}
+      <div class="paper"><h2>같은 사람일 수 있음 · ${names.suggestions?.length || 0}건</h2><p class="hint">철자나 소리가 비슷할 뿐 확실하지 않아 자동으로 합치지 않습니다. 같은 사람이면 미리 보기 뒤 합치고, 다른 사람이면 '다른 사람'을 눌러 다시 묻지 않게 하세요.</p>${sug || '<p class="hint">없습니다.</p>'}</div>
+      <div class="paper"><h2>이미 저장된 중복 · ${names.duplicates?.length || 0}명</h2><p class="hint">별칭이나 이름만 부른 형태(조사 포함)처럼 규칙으로 같은 사람인 이름이 따로 저장된 경우입니다. 합치면 기록은 하나도 버리지 않고 이야기 순서대로 모읍니다(같은 기록이 두 번 저장된 것만 하나로).</p>${dup ? `<ul>${dup}</ul><div class="buttons"><button data-act="mergePreview">중복 합치기 미리 보기</button></div>` : '<p class="hint">없습니다.</p>'}</div>
+      <div class="paper"><h2>별칭 표</h2>${table ? `<ul>${table}</ul>` : '<p class="hint">아직 별칭이 없습니다.</p>'}</div>
+      <div class="paper"><h2>최근 이름 바꾸기</h2>${history ? `<ul>${history}</ul>` : '<p class="hint">없습니다.</p>'}${last ? `<div class="buttons"><button class="ghost" data-act="nameUndo">${armed === 'nameUndo' ? '한 번 더 누르면 되돌립니다' : `마지막 바꾸기 되돌리기 (${esc(last.source)} → ${esc(last.target)})`}</button></div>` : ''}</div>`;
   }
 
   function viewInject() {
@@ -909,7 +1012,7 @@
     return `<details${attributionFilter ? ' open' : ''}><summary>대사 확인 기록 (${runs.length}회${live ? ' · 진행 중' : ''})</summary><p class="hint">화자·상대 판단과 저장 결과입니다. 서버에 방마다 최근 5회까지 남고, 정리가 끝나거나 서버를 다시 켜도 유지됩니다. 바뀌었거나 다시 물었거나 받아들이지 않은 대사는 모두 남고, 문제없이 그대로인 대사는 장면별 개수로만 보입니다. 대사 원문과 근거 문구는 기록하지 않습니다.</p><label>대사 번호로 찾기<input id="attributionFilter" value="${esc(attributionFilter)}" placeholder="예: #1.24" autocomplete="off"></label>${live ? `<details open><summary>진행 중 (${live.length}${esc(tally(sj.attributionProgress))})</summary>${live.map(attributionEntryHtml).join('')}</details>` : ''}${runs.map(run).join('')}</details>`;
   }
 
-  const VIEWS = { home: viewHome, scenes: viewScenes, search: viewSearch, facts: viewFacts, ledger: viewLedger, life: viewLife, inject: viewInject, settings: viewSettings };
+  const VIEWS = { home: viewHome, scenes: viewScenes, search: viewSearch, facts: viewFacts, ledger: viewLedger, life: viewLife, names: viewNames, inject: viewInject, settings: viewSettings };
 
   function render() {
     if (!root) return;
@@ -966,7 +1069,7 @@
   async function handle(actName, el) {
     const id = el?.dataset?.id;
     const chat = encodeURIComponent(room);
-    if (actName !== 'fresh' && !actName.startsWith('deleteFact') && actName !== 'closeThread' && actName !== 'rebuildChapters' && actName !== 'deleteRoutine') armed = '';
+    if (actName !== 'fresh' && !actName.startsWith('deleteFact') && actName !== 'closeThread' && actName !== 'rebuildChapters' && actName !== 'deleteRoutine' && !['nameApply', 'mergeApply', 'nameUndo'].includes(actName)) armed = '';
     switch (actName) {
       case 'retryTranslation':
         return act(async () => {
@@ -1000,6 +1103,62 @@
         armed = '';
         selectedGroup = '';
         return act(() => api('POST', `/chats/${chat}/chapters/rebuild`), '챕터를 다시 묶기 시작했습니다.');
+      case 'namePreview': {
+        readNameForm();
+        if (!nameForm.source || !nameForm.target) { lastError = '바꿀 이름과 기준 이름을 모두 골라 주세요.'; return render(); }
+        const form = { ...nameForm };
+        return act(async () => {
+          namePreview = { kind: 'rename', room, form, data: await api('POST', `/chats/${chat}/names/preview`, form) };
+        }, '', { reload: false });
+      }
+      case 'nameSuggest': {
+        nameForm = { source: el.dataset.source, target: el.dataset.target, display: '', text: false };
+        const form = { ...nameForm };
+        return act(async () => {
+          namePreview = { kind: 'rename', room, form, data: await api('POST', `/chats/${chat}/names/preview`, form) };
+        }, '', { reload: false });
+      }
+      case 'nameApply': {
+        if (armed !== 'nameApply') { armed = 'nameApply'; return render(); }
+        armed = '';
+        const { form, data } = namePreview;
+        return act(async () => {
+          await api('POST', `/chats/${chat}/names/apply`, { ...form, token: data.token, confirm: true });
+          namePreview = null;
+          names = null;
+        }, `${form.source} → ${form.target}: 이름을 바꿨습니다.`);
+      }
+      case 'mergePreview':
+        return act(async () => {
+          namePreview = { kind: 'merge', room, form: null, data: await api('POST', `/chats/${chat}/names/merge-preview`) };
+        }, '', { reload: false });
+      case 'mergeApply': {
+        if (armed !== 'mergeApply') { armed = 'mergeApply'; return render(); }
+        armed = '';
+        const token = namePreview?.data?.token;
+        return act(async () => {
+          await api('POST', `/chats/${chat}/names/merge`, { token, confirm: true });
+          namePreview = null;
+          names = null;
+        }, '중복 이름을 합쳤습니다.');
+      }
+      case 'nameCancel':
+        namePreview = null;
+        armed = '';
+        return render();
+      case 'nameDismiss':
+        return act(async () => {
+          await api('POST', `/chats/${chat}/names/dismiss`, { source: el.dataset.source, target: el.dataset.target });
+          names = null;
+        }, '다른 사람으로 두었습니다. 다시 묻지 않습니다.');
+      case 'nameUndo':
+        if (armed !== 'nameUndo') { armed = 'nameUndo'; return render(); }
+        armed = '';
+        return act(async () => {
+          const r = await api('POST', `/chats/${chat}/names/undo`);
+          names = null;
+          notice = `${r.source} → ${r.target} 바꾸기를 되돌렸습니다.${r.kept ? ` 그 뒤에 다시 고친 ${r.kept}곳은 그대로 두었습니다.` : ''}`;
+        });
       case 'addRoutine': {
         const row = el.closest('.routine-row');
         const who = root.querySelector('.routine-new [data-f="who"]').value.trim();
@@ -1371,6 +1530,7 @@
     for (const type of ['keydown', 'keypress', 'keyup']) root.addEventListener(type, (e) => e.stopPropagation());
     root.addEventListener('input', (e) => {
       if (e.target.id === 'memorySearchInput') searchDraft = e.target.value;
+      if (['nameSource', 'nameTarget', 'nameDisplay'].includes(e.target.id)) readNameForm();
       if (e.target.id === 'attributionFilter') {
         attributionFilter = e.target.value;
         // Shown and hidden in place, so typing keeps the focus and the open sections.
@@ -1426,6 +1586,11 @@
       void act(() => api('POST', `/chats/${encodeURIComponent(room)}/${on ? 'enable' : 'disable'}`), on ? '이 방에서 기억을 켰습니다. 처음 켜셨다면 ‘이어서 정리’를 눌러 주세요.' : '이 방의 기억 갱신을 껐습니다.');
     };
     root.addEventListener('change', (e) => {
+      // The short forms offered for running text follow the chosen name.
+      if (['nameSource', 'nameTarget', 'nameText'].includes(e.target.id)) {
+        readNameForm();
+        return render();
+      }
       if (e.target.id === 'setFont') {
         font = e.target.value === 'own' ? 'own' : 'marinara';
         try {
@@ -1484,6 +1649,7 @@
         armed = '';
         if (tab === 'settings') void openSettings();
         void ensureScenes();
+        void ensureNames();
         return render();
       }
       if (n.dataset.group !== undefined) {

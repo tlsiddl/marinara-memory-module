@@ -20,7 +20,9 @@ $files = @(
   'memory-module/lib/speakers.cjs',
   'memory-module/lib/vectors.cjs',
   'memory-module/lib/translate.cjs',
-  'memory-module/lib/selected.cjs'
+  'memory-module/lib/selected.cjs',
+  'memory-module/lib/aliases.cjs',
+  'memory-module/lib/names.cjs'
 )
 
 function Get-Version($path) {

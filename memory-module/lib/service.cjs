@@ -12,6 +12,8 @@ const V = require('./vectors.cjs');
 const SP = require('./speakers.cjs');
 const T = require('./translate.cjs');
 const Selected = require('./selected.cjs');
+const A = require('./aliases.cjs');
+const N = require('./names.cjs');
 
 /**
  * Marinara's own data folder, found the way Marinara finds it: DATA_DIR (relative to the server package) if set,
@@ -188,6 +190,31 @@ function saveScenes(chatId, store) {
   store.updatedAt = new Date().toISOString();
   writeJson(scenesFile(chatId), store);
   sceneCache.set(chatId, store);
+}
+
+// The room's name table: other names each person goes by, and the last renames (for undo).
+const namesFile = (chatId) => path.join(CHAT_DIR, `${safeChatId(chatId)}.names.json`);
+const namesCache = new Map();
+function loadNames(chatId) {
+  if (namesCache.has(chatId)) return namesCache.get(chatId);
+  const table = supported(namesFile(chatId), readJson(namesFile(chatId), null), A.NAMES_VERSION) || A.emptyTable();
+  namesCache.set(chatId, table);
+  return table;
+}
+function saveNames(chatId, table) {
+  writeJson(namesFile(chatId), table);
+  namesCache.set(chatId, table);
+}
+// Every job and edit of a room compares names through that room's table.
+A.setLoader((chatId) => loadNames(chatId));
+/** The card and persona names become people of the table (with both scripts when a name is written in two). */
+function seedNames(chatId, names) {
+  try {
+    const table = loadNames(chatId);
+    if (A.seed(table, names)) saveNames(chatId, table);
+  } catch (error) {
+    log(`chat ${chatId}: name table not updated (${error?.message || error})`);
+  }
 }
 
 const selectedFile = chatId => path.join(CHAT_DIR, `${safeChatId(chatId)}.selected.json`);
@@ -1009,7 +1036,9 @@ const jobs = new Map();
 
 function enqueue(chatId, task) {
   const previous = queues.get(chatId) || Promise.resolve();
-  const next = previous.catch(() => {}).then(task);
+  // The room's name table is the one every name comparison of this task uses.
+  const room = String(chatId).replace(/^(?:scenes|selected):/, '');
+  const next = previous.catch(() => {}).then(() => A.using(room, task));
   queues.set(chatId, next);
   next.finally(() => queues.get(chatId) === next && queues.delete(chatId)).catch(() => {});
   return next;
@@ -1044,6 +1073,8 @@ function processChat(chatId, { rebuild = false, reason = 'auto' } = {}) {
       // Work on a copy: a stopped or failed run must not leave half its changes in the cached ledger.
       let ledger = rebuild ? L.emptyLedger() : structuredClone(loadLedger(chatId) || L.emptyLedger());
       ledger.cast = await chatCast(chatId);
+      ledger.personas = L.personaNames(messages);
+      seedNames(chatId, [...ledger.cast, ...ledger.personas]);
       L.tidyKnowledge(ledger);
       const state = L.reconcile(ledger, messages);
       if (state.rebuild) {
@@ -1366,6 +1397,7 @@ function processScenes(chatId, { rebuild = false, reason = 'auto' } = {}) {
           store.personas = personas;
           store.cast = cast;
         }
+        seedNames(chatId, [...cast, ...personas]);
         if (translated || personasChanged) {
           saveScenes(chatId, store);
           log(`chat ${chatId}: added the translation to ${translated} saved line(s)`);
@@ -2495,6 +2527,119 @@ async function routes(app) {
       return { deleted: true };
     });
   }));
+  // Renaming and merging people across the room's memory. Preview first; apply only with the preview's token,
+  // and never while a job is writing this room (both of its queues are held while the change is made).
+  const roomBusy = (chatId) => jobs.get(chatId)?.state === 'running' || sceneJobs.get(chatId)?.state === 'running' || trials.get(chatId)?.state === 'running';
+  const refuseBusy = (chatId) => {
+    if (roomBusy(chatId)) throw Error('지금 이 방의 기억을 정리하는 중이라 이름을 바꿀 수 없습니다. 정리가 끝난 뒤(또는 멈춘 뒤)에 다시 시도해 주세요.');
+  };
+  const withRoom = (chatId, fn) => enqueue(chatId, () => enqueue(`scenes:${chatId}`, async () => {
+    // A job that started while this waited has finished by now (it held the queue); one still marked running would
+    // write over the change.
+    refuseBusy(chatId);
+    return fn();
+  }));
+  const namesState = (chatId) => {
+    const store = structuredClone(loadScenes(chatId) || S.emptyStore());
+    const ledger = structuredClone(loadLedger(chatId) || L.emptyLedger());
+    const table = loadNames(chatId);
+    return { store, ledger, table };
+  };
+  const nameOptions = (body) => ({ source: body?.source, target: body?.target, display: body?.display, text: body?.text !== false });
+  const planView = (p) => ({ source: p.source, target: p.target, display: p.display, text: p.text, items: p.items || null, counts: p.counts, areas: p.areas, total: p.total, samples: p.samples, token: L.hashText(JSON.stringify(p.changes)) });
+  const historyView = (table) => (table.history || []).map((h) => ({ id: h.id, kind: h.kind, at: h.at, source: h.source, target: h.target, display: h.display, text: h.text, counts: h.counts, changes: h.changes.length }));
+  const saveRenamed = (chatId, store, ledger, table, changes) => {
+    // Only the files the change touched: a room without a ledger does not get an empty one.
+    if (changes.some((c) => c.doc === 'scenes')) saveScenes(chatId, store);
+    if (changes.some((c) => c.doc === 'ledger')) saveLedger(chatId, ledger);
+    saveNames(chatId, table);
+    recalls.delete(chatId);
+    enqueue(`scenes:${chatId}`, () => indexScenes(chatId, loadScenes(chatId))).catch((error) => log(`chat ${chatId}: re-index after rename failed (${error?.message || error})`));
+  };
+  const applyPlanned = (chatId, make) => withRoom(chatId, async () => {
+    const { store, ledger, table: saved } = namesState(chatId);
+    const table = structuredClone(saved);
+    const planned = A.using(table, () => make(store, ledger, table));
+    if (!planned.total && !planned.changes.length) throw Error('바꿀 곳이 없습니다.');
+    const entry = N.apply(store, ledger, table, planned);
+    saveRenamed(chatId, store, ledger, table, entry.changes);
+    log(`chat ${chatId}: renamed ${entry.source} → ${entry.target} (${entry.changes.length} change(s))`);
+    return { applied: entry.id, counts: entry.counts, history: historyView(table) };
+  });
+  const checkToken = (planned, token) => {
+    if (!token || L.hashText(JSON.stringify(planned.changes)) !== token) throw Error('미리 본 뒤에 기억이 바뀌었습니다. 다시 미리 보기를 해 주세요.');
+    return planned;
+  };
+  app.get('/chats/:id/names', guard(async (req) => {
+    const chatId = safeChatId(req.params.id);
+    const { store, ledger, table } = namesState(chatId);
+    return A.using(table, () => {
+      const people = N.knownPeople(store, ledger, table);
+      return {
+        people: Object.fromEntries(Object.entries(table.people || {}).map(([k, v]) => [k, { aliases: v.aliases || [], display: v.display || null, seeded: !!v.seeded, rewrite: !!v.rewrite }])),
+        known: people,
+        used: N.usedNames(store, ledger, people),
+        duplicates: N.duplicates(store, ledger, table),
+        suggestions: N.suggestions(store, ledger, table),
+        history: historyView(table),
+        busy: roomBusy(chatId),
+      };
+    });
+  }));
+  app.post('/chats/:id/names/preview', guard(async (req) => {
+    const chatId = safeChatId(req.params.id);
+    const { store, ledger, table } = namesState(chatId);
+    return planView(A.using(table, () => N.plan(store, ledger, table, nameOptions(req.body))));
+  }));
+  app.post('/chats/:id/names/apply', guard(async (req) => {
+    const chatId = safeChatId(req.params.id);
+    if (req.body?.confirm !== true) throw Error('미리 보기를 확인한 뒤 적용해 주세요.');
+    refuseBusy(chatId);
+    return applyPlanned(chatId, (store, ledger, table) => checkToken(N.plan(store, ledger, table, nameOptions(req.body)), req.body?.token));
+  }));
+  // Names already one person by rule, stored apart: merged in name fields only, all at once (one undo).
+  const mergeItems = (store, ledger, table) => N.duplicates(store, ledger, table).flatMap((g) => g.variants.map((v) => ({ source: v.name, target: g.target, text: false })));
+  app.post('/chats/:id/names/merge-preview', guard(async (req) => {
+    const chatId = safeChatId(req.params.id);
+    const { store, ledger, table } = namesState(chatId);
+    const items = mergeItems(store, ledger, table);
+    if (!items.length) return { total: 0, items: [], counts: {}, areas: N.AREAS, samples: [], token: null };
+    return planView(A.using(table, () => N.planMany(store, ledger, table, items)));
+  }));
+  app.post('/chats/:id/names/merge', guard(async (req) => {
+    const chatId = safeChatId(req.params.id);
+    if (req.body?.confirm !== true) throw Error('미리 보기를 확인한 뒤 합쳐 주세요.');
+    refuseBusy(chatId);
+    return applyPlanned(chatId, (store, ledger, table) => {
+      const items = mergeItems(store, ledger, table);
+      if (!items.length) throw Error('합칠 중복 이름이 없습니다.');
+      return checkToken(N.planMany(store, ledger, table, items), req.body?.token);
+    });
+  }));
+  app.post('/chats/:id/names/undo', guard(async (req) => {
+    const chatId = safeChatId(req.params.id);
+    refuseBusy(chatId);
+    return withRoom(chatId, async () => {
+      const { store, ledger, table: saved } = namesState(chatId);
+      const table = structuredClone(saved);
+      const changes = saved.history?.at(-1)?.changes || [];
+      const out = N.undo(store, ledger, table);
+      saveRenamed(chatId, store, ledger, table, changes);
+      log(`chat ${chatId}: undid rename ${out.source} → ${out.target} (${out.restored} restored, ${out.kept} changed since and kept)`);
+      return { ...out, history: historyView(table) };
+    });
+  }));
+  app.post('/chats/:id/names/dismiss', guard(async (req) => {
+    const chatId = safeChatId(req.params.id);
+    const [source, target] = [A.tidy(req.body?.source), A.tidy(req.body?.target)];
+    if (!source || !target) throw Error('이름이 비어 있습니다.');
+    return enqueue(chatId, async () => {
+      const table = structuredClone(loadNames(chatId));
+      A.dismiss(table, source, target);
+      saveNames(chatId, table);
+      return { dismissed: [source, target] };
+    });
+  }));
   app.post('/chats/:id/selected-memory', guard(async (req) => {
     const chatId = safeChatId(req.params.id);
     return enqueue(`selected:${chatId}`, async () => {
@@ -2809,7 +2954,7 @@ function attach(app) {
   log('admin API ready at /api/memory-module');
 }
 
-module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { foldScenes, reviewAttributions, loadAttributionLog, sceneJobs, selectedForView, loadSelected, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, loadTranslations, saveTranslations, chatLangs, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, jobs, writeLanguage, memoryCallOptions } };
+module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { loadNames, saveNames, enqueue, foldScenes, reviewAttributions, loadAttributionLog, sceneJobs, selectedForView, loadSelected, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, loadTranslations, saveTranslations, chatLangs, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, jobs, writeLanguage, memoryCallOptions } };
 
 
 

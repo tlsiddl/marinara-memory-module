@@ -193,3 +193,5 @@ details.paper>summary{font-size:13px;font-weight:600;color:var(--im-ink)}
 .routine-row .warn{flex-basis:100%;color:#b0623f}:host([data-theme=dark]) .routine-row .warn{color:#ffb08a}
 
 
+.counts{border-collapse:collapse;margin:8px 0;font-size:12px}.counts th{text-align:left;font-weight:500;padding:3px 16px 3px 0;color:var(--im-ink)}.counts td{padding:3px 0}
+.warn{color:#b0623f}:host([data-theme=dark]) .warn{color:#ffb08a}
