@@ -22,7 +22,9 @@ $files = @(
   'memory-module/lib/translate.cjs',
   'memory-module/lib/selected.cjs',
   'memory-module/lib/aliases.cjs',
-  'memory-module/lib/names.cjs'
+  'memory-module/lib/names.cjs',
+  'memory-module/lib/features.cjs',
+  'memory-module/lib/backup.cjs'
 )
 
 function Get-Version($path) {
