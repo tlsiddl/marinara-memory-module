@@ -263,6 +263,24 @@ test('a branch inherits the answers to record conflicts and the keepsakes, worke
   for (const n of ['conflicts', 'keepsakes']) assert.ok(fs.existsSync(path.join(dir, `memory-module/chats/child4.${n}.json`)), n);
 });
 
+test('a branch inherits the 중요/빼기 marks that still fit it', async () => {
+  const f = fixture();
+  const at = (i) => f.source[i].number;
+  f.scenes.facts = [{ id: 'F1', about: '도윤', text: '커피를 즐겨 마신다', sceneId: 'S1', evidence: [{ messageId: f.source[0].id, number: at(0), sentence: 1, text: '근거' }], unaware: [], guess: [] }];
+  f.scenes.nextFact = 2;
+  T.setEngine(mockEngine(f, 'child5', 4));
+  T.saveLedger('parent', f.ledger); T.saveScenes('parent', f.scenes);
+  T.saveSettings({ connection: null, chats: { parent: { enabled: true } } });
+  T.saveRecallPrefs('parent', { version: 1, pinned: ['S1', 'F1'], excluded: ['S3', 'S2'] });
+  const payload = JSON.stringify({ id: 'child5', name: '분기' });
+  await T.branchOnSend({ method: 'POST', raw: { url: '/api/chats/parent/branch' } }, { statusCode: 200 }, payload);
+  const child = T.loadRecallPrefs('child5');
+  assert.ok(child.pinned.includes('S1') && child.pinned.includes('F1'));
+  assert.ok(!child.excluded.includes('S3'), 'a scene that only exists after the branch point drops out');
+  assert.deepEqual(T.loadRecallPrefs('parent'), { version: 1, pinned: ['S1', 'F1'], excluded: ['S3', 'S2'] }, 'the parent is untouched');
+  assert.ok(fs.existsSync(path.join(dir, 'memory-module/chats/child5.recall-prefs.json')));
+});
+
 test('failed/unrelated branch requests and corrupt destinations remain untouched', async () => {
   const payload = JSON.stringify({ id: 'never' });
   for (const [method, url, statusCode] of [['POST', '/api/chats/parent/branch', 500], ['GET', '/api/chats/parent/branch', 200], ['POST', '/api/chats/parent', 200]]) {

@@ -27,9 +27,9 @@ const settingsFile = path.join(dir, 'memory-module/settings.json');
 const onDisk = () => JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
 
 const READY = ['recentLife', 'characterState', 'places', 'keepsakes'];
-const BUILTIN = ['addressBook', 'learnFromEdits', 'knowledge', 'conflicts'];
+const BUILTIN = ['addressBook', 'learnFromEdits', 'knowledge', 'conflicts', 'recallReasons'];
 test('registry: Korean labels, recentLife on by default, every other feature off; only the implemented ones are ready; built-in ones are not in it', () => {
-  const keys = ['recentLife', 'characterState', 'places', 'keepsakes', 'recallReasons'];
+  const keys = ['recentLife', 'characterState', 'places', 'keepsakes'];
   assert.deepEqual(Object.keys(F.FEATURES), keys);
   for (const [key, f] of Object.entries(F.FEATURES)) {
     assert.match(f.label, /[가-힣]/, key);
@@ -45,6 +45,9 @@ test('registry: Korean labels, recentLife on by default, every other feature off
     assert.deepEqual(F.resolve({ features: { [key]: false }, chats: { a: { features: { [key]: 'off' } } } }, 'a', key), { global: true, room: 'default', enabled: true, ready: true, builtin: true }, 'stored values are ignored');
   }
 });
+
+// A stand-in for a feature that is not implemented yet (every real one is ready or built in by now).
+test('a stand-in for a not-yet-implemented feature is added for the tests below', () => { F.FEATURES.demoFeature = { label: '시험용', description: '아직 만들지 않은 기능을 대신하는 시험용 항목입니다.', default: false, ready: false }; });
 
 test('resolution: default, global override, room override, unknown values and unknown features', () => {
   const reg = { thing: { label: '가', description: '나', default: false, ready: true }, on: { label: '다', description: '라', default: true, ready: true } };
@@ -72,16 +75,16 @@ test('featureOn on the server: new features default off and never run while not 
   for (const key of BUILTIN) assert.equal(X.featureOn('room', key), true, key + ': an old stored "off" is ignored');
   assert.equal(X.featureOn('room', 'nonsense'), false);
   // Stored "on" is still off while the feature is not implemented.
-  X.saveSettings({ chats: { room: { features: { recallReasons: 'on' } } }, features: { recallReasons: true } });
-  assert.equal(X.featureOn('room', 'recallReasons'), false);
-  const was = F.FEATURES.recallReasons.ready;
+  X.saveSettings({ chats: { room: { features: { demoFeature: 'on' } } }, features: { demoFeature: true } });
+  assert.equal(X.featureOn('room', 'demoFeature'), false);
+  const was = F.FEATURES.demoFeature.ready;
   try {
-    F.FEATURES.recallReasons.ready = true;
-    assert.equal(X.featureOn('room', 'recallReasons'), true, 'implemented: the stored choice applies');
-    X.saveSettings({ chats: { room: { features: { recallReasons: 'off' } } }, features: { recallReasons: true } });
-    assert.equal(X.featureOn('room', 'recallReasons'), false);
-    assert.equal(X.featureOn('other', 'recallReasons'), true);
-  } finally { F.FEATURES.recallReasons.ready = was; }
+    F.FEATURES.demoFeature.ready = true;
+    assert.equal(X.featureOn('room', 'demoFeature'), true, 'implemented: the stored choice applies');
+    X.saveSettings({ chats: { room: { features: { demoFeature: 'off' } } }, features: { demoFeature: true } });
+    assert.equal(X.featureOn('room', 'demoFeature'), false);
+    assert.equal(X.featureOn('other', 'demoFeature'), true);
+  } finally { F.FEATURES.demoFeature.ready = was; }
 });
 
 test('recentLife keeps working with settings files written before the registry', () => {
@@ -116,24 +119,24 @@ test('routes persist switches; recentLife writes its old keys, the others the ne
   assert.equal(X.featureOn('r1', 'recentLife'), true, 'the older route moves the same switch');
 
   // a feature that is ready
-  const was = F.FEATURES.recallReasons.ready;
-  F.FEATURES.recallReasons.ready = true;
+  const was = F.FEATURES.demoFeature.ready;
+  F.FEATURES.demoFeature.ready = true;
   try {
-    assert.ifError((await call('POST /settings/features', null, { key: 'recallReasons', on: true })).error);
-    assert.deepEqual(onDisk().features, { recallReasons: true });
-    assert.deepEqual((await call('POST /chats/:id/feature-mode', 'r2', { key: 'recallReasons', mode: 'off' })).result.feature, { key: 'recallReasons', global: true, room: 'off', enabled: false, ready: true });
-    assert.deepEqual(onDisk().chats.r2.features, { recallReasons: 'off' });
-    assert.equal(X.featureOn('r2', 'recallReasons'), false);
-    assert.equal(X.featureOn('r3', 'recallReasons'), true);
-    await call('POST /chats/:id/feature-mode', 'r2', { key: 'recallReasons', mode: 'default' });
+    assert.ifError((await call('POST /settings/features', null, { key: 'demoFeature', on: true })).error);
+    assert.deepEqual(onDisk().features, { demoFeature: true });
+    assert.deepEqual((await call('POST /chats/:id/feature-mode', 'r2', { key: 'demoFeature', mode: 'off' })).result.feature, { key: 'demoFeature', global: true, room: 'off', enabled: false, ready: true });
+    assert.deepEqual(onDisk().chats.r2.features, { demoFeature: 'off' });
+    assert.equal(X.featureOn('r2', 'demoFeature'), false);
+    assert.equal(X.featureOn('r3', 'demoFeature'), true);
+    await call('POST /chats/:id/feature-mode', 'r2', { key: 'demoFeature', mode: 'default' });
     assert.equal('features' in onDisk().chats.r2, false, 'an empty override is not kept');
-    assert.match((await call('POST /settings/features', null, { key: 'recallReasons', on: 'yes' })).error, /on: true 또는 false/);
-    assert.match((await call('POST /chats/:id/feature-mode', 'r2', { key: 'recallReasons', mode: 'maybe' })).error, /default, on, off/);
-    assert.match((await call('POST /chats/:id/feature-mode', '../x', { key: 'recallReasons', mode: 'on' })).error, /invalid chat id/);
-  } finally { F.FEATURES.recallReasons.ready = was; }
+    assert.match((await call('POST /settings/features', null, { key: 'demoFeature', on: 'yes' })).error, /on: true 또는 false/);
+    assert.match((await call('POST /chats/:id/feature-mode', 'r2', { key: 'demoFeature', mode: 'maybe' })).error, /default, on, off/);
+    assert.match((await call('POST /chats/:id/feature-mode', '../x', { key: 'demoFeature', mode: 'on' })).error, /invalid chat id/);
+  } finally { F.FEATURES.demoFeature.ready = was; }
   // not implemented / built in / unknown: refused, nothing stored
-  assert.match((await call('POST /settings/features', null, { key: 'recallReasons', on: false })).error, /준비 중/);
-  assert.match((await call('POST /chats/:id/feature-mode', 'r1', { key: 'recallReasons', mode: 'on' })).error, /준비 중/);
+  assert.match((await call('POST /settings/features', null, { key: 'demoFeature', on: false })).error, /준비 중/);
+  assert.match((await call('POST /chats/:id/feature-mode', 'r1', { key: 'demoFeature', mode: 'on' })).error, /준비 중/);
   for (const key of BUILTIN) {
     assert.match((await call('POST /settings/features', null, { key, on: false })).error, /항상 켜져 있어/, key);
     assert.match((await call('POST /chats/:id/feature-mode', 'r1', { key, mode: 'off' })).error, /항상 켜져 있어/, key);

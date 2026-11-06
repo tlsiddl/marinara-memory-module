@@ -21,10 +21,10 @@ function make(parts, result) {
   if (!title || !summary) throw Error('선택한 글의 정리 결과가 비어 있습니다.');
   return { id: fingerprint(parts), title, summary, parts, createdAt: new Date().toISOString() };
 }
-function render(entries, query, maxChars = 2500) {
+function render(entries, query, maxChars = 2500, trace = null) {
   const words = s => new Set((String(s || '').toLowerCase().match(/[\p{L}\p{N}]{2,}/gu) || []).flatMap(w => [w, ...Array.from({length: Math.max(0, w.length - 1)}, (_, i) => w.slice(i, i + 2))]));
   const q = words(query); if (!q.size) return '';
   const ranked = entries.filter(e => !e.stale).map(e => { const w = words([e.title, e.summary, ...e.parts.map(p => p.text)].join(' ')); let score = 0; for (const t of q) if (w.has(t)) score++; return {e,score}; }).filter(x => x.score >= 2).sort((a,b) => b.score-a.score).slice(0, 3);
-  let out = ''; for (const {e} of ranked) { const line = `${e.title}: ${e.summary}\n원문: ${e.parts.map(p => p.text).join(' / ')}`; if (out.length + line.length > maxChars) continue; out += (out ? '\n\n' : '') + line; } return out;
+  let out = ''; for (const {e} of ranked) { const line = `${e.title}: ${e.summary}\n원문: ${e.parts.map(p => p.text).join(' / ')}`; if (out.length + line.length > maxChars) continue; trace?.push(e.id); out += (out ? '\n\n' : '') + line; } return out;
 }
 module.exports = {validateParts, fingerprint, stale, make, render};

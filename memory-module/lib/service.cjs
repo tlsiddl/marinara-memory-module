@@ -21,6 +21,7 @@ const St = require('./state.cjs');
 const Pl = require('./places.cjs');
 const Cf = require('./conflicts.cjs');
 const Ks = require('./keepsakes.cjs');
+const Rp = require('./reasons.cjs');
 
 /**
  * Marinara's own data folder, found the way Marinara finds it: DATA_DIR (relative to the server package) if set,
@@ -274,6 +275,9 @@ const stateCache = new Map();
 const placesCache = new Map();
 const conflictsCache = new Map();
 const keepsakesCache = new Map();
+// 중요/빼기 choices of the room (회상 이유): only ever changed by the user.
+const recallPrefsFile = (chatId) => path.join(CHAT_DIR, `${safeChatId(chatId)}.recall-prefs.json`);
+const recallPrefsCache = new Map();
 function loadState(chatId) {
   if (stateCache.has(chatId)) return stateCache.get(chatId);
   const file = stateFile(chatId);
@@ -322,6 +326,36 @@ function loadKeepsakes(chatId) {
 function saveKeepsakes(chatId, value) {
   writeJson(keepsakesFile(chatId), value);
   keepsakesCache.set(chatId, value);
+}
+function loadRecallPrefs(chatId) {
+  if (recallPrefsCache.has(chatId)) return recallPrefsCache.get(chatId);
+  const file = recallPrefsFile(chatId);
+  const stored = supported(file, readJson(file, null), Rp.RECALL_PREFS_VERSION);
+  const value = Rp.isPrefs(stored) ? Rp.normalize(stored) : Rp.emptyPrefs();
+  recallPrefsCache.set(chatId, value);
+  return value;
+}
+function saveRecallPrefs(chatId, value) {
+  writeJson(recallPrefsFile(chatId), value);
+  recallPrefsCache.set(chatId, value);
+}
+/** The marks as the render uses them: sets, with a merged fact's mark moved to the fact that carries it on. */
+function activePrefs(chatId, store) {
+  return Rp.sets(Rp.followMerges(loadRecallPrefs(chatId), store));
+}
+/** Scenes that stay out of automatic recall (left out, or inside a chapter left out), unless pinned by themselves. */
+function hiddenFor(store, prefs) {
+  const hidden = Rp.hiddenScenes(store, prefs.excluded);
+  for (const id of prefs.pinned) hidden.delete(id);
+  return hidden;
+}
+/** The scenes the recall may offer: outside the window, minus those left out and those pinned (pinned ones always come). */
+function recallCandidates(chatId, store, firstInside) {
+  const list = R.candidates(store, firstInside);
+  const prefs = activePrefs(chatId, store);
+  if (!prefs.any) return list;
+  const hidden = hiddenFor(store, prefs);
+  return list.filter((s) => !hidden.has(s.id) && !prefs.pinned.has(s.id) && !prefs.excluded.has(s.id));
 }
 /** The room's scene preferences, plus the switches of the optional records (nothing added while both are off). */
 function organizeFor(chatId) {
@@ -500,6 +534,7 @@ async function inheritBranch(sourceId, targetId) {
     const sourcePlaces = fs.existsSync(placesFile(sourceId)) ? loadPlaces(sourceId) : null;
     const sourceKeeps = fs.existsSync(keepsakesFile(sourceId)) ? loadKeepsakes(sourceId) : null;
     const sourceConflicts = fs.existsSync(conflictsFile(sourceId)) ? loadConflicts(sourceId) : null;
+    const sourceMarks = fs.existsSync(recallPrefsFile(sourceId)) ? loadRecallPrefs(sourceId) : null;
     // This also makes a repeated hook harmless and protects an existing/broken destination file.
     if (files.some((file) => fs.existsSync(file)) || settings().chats?.[targetId]) return { skipped: true };
     checkFiles(sourceId);
@@ -539,13 +574,15 @@ async function inheritBranch(sourceId, targetId) {
       if (sourceKeeps && !fs.existsSync(keepsakesFile(targetId))) { saveKeepsakes(targetId, A.using(sourceId, () => Ks.fold(result.scenes || S.emptyStore(), structuredClone(sourceKeeps)))); written.push(keepsakesFile(targetId)); }
       // Answers to record conflicts stay for the facts this branch really has.
       if (sourceConflicts && !fs.existsSync(conflictsFile(targetId))) { saveConflicts(targetId, Cf.fold(result.scenes || S.emptyStore(), structuredClone(sourceConflicts))); written.push(conflictsFile(targetId)); }
+      // 중요/빼기 marks come along (those on scenes, chapters and facts this branch does not have drop out).
+      if (sourceMarks && !fs.existsSync(recallPrefsFile(targetId))) { saveRecallPrefs(targetId, Rp.prune(structuredClone(sourceMarks), Rp.liveIds(result.scenes || S.emptyStore(), null, S.liveFacts), { ledger: false })); written.push(recallPrefsFile(targetId)); }
       if (sourceSettings) {
         next.chats = { ...next.chats, [targetId]: structuredClone(sourceSettings) };
         saveSettings(next);
       }
     } catch (error) {
       for (const file of written) fs.rmSync(file, { force: true });
-      cache.delete(targetId); sceneCache.delete(targetId); vectorCache.delete(targetId); addressCache.delete(targetId); stateCache.delete(targetId); placesCache.delete(targetId); conflictsCache.delete(targetId); keepsakesCache.delete(targetId);
+      cache.delete(targetId); sceneCache.delete(targetId); vectorCache.delete(targetId); addressCache.delete(targetId); stateCache.delete(targetId); placesCache.delete(targetId); conflictsCache.delete(targetId); keepsakesCache.delete(targetId); recallPrefsCache.delete(targetId);
       throw error;
     }
     log(`branch ${sourceId} -> ${targetId}: inherited ${result.matched} message(s), ${result.scenes?.scenes.length || 0} scene(s)${result.ledgerReset ? '; old fork: ledger will be read again' : ''}`);
@@ -625,7 +662,7 @@ function removeRoomFiles(chatId) {
 
 /** Everything held in memory for one room (not the files). The next read loads from disk again. */
 function clearRoomCaches(chatId) {
-  for (const map of [cache, windows, sceneCache, namesCache, addressCache, stateCache, placesCache, conflictsCache, keepsakesCache, selectedViews, vectorCache, chatLangs, replyLedgers, translationCache, displayTranslationStatus, preparing, replyViews, speakerColors, recalls, turnQuery, storyDays, storyNow]) map.delete(chatId);
+  for (const map of [cache, windows, sceneCache, namesCache, addressCache, stateCache, placesCache, conflictsCache, keepsakesCache, recallPrefsCache, selectedViews, vectorCache, chatLangs, replyLedgers, translationCache, displayTranslationStatus, preparing, replyViews, speakerColors, recalls, turnQuery, storyDays, storyNow]) map.delete(chatId);
   for (const key of [...translating.keys()]) if (String(key).startsWith(`${chatId}:`)) translating.delete(key);
 }
 
@@ -2418,7 +2455,7 @@ function renderLedger(chatId) {
   );
 }
 
-function renderMemorySource(chatId, maxChars = MEMORY_MAX_CHARS) {
+function renderMemorySource(chatId, maxChars = MEMORY_MAX_CHARS, trace = null) {
   if (!chatEnabled(chatId)) return '';
   // A ledger that must be read again from the start (an old message changed past what can be undone) only gives
   // what it learned before that message; with no such point known, none of it goes in until it is read again.
@@ -2426,7 +2463,9 @@ function renderMemorySource(chatId, maxChars = MEMORY_MAX_CHARS) {
   const scenes = scenesForReply(chatId);
   const query = turnQuery.get(chatId) || '';
   const today = storyToday(chatId, ledger);
-  const open = ledger ? L.renderCompact(ledger, { query, today }) : '';
+  const prefs = activePrefs(chatId, scenes);
+  const only = (letter) => new Set([...prefs.pinned].filter((id) => id[0] === letter));
+  const open = ledger ? L.renderCompact(ledger, { query, today, exclude: prefs.excluded, pin: prefs.pinned, trace: trace ? (trace.threads = []) : null }) : '';
   const routineOn = routineEnabled(chatId);
   const routine = ledger && routineOn ? L.renderRoutine(ledger, storyNow.get(chatId) || ledger.storyTime || null) : '';
   const fixed = [open ? `[아직 끝나지 않은 일]\n${open}` : '', routine].filter(Boolean);
@@ -2445,7 +2484,14 @@ function renderMemorySource(chatId, maxChars = MEMORY_MAX_CHARS) {
     const npc = settings().chats?.[chatId]?.organize?.npcCoverage === 'expanded';
     const amount = RECALL_AMOUNTS[settings().recallAmount] || RECALL_AMOUNTS.normal;
     const recall = recalls.get(chatId);
-    const picks = R.shownPicks(recall?.picks || [], amount.scenes);
+    // Scenes left out never come up by themselves; scenes marked 중요 come first, within the usual number.
+    const hidden = hiddenFor(scenes, prefs);
+    let basePicks = recall?.picks || [];
+    if (prefs.any) {
+      const pinPicks = R.candidates(scenes, firstInside).filter((s) => prefs.pinned.has(s.id) && !hidden.has(s.id)).map((s) => ({ id: s.id, why: '고정', pinned: true }));
+      basePicks = [...pinPicks, ...basePicks.filter((p) => !hidden.has(p.id) && !prefs.excluded.has(p.id) && !(p.follow && (hidden.has(p.from) || prefs.excluded.has(p.from))) && !pinPicks.some((x) => x.id === p.id))];
+    }
+    const picks = R.shownPicks(basePicks, amount.scenes);
     // The story so far keeps up to its usual size, but never more than half of what is left (a little more when
     // the user asked for a longer story flow).
     const chapterChars = CHAPTER_LENGTHS[settings().chapterLength] || CHAPTER_LENGTHS.normal;
@@ -2455,25 +2501,29 @@ function renderMemorySource(chatId, maxChars = MEMORY_MAX_CHARS) {
     // Facts the user decided against in a record conflict stay out; the people of the scene shown now are told which facts they do not know.
     let hideFacts = null;
     try { hideFacts = Cf.hiddenIds(loadConflicts(chatId), scenes); } catch {}
-    const overview = S.renderScenes(scenes, firstInside, { maxChars: Math.floor(9000 * scale), factChars: Math.floor(4500 * scale), chapterChars: Math.floor(chapterChars * scale), query, today, npc, present: lastScenePeople(scenes), hideFacts });
+    const leftOutFacts = [...prefs.excluded].filter((id) => id[0] === 'F');
+    if (leftOutFacts.length) hideFacts = new Set([...(hideFacts || []), ...leftOutFacts]);
+    if (trace) trace.over = { scenes: [], chapters: [], facts: [] };
+    const overview = S.renderScenes(scenes, firstInside, { maxChars: Math.floor(9000 * scale), factChars: Math.floor(4500 * scale), chapterChars: Math.floor(chapterChars * scale), query, today, npc, present: lastScenePeople(scenes), hideFacts, skipScenes: hidden, skipChapters: prefs.excluded, pin: { chapters: only('C'), facts: only('F') }, trace: trace?.over || null });
     if (overview) {
       story.push(overview);
       room -= overview.length + 2;
     }
-    const recalled = room > 500 ? R.renderRecalled(scenes, picks, { maxChars: Math.min(amount.sceneChars, room), npc }) : '';
+    const recalled = room > 500 ? R.renderRecalled(scenes, picks, { maxChars: Math.min(amount.sceneChars, room), npc, trace: trace ? (trace.recalled = []) : null }) : '';
     if (recalled) {
       story.push(recalled);
       room -= recalled.length + 2;
     }
-    const near = amount.near && room > 500 ? R.renderNearEvents(scenes, recall?.semantic || [], picks, { max: amount.near, maxChars: Math.min(5000, room) }) : '';
+    const nearList = prefs.any ? (recall?.semantic || []).filter((x) => !hidden.has(x.id) && !prefs.excluded.has(x.id)) : recall?.semantic || [];
+    const near = amount.near && room > 500 ? R.renderNearEvents(scenes, nearList, picks, { max: amount.near, maxChars: Math.min(5000, room), trace: trace ? (trace.near = []) : null }) : '';
     if (near) {
       story.push(near);
       room -= near.length + 2;
     }
     const raw = room > 300 ? fitBlock(R.renderRaw((recall?.raw || []).slice(0, amount.raw)), room) : '';
-    if (raw) { story.push(raw); room -= raw.length + 2; }
+    if (raw) { story.push(raw); room -= raw.length + 2; if (trace) trace.raw = (recall?.raw || []).slice(0, amount.raw); }
   }
-  const selected = room > 300 ? Selected.render(selectedViews.get(chatId) || [], query, Math.min(room, 2500)) : '';
+  const selected = room > 300 ? Selected.render(selectedViews.get(chatId) || [], query, Math.min(room, 2500), trace ? (trace.selected = []) : null) : '';
   if (selected) story.push(`[직접 선택해 정리한 기억]\n${selected}`);
   // Who calls whom what, for the people of this scene only (a single short line).
   let calls = '';
@@ -2495,6 +2545,89 @@ function renderMemorySource(chatId, maxChars = MEMORY_MAX_CHARS) {
   }
   const parts = [...story, calls, ...now, ...fixed].filter(Boolean);
   return parts.length ? `${header}\n\n${parts.join('\n\n')}\n\n${footer}` : '';
+}
+
+/**
+ * Why each memory in the next reply was chosen (회상 이유), as side data for the 주입 확인 screen. The text that goes
+ * into the reply is rendered the same way with or without it; nothing here is ever written into that text.
+ * { sections: [{ section, items: [{ id, kind, title, pinned, reasons:[{kind, label, ...}] }] }], marks: [...] }
+ */
+function recallReport(chatId) {
+  const scenes = scenesForReply(chatId);
+  const ledger = ledgerForReply(chatId);
+  const prefs = activePrefs(chatId, scenes);
+  const out = { sections: [], marks: [] };
+  const trace = {};
+  if (scenes || ledger) renderMemorySource(chatId, MEMORY_MAX_CHARS, trace);
+  const query = turnQuery.get(chatId) || '';
+  const recall = recalls.get(chatId);
+  const here = scenes ? lastScenePeople(scenes) : [];
+  const sceneOf = new Map((scenes?.scenes || []).map((s) => [s.id, s]));
+  const round = (n) => Math.round(Number(n) * 100) / 100;
+  const marked = (id) => prefs.pinned.has(id);
+  const withPinned = (id, reasons) => (marked(id) ? [{ kind: 'pinned' }, ...reasons] : reasons);
+  const termsOf = (text) => Rp.termsIn(text, query, R.stems);
+  const keyword = (text) => { const terms = termsOf(text); return terms.length ? [{ kind: 'keyword', terms }] : []; };
+  const presentIn = (scene) => {
+    const people = new Set([...(scene?.present || []), ...(scene?.events || []).flatMap((e) => e.with || [])]);
+    const names = here.filter((n) => people.has(n));
+    return names.length ? [{ kind: 'present', names }] : [];
+  };
+  const section = (name, items) => { if (items.length) out.sections.push({ section: name, items }); };
+  const item = (id, kind, title, reasons) => ({ id, kind, title: String(title || id).slice(0, 80), pinned: marked(id), reasons: Rp.labelled(reasons) });
+
+  const over = trace.over || {};
+  section('chapters', (over.chapters || []).map((id) => {
+    const c = (scenes.chapters || []).find((x) => x.id === id);
+    return item(id, 'chapter', c?.title, withPinned(id, [{ kind: 'chapter' }, ...keyword((c?.title || '') + ' ' + (c?.summary || ''))]));
+  }));
+  section('overview', (over.scenes || []).map((id) => item(id, 'scene', sceneOf.get(id)?.title, withPinned(id, [{ kind: 'recent' }]))));
+  section('recalled', (trace.recalled || []).map((pick) => {
+    const scene = sceneOf.get(pick.id);
+    const reasons = [];
+    if (pick.pinned) reasons.push({ kind: 'pinned' });
+    if (pick.follow) reasons.push({ kind: 'follow', from: pick.from });
+    else {
+      const direct = recall?.direct?.id === pick.id ? recall.direct.hits : null;
+      const pointed = (recall?.pointed || []).some((x) => x.id === pick.id);
+      const near = (recall?.semantic || []).find((x) => x.id === pick.id);
+      const special = /^(뜻이 가까움|방금 메시지의 낱말|예전 일을 가리키는|고정)/.test(pick.why || '');
+      if (direct) reasons.push({ kind: 'keyword', terms: direct.slice(0, 3) });
+      if (pointed) reasons.push({ kind: 'pointed' });
+      if (near) reasons.push({ kind: 'meaning', score: round(near.score) });
+      if (!special && recall?.used === 'model') reasons.push({ kind: 'model', why: pick.why || null });
+      else if (!special && !direct && !pointed && !near) reasons.push({ kind: 'keyword', terms: [] });
+      reasons.push(...presentIn(scene));
+    }
+    return item(pick.id, 'scene', scene?.title, reasons);
+  }));
+  section('near', (trace.near || []).map((x) => item(x.id, 'scene', sceneOf.get(x.id)?.title, withPinned(x.id, [{ kind: 'meaning', score: round(x.score) }, ...presentIn(sceneOf.get(x.id))]))));
+  section('raw', (trace.raw || []).map((x) => ({ id: null, kind: 'raw', title: `${x.number}번 메시지`, pinned: false, reasons: Rp.labelled([{ kind: 'keyword', terms: (x.hits || []).slice(0, 3) }]) })));
+  const facts = new Map(scenes ? S.liveFacts(scenes).map((f) => [f.id, f]) : []);
+  section('facts', (over.facts || []).map((id) => {
+    const f = facts.get(id);
+    const reasons = [];
+    if (f?.about && here.includes(f.about)) reasons.push({ kind: 'present', names: [f.about] });
+    reasons.push(...keyword(f?.text));
+    if (!reasons.length) reasons.push({ kind: 'fact' });
+    return item(id, 'fact', f ? (f.about ? f.about + ': ' : '') + f.text : id, withPinned(id, reasons));
+  }));
+  const threads = new Map((ledger?.threads || []).map((t) => [t.id, t]));
+  section('threads', (trace.threads || []).map((id) => {
+    const t = threads.get(id);
+    return item(id, 'thread', t?.title, withPinned(id, [{ kind: 'thread-open' }, ...keyword((t?.title || '') + ' ' + (t?.detail || ''))]));
+  }));
+  const picked = new Map((selectedViews.get(chatId) || []).map((e) => [e.id, e]));
+  section('selected', (trace.selected || []).map((id) => ({ id: null, kind: 'selected', title: String(picked.get(id)?.title || '직접 선택한 기억').slice(0, 80), pinned: false, reasons: Rp.labelled([{ kind: 'selected' }]) })));
+
+  // Everything marked, whether or not it is in the reply now (so a 빼기 can be undone from the preview).
+  const livePins = (ids, state) => ids.map((id) => {
+    const kind = Rp.kindOf(id);
+    const title = kind === 'scene' ? sceneOf.get(id)?.title : kind === 'chapter' ? (scenes?.chapters || []).find((c) => c.id === id)?.title : kind === 'fact' ? facts.get(id)?.text : threads.get(id)?.title;
+    return title == null ? null : { id, kind, state, title: String(title).slice(0, 80) };
+  }).filter(Boolean);
+  out.marks = [...livePins([...prefs.pinned], 'pinned'), ...livePins([...prefs.excluded], 'excluded')];
+  return out;
 }
 
 /**
@@ -2675,11 +2808,12 @@ async function routes(app) {
     if (!store?.scenes.length) throw Error('아직 장면이 없습니다.');
     const mode = RECALL_MODES.includes(settings().recall) && settings().recall !== 'off' ? settings().recall : 'model';
     const firstInside = windows.get(chatId) ?? store.window?.firstInside ?? null;
-    const list = R.candidates(store, firstInside);
+    const plain = R.candidates(store, firstInside);
+    const list = recallCandidates(chatId, store, firstInside);
     const view = settled(await chatMessages(chatId));
     const entry = await computeRecall(chatId, store, view, text, { mode, firstInside, list });
     const title = (id) => store.scenes.find((x) => x.id === id)?.title || null;
-    const ids = new Set(list.map((x) => x.id));
+    const ids = new Set(plain.map((x) => x.id));
     // Scenes the model still reads as they are, or shown in full anyway: they are not recalled, and need not be.
     const shown = store.scenes.filter((x) => !ids.has(x.id)).map((x) => x.id);
     return {
@@ -2913,7 +3047,26 @@ async function routes(app) {
       deadlines: ledger ? L.deadlineList(ledger, storyToday(chatId, ledger)) : [],
       lastNumber: ledger?.lastNumber ?? null,
       rendered: renderLedger(chatId),
+      recallReport: recallReport(chatId),
+      recallPrefs: (() => { const p = Rp.followMerges(loadRecallPrefs(chatId), scenes); return { pinned: p.pinned, excluded: p.excluded }; })(),
     };
+  }));
+  // 중요 (pin) / 빼기 (leave out of automatic recall) for one scene, chapter, fact or open thread; the same button again takes it back.
+  app.post('/chats/:id/recall-prefs', guard(async (req) => {
+    const chatId = safeChatId(req.params.id);
+    const id = String(req.body?.id || '');
+    const action = req.body?.action;
+    if (action !== 'pin' && action !== 'exclude') throw Error('pin 또는 exclude만 할 수 있습니다.');
+    if (!Rp.validId(id)) throw Error('중요/빼기를 정할 수 없는 항목입니다.');
+    return enqueue(`selected:${chatId}`, async () => {
+      const store = loadScenes(chatId), ledger = loadLedger(chatId);
+      const ids = Rp.liveIds(store, ledger, S.liveFacts);
+      if (!ids.has(id)) throw Error('해당 항목을 찾지 못했습니다.');
+      const start = Rp.followMerges(loadRecallPrefs(chatId), store);
+      const next = Rp.prune(Rp.toggle(start, id, action === 'pin' ? 'pinned' : 'excluded'), ids, { scenes: !!store, ledger: !!ledger });
+      saveRecallPrefs(chatId, next);
+      return { recallPrefs: { pinned: next.pinned, excluded: next.excluded } };
+    });
   }));
   app.post('/chats/:id/estimate', guard(async (req) => {
     const chatId = safeChatId(req.params.id);
@@ -3757,7 +3910,7 @@ async function recallBeforeReply(chatId, view, userMessage) {
   const store = scenesForReply(chatId);
   if (mode === 'off' || !store) return recalls.delete(chatId);
   const firstInside = windows.get(chatId) ?? null;
-  const list = R.candidates(store, firstInside);
+  const list = recallCandidates(chatId, store, firstInside);
   const recent = view.slice(-6);
   // The same turn gives the same key whether it is sent or rerolled (then the user message is already saved).
   const tail = [...view.map((m) => m.h), ...(userMessage ? [L.hashText(userMessage)] : [])].slice(-5);
@@ -3865,7 +4018,7 @@ function attach(app) {
   log('admin API ready at /api/memory-module');
 }
 
-module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { loadAddress, saveAddress, refreshAddress, presentPeople, Addr, loadState, saveState, loadPlaces, savePlaces, loadKeepsakes, saveKeepsakes, loadConflicts, saveConflicts, refreshConflicts, refreshWorld, Cf, Ks, organizeFor, sceneTokens, lastScenePeople, St, Pl, listRooms, purgeChatMemory, purgeIfGone, deleteOnSend, deletePrepare, listOrphans, deleteOrphans, goneChats, loadNames, saveNames, enqueue, foldScenes, reviewAttributions, loadAttributionLog, sceneJobs, selectedForView, loadSelected, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, loadTranslations, saveTranslations, chatLangs, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, jobs, writeLanguage, memoryCallOptions, routineSetting, routineEnabled, featureOn, featureSetting, F, B, clearRoomCaches, RESTORE_UNDO_DIR } };
+module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { loadAddress, saveAddress, refreshAddress, presentPeople, Addr, loadState, saveState, loadPlaces, savePlaces, loadKeepsakes, saveKeepsakes, loadConflicts, saveConflicts, refreshConflicts, refreshWorld, Cf, Ks, organizeFor, sceneTokens, lastScenePeople, St, Pl, listRooms, purgeChatMemory, purgeIfGone, deleteOnSend, deletePrepare, listOrphans, deleteOrphans, goneChats, loadNames, saveNames, enqueue, foldScenes, reviewAttributions, loadAttributionLog, sceneJobs, selectedForView, loadSelected, recalls, windows, loadRecallPrefs, saveRecallPrefs, recallReport, recallCandidates, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, loadTranslations, saveTranslations, chatLangs, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, jobs, writeLanguage, memoryCallOptions, routineSetting, routineEnabled, featureOn, featureSetting, F, B, clearRoomCaches, RESTORE_UNDO_DIR } };
 
 
 

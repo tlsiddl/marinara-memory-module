@@ -27,6 +27,7 @@ const FILES = {
   places: '.places.json',
   conflicts: '.conflicts.json',
   keepsakes: '.keepsakes.json',
+  'recall-prefs': '.recall-prefs.json',
 };
 const KEYS = Object.keys(FILES);
 
@@ -46,6 +47,7 @@ const CHECKS = {
   places: (v) => v.version === 1 && Array.isArray(v.places),
   conflicts: (v) => v.version === 1 && Array.isArray(v.conflicts),
   keepsakes: (v) => v.version === 1 && Array.isArray(v.items),
+  'recall-prefs': (v) => v.version === 1 && Array.isArray(v.pinned) && Array.isArray(v.excluded),
 };
 
 /** Walks a parsed value once: bounded size, no prototype tricks. */
@@ -140,6 +142,7 @@ function counts(files) {
     places: len(f.places?.places),
     conflicts: len(f.conflicts?.conflicts),
     keepsakes: len(f.keepsakes?.items),
+    recallMarks: len(f['recall-prefs']?.pinned) + len(f['recall-prefs']?.excluded),
   };
 }
 
