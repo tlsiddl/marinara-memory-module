@@ -131,3 +131,17 @@ test('the rename tab offers the action per alias and the built extension carries
     assert.match(code, /names\/alias-text-apply/, file);
   }
 });
+
+test('every two-click button keeps its armed state across the render in between', () => {
+  // A button that arms on the first click re-renders; the click handler clears `armed` for any act not on its keep list,
+  // so a missing act could never reach its second click (aliasApply once did).
+  const code = fs.readFileSync(path.join(__dirname, '../extension/runtime.js'), 'utf8');
+  const keep = code.split('\n').find((l) => l.includes("actName !== 'fresh'"));
+  assert.ok(keep, 'keep-list line not found');
+  const armedActs = [...code.matchAll(/if \(armed !== '(\w+)'\)/g)].map((m) => { const c = code.slice(0, m.index).match(/case '(\w+)':(?![\s\S]*case '\w+':)/); return c && c[1]; }).filter(Boolean);
+  for (const act of ['nameApply', 'mergeApply', 'aliasApply', 'nameUndo']) {
+    assert.ok(armedActs.includes(act), `${act} should be a two-click act`);
+    assert.ok(keep.includes(`'${act}'`), `${act} is missing from the armed keep list`);
+  }
+  for (const act of armedActs) assert.ok(keep.includes(`'${act}'`), `${act} is missing from the armed keep list`);
+});
