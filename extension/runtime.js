@@ -352,7 +352,7 @@
     if (prefix) text = text.slice(prefix[0].length);
     // The original and its translation are saved apart and shown in one form: "original" (번역).
     if (typeof q.translation === 'string' && q.translation.trim()) text = `${text.trim()} (${q.translation.trim()})`;
-    return { who: by ? `${by}${q.to ? ` → ${q.to}` : ''}` : q.to ? `화자 미확정 → ${q.to}` : (/^\s*["“'‘「『]/.test(text) ? '대사' : '서술'), text: text.trim() };
+    return { who: by ? `${by}${q.to ? ` → ${q.to}${q.toGuess ? '(추정)' : ''}` : ''}` : q.to ? `화자 미확정 → ${q.to}${q.toGuess ? '(추정)' : ''}` : (/^\s*["“'‘「『]/.test(text) ? '대사' : '서술'), text: text.trim() };
   }
 
   /** A warning when this Marinara is not the version the module was tested on, or a patch could not go in. */
@@ -567,7 +567,7 @@
           <label>중요도<select data-f="importance">${Object.entries(IMPORTANCE).map(([k, v]) => `<option value="${k}" ${(e.importance || 'major') === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
           <label class="full">계기 (원문에 있을 때만)<input data-f="why" value="${esc(e.why || '')}"></label>${trNote(e.why)}
         </div>
-        ${e.quotes.map((q, qi) => [q, qi]).sort(([a], [b]) => (a.number ?? 0) - (b.number ?? 0) || (a.sentence ?? 0) - (b.sentence ?? 0)).map(([q, qi]) => { const l = quoteLine(q); return `<div class="quote-card" data-quote="${qi}"><small>${esc(l.who)} · #${q.number}.${q.sentence}</small><blockquote>${esc(l.text)}</blockquote>${q.translation ? '' : trNote(q.text)}<label>말한 사람<input data-quote-by value="${esc(q.by || '')}" placeholder="모르면 비워 두기"></label><label>들은 사람<input data-quote-to value="${esc(q.to || '')}" placeholder="모르면 비워 두기"></label></div>`; }).join('')}
+        ${e.quotes.map((q, qi) => [q, qi]).sort(([a], [b]) => (a.number ?? 0) - (b.number ?? 0) || (a.sentence ?? 0) - (b.sentence ?? 0)).map(([q, qi]) => { const l = quoteLine(q); return `<div class="quote-card" data-quote="${qi}"><small>${esc(l.who)} · #${q.number}.${q.sentence}</small><blockquote>${esc(l.text)}</blockquote>${q.translation ? '' : trNote(q.text)}<label>말한 사람<input data-quote-by value="${esc(q.by || '')}" placeholder="모르면 비워 두기"></label><label>들은 사람${q.toGuess ? ' (추정 · 고치면 확정)' : ''}<input data-quote-to value="${esc(q.to || '')}" placeholder="모르면 비워 두기"></label></div>`; }).join('')}
       </article>`)
       .join('');
     const loose = [...(s.loose || [])].sort((a, b) => (a.number ?? 0) - (b.number ?? 0) || (a.sentence ?? 0) - (b.sentence ?? 0)).map((q) => { const l = quoteLine(q); return `<div class="quote-card loose"><small>${esc(l.who)} · #${q.number}.${q.sentence} · 연결 미확정</small><blockquote>${esc(l.text)}</blockquote>${q.translation ? '' : trNote(q.text)}</div>`; }).join('');
@@ -624,7 +624,8 @@
         if (!input) return q;
         const by = speaker?.value.trim() || null, to = input.value.trim() || null;
         // A changed speaker or listener is the user's: automatic checks leave it alone from now on.
-        return by !== (q.by || null) || to !== (q.to || null) ? { ...q, by, to, manual: true } : { ...q, by, to };
+        if (to !== (q.to || null)) { const { toGuess, ...sure } = q; return { ...sure, by, to, manual: true }; }
+        return by !== (q.by || null) ? { ...q, by, to, manual: true } : { ...q, by, to };
       });
       return { ...old, quotes, text: val(el, 'text'), time: val(el, 'time'), why: val(el, 'why'), importance: val(el, 'importance') };
     });
