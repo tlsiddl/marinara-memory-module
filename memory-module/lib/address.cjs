@@ -47,6 +47,8 @@ function normalize(book) {
   for (const raw of book.entries || []) {
     const from = A.canonical(raw.from), to = A.canonical(raw.to), term = tidy(raw.term);
     if (!from || !to || !term || from === to) continue;
+    // An automatic entry that is really a discourse word or a verb is dropped (the user's own entries never are).
+    if (!isOwn(raw) && !S.plausibleTerm(term)) continue;
     const e = { ...raw, from, to, term };
     const key = entryKey(e);
     const old = merged.get(key);
@@ -64,6 +66,7 @@ function normalize(book) {
 /** Terms the saved dialogue shows: Map(key) -> { from, to, term, count, firstSeen, lastSeen }. */
 function tally(store) {
   const out = new Map();
+  const opens = new Map(); // speaker|term -> listeners whose quotes it opens
   for (const scene of store?.scenes || []) {
     const names = S.sceneNames(store, scene);
     const quotes = [...(scene.events || []).flatMap((e) => e.quotes || []), ...(scene.loose || [])];
@@ -76,7 +79,12 @@ function tally(store) {
       const from = A.canonical(q.by), listener = A.canonical(to[0]);
       if (!from || !listener || from === listener) continue;
       const at = { number: q.number, sentence: q.sentence };
-      for (const { term } of S.vocativeTerms(S.quoteText(q), names)) {
+      for (const { term, at: where } of S.vocativeTerms(S.quoteText(q), names)) {
+        if (where === 'start') {
+          const ok = `${from}|${keyOfTerm(term)}`;
+          if (!opens.has(ok)) opens.set(ok, new Set());
+          opens.get(ok).add(listener);
+        }
         const key = `${from}|${listener}|${keyOfTerm(term)}`;
         const row = out.get(key) || { from, to: listener, term, count: 0, firstSeen: at, lastSeen: at };
         row.count++;
@@ -85,6 +93,12 @@ function tally(store) {
         out.set(key, row);
       }
     }
+  }
+  // Endearments and generic titles may be said to several people; anything else that opens lines to two or more
+  // listeners of one speaker is a sentence-initial discourse word.
+  for (const [key, row] of out) {
+    if (S.termExempt(row.term)) continue;
+    if ((opens.get(`${row.from}|${keyOfTerm(row.term)}`)?.size || 0) >= 2) out.delete(key);
   }
   return out;
 }

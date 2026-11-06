@@ -336,3 +336,41 @@ test('screen: the names tab shows the section and its actions are wired', () => 
   assert.match(source, /dataset\?\.addressUse/);
   assert.match(source, /'address-book': '호칭 사전/);
 });
+
+test('filter: discourse words, interjections and verb forms are not terms of address; nicknames, titles and endearments are', () => {
+  const terms = (text) => S.vocativeTerms(text, names).map((t) => t.term);
+  for (const w of ['Besides', 'Still', 'See', 'Look', 'Listen', 'Anyway', 'However', 'Comunque', 'Piuttosto', 'Tieni', 'Capito', 'Guarda', 'Insomma', 'Magari', '알았어', '들었지', '으응', '알겠어', '있잖아', '좋아']) {
+    assert.deepEqual(terms(`"${w}, vieni qui con me."`), [], w);
+  }
+  assert.deepEqual(terms('"Zuzu, vieni qui."'), ['Zuzu']);
+  assert.deepEqual(terms('"Signor Verdi, venga."'), ['Signor Verdi']);
+  assert.deepEqual(terms('"Boss, andiamo."'), ['Boss']);
+  for (const w of ['Tesoro', 'Amore', 'Honey', 'Darling', 'Babe', '공주', '자기', '애기', '여보']) assert.deepEqual(terms(`"${w}, come here."`), [w], w);
+  assert.deepEqual(terms('"Come here, honey."'), ['honey']);
+  assert.equal(S.plausibleTerm('Zuzu'), true);
+  assert.equal(S.plausibleTerm('알았어'), false);
+  assert.equal(S.plausibleTerm('수지'), true, 'a short name ending in 지 is kept');
+  assert.equal(S.plausibleTerm('Besides'), false);
+});
+
+test('filter: a word opening quotes to two listeners of one speaker is dropped; endearments are not; stale auto entries disappear on refresh; user entries stay', () => {
+  const quotes = [];
+  for (let i = 0; i < 2; i++) {
+    quotes.push(dq(1 + i * 10, 1, '"Zelmo, vieni qui."', ADEL, VITO), dq(2 + i * 10, 1, '"Zelmo, ascolta."', ADEL, VITO));
+    quotes.push(dq(3 + i * 10, 1, '"Zorbo, vieni qui."', ADEL, VITO), dq(4 + i * 10, 1, '"Zorbo, ascolta."', ADEL, SILVI));
+    quotes.push(dq(5 + i * 10, 1, '"Tesoro, vieni qui."', ADEL, VITO), dq(6 + i * 10, 1, '"Tesoro, ascolta."', ADEL, SILVI));
+  }
+  const book = Addr.emptyBook();
+  book.entries = [
+    { from: ADEL, to: VITO, term: 'Besides', count: 5, source: 'auto', useForCheck: false },
+    { from: ADEL, to: VITO, term: '알았어', count: 5, source: 'auto', useForCheck: true },
+    { from: ADEL, to: NERO, term: 'Comunque', count: 1, source: 'user' },
+  ];
+  Addr.refresh(book, storeOf(quotes));
+  const have = book.entries.map((e) => `${e.to}:${e.term}`).sort();
+  assert.deepEqual(have, [`${NERO}:Comunque`, `${SILVI}:Tesoro`, `${VITO}:Tesoro`, `${VITO}:Zelmo`].sort());
+  assert.equal(book.entries.find((e) => e.term === 'Besides'), undefined, 'a switched-off stale auto entry is not resurrected');
+  assert.equal(Addr.normalize({ entries: [{ from: ADEL, to: VITO, term: 'Still', count: 2, source: 'auto' }] }).length, 0, 'bad auto entries are ignored even before a refresh');
+  assert.equal(Addr.normalize({ entries: [{ from: ADEL, to: VITO, term: 'Still', count: 2, source: 'user' }] }).length, 1);
+  assert.deepEqual([...Addr.termMap({ entries: [{ from: ADEL, to: VITO, term: 'Besides', count: 2, source: 'auto', useForCheck: true }] })], [], 'attribution never uses a filtered term');
+});

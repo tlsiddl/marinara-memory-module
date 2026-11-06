@@ -1269,8 +1269,71 @@ function placeKeyFn() {
 }
 const TITLE_WORD = /^(?:signor(?:e|a|ina)?|sig\.?(?:ra)?|mr|mrs|ms|miss|sir|madam|don|donna|dott(?:ore|oressa|or)?\.?|avvocato|capo|zio|zia)$/i;
 const NOT_A_TERM = new Set(['yes', 'no', 'sì', 'si', 'ok', 'okay', 'well', 'so', 'but', 'and', 'then', 'now', 'please', 'thanks', 'sorry', 'grazie', 'prego', 'ma', 'allora', 'certo', 'bene', 'dunque', 'beh', 'ah', 'oh', 'eh', 'hey', 'hi', 'hello', 'ciao', 'what', 'why', 'how', 'when', 'where', 'who', 'look', 'listen', 'wait', 'come', 'go', 'right', 'sure', 'fine', 'good', 'great', 'maybe', 'anyway', 'here', 'there', 'dio', 'madonna', 'basta', 'forza', 'dai', 'scusa', 'scusi', 'fermo', 'aspetta', 'senti', 'ascolta', 'guarda', 'dimmi', 'vieni', 'andiamo', 'cosa', 'perché', 'dove', 'quando', 'chi', 'oddio', 'mamma',
-  '네', '예', '아니', '아니요', '응', '그래', '그래요', '음', '어', '아', '자', '글쎄', '정말', '제발', '미안', '고마워', '감사', '잠깐', '잠시', '여기', '저기', '거기', '이봐', '있잖아', '알겠어', '좋아', '싫어', '맞아', '그럼', '그런데', '하지만', '그리고', '그러니까', '그러면', '왜', '뭐', '어디', '언제', '누구', '어때', '괜찮아', '안녕', '어서', '아이고', '세상에', '맙소사', '진짜', '설마', '빨리', '천천히', '가자', '와', '봐', '들어', '말해', '조심해', '기다려', '잠깐만', '그만', '됐어', '어머', '오', '헉', '흠', '아유', '아니야', '맞지', '그치', '좋지', '알지', '있지', '근데', '아무튼', '어쨌든', '그래도', '그냥', '일단', '먼저', '우선', '역시']);
+  '네', '예', '아니', '아니요', '응', '그래', '그래요', '음', '어', '아', '자', '글쎄', '정말', '제발', '미안', '고마워', '감사', '잠깐', '잠시', '여기', '저기', '거기', '이봐', '있잖아', '알겠어', '좋아', '싫어', '맞아', '그럼', '그런데', '하지만', '그리고', '그러니까', '그러면', '왜', '뭐', '어디', '언제', '누구', '어때', '괜찮아', '안녕', '어서', '아이고', '세상에', '맙소사', '진짜', '설마', '빨리', '천천히', '가자', '와', '봐', '들어', '말해', '조심해', '기다려', '잠깐만', '그만', '됐어', '어머', '오', '헉', '흠', '아유', '아니야', '맞지', '그치', '좋지', '알지', '있지', '그치', '좋지', '알지', '있지', '근데', '아무튼', '어쨌든', '그래도', '그냥', '일단', '먼저', '우선', '역시']);
 const KO_VERBISH = /(?:요|다|죠|까|네|서|게|고|며|면|니|군|걸|데|해|래|자)$/;
+// Discourse words, adverbs, conjunctions, imperatives and interjections that open a quote without calling anyone.
+const NOT_A_TERM_MORE = new Set(('besides still see though however anyway anyhow meanwhile moreover therefore thus hence otherwise instead indeed actually really basically honestly seriously frankly obviously clearly apparently perhaps probably possibly surely certainly definitely absolutely exactly precisely totally completely entirely simply merely just only even also too either neither both again once twice always never ever often sometimes usually already yet soon later earlier tonight today tomorrow yesterday first second third next last finally lastly afterwards afterward ' +
+  'look listen wait stop hold hang come go let tell say ask give take put get keep leave stay sit stand move run walk turn try think know remember forget imagine guess believe trust help hurry relax calm easy careful quiet silence shut enough fine okay ok alright all right yes yeah yep yup nope no nah well so oh ah eh uh um hmm huh ugh wow ouch oops damn hell god gosh jeez geez boy man dude hey hi hello bye goodbye please thanks thank sorry pardon excuse welcome sure right true false maybe nothing something anything everything nobody somebody anybody everybody someone anyone everyone ' +
+  'and but or nor for because since unless until while whereas whether if then than that this these those what which who whom whose when where why how now here there ' +
+  'good great bad nice cool fair real wrong ready done gone back away up down out off over under around about before after during through between against without within ' +
+  'one two three four five six seven eight nine ten sir madam lady lord mister miss mrs ms mr fuck shit christ jesus').split(/\s+/).filter(Boolean));
+const NOT_A_TERM_IT = new Set(('comunque piuttosto tieni capito guarda senti allora dai ecco beh insomma però pero quindi sì si no va bene certo aspetta vieni ascolta scusa scusami scusate grazie prego ciao ok okay magari forse ormai ancora già gia anche pure perfino persino invece infatti dunque ebbene orbene mentre intanto poi dopo prima adesso ora subito presto tardi sempre mai spesso talvolta davvero veramente proprio appunto esatto giusto vero falso sicuro sicuramente naturalmente ovviamente certamente finalmente purtroppo fortunatamente meno più molto troppo poco tanto abbastanza ' +
+  'senza perché perche siccome sebbene benché nonostante tuttavia eppure oppure ossia cioè cioe sennò altrimenti inoltre almeno soltanto solo ' +
+  'vai andiamo andate fermo ferma fermati fermatevi calma piano attento attenta attenzione aspettate venite dimmi dimmelo dammi dacci dammelo fammi lascia lasciami lasciate guardate ascoltate sentite pensa pensaci ricorda ricordati sai sa sapete credi crediamo immagina tranquillo tranquilla coraggio su giù via fuori dentro qui qua lì là ' +
+  'che chi cosa come dove quando quanto quale quali ' +
+  'ehi ehm uffa mah boh oddio dio madonna cavolo accidenti diamine caspita mamma ecco eccoci eccomi eccolo basta stop sveglia forza avanti ' +
+  'signore signora signorina dottore dottoressa professore professoressa ragazzi ragazze gente scusi permesso salve buongiorno buonasera buonanotte arrivederci addio').split(/\s+/).filter(Boolean));
+const NOT_A_TERM_KO = new Set(['응', '으응', '으음', '어', '어어', '아', '아아', '네', '예', '그래', '알았어', '알겠어', '알겠습니다', '알았다', '들었지', '들었어', '봐', '봐봐', '자', '저기', '있잖아', '근데', '그러니까', '아니', '뭐', '왜', '진짜', '정말', '좋아', '됐어', '됐다', '맞아', '맞지', '글쎄', '그럼', '그러게', '그렇지', '그렇구나', '아하', '어휴', '에이', '이런', '저런', '그런', '아무래도', '사실', '솔직히', '아마', '혹시', '제발', '빨리', '얼른', '어서', '당장', '이제', '이미', '아직', '여기', '거기', '저쪽', '오늘', '내일', '어제', '나중에', '잠깐', '잠시', '가만', '가만히', '조용', '조용히', '다시', '또', '벌써', '역시', '결국', '일단', '그냥', '자꾸', '계속', '항상', '절대', '분명', '확실히', '물론', '당연', '당연히', '설마', '아이고', '어머나', '세상에', '맙소사', '헐', '앗', '엇', '음', '흠', '응응', '아냐', '아니야', '아니에요', '그만', '들어', '들어봐', '말해', '말해봐', '가자', '가', '와', '오', '이봐', '여봐', '안녕', '고마워', '미안', '미안해', '죄송', '감사']);
+const KO_SOUNDS = /^(?:으+[응음]|어+|아+|음+|응+|흠+|하+|헤+|오+|우+|에+)$/;
+// 지 only on longer words: 수지, 은지 are names, 들었지 is a sentence.
+const KO_ENDING = /(?:어|요|네|다|까|잖아|거든|[가-힣]{2}지)$/;
+// Terms of endearment: real forms of address even though they are ordinary words.
+const ENDEARMENTS = new Set(['tesoro', 'amore', 'cara', 'caro', 'honey', 'darling', 'babe', 'baby', 'sweetheart', 'sweetie', 'love', 'dear', 'bella', 'bello', 'piccola', 'piccolo', 'cucciolo', 'cucciola', 'stella', 'angelo', 'bimba', 'bimbo', 'gioia', 'cuore', '공주', '자기', '애기', '여보', '왕자', '아가', '달링', '허니', '공주님', '왕자님']);
+// Common English and Italian words that are not names (a capitalized one at the start of a line is just a sentence start).
+const COMMON_EN = new Set(('the a an of to in on at by with from into onto upon over under about above below between among near far close open shut ' +
+  'i me my mine you your yours he him his she her hers it its we us our ours they them their theirs ' +
+  'is am are was were be been being do does did done have has had having will would shall should can could may might must ' +
+  'not nor very much many more most less least some any all each every other another such own same different ' +
+  'time day night morning evening week month year hour minute moment way thing things people person man woman child children kid kids boy girl friend friends ' +
+  'home house room door window table chair bed street road city town place world life death hand hands head eyes face heart mind voice word words name ' +
+  'work job money food water coffee tea wine beer drink eat sleep dream story question answer problem trouble reason idea plan rule rules mistake truth lie secret ' +
+  'big small little long short high low old new young early late hot cold warm dark light heavy soft hard happy sad angry afraid tired sick alone ' +
+  'better worse worst best feel need want like make made saw seen found find lost lose win won played play pay paid ' +
+  'sweet pretty beautiful handsome gorgeous lovely stupid crazy mad silly idiot fool ' +
+  'mom dad mother father brother sister son daughter uncle aunt grandma grandpa').split(/\s+/).filter(Boolean));
+const COMMON_IT = new Set(('il lo la i gli le un uno una di a da in con su per tra fra del dello della dei degli delle al allo alla ai agli alle dal dallo dalla dai dagli dalle nel nello nella nei negli nelle sul sullo sulla sui sugli sulle ' +
+  'io tu lui lei noi voi loro mi ti si ci vi me te se ne mio mia miei mie tuo tua tuoi tue suo sua suoi sue nostro nostra vostro vostra ' +
+  'è sono sei siamo siete era ero eri erano ho hai ha abbiamo avete hanno avevo aveva faccio fai fa facciamo fate fanno vado va vanno ' +
+  'sto stai sta stiamo state stanno dico dici dice diciamo dite dicono voglio vuoi vuole vogliamo volete vogliono posso puoi può possiamo potete possono devo devi deve dobbiamo dovete devono ' +
+  'tempo giorno notte mattina sera settimana mese anno momento modo cose persona uomo donna bambino bambina ragazzo ragazza amico amica amici ' +
+  'casa stanza porta finestra tavolo sedia letto strada città mondo vita morte mano mani testa occhi faccia mente voce parola parole nome ' +
+  'lavoro soldi cibo acqua caffè vino birra sogno storia domanda risposta problema guaio ragione idea piano regola errore verità bugia segreto ' +
+  'grande lungo corto alto basso vecchio nuovo giovane caldo freddo buio luce pesante morbido duro facile felice triste arrabbiato stanco malato sola ' +
+  'brutto brutta buono buona cattivo cattiva migliore peggiore meglio peggio ' +
+  'madre padre fratello sorella figlio figlia zio zia nonno nonna ' +
+  'niente nulla qualcosa tutto tutti tutte ogni ognuno nessuno qualcuno').split(/\s+/).filter(Boolean));
+const normWord = (w) => String(w || '').normalize('NFC').toLowerCase().replace(/[.,!?'’]+$/g, '');
+const isStopword = (w) => { const k = normWord(w); return NOT_A_TERM.has(k) || NOT_A_TERM_MORE.has(k) || NOT_A_TERM_IT.has(k) || NOT_A_TERM_KO.has(k); };
+/** An endearment or a generic title: real forms of address even though ordinary words. */
+function termExempt(term) {
+  const t = String(term || '').trim();
+  return ENDEARMENTS.has(normWord(t)) || GENERIC.test(t);
+}
+/**
+ * Whether a term read as a call plausibly is one (no model): not a stop word, not a verb/sentence ending in Korean, no
+ * ordinary word among the words of a Latin term. Endearments and generic titles always pass.
+ */
+function plausibleTerm(term) {
+  const t = String(term || '').normalize('NFC').trim();
+  if (!t) return false;
+  if (termExempt(t)) return true;
+  const words = t.split(/\s+/);
+  const body = words.filter((w) => !TITLE_WORD.test(w.replace(/[.,]$/, '')));
+  if (!body.length) return false;
+  if (hasHangul(t)) return body.every((w) => !isStopword(w) && !KO_SOUNDS.test(w) && !KO_ENDING.test(w));
+  if (words.length > 3) return false;
+  return body.every((w) => /^\p{L}[\p{L}\p{N}'’-]+$/u.test(w) && !isStopword(w) && !COMMON_EN.has(normWord(w)) && !COMMON_IT.has(normWord(w)));
+}
 /**
  * Terms used to call someone inside a line: the first or the last part of the line set off by , ! or ? ("보스,
  * 가요.", "Hai sentito, Zeno?", "Signor Verdi, venga."). A part that is a known name is left out (addressedIn has
@@ -1298,13 +1361,13 @@ function vocativeTerms(text, names) {
       if (!rest || rest.split(/\s+/).length > 3) continue;
       const titles = lead.split(/\s+/).map((w) => w.replace(/[.,]$/, '')).filter((w) => TITLE_WORD.test(w));
       let term = null;
-      if (GENERIC.test(rest)) term = rest;
+      if (GENERIC.test(rest) || ENDEARMENTS.has(normWord(rest))) term = rest;
       else if (hasHangul(rest)) {
         const stem = rest.replace(KO_CALL, '').trim();
-        if (/^[가-힣]{2,8}$/.test(stem) && !NOT_A_TERM.has(stem) && !KO_VERBISH.test(stem) && !matchAlias(stem, names) && !matchAlias(rest, names)) term = stem;
+        if (/^[가-힣]{2,8}$/.test(stem) && plausibleTerm(stem) && plausibleTerm(rest) && !NOT_A_TERM.has(stem) && !KO_VERBISH.test(stem) && !matchAlias(stem, names) && !matchAlias(rest, names)) term = stem;
       } else if (hasLatin(rest)) {
         const words = rest.split(/\s+/);
-        if (words.length <= 2 && words.every((w) => /^\p{Lu}[\p{L}'’-]+$/u.test(w) && !NOT_A_TERM.has(w.toLowerCase())) && !matchAlias(rest, names) && !words.some((w) => matchAlias(w, names))) term = rest;
+        if (words.length <= 2 && words.every((w) => /^\p{Lu}[\p{L}'’-]+$/u.test(w) && !NOT_A_TERM.has(w.toLowerCase())) && plausibleTerm(rest) && !matchAlias(rest, names) && !words.some((w) => matchAlias(w, names))) term = rest;
       }
       if (!term) continue;
       if (titles.length && !GENERIC.test(term)) term = `${titles.join(' ')} ${term}`;
@@ -3306,6 +3369,8 @@ module.exports = {
   judgeAnswer,
   addressedIn,
   vocativeTerms,
+  plausibleTerm,
+  termExempt,
   setAddressProvider,
   setStateProvider,
   sceneStateOf,
