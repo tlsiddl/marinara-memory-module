@@ -9,7 +9,9 @@
 //   item  { id, label, type: 'count' | 'until' | 'cycle', scope: 'room' | 'person' | 'pair', people: [canonical names],
 //           clock: 'story' | 'real', inject: 'present' | 'always' | 'never', createdAt, updatedAt,
 //           count: { start, firstDay: 1 | 0 } | until: { target } | cycle: { every, unit, length, starts[], predict } }
-//   suggestions  [{ id, trackerId, date, sceneId, status: 'open' | 'done' | 'ignored', text, createdAt }]  (never applied by itself)
+//   suggestions  [{ id, trackerId, date, sceneId, status: 'open' | 'done' | 'ignored', text, createdAt, auto? }]
+//   applied      [{ id, kind: 'tracker', sid, trackerId, label, date, sceneId, text, appliedAt, dropped[], undone }]  (제안 자동 적용:
+//                what was recorded without a click; the last MAX_APPLIED stay, undone ones too so they are not applied again)
 //
 // Dates are ISO "YYYY-MM-DD" inside; "YY-MM-DD" and "YYYY.MM.DD" are accepted when typed.
 
@@ -26,6 +28,7 @@ const PREDICTS = ['fixed', 'average'];
 const MAX_ITEMS = 30;
 const MAX_STARTS = 12;
 const MAX_SUGGESTIONS = 40;
+const MAX_APPLIED = 50;
 const LABEL_MAX = 30;
 const INJECT_CHARS = 200;
 
@@ -123,7 +126,7 @@ const todayFor = (item, ctx) => (item.clock === 'real' ? ctx.real || localDate()
 
 /* ---------- the items ---------- */
 
-const emptyTrackers = () => ({ version: TRACKERS_VERSION, items: [], suggestions: [], updatedAt: null });
+const emptyTrackers = () => ({ version: TRACKERS_VERSION, items: [], suggestions: [], applied: [], updatedAt: null });
 const isTrackers = (v) => !!v && typeof v === 'object' && v.version === TRACKERS_VERSION && Array.isArray(v.items);
 
 const need = (cond, message) => { if (!cond) throw Error(message); };
@@ -224,6 +227,7 @@ function deleteItem(file, id, now = new Date().toISOString()) {
   const next = structuredClone(file);
   next.items.splice(findAt(next, id), 1);
   next.suggestions = (next.suggestions || []).filter((s) => s.trackerId !== id);
+  next.applied = (next.applied || []).filter((a) => a.trackerId !== id);
   next.updatedAt = now;
   return next;
 }
@@ -287,8 +291,9 @@ const suggestionId = (trackerId, date) => `sg_${crypto.createHash('sha1').update
  * that has a story date. Adds one open suggestion per tracker and date, once (an answered one is not asked again, and a date
  * that is already a start is not suggested). `dateOf(scene)` gives the scene's ISO date or null.
  */
-function suggest(file, store, dateOf, now = new Date().toISOString()) {
+function suggest(file, store, dateOf, now = new Date().toISOString(), { auto = false } = {}) {
   let next = null;
+  const created = [];
   const draft = () => (next ||= structuredClone(file));
   for (const item of file.items) {
     if (item.type !== 'cycle') continue;
@@ -309,6 +314,7 @@ function suggest(file, store, dateOf, now = new Date().toISOString()) {
       const who = item.people.length ? `${item.people.join('·')} ` : '';
       const out = draft();
       out.suggestions.push({ id, trackerId: item.id, date, sceneId: scene.id, status: 'open', text: `${who}${item.label} 시작을 ${shortDate(date)}(으)로 기록할까요?`, createdAt: now });
+      created.push(id);
       if (out.suggestions.length > MAX_SUGGESTIONS) {
         const drop = out.suggestions.findIndex((s) => s.status !== 'open');
         out.suggestions.splice(drop >= 0 ? drop : 0, 1);
@@ -316,8 +322,56 @@ function suggest(file, store, dateOf, now = new Date().toISOString()) {
     }
   }
   if (next) next.updatedAt = now;
+  // 제안 자동 적용: only the suggestions made just now are recorded; older open ones wait for the user's click.
+  if (auto && next) for (const id of created) next = autoApply(next, id, now);
   return next || file;
 }
+
+const appliedId = (sid) => `ap_${crypto.createHash('sha1').update(`tracker|${sid}`).digest('hex').slice(0, 8)}`;
+
+/**
+ * Records one open suggestion's date as a start at once. Does nothing when the suggestion was answered, was applied before
+ * (undone ones too: an undo is final), or no longer fits (the tracker is gone or is not a cycle).
+ */
+function autoApply(file, sid, now = new Date().toISOString()) {
+  const sug = (file.suggestions || []).find((s) => s.id === sid);
+  if (!sug || sug.status !== 'open') return file;
+  if ((file.applied || []).some((a) => a.sid === sid || a.id === appliedId(sid))) return file;
+  const item = file.items.find((t) => t.id === sug.trackerId);
+  if (!item || item.type !== 'cycle' || item.cycle.starts.includes(sug.date)) return file;
+  const was = item.cycle.starts;
+  const next = addStart(file, sug.trackerId, sug.date, now);
+  const after = next.items.find((t) => t.id === sug.trackerId).cycle.starts;
+  const target = next.suggestions.find((s) => s.id === sid);
+  target.status = 'done';
+  target.auto = true;
+  next.applied = [...(next.applied || []), { id: appliedId(sid), kind: 'tracker', sid, trackerId: item.id, label: item.label, date: sug.date, sceneId: sug.sceneId, text: sug.text, appliedAt: now, dropped: was.filter((d) => !after.includes(d)), undone: false }].slice(-MAX_APPLIED);
+  next.updatedAt = now;
+  return next;
+}
+
+/** Takes back exactly what autoApply did: the start date goes (and a date it pushed out comes back); the suggestion counts as ignored. */
+function undoApplied(file, id, now = new Date().toISOString()) {
+  const rec = (file.applied || []).find((a) => a.id === id);
+  need(rec, '해당 자동 적용 기록을 찾지 못했습니다.');
+  need(!rec.undone, '이미 되돌렸습니다.');
+  const next = structuredClone(file);
+  const it = next.items.find((t) => t.id === rec.trackerId);
+  if (it?.type === 'cycle' && it.cycle.starts.includes(rec.date)) {
+    it.cycle.starts = sortedStarts([...it.cycle.starts.filter((d) => d !== rec.date), ...(rec.dropped || [])]).slice(-MAX_STARTS);
+    it.updatedAt = now;
+  }
+  const sug = next.suggestions.find((s) => s.id === rec.sid);
+  if (sug) sug.status = 'ignored';
+  const mine = next.applied.find((a) => a.id === id);
+  mine.undone = true;
+  mine.undoneAt = now;
+  next.updatedAt = now;
+  return next;
+}
+
+/** What the screen lists under "자동으로 적용함": the ones not undone, newest first. */
+const appliedView = (file) => (file?.applied || []).filter((a) => !a.undone).map((a) => ({ id: a.id, kind: a.kind, label: a.label, date: a.date, sceneId: a.sceneId, appliedAt: a.appliedAt, text: `${a.label} 시작일 ${shortDate(a.date)} 기록` })).reverse();
 
 /** accept: the date becomes a start; ignore: it is marked and never asked again. */
 function answerSuggestion(file, sid, action, now = new Date().toISOString()) {
@@ -331,7 +385,7 @@ function answerSuggestion(file, sid, action, now = new Date().toISOString()) {
   return next;
 }
 
-/** A branch keeps the trackers; suggestions that point at scenes the branch does not have are dropped. */
+/** A branch keeps the trackers and the list of what was applied by itself; suggestions that point at scenes the branch does not have are dropped. */
 function forBranch(file, store) {
   const next = structuredClone(file);
   const ids = new Set((store?.scenes || []).map((s) => s.id));
@@ -389,5 +443,5 @@ function view(file, ctx) {
 module.exports = {
   TRACKERS_VERSION, TYPES, SCOPES, CLOCKS, INJECTS, UNITS, PREDICTS, INJECT_CHARS, MAX_ITEMS, MAX_STARTS,
   parseDate, daysBetween, addDays, addMonths, localDate, shortDate, evaluate, todayFor, emptyTrackers, isTrackers,
-  normalizeItem, addItem, editItem, deleteItem, addStart, removeStart, editStart, startFromDate, keywordsOf, suggest, answerSuggestion, forBranch, entryText, injectionBlock, view,
+  normalizeItem, addItem, editItem, deleteItem, addStart, removeStart, editStart, startFromDate, keywordsOf, suggest, autoApply, undoApplied, appliedView, MAX_APPLIED, answerSuggestion, forBranch, entryText, injectionBlock, view,
 };

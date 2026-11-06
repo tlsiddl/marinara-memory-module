@@ -26,17 +26,17 @@ const call = async (key, id, body) => {
 const settingsFile = path.join(dir, 'memory-module/settings.json');
 const onDisk = () => JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
 
-const READY = ['recentLife', 'characterState', 'places', 'keepsakes', 'trackers'];
+const READY = ['recentLife', 'characterState', 'places', 'keepsakes', 'trackers', 'autoApply'];
 const BUILTIN = ['addressBook', 'learnFromEdits', 'knowledge', 'conflicts', 'recallReasons'];
 test('registry: Korean labels, recentLife on by default, every other feature off; only the implemented ones are ready; built-in ones are not in it', () => {
-  const keys = ['recentLife', 'characterState', 'places', 'keepsakes', 'trackers'];
+  const keys = ['recentLife', 'characterState', 'places', 'keepsakes', 'trackers', 'autoApply'];
   assert.deepEqual(Object.keys(F.FEATURES), keys);
   for (const [key, f] of Object.entries(F.FEATURES)) {
     assert.match(f.label, /[가-힣]/, key);
     assert.match(f.description, /[가-힣]/, key);
     assert.equal(typeof f.default, 'boolean');
     assert.equal(typeof f.ready, 'boolean');
-    if (key === 'recentLife') assert.equal(f.default, true); else assert.equal(f.default, false, key);
+    if (key === 'recentLife' || key === 'autoApply') assert.equal(f.default, true); else assert.equal(f.default, false, key);
     assert.equal(f.ready, READY.includes(key), key);
   }
   assert.deepEqual(F.BUILTIN, BUILTIN);
@@ -68,7 +68,8 @@ test('resolution: default, global override, room override, unknown values and un
 test('featureOn on the server: new features default off and never run while not ready', () => {
   X.saveSettings({ connection: null, chats: {} });
   assert.equal(X.featureOn('room', 'recentLife'), true);
-  for (const key of Object.keys(F.FEATURES).filter((k) => k !== 'recentLife')) assert.equal(X.featureOn('room', key), false, key);
+  for (const key of Object.keys(F.FEATURES).filter((k) => k !== 'recentLife' && k !== 'autoApply')) assert.equal(X.featureOn('room', key), false, key);
+  assert.equal(X.featureOn('room', 'autoApply'), true, '제안 자동 적용 is on by default');
   // Built in: always on, whatever is stored.
   for (const key of BUILTIN) assert.equal(X.featureOn('room', key), true, key);
   X.saveSettings({ connection: null, chats: { room: { features: { addressBook: 'off', knowledge: 'off' } } }, features: { conflicts: false } });
