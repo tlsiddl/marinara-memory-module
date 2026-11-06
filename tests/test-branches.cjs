@@ -198,6 +198,37 @@ test('service copies files/settings/vectors before successful branch response; i
   assert.equal(T.loadLedger('parent').threads[0].title, '약속');
 });
 
+test('a branch inherits character cards and places: the user\'s edits stay, the rest is worked out again from the scenes it really has', async () => {
+  const St = require('../memory-module/lib/state.cjs');
+  const Pl = require('../memory-module/lib/places.cjs');
+  const f = fixture();
+  const at = (i) => f.source[i].number;
+  f.scenes.scenes[0].place = '서재';
+  f.scenes.scenes[0].state = [{ who: '도윤', location: '서재', outfit: '셔츠', evidence: [{ number: at(0), sentence: 1 }] }];
+  f.scenes.scenes[0].placeNotes = [{ place: '서재', features: ['책장'] }];
+  f.scenes.scenes[2].place = '옥상';
+  f.scenes.scenes[2].state = [{ who: '도윤', location: '옥상', evidence: [{ number: at(4), sentence: 1 }] }];
+  f.scenes.scenes[2].placeNotes = [{ place: '옥상', features: ['난간'] }];
+  T.setEngine(mockEngine(f, 'child3', 4));
+  T.saveLedger('parent', f.ledger); T.saveScenes('parent', f.scenes);
+  T.saveSettings({ connection: null, chats: { parent: { enabled: true } } });
+  let cards = St.fold(f.scenes, null);
+  cards = St.fold(f.scenes, St.setField(cards, '도윤', 'mood', '느긋'));
+  T.saveState('parent', cards);
+  T.savePlaces('parent', Pl.fold(f.scenes, null));
+  assert.equal(T.loadState('parent').cards[0].location, '옥상');
+  const payload = JSON.stringify({ id: 'child3', name: '분기' });
+  await T.branchOnSend({ method: 'POST', raw: { url: '/api/chats/parent/branch' } }, { statusCode: 200 }, payload);
+  const card = T.loadState('child3').cards[0];
+  assert.equal(card.location, '서재', 'the later scene is not in this branch');
+  assert.equal(card.mood, '느긋', 'the user\'s edit came along');
+  assert.deepEqual(card.evidence.map((e) => e.number), [100], 'message numbers follow the branch');
+  assert.deepEqual(T.loadPlaces('child3').places.map((p) => p.name), ['서재']);
+  assert.equal(T.loadState('parent').cards[0].location, '옥상', 'the parent is untouched');
+  assert.equal(T.loadPlaces('parent').places.length, 2);
+  for (const n of ['state', 'places']) assert.ok(fs.existsSync(path.join(dir, `memory-module/chats/child3.${n}.json`)), n);
+});
+
 test('failed/unrelated branch requests and corrupt destinations remain untouched', async () => {
   const payload = JSON.stringify({ id: 'never' });
   for (const [method, url, statusCode] of [['POST', '/api/chats/parent/branch', 500], ['GET', '/api/chats/parent/branch', 200], ['POST', '/api/chats/parent', 200]]) {

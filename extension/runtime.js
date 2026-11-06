@@ -14,6 +14,7 @@
     ['facts', '알게 된 사실', 'person'],
     ['ledger', '아직 끝나지 않은 일', 'note'],
     ['life', '최근 생활', 'clock'],
+    ['world', '인물·장소', 'folder'],
     ['names', '이름 정리', 'person'],
     ['inject', '주입 확인', 'search'],
     ['settings', '설정', 'settings'],
@@ -46,6 +47,11 @@
   // The room's name table, the names in use, duplicates and "같은 사람일 수 있음" (the 이름 정리 tab).
   let names = null;
   let namesRoom = '';
+  // 인물·장소 tab: the cards and places of the room, and the two "add" boxes.
+  let world = null;
+  let worldRoom = '';
+  let worldError = '';
+  let worldForm = { person: '', place: '' };
   let namesError = '';
   let nameForm = { source: '', target: '', display: '', text: true };
   // The 호칭 사전 form (id is set while an entry is being edited).
@@ -155,6 +161,8 @@
     if (sequence !== roomLoadSequence || room !== id || disposed) return;
     if (needsNames()) await loadNames(id);
     if (sequence !== roomLoadSequence || room !== id || disposed) return;
+    if (needsWorld()) await loadWorld(id);
+    if (sequence !== roomLoadSequence || room !== id || disposed) return;
     if (!needsScenes()) return;
     if (storeRoom !== id || !store) {
       const scenes = await api('GET', `/chats/${encodeURIComponent(id)}/scenes`);
@@ -167,6 +175,25 @@
   }
 
   const needsNames = () => ['names', 'life'].includes(tab);
+  const needsWorld = () => tab === 'world';
+  async function loadWorld(id) {
+    try {
+      const w = await api('GET', `/chats/${encodeURIComponent(id)}/world`);
+      if (room !== id || disposed) return;
+      world = w;
+      worldRoom = id;
+      worldError = '';
+    } catch (error) {
+      if (room !== id) return;
+      world = null;
+      worldError = error?.message || String(error);
+    }
+  }
+  async function ensureWorld() {
+    if (!needsWorld() || !room || (world && worldRoom === room)) return;
+    await loadWorld(room);
+    render();
+  }
   async function loadNames(id) {
     try {
       const n = await api('GET', `/chats/${encodeURIComponent(id)}/names`);
@@ -811,6 +838,70 @@
       <div class="buttons">${p.total ? `<button class="primary" data-act="${armedKey}">${armed === armedKey ? '한 번 더 누르면 적용합니다' : merge ? '합치기' : '적용'}</button>` : '<span class="hint">바뀌는 곳이 없습니다.</span>'}<button class="ghost" data-act="nameCancel">닫기</button></div></div>`;
   }
 
+  /** 인물·장소: the character state cards and the places of the room (both are optional features). */
+  function viewWorld() {
+    if (!info) return emptyRoom();
+    if (!world || worldRoom !== room) return worldError ? `<div class="note" role="alert">인물·장소를 불러오지 못했습니다. ${esc(worldError)} 서버의 기억 모듈도 함께 업데이트했는지 확인해 주세요.</div>` : `<div class="empty">${icon('refresh')}불러오는 중입니다…</div>`;
+    const off = !world.characterState && !world.places;
+    return `<div class="eyebrow">STORY NOW</div><h1>인물·장소</h1>
+      <p class="intro">장면을 정리할 때 같은 모델 호출에서 함께 읽어 둔 인물의 현재 상태와 장소의 모습입니다. 켠 뒤에 새로 정리하는 장면부터 채워지고, 원문에 보인 것만 적습니다. 고친 칸은 잠겨서 자동 기록이 덮어쓰지 않습니다.</p>
+      ${off ? '<div class="note" role="status">이 방에서는 <b>인물 현재 상태</b>와 <b>장소 기억</b>이 모두 꺼져 있습니다. <button data-tab="settings">설정 → 추가 기능에서 켜기</button></div>' : ''}
+      ${statePaper(world, worldForm, armed)}
+      ${placesPaper(world, worldForm, armed)}`;
+  }
+
+  /** 인물 상태 cards: every field is an input (editing locks it), a locked field has a button that gives it back to the scenes. */
+  function statePaper(w, form, armedNow) {
+    if (!w || !w.characterState) return '';
+    const cards = w.cards || [];
+    const titles = w.sceneTitles || {};
+    const fields = [['location', '있는 곳', 'text'], ['outfit', '옷차림', 'text'], ['injuries', '다친 곳', 'list'], ['carrying', '가진 것', 'list'], ['mood', '기분', 'text'], ['other', '그 밖', 'text']];
+    const field = (c, [key, label, kind]) => {
+      const raw = c[key];
+      const value = kind === 'list' ? (raw || []).join(' · ') : raw || '';
+      const locked = c.sources?.[key] === 'user';
+      return `<div class="world-field"><span>${label}</span><input data-state-name="${esc(c.name)}" data-state-field="${key}" value="${esc(value)}" placeholder="${kind === 'list' ? '· 로 나눠 적기' : '없음'}" aria-label="${esc(c.name)} ${label}">${locked ? `<button class="ghost lock" data-act="stateUnlock" data-name="${esc(c.name)}" data-field="${key}">자동으로 되돌리기</button><small>직접 고침</small>` : ''}</div>`;
+    };
+    const card = (c) => {
+      const marks = (c.evidence || []).map((e) => `#${esc(e.number)}.${esc(e.sentence)}`).join(' ');
+      const scene = c.asOf?.scene;
+      return `<div class="world-card" data-card="${esc(c.name)}"><h3>${esc(c.name)}</h3>
+        ${fields.map((f) => field(c, f)).join('')}
+        <p class="hint">${scene ? `기준 장면 <a href="#" class="record-link" data-goto-scene="${esc(scene)}">${esc(scene)}${titles[scene] ? ` · ${esc(titles[scene])}` : ''}</a> · ${esc(c.asOf?.number ?? '')}번 메시지까지` : '자동 기록 없음(직접 적은 카드)'}${marks ? ` · 근거 ${marks}` : ''}</p>
+        <div class="buttons"><button class="ghost" data-act="stateReset" data-name="${esc(c.name)}">${armedNow === `stateReset:${c.name}` ? '한 번 더 누르면 지웁니다' : '카드의 직접 고침 모두 지우기'}</button></div></div>`;
+    };
+    return `<div class="paper"><h2>인물 현재 상태 · ${cards.length}명</h2>
+      <p class="hint">장면에서 상태가 바뀐 인물만 이어서 기록합니다(나은 곳·내려놓은 물건은 빠집니다). 답변에는 지금 장면에 있는 사람의 상태만 한 줄로 들어갑니다.</p>
+      ${cards.length ? cards.map(card).join('') : '<p class="hint">아직 없습니다. 켠 뒤에 정리되는 장면부터 채워집니다.</p>'}
+      <h3>인물 카드 직접 추가</h3>
+      <div class="routine-row"><input id="stateNewName" value="${esc(form?.person || '')}" placeholder="인물 이름" aria-label="인물 이름"><button class="primary" data-act="stateAdd">추가</button></div></div>`;
+  }
+
+  /** 장소 memory: description, layout, features and other names of each place, editable; places can be merged. */
+  function placesPaper(w, form, armedNow) {
+    if (!w || !w.places) return '';
+    const list = w.placeList || [];
+    const titles = w.sceneTitles || {};
+    const place = (p) => {
+      const locked = (k) => p.sources?.[k] === 'user';
+      const input = (key, label, value, hint) => `<div class="world-field"><span>${label}</span><input data-place-id="${esc(p.id)}" data-place-field="${key}" value="${esc(value)}" placeholder="${hint}" aria-label="${esc(p.name)} ${label}">${key !== 'aliases' && locked(key) ? `<button class="ghost lock" data-act="placeUnlock" data-id="${esc(p.id)}" data-field="${key}">자동으로 되돌리기</button><small>직접 고침</small>` : ''}</div>`;
+      const others = list.filter((x) => x.id !== p.id);
+      const seen = (at) => (at?.scene ? `<a href="#" class="record-link" data-goto-scene="${esc(at.scene)}">${esc(at.scene)}${titles[at.scene] ? ` · ${esc(titles[at.scene])}` : ''}</a>` : '');
+      return `<div class="world-card" data-place="${esc(p.id)}"><h3>${esc(p.name)}</h3>
+        ${input('description', '모습', p.description || '', '한 구절')}
+        ${input('layout', '배치', p.layout || '', '한 구절')}
+        ${input('features', '특징', (p.features || []).join(' · '), '· 로 나눠 적기 (자동으로는 최근 12개까지)')}
+        ${input('aliases', '다른 이름', (p.aliases || []).join(' · '), '같은 곳의 다른 이름, · 로 나눠 적기')}
+        <p class="hint">${(p.scenes || []).length ? `${esc(p.scenes.length)}개 장면 · 처음 ${seen(p.firstSeen)} · 마지막 ${seen(p.lastSeen)}` : '장면에 연결되지 않은 장소'}</p>
+        <div class="routine-row">${others.length ? `<select data-place-merge="${esc(p.id)}" aria-label="합칠 장소"><option value="">다른 장소에 합치기…</option>${others.map((o) => `<option value="${esc(o.id)}">${esc(o.name)}</option>`).join('')}</select>` : ''}<button class="ghost" data-act="placeDelete" data-id="${esc(p.id)}">${armedNow === `placeDelete:${p.id}` ? '한 번 더 누르면 지웁니다' : '이 장소 지우기'}</button></div></div>`;
+    };
+    return `<div class="paper"><h2>장소 · ${list.length}곳</h2>
+      <p class="hint">'아델의 집무실'과 '집무실'처럼 같은 곳의 다른 이름은 자동으로 합치지 않습니다. 한 장소의 ‘다른 이름’에 적거나 ‘합치기’를 쓰세요. 답변에는 지금 장면의 장소만 한 줄로 들어갑니다.</p>
+      ${list.length ? list.map(place).join('') : '<p class="hint">아직 없습니다. 켠 뒤에 정리되는 장면부터 채워집니다.</p>'}
+      <h3>장소 직접 추가</h3>
+      <div class="routine-row"><input id="placeNewName" value="${esc(form?.place || '')}" placeholder="장소 이름" aria-label="장소 이름"><button class="primary" data-act="placeAdd">추가</button></div></div>`;
+  }
+
   function viewNames() {
     if (!info) return emptyRoom();
     if (!names || namesRoom !== room) return namesError ? `<div class="note" role="alert">이름 정보를 불러오지 못했습니다. ${esc(namesError)} 서버의 기억 모듈도 함께 업데이트했는지 확인해 주세요.</div>` : `<div class="empty">${icon('refresh')}불러오는 중입니다…</div>`;
@@ -1151,7 +1242,7 @@
     return `<details${attributionFilter ? ' open' : ''}><summary>대사 확인 기록 (${runs.length}회${live ? ' · 진행 중' : ''})</summary><p class="hint">화자·상대 판단과 저장 결과입니다. 서버에 방마다 최근 5회까지 남고, 정리가 끝나거나 서버를 다시 켜도 유지됩니다. 바뀌었거나 다시 물었거나 받아들이지 않은 대사는 모두 남고, 문제없이 그대로인 대사는 장면별 개수로만 보입니다. 대사 원문과 근거 문구는 기록하지 않습니다.</p><label>대사 번호로 찾기<input id="attributionFilter" value="${esc(attributionFilter)}" placeholder="예: #1.24" autocomplete="off"></label>${live ? `<details open><summary>진행 중 (${live.length}${esc(tally(sj.attributionProgress))})</summary>${live.map(attributionEntryHtml).join('')}</details>` : ''}${runs.map(run).join('')}</details>`;
   }
 
-  const VIEWS = { home: viewHome, scenes: viewScenes, search: viewSearch, facts: viewFacts, ledger: viewLedger, life: viewLife, names: viewNames, inject: viewInject, settings: viewSettings };
+  const VIEWS = { home: viewHome, scenes: viewScenes, search: viewSearch, facts: viewFacts, ledger: viewLedger, life: viewLife, world: viewWorld, names: viewNames, inject: viewInject, settings: viewSettings };
 
   function render() {
     if (!root) return;
@@ -1208,7 +1299,7 @@
   async function handle(actName, el) {
     const id = el?.dataset?.id;
     const chat = encodeURIComponent(room);
-    if (actName !== 'fresh' && !actName.startsWith('deleteFact') && actName !== 'closeThread' && actName !== 'rebuildChapters' && actName !== 'deleteRoutine' && !['nameApply', 'mergeApply', 'aliasApply', 'nameUndo', 'backupDownload', 'restoreApply', 'restoreUndo', 'addressDelete'].includes(actName)) armed = '';
+    if (actName !== 'fresh' && !actName.startsWith('deleteFact') && actName !== 'closeThread' && actName !== 'rebuildChapters' && actName !== 'deleteRoutine' && !['nameApply', 'mergeApply', 'aliasApply', 'nameUndo', 'backupDownload', 'restoreApply', 'restoreUndo', 'addressDelete', 'stateReset', 'placeDelete'].includes(actName)) armed = '';
     switch (actName) {
       case 'retryTranslation':
         return act(async () => {
@@ -1337,6 +1428,50 @@
           names = null;
         }, `글 속 ${form.alias} → ${form.display}: 표기를 바꿨습니다.`);
       }
+      case 'stateUnlock':
+        return act(async () => {
+          await api('POST', `/chats/${chat}/state`, { action: 'unlock', name: el.dataset.name, field: el.dataset.field });
+          world = null;
+        }, '이 항목을 자동 기록으로 되돌렸습니다.');
+      case 'stateAdd': {
+        const name = (root.querySelector('#stateNewName')?.value || '').trim();
+        if (!name) return;
+        return act(async () => {
+          await api('POST', `/chats/${chat}/state`, { action: 'add', name });
+          worldForm.person = '';
+          world = null;
+        }, '인물 카드를 추가했습니다.');
+      }
+      case 'stateReset': {
+        const name = el.dataset.name;
+        if (armed !== `stateReset:${name}`) { armed = `stateReset:${name}`; return render(); }
+        armed = '';
+        return act(async () => {
+          await api('POST', `/chats/${chat}/state`, { action: 'reset', name });
+          world = null;
+        }, '카드의 직접 고침을 지웠습니다.');
+      }
+      case 'placeUnlock':
+        return act(async () => {
+          await api('POST', `/chats/${chat}/places`, { action: 'unlock', id, field: el.dataset.field });
+          world = null;
+        }, '이 항목을 자동 기록으로 되돌렸습니다.');
+      case 'placeAdd': {
+        const name = (root.querySelector('#placeNewName')?.value || '').trim();
+        if (!name) return;
+        return act(async () => {
+          await api('POST', `/chats/${chat}/places`, { action: 'add', name });
+          worldForm.place = '';
+          world = null;
+        }, '장소를 추가했습니다.');
+      }
+      case 'placeDelete':
+        if (armed !== `placeDelete:${id}`) { armed = `placeDelete:${id}`; return render(); }
+        armed = '';
+        return act(async () => {
+          await api('POST', `/chats/${chat}/places`, { action: 'delete', id });
+          world = null;
+        }, '장소를 지웠습니다.');
       case 'addressSave': {
         readAddressForm();
         const form = { ...addressForm };
@@ -1769,6 +1904,8 @@
       if (e.target.id === 'memorySearchInput') searchDraft = e.target.value;
       if (['nameSource', 'nameTarget', 'nameDisplay'].includes(e.target.id)) readNameForm();
       if (['addrFrom', 'addrTo', 'addrTerm', 'addrNote'].includes(e.target.id)) readAddressForm();
+      if (e.target.id === 'stateNewName') worldForm.person = e.target.value;
+      if (e.target.id === 'placeNewName') worldForm.place = e.target.value;
       if (e.target.id === 'attributionFilter') {
         attributionFilter = e.target.value;
         // Shown and hidden in place, so typing keeps the focus and the open sections.
@@ -1855,6 +1992,30 @@
         const label = (info?.features || []).find((f) => f.key === key)?.label || key;
         void act(() => api('POST', `/chats/${encodeURIComponent(room)}/feature-mode`, { key, mode }), `이 방의 ${label} 설정을 저장했습니다.`);
       }
+      if (e.target.dataset?.stateField) {
+        const body = { action: 'set', name: e.target.dataset.stateName, field: e.target.dataset.stateField, value: e.target.value };
+        void act(async () => {
+          await api('POST', `/chats/${encodeURIComponent(room)}/state`, body);
+          world = null;
+        }, '고친 항목을 저장했습니다. 이 항목은 자동 기록이 덮어쓰지 않습니다.');
+      }
+      if (e.target.dataset?.placeField) {
+        const field = e.target.dataset.placeField;
+        const body = field === 'aliases' ? { action: 'aliases', id: e.target.dataset.placeId, value: e.target.value } : { action: 'set', id: e.target.dataset.placeId, field, value: e.target.value };
+        void act(async () => {
+          await api('POST', `/chats/${encodeURIComponent(room)}/places`, body);
+          world = null;
+        }, field === 'aliases' ? '다른 이름을 저장했습니다.' : '고친 항목을 저장했습니다. 이 항목은 자동 기록이 덮어쓰지 않습니다.');
+      }
+      if (e.target.dataset?.placeMerge) {
+        const from = e.target.dataset.placeMerge;
+        const into = e.target.value;
+        if (!into) return;
+        void act(async () => {
+          await api('POST', `/chats/${encodeURIComponent(room)}/places`, { action: 'merge', id: from, into });
+          world = null;
+        }, '두 장소를 하나로 합쳤습니다. 합친 쪽 이름은 다른 이름으로 남습니다.');
+      }
       if (e.target.dataset?.addressUse) {
         const id = e.target.dataset.addressUse;
         const on = e.target.checked;
@@ -1939,6 +2100,7 @@
         if (tab === 'settings') void openSettings();
         void ensureScenes();
         void ensureNames();
+        void ensureWorld();
         return render();
       }
       if (n.dataset.group !== undefined) {

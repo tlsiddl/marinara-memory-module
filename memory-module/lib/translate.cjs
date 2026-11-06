@@ -77,8 +77,9 @@ function planLines(text, target) {
       out.push({ line, kind: 'keep' });
       continue;
     }
-    // The address-book line is names and the words the story uses for them: kept as written.
-    if (trimmed.startsWith('[호칭] ')) {
+    // The address-book line is names and the words the story uses for them; the state and place lines are names and short
+    // notes taken from the text: kept as written.
+    if (trimmed.startsWith('[호칭] ') || trimmed.startsWith('[지금 상태] ') || trimmed.startsWith('[장소] ')) {
       out.push({ line, kind: 'keep' });
       continue;
     }

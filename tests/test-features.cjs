@@ -26,7 +26,7 @@ const call = async (key, id, body) => {
 const settingsFile = path.join(dir, 'memory-module/settings.json');
 const onDisk = () => JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
 
-const READY = ['recentLife', 'addressBook', 'learnFromEdits'];
+const READY = ['recentLife', 'addressBook', 'learnFromEdits', 'characterState', 'places'];
 test('registry: Korean labels, recentLife on by default, every other feature off; only the implemented ones are ready', () => {
   const keys = ['recentLife', 'addressBook', 'learnFromEdits', 'characterState', 'places', 'knowledge', 'conflicts', 'recallReasons'];
   assert.deepEqual(Object.keys(F.FEATURES), keys);
@@ -64,16 +64,16 @@ test('featureOn on the server: new features default off and never run while not 
   assert.equal(X.featureOn('room', 'addressBook'), true, 'addressBook is implemented: a stored choice applies');
   assert.equal(X.featureOn('room', 'nonsense'), false);
   // Stored "on" is still off while the feature is not implemented.
-  X.saveSettings({ chats: { room: { features: { places: 'on' } } }, features: { places: true } });
-  assert.equal(X.featureOn('room', 'places'), false);
-  const was = F.FEATURES.places.ready;
+  X.saveSettings({ chats: { room: { features: { knowledge: 'on' } } }, features: { knowledge: true } });
+  assert.equal(X.featureOn('room', 'knowledge'), false);
+  const was = F.FEATURES.knowledge.ready;
   try {
-    F.FEATURES.places.ready = true;
-    assert.equal(X.featureOn('room', 'places'), true, 'implemented: the stored choice applies');
-    X.saveSettings({ chats: { room: { features: { places: 'off' } } }, features: { places: true } });
-    assert.equal(X.featureOn('room', 'places'), false);
-    assert.equal(X.featureOn('other', 'places'), true);
-  } finally { F.FEATURES.places.ready = was; }
+    F.FEATURES.knowledge.ready = true;
+    assert.equal(X.featureOn('room', 'knowledge'), true, 'implemented: the stored choice applies');
+    X.saveSettings({ chats: { room: { features: { knowledge: 'off' } } }, features: { knowledge: true } });
+    assert.equal(X.featureOn('room', 'knowledge'), false);
+    assert.equal(X.featureOn('other', 'knowledge'), true);
+  } finally { F.FEATURES.knowledge.ready = was; }
 });
 
 test('recentLife keeps working with settings files written before the registry', () => {
@@ -124,10 +124,10 @@ test('routes persist switches; recentLife writes its old keys, the others the ne
     assert.match((await call('POST /chats/:id/feature-mode', '../x', { key: 'knowledge', mode: 'on' })).error, /invalid chat id/);
   } finally { F.FEATURES.knowledge.ready = was; }
   // not implemented / unknown: refused, nothing stored
-  assert.match((await call('POST /settings/features', null, { key: 'places', on: true })).error, /준비 중/);
-  assert.match((await call('POST /chats/:id/feature-mode', 'r1', { key: 'places', mode: 'on' })).error, /준비 중/);
+  assert.match((await call('POST /settings/features', null, { key: 'conflicts', on: true })).error, /준비 중/);
+  assert.match((await call('POST /chats/:id/feature-mode', 'r1', { key: 'conflicts', mode: 'on' })).error, /준비 중/);
   assert.match((await call('POST /settings/features', null, { key: 'bogus', on: true })).error, /알 수 없는 기능/);
-  assert.equal(onDisk().features?.places, undefined);
+  assert.equal(onDisk().features?.conflicts, undefined);
 });
 
 test('the room view lists only implemented features with their state', () => {

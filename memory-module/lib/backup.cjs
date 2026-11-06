@@ -23,6 +23,8 @@ const FILES = {
   'attribution-log': '.attribution-log.json',
   vectors: '.vectors.json',
   address: '.address.json',
+  state: '.state.json',
+  places: '.places.json',
 };
 const KEYS = Object.keys(FILES);
 
@@ -38,6 +40,8 @@ const CHECKS = {
   'attribution-log': (v) => v.version === 1 && Array.isArray(v.runs),
   vectors: (v) => v.v === V.INDEX_VERSION && isObject(v.items),
   address: (v) => v.version === 1 && Array.isArray(v.entries),
+  state: (v) => v.version === 1 && Array.isArray(v.cards),
+  places: (v) => v.version === 1 && Array.isArray(v.places),
 };
 
 /** Walks a parsed value once: bounded size, no prototype tricks. */
@@ -128,6 +132,8 @@ function counts(files) {
     attributionRuns: len(f['attribution-log']?.runs),
     vectors: keys(f.vectors?.items),
     addressEntries: len(f.address?.entries),
+    stateCards: len(f.state?.cards),
+    places: len(f.places?.places),
   };
 }
 
