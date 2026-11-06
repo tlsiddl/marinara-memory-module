@@ -215,3 +215,22 @@ details.paper>summary{font-size:13px;font-weight:600;color:var(--im-ink)}
 .conflict-pair p{margin:4px 0 0;font-size:12px;white-space:pre-wrap}
 .world-field select{flex:0 1 160px;width:auto}
 @media(max-width:720px){.conflict-pair{grid-template-columns:1fr}}
+
+/* 패널은 보이는 화면 안에서만 자라고, 스크롤은 #content 하나만 합니다 (끝까지 내려도 잘리지 않게). */
+#panel{grid-template-rows:minmax(0,1fr)}
+.workspace{overflow:hidden}.inspector{min-height:0}
+.resize-edge,.resize-grip{display:none}
+@media(min-width:721px){
+  #panel{max-width:100vw;max-height:calc(100vh - 16px);max-height:calc(100dvh - 16px)}
+  .sidebar{min-height:0;overflow:auto}
+  .topbar{cursor:move;user-select:none;-webkit-user-select:none;touch-action:none}
+  .topbar :is(button,select,input,label,a,.room-menu){cursor:auto;user-select:auto;-webkit-user-select:auto}
+  .topbar button{cursor:pointer}
+  .resize-edge,.resize-grip{display:block;position:absolute;z-index:30;touch-action:none}
+  .resize-r{top:26px;right:0;bottom:26px;width:6px;cursor:ew-resize}
+  .resize-b{left:26px;right:26px;bottom:0;height:6px;cursor:ns-resize}
+  .resize-grip{right:0;bottom:0;width:22px;height:22px;cursor:nwse-resize;background:linear-gradient(135deg,transparent 0 55%,var(--im-muted) 55% 60%,transparent 60% 72%,var(--im-muted) 72% 77%,transparent 77% 88%,var(--im-muted) 88% 93%,transparent 93%);opacity:.55}
+  .resize-grip:hover{opacity:1}
+  #panel[data-compact=true]{grid-template-columns:174px minmax(0,1fr)}
+  #panel[data-compact=true] .inspector{display:none}
+}
