@@ -1293,6 +1293,8 @@
           <option value="marinara" ${font === 'marinara' ? 'selected' : ''}>마리나라에서 쓰는 글꼴 따라가기</option>
           <option value="own" ${font === 'own' ? 'selected' : ''}>기억 서재 기본 글꼴 (제목 명조 · 본문 고딕)</option></select></label>
         <p class="hint">이 기기에서만 바뀝니다. 밝기는 오른쪽 위 해·달 버튼으로 바꿉니다.</p>
+        <p class="hint">컴퓨터 화면에서는 위쪽 막대를 끌어 창을 옮기고, 오른쪽 아래 모서리·오른쪽·아래쪽 가장자리를 끌어 크기를 바꿀 수 있습니다. 위치와 크기는 이 기기에 기억됩니다.</p>
+        <div class="buttons"><button data-act="resetPanel">창 위치 초기화</button></div>
       </div>
       <div class="paper"><h2>이 방</h2>
         <label class="setting-switch"><span>기억 사용<small>켜면 답변마다 장부와 장면을 자동으로 갱신합니다.</small></span><input type="checkbox" id="setEnabled" ${info.enabled ? 'checked' : ''}></label>
@@ -1529,6 +1531,10 @@
           orphans = (await api('GET', '/orphans')).orphans;
           notice = `삭제된 방 ${r.deleted.length}개의 기억을 지웠습니다.`;
         });
+      case 'resetPanel':
+        resetPanelGeometry();
+        notice = '창 위치와 크기를 처음대로 돌렸습니다.';
+        return render();
       case 'refresh':
         rooms = [];
         return act(refresh, '새로 불러왔습니다.', { reload: false });
@@ -2098,6 +2104,123 @@
     });
   }
 
+  // ----- Moving and resizing the panel (desktop only; below 720px the panel is full screen) -----
+  const PANEL_GEO_KEY = 'memory-module-panel-geometry';
+  const PANEL_MIN_W = 520;
+  const PANEL_MIN_H = 360;
+  const PANEL_NARROW = 720;
+  const PANEL_COMPACT_W = 900;
+
+  /** Keeps a saved {x,y,w,h} inside the viewport (min size, never bigger than the viewport). Null if unusable. */
+  function clampPanelGeometry(g, vw, vh) {
+    if (!g || ![g.x, g.y, g.w, g.h].every(Number.isFinite) || !(vw > 0) || !(vh > 0)) return null;
+    const w = Math.round(Math.min(vw, Math.max(Math.min(PANEL_MIN_W, vw), g.w)));
+    const h = Math.round(Math.min(vh, Math.max(Math.min(PANEL_MIN_H, vh), g.h)));
+    return { x: Math.round(Math.min(Math.max(0, g.x), vw - w)), y: Math.round(Math.min(Math.max(0, g.y), vh - h)), w, h };
+  }
+
+  let panelGeo = null;
+  function panelViewport() {
+    return { vw: window.innerWidth || document.documentElement?.clientWidth || 0, vh: window.innerHeight || document.documentElement?.clientHeight || 0 };
+  }
+  function panelIsFree() {
+    return panelViewport().vw > PANEL_NARROW; // full-screen layout on small screens: nothing to move or resize
+  }
+  function loadPanelGeometry() {
+    try {
+      const g = JSON.parse(localStorage.getItem(PANEL_GEO_KEY) || 'null');
+      panelGeo = g && typeof g === 'object' ? { x: Number(g.x), y: Number(g.y), w: Number(g.w), h: Number(g.h) } : null;
+    } catch {
+      panelGeo = null;
+    }
+  }
+  function savePanelGeometry() {
+    try {
+      localStorage.setItem(PANEL_GEO_KEY, JSON.stringify(panelGeo));
+    } catch {}
+  }
+  /** Puts the saved position and size on the panel, or the default centered layout back. */
+  function applyPanelGeometry() {
+    const panel = root?.querySelector('#panel');
+    if (!panel) return;
+    const { vw, vh } = panelViewport();
+    const g = panelIsFree() ? clampPanelGeometry(panelGeo, vw, vh) : null;
+    if (g) {
+      Object.assign(panel.style, { left: `${g.x}px`, top: `${g.y}px`, width: `${g.w}px`, height: `${g.h}px`, transform: 'none' });
+    } else {
+      for (const k of ['left', 'top', 'width', 'height', 'transform']) panel.style.removeProperty(k);
+    }
+    const width = g ? g.w : panel.getBoundingClientRect?.().width || vw;
+    if (g) panel.setAttribute('data-compact', width < PANEL_COMPACT_W ? 'true' : 'false');
+    else panel.removeAttribute?.('data-compact');
+  }
+  function resetPanelGeometry() {
+    panelGeo = null;
+    try {
+      localStorage.removeItem(PANEL_GEO_KEY);
+    } catch {}
+    applyPanelGeometry();
+  }
+
+  function setupPanelMove() {
+    const panel = root.querySelector('#panel');
+    loadPanelGeometry();
+    let op = null;
+    const begin = (mode) => (e) => {
+      if (e.button !== 0 || !panelIsFree()) return;
+      if (mode === 'move' && e.target.closest?.('button,select,input,textarea,a,label,summary,.room-menu')) return;
+      const r = panel.getBoundingClientRect();
+      op = { mode, id: e.pointerId, sx: e.clientX, sy: e.clientY, g: { x: r.left, y: r.top, w: r.width, h: r.height }, el: e.currentTarget };
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId);
+      } catch {}
+      if (mode === 'move') e.preventDefault();
+    };
+    const move = (e) => {
+      if (!op || e.pointerId !== op.id) return;
+      const dx = e.clientX - op.sx;
+      const dy = e.clientY - op.sy;
+      const g = { ...op.g };
+      if (op.mode === 'move') {
+        g.x += dx;
+        g.y += dy;
+      } else {
+        if (op.mode !== 'resize-b') g.w += dx;
+        if (op.mode !== 'resize-r') g.h += dy;
+      }
+      const { vw, vh } = panelViewport();
+      // While resizing the top-left corner stays put, so the size may not push the panel past the viewport.
+      if (op.mode !== 'move') {
+        g.w = Math.min(g.w, vw - g.x);
+        g.h = Math.min(g.h, vh - g.y);
+      }
+      panelGeo = clampPanelGeometry(g, vw, vh);
+      applyPanelGeometry();
+    };
+    const end = (e) => {
+      if (!op || e.pointerId !== op.id) return;
+      try {
+        op.el.releasePointerCapture?.(op.id);
+      } catch {}
+      op = null;
+      if (panelGeo) savePanelGeometry();
+    };
+    const bind = (el, mode) => {
+      if (!el) return;
+      el.addEventListener('pointerdown', begin(mode));
+      el.addEventListener('pointermove', move);
+      el.addEventListener('pointerup', end);
+      el.addEventListener('pointercancel', end);
+    };
+    bind(root.querySelector('.topbar'), 'move');
+    bind(root.querySelector('#resizeCorner'), 'resize');
+    bind(root.querySelector('#resizeRight'), 'resize-r');
+    bind(root.querySelector('#resizeBottom'), 'resize-b');
+    addEventListener('resize', () => {
+      if (open) applyPanelGeometry();
+    });
+  }
+
   let launcher = null;
   let onPageKey = null;
 
@@ -2139,6 +2262,7 @@
     void act(refresh, null, { reload: false });
     if (tab === 'settings') void openSettings();
     render();
+    applyPanelGeometry();
     launcher?.setAttribute('aria-expanded', 'true');
   }
 
@@ -2213,12 +2337,14 @@
           <main id="content"></main>
         </div>
         <aside class="inspector" id="inspector"></aside>
+        <div class="resize-edge resize-r" id="resizeRight" aria-hidden="true"></div><div class="resize-edge resize-b" id="resizeBottom" aria-hidden="true"></div><div class="resize-grip" id="resizeCorner" title="끌어서 크기 바꾸기" aria-hidden="true"></div>
       </section>`;
     element.setAttribute('style', 'position:fixed!important;inset:0!important;z-index:2147483647!important;pointer-events:none!important;display:block!important;');
     (document.body || document.documentElement).append(element);
     root.host.setAttribute('data-theme', theme);
     launcher?.setAttribute('data-theme', theme);
     installSelectionButton();
+    setupPanelMove();
 
     // Shadow DOM retargets input events to our DIV at the page boundary. Keep
     // host shortcuts from treating typing (notably '?') as a page command.
