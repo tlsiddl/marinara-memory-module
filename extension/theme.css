@@ -232,13 +232,13 @@ pre{font-size:12.5px!important;line-height:1.85!important}
 /* v0.11.65: phone / narrow layout (<=720px). Tabs wrap onto rows instead of scrolling sideways, and the header is compact so #content gets the height. */
 @media(max-width:720px){
   .sidebar{padding:calc(6px + env(safe-area-inset-top,0px)) 10px 0}
-  .brand{min-height:36px;padding:0 84px 6px 2px;gap:8px;font-size:15px;letter-spacing:-.5px;line-height:1.2}
+  .brand{min-height:36px;padding:0 84px 0 2px;margin-bottom:8px;gap:8px;font-size:15px;letter-spacing:-.5px;line-height:1.2}
   .brand .logo{width:28px;height:28px;margin-right:0}
   #close,#themeToggle{top:calc(6px + env(safe-area-inset-top,0px));width:36px;height:36px;font-size:18px}
   #close{right:10px}#themeToggle{right:52px}
   #close .icon{width:18px;height:18px}
-  .sidebar nav{flex-direction:row;flex-wrap:wrap;overflow:visible;overflow-x:visible;gap:4px;padding-bottom:8px}
-  .sidebar nav button{flex:1 1 auto;min-height:36px;padding:6px 10px;font-size:12px;gap:5px;justify-content:center;white-space:nowrap}
+  .sidebar nav{flex-direction:row;flex-wrap:wrap;overflow:visible;overflow-x:visible;gap:4px 6px;justify-content:flex-start;align-content:flex-start;padding-bottom:6px}
+  .sidebar nav button{flex:0 0 auto;min-height:36px;padding:6px 9px;font-size:12px;gap:5px;justify-content:flex-start;white-space:nowrap}
   .sidebar nav .icon{width:14px;height:14px}
   .topbar{min-height:0;padding:6px 12px;gap:6px}
   #status{padding:0 12px 4px}

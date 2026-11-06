@@ -97,4 +97,10 @@ test('narrow layout: tabs wrap instead of scrolling sideways, header is compact,
   assert.match(narrow, /\.brand \.logo\{width:28px;height:28px/);
   assert.match(narrow, /#close,#themeToggle\{[^}]*width:36px;height:36px/);
   assert.match(narrow, /\.topbar\{min-height:0;/);
+  // 0.11.66: tabs pack from the left (no stretching); header row lines up with the round buttons
+  assert.match(narrow, /\.sidebar nav button\{[^}]*flex:0 0 auto/);
+  assert.doesNotMatch(narrow, /\.sidebar nav button\{[^}]*flex:1 1 auto/);
+  assert.match(narrow, /\.sidebar nav\{[^}]*gap:4px 6px/);
+  assert.match(narrow, /\.sidebar nav\{[^}]*justify-content:flex-start/);
+  assert.match(narrow, /\.brand\{[^}]*padding:0 84px 0 2px;margin-bottom:8px/);
 });
