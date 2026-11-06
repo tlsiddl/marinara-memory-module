@@ -2108,11 +2108,15 @@
   const PANEL_NARROW = 720;
   const PANEL_COMPACT_W = 900;
 
-  /** Keeps a saved {x,y,w,h} inside the viewport (min size, never bigger than the viewport). Null if unusable. */
+  /**
+   * Keeps a saved {x,y,w,h} fully inside the viewport (min size, never bigger than the viewport).
+   * Null (use the default full layout) when the geometry is unusable or the viewport is smaller than the minimum size.
+   */
   function clampPanelGeometry(g, vw, vh) {
-    if (!g || ![g.x, g.y, g.w, g.h].every(Number.isFinite) || !(vw > 0) || !(vh > 0)) return null;
-    const w = Math.round(Math.min(vw, Math.max(Math.min(PANEL_MIN_W, vw), g.w)));
-    const h = Math.round(Math.min(vh, Math.max(Math.min(PANEL_MIN_H, vh), g.h)));
+    if (!g || ![g.x, g.y, g.w, g.h].every(Number.isFinite) || !(g.w > 0) || !(g.h > 0)) return null;
+    if (!Number.isFinite(vw) || !Number.isFinite(vh) || vw < PANEL_MIN_W || vh < PANEL_MIN_H) return null;
+    const w = Math.round(Math.min(vw, Math.max(PANEL_MIN_W, g.w)));
+    const h = Math.round(Math.min(vh, Math.max(PANEL_MIN_H, g.h)));
     return { x: Math.round(Math.min(Math.max(0, g.x), vw - w)), y: Math.round(Math.min(Math.max(0, g.y), vh - h)), w, h };
   }
 
@@ -2143,7 +2147,10 @@
     const { vw, vh } = panelViewport();
     const g = panelIsFree() ? clampPanelGeometry(panelGeo, vw, vh) : null;
     if (g) {
-      Object.assign(panel.style, { left: `${g.x}px`, top: `${g.y}px`, width: `${g.w}px`, height: `${g.h}px`, transform: 'none' });
+      // CSS min()/clamp() keep the panel on screen even before the next resize event arrives (stale inline values never leave it off-screen).
+      const w = `min(${g.w}px, 100vw)`;
+      const h = `min(${g.h}px, 100vh)`;
+      Object.assign(panel.style, { left: `clamp(0px, ${g.x}px, calc(100vw - ${w}))`, top: `clamp(0px, ${g.y}px, calc(100vh - ${h}))`, width: w, height: h, transform: 'none' });
     } else {
       for (const k of ['left', 'top', 'width', 'height', 'transform']) panel.style.removeProperty(k);
     }
@@ -2213,9 +2220,12 @@
     bind(root.querySelector('#resizeCorner'), 'resize');
     bind(root.querySelector('#resizeRight'), 'resize-r');
     bind(root.querySelector('#resizeBottom'), 'resize-b');
-    addEventListener('resize', () => {
+    const refit = () => {
       if (open) applyPanelGeometry();
-    });
+    };
+    addEventListener('resize', refit);
+    addEventListener('orientationchange', refit);
+    window.visualViewport?.addEventListener('resize', refit);
   }
 
   let launcher = null;
