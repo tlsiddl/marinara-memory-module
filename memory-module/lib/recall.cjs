@@ -237,7 +237,7 @@ function words(text) {
 }
 
 function sceneText(scene) {
-  return [scene.title, scene.summary, ...(scene.later || []).map((x) => x.what), ...scene.events.map((e) => e.text), ...scene.events.flatMap((e) => e.quotes.map((q) => q.text))].join(' ');
+  return [scene.title, scene.summary, ...(scene.later || []).map((x) => x.what), ...scene.events.map((e) => e.text), ...scene.events.flatMap((e) => e.quotes.map((q) => S.quoteText(q)))].join(' ');
 }
 
 /** Rarer shared words count more, so names that are in every scene do not decide. */

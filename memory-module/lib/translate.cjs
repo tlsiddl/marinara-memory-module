@@ -187,9 +187,9 @@ function displayTexts(store, ledger, { quotes = false } = {}) {
     for (const e of s.events || []) {
       add(e.text);
       add(e.why);
-      if (quotes) for (const q of e.quotes || []) add(q.text);
+      if (quotes) for (const q of e.quotes || []) if (!q.translation) add(q.text);
     }
-    if (quotes) for (const q of s.loose || []) add(q.text);
+    if (quotes) for (const q of s.loose || []) if (!q.translation) add(q.text);
     for (const r of s.recollections || []) {
       add(r.text);
       add(r.why);

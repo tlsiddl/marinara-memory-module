@@ -5,6 +5,7 @@
 // Pure logic only; the engine side lives in service.cjs.
 
 const L = require('./ledger.cjs');
+const A = require('./aliases.cjs');
 
 const SCENES_VERSION = 1;
 const REMEMBERS = ['full', 'partial', 'none'];
@@ -317,25 +318,83 @@ const FLEETING = /(^|\s)(곧|지금은?|요즘|오늘|당분간|이번에는?)\s
 /** A fact about a change ("…을 알게 됐다", "몰랐다", "끊었다") reads with when it happened. */
 const DATED = /(몰랐|알게|알아챘|깨달|되었|됐다|바뀌|시작했|끊었|그만두|헤어|사귀|결혼|이사)/;
 
-const isTranslation = (text) => typeof text === 'string' && /^\(.*[가-힣].*\)$/.test(untag(text));
-const hasTranslation = (text) => /\([^()]*[가-힣][^()]*\)$/.test(untag(text));
+// A translation line as models write it after an original: "(…)", "（…）", "*(…)*", "_(…)_".
+const TRANSLATION_LINE = /^[*_\s]*[(（]([\s\S]*[가-힣][\s\S]*)[)）][*_\s]*$/;
+const isTranslation = (text) => typeof text === 'string' && TRANSLATION_LINE.test(untag(text));
+const hasTranslation = (text) => /[(（][^()（）]*[가-힣][^()（）]*[)）][*_\s]*$/.test(untag(text));
 const isSpoken = (text) => /^["“'‘「『]/.test(text);
 
-// Only pair an adjacent Korean parenthetical with a complete quoted foreign-language line.
-// This avoids treating ordinary parenthetical narration as a translation.
+/** Text in another language than Korean: letters, and Korean (a name, say) at most a small part of them. */
+function mostlyForeign(text) {
+  const letters = String(text || '').match(/\p{L}/gu) || [];
+  const hangul = letters.filter((c) => /[가-힣ㄱ-ㅎㅏ-ㅣ]/.test(c)).length;
+  return letters.length - hangul >= 2 && hangul * 4 <= letters.length;
+}
+const CLOSE_QUOTE = /["”’'」』]\s*[*_]*\s*$/;
+// Only pair an adjacent Korean parenthetical with a complete quoted foreign-language line: one that is spoken
+// ("Stay.") or one whose narration ends with the spoken words (He whispered, "Stay."). Ordinary parenthetical
+// narration is not a translation.
+const foreignQuote = (text) => {
+  const t = String(text || '').trim();
+  if (isSpoken(t)) return /\p{L}/u.test(t) && mostlyForeign(t);
+  if (!CLOSE_QUOTE.test(t)) return false;
+  const open = Math.max(t.lastIndexOf('"', t.replace(CLOSE_QUOTE, '').length - 1), t.lastIndexOf('“'), t.lastIndexOf('「'), t.lastIndexOf('『'));
+  return open >= 0 && mostlyForeign(t.slice(open));
+};
 function bilingualQuote(pointer, index) {
   let first = pointer;
   if (isTranslation(pointer.text)) {
     const previous = index.get(`${pointer.number}.${pointer.sentence - 1}`);
     const preceding = previous && parseLine(previous.text).text;
-    if (preceding && isSpoken(preceding) && /[A-Za-z]/.test(preceding) && !hasTranslation(preceding)) first = previous;
+    if (preceding && foreignQuote(preceding) && !hasTranslation(preceding)) first = previous;
   }
   const next = index.get(`${first.number}.${first.sentence + 1}`);
   const spoken = parseLine(first.text).text;
-  if (isSpoken(spoken) && /[A-Za-z]/.test(spoken) && !hasTranslation(spoken) && isTranslation(next?.text)) {
+  if (foreignQuote(spoken) && !hasTranslation(spoken) && isTranslation(next?.text)) {
     return { ...first, text: `${first.text} ${next.text}` };
   }
   return pointer;
+}
+
+const TRANSLATION_AFTER_QUOTE = /(["”’」』])(\s*[*_]*\s*[(（]([^()（）]*[가-힣][^()（）]*)[)）][*_]*)/g;
+/**
+ * A saved line split into the original and its Korean translation: `"EN" (KO)` → { text: '"EN"', translation: 'KO' }.
+ * The translation may follow the line, sit right after the spoken words inside narration, or come one per quoted
+ * part. A Korean line, or a Korean aside after a Korean line, is not a translation: it stays whole.
+ */
+function splitBilingual(raw) {
+  const text = String(raw ?? '').replace(/\s+/g, ' ').trim();
+  if (!text) return { text, translation: null };
+  const tail = text.match(/^([\s\S]*?\S)\s*[*_]*[(（]([^()（）]*[가-힣][^()（）]*)[)）][*_]*$/);
+  if (tail && mostlyForeign(tail[1]) && !hasTranslation(tail[1])) {
+    const inner = splitBilingual(tail[1]);
+    return { text: inner.text, translation: [inner.translation, tail[2].trim()].filter(Boolean).join(' ') };
+  }
+  const found = [];
+  const rest = text.replace(TRANSLATION_AFTER_QUOTE, (all, close, paren, inner, at) => {
+    const before = text.slice(0, at + 1);
+    const open = Math.max(before.lastIndexOf('"', at - 1), before.lastIndexOf('“'), before.lastIndexOf('「'), before.lastIndexOf('『'));
+    if (open < 0 || !mostlyForeign(before.slice(open))) return all;
+    found.push(inner.trim());
+    return close;
+  });
+  if (!found.length) return { text, translation: null };
+  return { text: rest.replace(/\s+([,.!?…])/g, '$1').replace(/\s+/g, ' ').trim(), translation: found.join(' ') };
+}
+/** A saved line the way it is shown and recalled: the original, then its translation in brackets. */
+function quoteText(q) {
+  const text = String(q?.text ?? '');
+  const tr = typeof q?.translation === 'string' ? q.translation.trim() : '';
+  return tr ? `${text} (${tr})` : text;
+}
+/** The original and translation of a line as the source gives it; in place. Returns whether anything changed. */
+function setQuoteText(q, raw) {
+  const parts = splitBilingual(raw);
+  const before = JSON.stringify([q.text, q.translation ?? null]);
+  q.text = parts.text;
+  if (parts.translation) q.translation = parts.translation;
+  else delete q.translation;
+  return before !== JSON.stringify([q.text, q.translation ?? null]);
 }
 
 function resolveQuotes(items, index, slice, verifyAttribution = false, names = []) {
@@ -359,11 +418,14 @@ function resolveQuotes(items, index, slice, verifyAttribution = false, names = [
     const hasProof = (proof) => typeof proof === 'string' && squash(proof).length >= 4 && squash(nearby).includes(squash(proof));
     const modelBy = cleanText(raw?.by, 40);
     let by = line.by || (spoken ? (verifyAttribution && !hasProof(raw?.byEvidence) ? null : modelBy) || (message?.role === 'user' ? message.speaker : null) : null);
-    let to = by ? cleanText(raw?.to, 60) : null;
+    // A name the room's name table knows is written as its canonical name (an empty table changes nothing).
+    if (by) by = A.rewriteName(by);
+    let to = by ? A.rewriteName(cleanText(raw?.to, 60)) : null;
     if (to && (to === by || (verifyAttribution && !hasProof(raw?.toEvidence)))) to = null;
     // A person the line calls by name ("Signor X, …") is the one spoken to, not the speaker.
     if (by && !line.by && names.length && addressedIn(line.text, names).names.some((n) => samePerson(n, by, names))) { by = null; to = null; }
-    out.push({ ...pointer, text: line.text, by, to });
+    const parts = splitBilingual(line.text);
+    out.push({ ...pointer, text: parts.text, ...(parts.translation ? { translation: parts.translation } : {}), by, to });
   }
   return out;
 }
@@ -481,7 +543,7 @@ function linkQuote(scene, quote, speakerOf) {
   // Who speaks and who is spoken to say nothing about the topic: their names (and short forms) are left out.
   const names = [who, quote.to].filter(Boolean).flatMap((n) => [n, ...L.nameKeys(n)]).sort((a, b) => b.length - a.length);
   const withoutSpeaker = (text) => names.reduce((t, n) => t.split(n).join(' '), String(text || ''));
-  const words = withoutSpeaker(quote.text);
+  const words = withoutSpeaker(quoteText(quote));
   let best = null;
   let score = 0;
   let tied = false;
@@ -770,7 +832,14 @@ function uncited(scene, slice, facts) {
   return longest;
 }
 
-/** Old quotes saved without the translation line that follows them in the message: add it. */
+/**
+ * Saved lines brought to one form: the original in `text`, the Korean translation in `translation`.
+ * - A line saved with its translation inside (`"EN" (KO)`) is split. This is only a change of form, so it is done
+ *   for lines corrected by hand too.
+ * - A line saved without the translation that follows it in the message, or saved as the translation alone, gets
+ *   the original and the translation from the message (not for lines corrected by hand or scenes edited by hand).
+ * The pointer stays on the original's sentence. Running it again changes nothing.
+ */
 function attachTranslations(store, messages) {
   const byNumber = new Map(messages.map((m) => [m.number, m]));
   const index = L.indexBatch(messages);
@@ -778,17 +847,27 @@ function attachTranslations(store, messages) {
   for (const scene of store.scenes) {
     for (const quotes of [...scene.events.map((e) => e.quotes), scene.loose || []]) {
       for (const q of quotes) {
-        const message = byNumber.get(q.number);
-        if (!message || (q.messageId && message.id !== q.messageId)) continue;
-        const original = index.get(`${q.number}.${q.sentence}`);
-        if (!original || parseLine(original.text).text !== parseLine(q.text).text) continue;
-        const paired = bilingualQuote(original, index);
-        if (paired.text === original.text) continue;
-        const line = parseLine(paired.text);
-        q.text = line.text;
-        q.sentence = paired.sentence;
-        if (!q.by && line.by) q.by = line.by;
-        changed++;
+        let touched = false;
+        if (!q.translation) {
+          const parts = splitBilingual(parseLine(q.text).text);
+          if (parts.translation) touched = setQuoteText(q, parseLine(q.text).text);
+        }
+        if (!q.translation && !q.manual && !scene.edited) {
+          const message = byNumber.get(q.number);
+          const original = message && (!q.messageId || message.id === q.messageId) && index.get(`${q.number}.${q.sentence}`);
+          if (original && parseLine(original.text).text === parseLine(q.text).text) {
+            const paired = bilingualQuote(original, index);
+            const line = parseLine(paired.text);
+            const parts = paired.text !== original.text ? splitBilingual(line.text) : { translation: null };
+            if (parts.translation) {
+              setQuoteText(q, line.text);
+              q.sentence = paired.sentence;
+              if (!q.by && line.by) q.by = line.by;
+              touched = true;
+            }
+          }
+        }
+        if (touched) changed++;
       }
     }
   }
@@ -834,7 +913,13 @@ const consonants = (outline) => outline.replace(/V/g, '').length;
 
 const PARTS = /^(?:di|de|da|del|della|dei|van|von|le|la|el|al|디|드|데|델|반|폰)$/i;
 /** The ways a person may be called: the full name, the given name, the family name ("Bel Caro"), Korean short forms. */
-const nameAliases = memo(nameAliasesOf);
+const baseAliases = memo(nameAliasesOf);
+/** The ways a person may be called, with every other name the room's name table knows them by. */
+function nameAliases(name) {
+  const forms = A.formsOf(name);
+  if (forms.length <= 1 && forms[0] === String(name || '').trim()) return baseAliases(name);
+  return [...new Set(forms.flatMap((f) => baseAliases(f)))];
+}
 function nameAliasesOf(name) {
   const n = String(name || '').trim();
   const out = new Set(n ? [n] : []);
@@ -854,12 +939,14 @@ function matchAlias(phrase, names) {
   const p = String(phrase || '').trim().replace(/\s+/g, ' ');
   if (!p || !names?.length) return null;
   const lower = p.toLowerCase();
-  const exact = new Set(names.filter((n) => nameAliases(n).some((a) => a.toLowerCase() === lower)));
+  // One entry per person: names the table knows as one person count once, under the canonical name.
+  const people = [...new Set(names.filter((n) => typeof n === 'string' && n.trim()).map((n) => A.canonical(n)))];
+  const exact = new Set(people.filter((n) => nameAliases(n).some((a) => a.toLowerCase() === lower)));
   if (exact.size) return exact.size === 1 ? [...exact][0] : null;
-  const known = L.matchName(p, names);
+  const known = L.matchName(p, people);
   if (known) return known;
   const sounds = new Set();
-  for (const n of names) for (const a of nameAliases(n)) {
+  for (const n of people) for (const a of nameAliases(n)) {
     if (hasLatin(p) && hasHangul(a)) {
       const outline = hangulOutline(a);
       if (consonants(outline) >= 2 && latinOutlines(p).includes(outline)) sounds.add(n);
@@ -1125,8 +1212,8 @@ function titleMap(store) {
   for (const scene of store.scenes || []) {
     for (const q of [...(scene.events || []).flatMap((e) => e.quotes || []), ...(scene.loose || [])]) {
       const to = splitTo(q.to);
-      if (!q.by || to.length !== 1 || !isSpoken(parseLine(q.text).text) || !GENERIC_IN.test(q.text)) continue;
-      const a = addressedIn(q.text, sceneNames(store, scene));
+      if (!q.by || to.length !== 1 || !isSpoken(parseLine(q.text).text) || !GENERIC_IN.test(quoteText(q))) continue;
+      const a = addressedIn(quoteText(q), sceneNames(store, scene));
       if (a.names.length || !a.titles.length) continue;
       for (const t of a.titles) {
         const m = tally.get(t) || new Map();
@@ -1148,7 +1235,7 @@ const GENERIC_IN = /boss|capo|signor|sir|madam|ma'am|보스|두목|사장님|손
 /** Everything the rules know about one saved line. */
 function quoteFacts(q, message, names, scope, ctx = {}) {
   const at = q.sentence - 1;
-  const addressed = addressedIn(q.text, names);
+  const addressed = addressedIn(quoteText(q), names);
   const titled = [...new Set(addressed.titles.map((t) => ctx.titles?.get(t)).filter(Boolean))];
   const tag = parseLine(message.sentences[at]).by || null;
   const narration = narrationSpeaker(message.sentences, at, names, scope);
@@ -1164,7 +1251,7 @@ function quoteFacts(q, message, names, scope, ctx = {}) {
     genericCall: addressed.generic,
     titles: addressed.titles,
     titled,
-    relay: relayIn(q.text, names),
+    relay: relayIn(quoteText(q), names),
     narration,
     narrationRole: role,
     reply: null,
@@ -1420,7 +1507,7 @@ function attributionInput(batch, { second = false } = {}) {
     scenes: [...scenes].map(([s, x]) => ({ scene: sceneIds.get(s), names: x.names, ...(x.roleNotes.length ? { roleIntroductions: x.roleNotes.slice(0, 6) } : {}) })),
     context,
     items: batch.map((e) => ({
-      id: e.id, at: e.at, scene: sceneIds.get(e.scene), quote: e.q.text, addressedInQuote: e.facts.addressed,
+      id: e.id, at: e.at, scene: sceneIds.get(e.scene), quote: quoteText(e.q), addressedInQuote: e.facts.addressed,
       ...(e.facts.titled.length ? { calledByTitle: e.facts.titled } : {}),
       ...(e.facts.labelWrong ? { speakerTagDoubtful: e.facts.tag } : {}),
       sceneEvent: e.eventText, messageSender: e.sender,
@@ -1960,6 +2047,11 @@ function applyLearned(store, learned) {
 }
 
 function commitScenes(store, applied) {
+  // People renamed by hand keep the name the user chose in what the model writes next.
+  A.rewriteDeep(applied.scenes);
+  A.rewriteDeep(applied.facts);
+  A.rewriteDeep(applied.later);
+  A.rewriteDeep(applied.learned);
   store.scenes.push(...applied.scenes);
   for (const f of applied.facts) {
     const old = f.replaces && store.facts.find((k) => k.id === f.replaces);
@@ -2088,7 +2180,7 @@ function sceneHead(scene, n) {
 
 /** 하준 → 서아: "I love you, Seoa." (사랑해, 서아야.) — narration stays as it is. */
 function quoteLine(q) {
-  const text = cleanQuote(q.text);
+  const text = cleanQuote(quoteText(q));
   const by = q.by || parseLine(q.text).by;
   if (!by) return isSpoken(text) ? text : `(서술) ${text}`;
   return `${by}${q.to ? ` → ${q.to}` : ''}: ${isSpoken(text) ? text : `"${text}"`}`;
@@ -2272,6 +2364,7 @@ function naturalCut(scenes) {
 }
 
 function commitChapter(store, chapter) {
+  A.rewriteDeep(chapter);
   store.chapters = [...(store.chapters || []), chapter];
   store.nextChapter = Number(chapter.id.slice(1)) + 1;
 }
@@ -2433,7 +2526,7 @@ function applyRedo(store, redo, result, now = new Date().toISOString()) {
   const last = redo.parts.at(-1).id;
   const made = redo.kind === 'chapter' ? applyChapter(store, { ...result, end: last }, redo.parts, now) : applyArc(store, { ...result, end: last }, redo.parts, now);
   if (made.error) return made;
-  const fresh = made.chapter || made.arc;
+  const fresh = A.rewriteDeep(made.chapter || made.arc);
   const list = redo.kind === 'chapter' ? store.chapters : store.arcs;
   list[list.indexOf(redo.target)] = { ...fresh, id: redo.target.id, redoneAt: now };
   return { done: redo.target.id };
@@ -2509,6 +2602,7 @@ function applyArc(store, result, offered, now = new Date().toISOString()) {
 }
 
 function commitArc(store, arc) {
+  A.rewriteDeep(arc);
   store.arcs = [...(store.arcs || []), arc];
   store.nextArc = Number(arc.id.slice(1)) + 1;
 }
@@ -2614,7 +2708,7 @@ function applyFactMerge(store, about, facts, result, now = new Date().toISOStrin
     store.facts.push({
       id,
       about: sources[0].about,
-      text: sources.every(guessed) && !guessed({ text }) ? `${text.replace(/[.。]\s*$/, '')} (추정)` : text,
+      text: A.rewriteText(sources.every(guessed) && !guessed({ text }) ? `${text.replace(/[.。]\s*$/, '')} (추정)` : text),
       evidence: sources.flatMap((f) => f.evidence || []).slice(0, 6),
       sceneId: latest.sceneId,
       when: whens.length === 1 ? whens[0] : null,
@@ -2698,6 +2792,12 @@ function renderScenes(store, firstInside, { maxChars = 9000, maxSummaries = 40, 
 }
 
 module.exports = {
+  hangulOutline,
+  latinOutlines,
+  splitBilingual,
+  quoteText,
+  setQuoteText,
+  nameAliases,
   markStale,
   nextRedo,
   applyRedo,
