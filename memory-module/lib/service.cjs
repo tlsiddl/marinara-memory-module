@@ -142,6 +142,7 @@ function markBroken(file, error, fallback, replaceable, reason = 'broken') {
 }
 
 function writeJson(file, value) {
+  if (path.dirname(file) === CHAT_DIR && goneChats.has(roomOfFile(path.basename(file)))) throw Error('삭제된 방의 기억은 저장하지 않습니다.');
   const broken = brokenFiles.get(file);
   if (broken && !broken.replaceable && fs.existsSync(file)) {
     throw Error(`기억 파일(${path.basename(file)})을 ${broken.reason === 'version' ? '이 버전의 모듈이 모르는 형식이라' : '손상되어'} 읽지 못했습니다. 덮어쓰지 않도록 저장을 멈췄습니다.${broken.backup ? ` 원본 복사본: ${broken.backup}.` : ''} 파일을 고치거나 지운 뒤 다시 시도해 주세요.`);
@@ -360,6 +361,200 @@ async function branchOnSend(req, reply, payload) {
   return payload;
 }
 
+/* ---------- deleted rooms ---------- */
+
+/**
+ * Rooms whose memory was removed in this run. A job that was still running for one must not bring its files back:
+ * writeJson, the last-reply note and the settings file all skip them.
+ */
+const goneChats = new Set();
+
+/** The room a file in the chats folder belongs to (<id>.json, <id>.scenes.json, ...), or null. */
+function roomOfFile(name) {
+  const id = String(name).split('.')[0];
+  return /^[A-Za-z0-9_-]{1,128}$/.test(id) ? id : null;
+}
+
+/** Every file of one room in the chats folder (the room id never contains a dot, so no other room can match). */
+function roomFiles(chatId) {
+  safeChatId(chatId);
+  let names = [];
+  try {
+    names = fs.readdirSync(CHAT_DIR);
+  } catch {}
+  const out = [];
+  for (const name of names) {
+    if (roomOfFile(name) !== chatId || !name.startsWith(`${chatId}.`)) continue;
+    const full = path.join(CHAT_DIR, name);
+    if (path.dirname(full) !== CHAT_DIR) continue;
+    try {
+      const stat = fs.lstatSync(full);
+      if (stat.isFile()) out.push({ name, full, bytes: stat.size, mtime: stat.mtimeMs });
+    } catch {}
+  }
+  return out;
+}
+
+function removeRoomFiles(chatId) {
+  let files = 0;
+  let bytes = 0;
+  for (const f of roomFiles(chatId)) {
+    try {
+      fs.rmSync(f.full, { force: true });
+      brokenFiles.delete(f.full);
+      files++;
+      bytes += f.bytes;
+    } catch (error) {
+      log(`chat ${chatId}: could not delete ${f.name} (${error?.message || error})`);
+    }
+  }
+  return { files, bytes };
+}
+
+/**
+ * Remove everything this module keeps for one room: its files, its entry in settings.json, what is cached in
+ * memory, and any run still going for it (told to stop; it can no longer write). Callers first make sure the room
+ * is really gone from Marinara.
+ */
+function purgeChatMemory(chatId) {
+  safeChatId(chatId);
+  goneChats.add(chatId);
+  for (const map of [jobs, sceneJobs, trials]) {
+    const job = map.get(chatId);
+    if (job?.state === 'running') {
+      job.cancel = true;
+      try { job.abort?.abort(); } catch {}
+    }
+    map.delete(chatId);
+  }
+  for (const map of [cache, windows, sceneCache, namesCache, selectedViews, vectorCache, chatLangs, replyLedgers, translationCache, displayTranslationStatus, preparing, replyViews, speakerColors, recalls, turnQuery, storyDays, storyNow]) map.delete(chatId);
+  for (const key of [...translating.keys()]) if (String(key).startsWith(`${chatId}:`)) translating.delete(key);
+  const removed = removeRoomFiles(chatId);
+  let settingsEntry = false;
+  try {
+    const next = settings();
+    if (next.chats && Object.prototype.hasOwnProperty.call(next.chats, chatId)) {
+      const chats = { ...next.chats };
+      delete chats[chatId];
+      writeJson(SETTINGS_FILE, { ...next, chats });
+      settingsEntry = true;
+    }
+  } catch (error) {
+    log(`chat ${chatId}: settings entry not removed (${error?.message || error})`);
+  }
+  // A run that was mid-write when the room went away has stopped by now; sweep once more for anything it left.
+  Promise.allSettled([queues.get(chatId), queues.get(`scenes:${chatId}`), queues.get(`selected:${chatId}`)]).then(() => removeRoomFiles(chatId));
+  log(`chat ${chatId}: room was deleted, memory removed (${removed.files} file(s)${settingsEntry ? ', settings entry' : ''})`);
+  return { ...removed, settings: settingsEntry };
+}
+
+/** Rooms a delete request names (taken before the handler runs, since a group's rooms are unknown afterwards). */
+async function deleteTargets(req) {
+  const url = String(req.raw?.url || '').split('?')[0];
+  let match;
+  if (req.method === 'DELETE') {
+    if ((match = /^\/api\/chats\/group\/([A-Za-z0-9_-]{1,128})\/?$/.exec(url))) {
+      const e = await engine();
+      return (await e.chats.listByGroup(match[1])).map((c) => c.id);
+    }
+    if ((match = /^\/api\/chats\/([A-Za-z0-9_-]{1,128})\/?$/.exec(url))) return [match[1]];
+  } else if (req.method === 'POST' && /^\/api\/scene\/abandon\/?$/.test(url)) {
+    const id = req.body?.sceneChatId;
+    if (typeof id === 'string') return [id];
+  }
+  return [];
+}
+
+/** Remove the memory of each of these rooms that is really gone from Marinara. Returns the ids it removed. */
+async function purgeIfGone(ids) {
+  const e = await engine();
+  const purged = [];
+  for (const id of new Set(ids)) {
+    if (!/^[A-Za-z0-9_-]{1,128}$/.test(String(id))) continue;
+    let row;
+    try {
+      row = await e.chats.getById(id);
+    } catch (error) {
+      log(`chat ${id}: could not check whether the room still exists (${error?.message || error}); memory kept`);
+      continue;
+    }
+    if (row) continue;
+    purgeChatMemory(id);
+    purged.push(id);
+  }
+  return purged;
+}
+
+async function deletePrepare(req) {
+  try {
+    const ids = await deleteTargets(req);
+    if (ids.length) req.mmDeleteIds = ids;
+  } catch (error) {
+    log(`delete watch: ${error?.message || error}`);
+  }
+}
+
+/** Awaited before the delete's reply reaches the browser, like branchOnSend. Only a 2xx reply counts. */
+async function deleteOnSend(req, reply, payload) {
+  const ids = req.mmDeleteIds;
+  if (!ids?.length || reply.statusCode < 200 || reply.statusCode >= 300) return payload;
+  try {
+    await purgeIfGone(ids);
+  } catch (error) {
+    log(`memory of deleted room not removed: ${error?.message || error}`);
+  }
+  return payload;
+}
+
+function describeOrphan(chatId) {
+  const files = roomFiles(chatId);
+  let scenes = 0;
+  let hint = null;
+  try {
+    const store = JSON.parse(fs.readFileSync(path.join(CHAT_DIR, `${chatId}.scenes.json`), 'utf8'));
+    scenes = store?.scenes?.length || 0;
+    hint = store?.scenes?.[0]?.title || null;
+  } catch {}
+  return {
+    id: chatId,
+    name: null,
+    hint,
+    scenes,
+    files: files.length,
+    bytes: files.reduce((sum, f) => sum + f.bytes, 0),
+    updatedAt: files.length ? new Date(Math.max(...files.map((f) => f.mtime))).toISOString() : null,
+    settingsOnly: files.length === 0,
+  };
+}
+
+/** Memory kept for rooms Marinara no longer has (files and settings entries alike). Nothing is deleted here. */
+async function listOrphans() {
+  const e = await engine();
+  const existing = new Set((await e.chats.list()).map((c) => c.id));
+  const ids = new Set(Object.keys(settings().chats || {}).filter((id) => /^[A-Za-z0-9_-]{1,128}$/.test(id)));
+  try {
+    for (const name of fs.readdirSync(CHAT_DIR)) {
+      const id = roomOfFile(name);
+      if (id && roomFiles(id).some((f) => f.name === name)) ids.add(id);
+    }
+  } catch {}
+  return [...ids].filter((id) => !existing.has(id)).map(describeOrphan).sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
+}
+
+/** Delete the memory of orphans only; a room that still exists in Marinara is refused. */
+async function deleteOrphans(ids) {
+  const e = await engine();
+  const deleted = [];
+  const refused = [];
+  for (const id of ids) {
+    safeChatId(id);
+    if (await e.chats.getById(id)) { refused.push(id); continue; }
+    purgeChatMemory(id);
+    deleted.push(id);
+  }
+  return { deleted, refused };
+}
+
 /* ---------- meaning search (embeddings) ---------- */
 
 const vectorsFile = (chatId) => path.join(CHAT_DIR, `${safeChatId(chatId)}.vectors.json`);
@@ -489,6 +684,10 @@ function settings() {
 }
 
 function saveSettings(next) {
+  // A run that outlived its deleted room may still ask to save that room's settings.
+  if (goneChats.size && next?.chats && [...goneChats].some((id) => Object.prototype.hasOwnProperty.call(next.chats, id))) {
+    next = { ...next, chats: Object.fromEntries(Object.entries(next.chats).filter(([id]) => !goneChats.has(id))) };
+  }
   writeJson(SETTINGS_FILE, next);
 }
 
@@ -1041,6 +1240,7 @@ async function condense(chatId, store, model, job, { maxCalls = 6, chaptersOnly 
 
 /** Keep the model's last failed scene reply, so `mm scene-error` can show what it actually said. */
 function saveLastReply(chatId, error, reply) {
+  if (goneChats.has(chatId)) return;
   try {
     fs.writeFileSync(path.join(CHAT_DIR, `${safeChatId(chatId)}.scene-error.txt`), `${new Date().toISOString()} ${error}\n길이: ${reply.length}자\n\n앞부분:\n${reply.slice(0, 1500)}\n\n끝부분:\n${reply.slice(-800)}\n`);
   } catch {}
@@ -1080,6 +1280,7 @@ function checkFiles(chatId) {
 }
 
 function processChat(chatId, { rebuild = false, reason = 'auto' } = {}) {
+  if (goneChats.has(chatId)) return Promise.resolve();
   const run = enqueue(chatId, async () => {
     if (!rebuild && !chatEnabled(chatId)) return;
     const job = { state: 'running', reason, done: 0, total: 0, startedAt: new Date().toISOString(), error: null, cancel: false, abort: new AbortController() };
@@ -2361,6 +2562,17 @@ async function routes(app) {
       ledger: summary(loadLedger(chat.id)),
     }));
   }));
+  // Memory left behind by rooms Marinara no longer has. Listing deletes nothing; deleting asks per room or all.
+  app.get('/orphans', guard(async () => ({ orphans: await listOrphans() })));
+  app.delete('/orphans/:id', guard(async (req) => {
+    const result = await deleteOrphans([safeChatId(req.params.id)]);
+    if (result.refused.length) throw Error('아직 마리나라에 있는 방의 기억은 지울 수 없습니다.');
+    return { deleted: result.deleted };
+  }));
+  app.post('/orphans/delete-all', guard(async () => {
+    const result = await deleteOrphans((await listOrphans()).map((x) => x.id));
+    return { deleted: result.deleted, refused: result.refused };
+  }));
   app.get('/chats/:id', guard(async (req) => {
     await embeddingSource();
     const chatId = safeChatId(req.params.id);
@@ -2975,6 +3187,8 @@ async function computeRecall(chatId, store, view, userMessage, { mode, firstInsi
 function attach(app) {
   app.register(routes, { prefix: '/api/memory-module' });
   app.addHook('onSend', branchOnSend);
+  app.addHook('onSend', deleteOnSend);
+  app.addHook('preHandler', deletePrepare);
   app.addHook('preHandler', async (req) => {
     try {
       const url = String(req.raw?.url || '').split('?')[0];
@@ -2999,7 +3213,7 @@ function attach(app) {
   log('admin API ready at /api/memory-module');
 }
 
-module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { loadNames, saveNames, enqueue, foldScenes, reviewAttributions, loadAttributionLog, sceneJobs, selectedForView, loadSelected, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, loadTranslations, saveTranslations, chatLangs, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, jobs, writeLanguage, memoryCallOptions, routineSetting, routineEnabled } };
+module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { purgeChatMemory, purgeIfGone, deleteOnSend, deletePrepare, listOrphans, deleteOrphans, goneChats, loadNames, saveNames, enqueue, foldScenes, reviewAttributions, loadAttributionLog, sceneJobs, selectedForView, loadSelected, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, loadTranslations, saveTranslations, chatLangs, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, jobs, writeLanguage, memoryCallOptions, routineSetting, routineEnabled } };
 
 
 
