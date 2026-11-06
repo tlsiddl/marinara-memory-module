@@ -153,7 +153,7 @@ test('only lines with a speaker and no listener are asked again; nothing else is
   const quotes = [
     { number: 1, sentence: 1, text: `${A} | "하나."`, by: A, to: null },
     { number: 1, sentence: 2, text: `${A} | "둘."`, by: A, to: B },
-    { number: 1, sentence: 3, text: `${A} | "셋."`, by: A, to: C, toGuess: true },
+    { number: 1, sentence: 3, text: `${A} | "셋이야."`, by: A, to: C, toGuess: true, guessRule: S.GUESS_RULE_VERSION },
     { number: 1, sentence: 4, text: `${B} | "넷."`, by: B, to: null, manual: true },
     { number: 1, sentence: 5, text: `"다섯."`, by: null, to: null },
     { number: 1, sentence: 6, text: `${B} | "여섯."`, by: B, to: A },
@@ -259,4 +259,141 @@ test('memory injection marks a guessed listener', () => {
   const text = JSON.stringify(S.quoteLine(scene.events[0].quotes[0])) + S.quoteLine(scene.events[0].quotes[1]);
   assert.match(text, new RegExp(`${A} → ${B}\\(추정\\)`));
   assert.doesNotMatch(S.quoteLine(scene.events[0].quotes[1]), /추정/);
+});
+
+// ---- a person only mentioned in narration is not present ----------------------------------------------------------
+const NAR = [`${B}는 ${FAR} 생각이 나서 웃었다.`, '문 밖은 조용했다.', '바람이 불었다.', `${C} | "이쪽으로 와."`, '시간이 흘렀다.'];
+const nar = (o = {}) => build({ present: [B, C], cast: [FAR], text: NAR, line: NAR[3], quote: { sentence: 4, by: C, ...o } });
+
+test('someone who is only mentioned in the narration is not the listener: the one actually there is', () => {
+  const w = nar();
+  run(w, {});
+  assert.equal(w.q.to, B, 'the fallback never names the person who is only thought of');
+  assert.equal(w.q.toGuess, true);
+  assert.equal(w.q.guessRule, S.GUESS_RULE_VERSION);
+  assert.ok(!String(w.q.to).includes(FAR));
+});
+
+test('with no present list the narration names are ignored; a nearby speaker still counts', () => {
+  for (const present of [[], undefined]) {
+    const w = nar();
+    w.store.scenes[0].present = present;
+    run(w, {});
+    assert.equal(w.q.to ?? null, null, 'nobody can be shown to be there');
+    assert.equal(w.q.toGuess, undefined);
+  }
+  const other = { number: 1, sentence: 5, messageId: 'm1', text: `${B} | "알겠어, 갈게."`, by: B, to: null };
+  const text = [...NAR.slice(0, 4), '시간이 흘렀다.', other.text];
+  const w = build({ present: [], cast: [FAR, B, C], text, line: NAR[3], quote: { sentence: 4, by: C } });
+  w.store.scenes[0].events[0].quotes.push({ ...other, sentence: 6 });
+  const list = ask(w).filter((e) => e.q === w.q);
+  S.applyAttributionResults(list, S.confirmAttributionResults(list, [reply(list[0], {})], null));
+  assert.equal(w.q.to, B, 'someone who just spoke is there, with or without a present list');
+});
+
+test('a model guess of someone who is not present is rejected, even when the narration names them', () => {
+  const w = nar();
+  run(w, { toGuess: [FAR] });
+  assert.equal(w.q.to, B);
+  const ok = nar();
+  ok.store.scenes[0].present = [B, C, FAR];
+  run(ok, { toGuess: [FAR] });
+  assert.equal(ok.q.to, FAR, 'a person who is in the present list may be guessed');
+});
+
+test('an old guess is checked once more and changed or cleared; certain and manual values are not touched', () => {
+  const w = nar({ to: FAR, toGuess: true, attributionChecked: 7 });
+  for (const e of ask(w)) e.q.attributionFp = e.fingerprint;
+  let list = S.attributionCandidates(w.store, w.messages, 20, new Set());
+  assert.equal(list.length, 1, 'a guess without the current guess rule is a candidate');
+  S.applyAttributionResults(list, S.confirmAttributionResults(list, [reply(list[0], { toGuess: [FAR] })], null));
+  assert.equal(w.q.to, B); assert.equal(w.q.toGuess, true); assert.equal(w.q.guessRule, S.GUESS_RULE_VERSION);
+  assert.deepEqual(S.attributionCandidates(w.store, w.messages, 20, new Set()), [], 'and not again');
+  // Nobody valid is left: the guess is cleared.
+  const none = nar({ to: FAR, toGuess: true });
+  none.store.scenes[0].present = [C];
+  list = S.attributionCandidates(none.store, none.messages, 20, new Set());
+  S.applyAttributionResults(list, S.confirmAttributionResults(list, [reply(list[0], {})], null));
+  assert.equal(none.q.to, null); assert.equal(none.q.toGuess, undefined); assert.equal(none.q.guessRule, undefined);
+  // A certain value or a hand edit is never a candidate for this, nor changed.
+  for (const o of [{ to: FAR }, { to: FAR, manual: true }, { to: FAR, toGuess: true, manual: true }]) {
+    const k = nar(o);
+    for (const e of ask(k)) e.q.attributionFp = e.fingerprint;
+    assert.deepEqual(S.attributionCandidates(k.store, k.messages, 20, new Set()), [], JSON.stringify(o));
+  }
+});
+
+test('the check re-sends only the old guessed lines to the model, once', async () => {
+  const guessed = { number: 1, sentence: 4, messageId: 'm1', text: NAR[3], by: C, to: FAR, toGuess: true, attributionChecked: 7 };
+  const certain = { number: 1, sentence: 6, messageId: 'm1', text: `${B} | "그래, 알겠어."`, by: B, to: C, attributionChecked: 7 };
+  const manual = { number: 1, sentence: 7, messageId: 'm1', text: `${C} | "먼저 가겠어."`, by: C, to: FAR, manual: true, attributionChecked: 7 };
+  const text = [...NAR, certain.text, manual.text];
+  const messages = [{ id: 'm1', number: 1, role: 'assistant', sentences: text }];
+  X.saveScenes('room-recheck', { ...S.emptyStore(), personas: [], cast: [FAR], scenes: [{ id: 'S1', start: 1, end: 1, events: [{ text: '부름', quotes: [guessed, certain, manual] }], present: [B, C] }] });
+  const live = X.loadScenes('room-recheck');
+  for (const e of S.attributionCandidates(live, messages, Infinity, new Set(), { force: true })) { e.q.attributionChecked = 7; e.q.attributionFp = e.fingerprint; }
+  const sent = [];
+  let calls = 0;
+  const model = async () => ({ provider: { chatComplete: async (prompt) => {
+    calls++;
+    const input = JSON.parse(prompt[1].content);
+    sent.push(...input.items.map((x) => x.at));
+    return { content: JSON.stringify({ items: input.items.map((x) => ({ id: x.id, by: C, to: [], toGuess: [FAR], byEvidence: '', toEvidence: '' })) }) };
+  } } });
+  await X.reviewAttributions('room-recheck', live, messages, model, { cancel: false }, 'resume');
+  assert.equal(calls, 1);
+  assert.deepEqual(sent, ['1.4'], 'only the guessed line was sent');
+  const saved = X.loadScenes('room-recheck').scenes[0].events[0].quotes;
+  assert.equal(saved[0].to, B); assert.equal(saved[0].toGuess, true); assert.equal(saved[0].guessRule, S.GUESS_RULE_VERSION);
+  assert.equal(saved[1].to, C); assert.equal(saved[2].to, FAR); assert.equal(saved[2].manual, true);
+  calls = 0;
+  await X.reviewAttributions('room-recheck', X.loadScenes('room-recheck'), messages, model, { cancel: false }, 'resume');
+  assert.equal(calls, 0, 'asked once');
+});
+
+// ---- who was there is told per event -------------------------------------------------------------------------------
+const D = '도하';
+const place = (o = {}) => {
+  const first = { number: 1, sentence: 1, messageId: 'm1', text: `${A} | "여기 있어."`, by: A, to: D };
+  const second = { number: 1, sentence: 4, messageId: 'm1', text: `${C} | "이쪽으로 와."`, by: C, to: null };
+  const third = { number: 1, sentence: 6, messageId: 'm1', text: `${C} | "어서 와."`, by: C, to: B };
+  const text = [first.text, `${D}가 고개를 끄덕였다.`, `${B}는 ${A} 생각이 나서 웃었다.`, second.text, '시간이 흘렀다.', third.text];
+  const events = [{ text: '다른 곳', quotes: [first], ...(o.with1 ? { with: o.with1 } : {}) }, { text: '여기', quotes: o.loose ? [third] : [second, third], ...(o.with2 ? { with: o.with2 } : {}) }];
+  const store = { ...S.emptyStore(), personas: [], cast: [], scenes: [{ id: 'S1', start: 1, end: 1, events, present: o.present || [A, B, C, D], ...(o.loose ? { loose: [second] } : {}) }] };
+  return { q: second, store, messages: [{ id: 'm1', number: 1, role: 'assistant', sentences: text }] };
+};
+const guessFor = (w, extra = {}) => {
+  const list = ask(w).filter((e) => e.q === w.q);
+  S.applyAttributionResults(list, S.confirmAttributionResults(list, [reply(list[0], extra)], null));
+  return w.q.to ?? null;
+};
+
+test('a scene with two places: someone only mentioned near the other place never becomes the guess', () => {
+  const w = place({ with1: [A, D], with2: [B, C] });
+  assert.equal(guessFor(w), B, 'the people of this event only (the speaker of the other place is not here either)');
+  assert.equal(w.q.toGuess, true);
+  assert.equal(guessFor(place({ with1: [A, D], with2: [B, C] }), { toGuess: [A] }), B, 'a model guess from the other place is rejected');
+  assert.equal(guessFor(place({ with1: [A, D], with2: [B, C], loose: true })), B, 'a line not linked to an event takes the nearest event');
+  assert.ok(String(guessFor(place({ with1: [A, D], with2: [B, C, A] }))).includes(A), 'listed for this event: counts');
+});
+
+test('a scene saved before events had a list still works: the scene list, then nearby speakers', () => {
+  const w = place();
+  const to = guessFor(w);
+  assert.ok(to && w.q.toGuess === true && String(to).includes(B), 'the scene list is used');
+  const none = place({ present: [] });
+  none.store.cast = [A, B, C, D];
+  assert.equal(guessFor(none), A, 'no lists at all: only the one who spoke nearby; the narration names are ignored');
+});
+
+test('the prompt asks for a list per event and it is stored cleaned (the user\'s character and cast by full name)', () => {
+  assert.match(S.SCENE_PROMPT, /"with":\[/);
+  const L = require('../memory-module/lib/ledger.cjs');
+  const chat = L.prepareMessages([{ id: 'm1', number: 1, speaker: B, role: 'user', content: `"안녕."\n${C}가 웃었다.` }]);
+  const store = S.emptyStore(); store.cast = [C];
+  const applied = S.applyScenes(store, { scenes: [{ end: 1, title: '인사', summary: '인사.', present: [B, C], events: [{ text: '인사함', with: [C, B, ' '], quotes: [{ n: '1.1', q: '안녕' }] }, { text: '혼자', quotes: [] }] }] }, chat, 1);
+  assert.ok(!applied.error, applied.error);
+  const [ev, none] = applied.scenes[0].events;
+  assert.deepEqual([...ev.with].sort(), [B, C].sort());
+  assert.equal(none.with, undefined, 'no list stays no list');
 });
