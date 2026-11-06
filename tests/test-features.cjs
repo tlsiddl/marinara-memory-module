@@ -26,7 +26,8 @@ const call = async (key, id, body) => {
 const settingsFile = path.join(dir, 'memory-module/settings.json');
 const onDisk = () => JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
 
-test('registry: Korean labels, recentLife on by default and ready, every new feature off and hidden until implemented', () => {
+const READY = ['recentLife', 'addressBook', 'learnFromEdits'];
+test('registry: Korean labels, recentLife on by default, every other feature off; only the implemented ones are ready', () => {
   const keys = ['recentLife', 'addressBook', 'learnFromEdits', 'characterState', 'places', 'knowledge', 'conflicts', 'recallReasons'];
   assert.deepEqual(Object.keys(F.FEATURES), keys);
   for (const [key, f] of Object.entries(F.FEATURES)) {
@@ -34,7 +35,8 @@ test('registry: Korean labels, recentLife on by default and ready, every new fea
     assert.match(f.description, /[가-힣]/, key);
     assert.equal(typeof f.default, 'boolean');
     assert.equal(typeof f.ready, 'boolean');
-    if (key === 'recentLife') { assert.equal(f.default, true); assert.equal(f.ready, true); } else { assert.equal(f.default, false, key); assert.equal(f.ready, false, key); }
+    if (key === 'recentLife') assert.equal(f.default, true); else assert.equal(f.default, false, key);
+    assert.equal(f.ready, READY.includes(key), key);
   }
 });
 
@@ -58,6 +60,8 @@ test('featureOn on the server: new features default off and never run while not 
   X.saveSettings({ connection: null, chats: {} });
   assert.equal(X.featureOn('room', 'recentLife'), true);
   for (const key of Object.keys(F.FEATURES).filter((k) => k !== 'recentLife')) assert.equal(X.featureOn('room', key), false, key);
+  X.saveSettings({ connection: null, chats: { room: { features: { addressBook: 'on' } } } });
+  assert.equal(X.featureOn('room', 'addressBook'), true, 'addressBook is implemented: a stored choice applies');
   assert.equal(X.featureOn('room', 'nonsense'), false);
   // Stored "on" is still off while the feature is not implemented.
   X.saveSettings({ chats: { room: { features: { places: 'on' } } }, features: { places: true } });
@@ -129,7 +133,7 @@ test('routes persist switches; recentLife writes its old keys, the others the ne
 test('the room view lists only implemented features with their state', () => {
   X.saveSettings({ connection: 'c', routine: false, chats: { r1: { routine: 'on' } } });
   const list = F.view(X.settings(), 'r1');
-  assert.deepEqual(list.map((f) => f.key), ['recentLife']);
+  assert.deepEqual(list.map((f) => f.key), READY);
   assert.deepEqual(list[0], { key: 'recentLife', label: '최근 생활 기록', description: F.FEATURES.recentLife.description, default: true, global: false, room: 'on', enabled: true, ready: true });
 });
 
@@ -158,7 +162,8 @@ test('the 추가 기능 section: a row per implemented feature with the global c
   const checked = featuresPaper(F.view({}, 'r'));
   assert.match(checked, /data-feature-global="recentLife" checked/);
   assert.match(checked, /value="default" selected>/);
-  assert.doesNotMatch(checked, /호칭 장부|준비 중/, 'not-yet-implemented features are hidden');
+  assert.doesNotMatch(checked, /준비 중/);
+  assert.doesNotMatch(featuresPaper(F.view({}, 'r').filter((f) => f.key === 'recentLife')), /호칭/);
   assert.doesNotMatch(featuresPaper([{ key: 'x', label: '<b>', description: '"', default: true, global: true, room: 'default' }]), /<b>/, 'text is escaped');
 });
 

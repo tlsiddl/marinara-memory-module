@@ -22,6 +22,7 @@ const FILES = {
   translations: '.translations.json',
   'attribution-log': '.attribution-log.json',
   vectors: '.vectors.json',
+  address: '.address.json',
 };
 const KEYS = Object.keys(FILES);
 
@@ -36,6 +37,7 @@ const CHECKS = {
   translations: (v) => v.v === 1 && isObject(v.items),
   'attribution-log': (v) => v.version === 1 && Array.isArray(v.runs),
   vectors: (v) => v.v === V.INDEX_VERSION && isObject(v.items),
+  address: (v) => v.version === 1 && Array.isArray(v.entries),
 };
 
 /** Walks a parsed value once: bounded size, no prototype tricks. */
@@ -125,6 +127,7 @@ function counts(files) {
     translations: keys(f.translations?.items),
     attributionRuns: len(f['attribution-log']?.runs),
     vectors: keys(f.vectors?.items),
+    addressEntries: len(f.address?.entries),
   };
 }
 

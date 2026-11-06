@@ -28,6 +28,11 @@ function setLoader(fn) {
 function using(source, fn) {
   return als.run(source ?? null, fn);
 }
+/** The chat id the running task works on (null outside a room task or when a table was passed directly). */
+function roomId() {
+  const s = als.getStore();
+  return typeof s === 'string' ? s : null;
+}
 function current() {
   const s = als.getStore();
   if (!s) return null;
