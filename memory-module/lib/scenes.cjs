@@ -1358,7 +1358,7 @@ function vocativeTerms(text, names, opts = {}) {
       const after = parts[i + 1] || '';
       const before = i ? parts[i - 1] : '';
       const tail = !after || /^[.…]/.test(after);
-      // A part inside the line counts only when a comma sets it off ("…, 아리, 너도…", "…, 아프로스.").
+      // A part inside the line counts only when a comma sets it off ("…, 하루, 너도…", "…, 나미.").
       if (edge ? (!/^[,!?]/.test(after) && !(tail && /[,…]/.test(before))) : !/,/.test(before + after)) continue;
       const phrase = parts[i].trim();
       const lead = (phrase.match(HONORIFIC) || [''])[0];

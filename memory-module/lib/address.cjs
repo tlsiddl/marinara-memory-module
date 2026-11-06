@@ -184,7 +184,7 @@ function termMap(book) {
 }
 
 const skeleton = (o) => o.replace(/V/g, '');
-/** Whether a Korean and a Latin spelling are the same word by sound ("Riri"/"리리", "Kypri"/"키프리", "Boss"/"보스"). */
+/** Whether a Korean and a Latin spelling are the same word by sound ("Lili"/"릴리", "Nami"/"나미", "Boss"/"보스"). */
 function sameSound(a, b) {
   const ko = /^[가-힣\s]+$/, la = /^[\p{Script=Latin}\s'’.-]+$/u;
   if (!((ko.test(a) && la.test(b)) || (la.test(a) && ko.test(b)))) return false;
@@ -194,7 +194,7 @@ function sameSound(a, b) {
   return sk.length >= 2 && S.latinOutlines(e).some((o) => skeleton(o) === sk);
 }
 
-/** "포시" and "포시이": one call with a stretched ending. */
+/** "모모" and "모모오": one call with a stretched ending. */
 const stretched = (a, b) => { const [s, l] = a.length <= b.length ? [a, b] : [b, a]; return l.length === s.length + 1 && l.startsWith(s) && '이야아'.includes(l.slice(-1)) && /[가-힣]$/.test(s); };
 
 /** The terms of one pair with spellings of the same word merged (the more used spelling stays; a tie goes to Korean). */
