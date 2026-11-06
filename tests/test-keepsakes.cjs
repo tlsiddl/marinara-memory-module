@@ -398,8 +398,8 @@ test('screen: the tab shows it, every action is wired, and the off notice names 
   for (const act of ['keepUnlock', 'keepAdd', 'keepDelete']) assert.match(source, new RegExp(`case '${act}'`), act);
   assert.match(source, /dataset\?\.keepField/);
   assert.match(source, /dataset\?\.keepMerge/);
-  assert.match(source, /<b>소중한 물건<\/b>이 모두 꺼져 있습니다/);
-  assert.match(source, /'addressDelete', 'stateReset', 'placeDelete', 'keepDelete'\]\.includes\(actName\)\) armed = ''/);
+  assert.match(source, /<b>소중한 물건<\/b>·<b>날짜·주기 트래커<\/b>가 모두 꺼져 있습니다/);
+  assert.match(source, /'addressDelete', 'stateReset', 'placeDelete', 'keepDelete', 'trackerDelete', 'trackerDropStart']\.includes\(actName\)\) armed = ''/);
   assert.match(source, /id === 'keepNewName'/);
 });
 

@@ -263,6 +263,27 @@ test('a branch inherits the answers to record conflicts and the keepsakes, worke
   for (const n of ['conflicts', 'keepsakes']) assert.ok(fs.existsSync(path.join(dir, `memory-module/chats/child4.${n}.json`)), n);
 });
 
+test('a branch inherits the date and cycle trackers; suggestions for scenes it lacks drop out', async () => {
+  const Tk = require('../memory-module/lib/trackers.cjs');
+  const f = fixture();
+  T.setEngine(mockEngine(f, 'child6', 4));
+  T.saveLedger('parent', f.ledger); T.saveScenes('parent', f.scenes);
+  T.saveSettings({ connection: null, chats: { parent: { enabled: true } } });
+  let file = Tk.addItem(Tk.emptyTrackers(), { type: 'cycle', label: '발정기', scope: 'person', people: ['도윤'], cycle: { every: 30, length: 5, starts: ['2024-07-01'] } });
+  file.suggestions = [
+    { id: 'sg_a', trackerId: 'tk1', date: '2024-07-02', sceneId: 'S1', status: 'open', text: 'a', createdAt: 'N' },
+    { id: 'sg_b', trackerId: 'tk1', date: '2024-07-09', sceneId: 'S3', status: 'open', text: 'b', createdAt: 'N' },
+  ];
+  T.saveTrackers('parent', file);
+  const payload = JSON.stringify({ id: 'child6', name: '분기' });
+  await T.branchOnSend({ method: 'POST', raw: { url: '/api/chats/parent/branch' } }, { statusCode: 200 }, payload);
+  const child = T.loadTrackers('child6');
+  assert.deepEqual(child.items[0].cycle.starts, ['2024-07-01']);
+  assert.deepEqual(child.suggestions.map((x) => x.id), ['sg_a'], 'the scene S3 is not in this branch');
+  assert.equal(T.loadTrackers('parent').suggestions.length, 2, 'the parent is untouched');
+  assert.ok(fs.existsSync(path.join(dir, 'memory-module/chats/child6.trackers.json')));
+});
+
 test('a branch inherits the 중요/빼기 marks that still fit it', async () => {
   const f = fixture();
   const at = (i) => f.source[i].number;

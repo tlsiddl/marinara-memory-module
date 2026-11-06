@@ -31,7 +31,8 @@ $files = @(
   'memory-module/lib/knowledge.cjs',
   'memory-module/lib/conflicts.cjs',
   'memory-module/lib/keepsakes.cjs',
-  'memory-module/lib/reasons.cjs'
+  'memory-module/lib/reasons.cjs',
+  'memory-module/lib/trackers.cjs'
 )
 
 function Get-Version($path) {

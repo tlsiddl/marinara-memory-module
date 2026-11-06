@@ -8,7 +8,7 @@ set -e
 
 REPO="tlsiddl/marinara-memory-module"
 ACTION="${1:-install}"
-FILES="memory-module/marinara-memory-runtime.cjs memory-module/memory-cli.cjs memory-module/lib/ledger.cjs memory-module/lib/service.cjs memory-module/lib/scenes.cjs memory-module/lib/recall.cjs memory-module/lib/speakers.cjs memory-module/lib/vectors.cjs memory-module/lib/translate.cjs memory-module/lib/selected.cjs memory-module/lib/aliases.cjs memory-module/lib/names.cjs memory-module/lib/features.cjs memory-module/lib/backup.cjs memory-module/lib/address.cjs memory-module/lib/state.cjs memory-module/lib/places.cjs memory-module/lib/knowledge.cjs memory-module/lib/conflicts.cjs memory-module/lib/keepsakes.cjs memory-module/lib/reasons.cjs"
+FILES="memory-module/marinara-memory-runtime.cjs memory-module/memory-cli.cjs memory-module/lib/ledger.cjs memory-module/lib/service.cjs memory-module/lib/scenes.cjs memory-module/lib/recall.cjs memory-module/lib/speakers.cjs memory-module/lib/vectors.cjs memory-module/lib/translate.cjs memory-module/lib/selected.cjs memory-module/lib/aliases.cjs memory-module/lib/names.cjs memory-module/lib/features.cjs memory-module/lib/backup.cjs memory-module/lib/address.cjs memory-module/lib/state.cjs memory-module/lib/places.cjs memory-module/lib/knowledge.cjs memory-module/lib/conflicts.cjs memory-module/lib/keepsakes.cjs memory-module/lib/reasons.cjs memory-module/lib/trackers.cjs"
 RUNTIME_IN_DOCKER="/app/memory-module/marinara-memory-runtime.cjs"
 
 say() { printf '%s\n' "$*"; }
