@@ -21,6 +21,7 @@ const St = require('./state.cjs');
 const Pl = require('./places.cjs');
 const Cf = require('./conflicts.cjs');
 const Ks = require('./keepsakes.cjs');
+const Tk = require('./trackers.cjs');
 const Rp = require('./reasons.cjs');
 
 /**
@@ -275,6 +276,9 @@ const stateCache = new Map();
 const placesCache = new Map();
 const conflictsCache = new Map();
 const keepsakesCache = new Map();
+// Date and cycle trackers (날짜·주기 트래커): the user's own records, with suggestions found in the scenes.
+const trackersFile = (chatId) => path.join(CHAT_DIR, `${safeChatId(chatId)}.trackers.json`);
+const trackersCache = new Map();
 // 중요/빼기 choices of the room (회상 이유): only ever changed by the user.
 const recallPrefsFile = (chatId) => path.join(CHAT_DIR, `${safeChatId(chatId)}.recall-prefs.json`);
 const recallPrefsCache = new Map();
@@ -326,6 +330,26 @@ function loadKeepsakes(chatId) {
 function saveKeepsakes(chatId, value) {
   writeJson(keepsakesFile(chatId), value);
   keepsakesCache.set(chatId, value);
+}
+function loadTrackers(chatId) {
+  if (trackersCache.has(chatId)) return trackersCache.get(chatId);
+  const file = trackersFile(chatId);
+  const stored = supported(file, readJson(file, null), Tk.TRACKERS_VERSION);
+  const value = stored && Array.isArray(stored.items) ? { ...Tk.emptyTrackers(), ...stored, suggestions: Array.isArray(stored.suggestions) ? stored.suggestions : [] } : Tk.emptyTrackers();
+  trackersCache.set(chatId, value);
+  return value;
+}
+function saveTrackers(chatId, value) {
+  writeJson(trackersFile(chatId), value);
+  trackersCache.set(chatId, value);
+}
+/** The story date a scene states ("24-07-16 (화) 14:00" -> "2024-07-16"), or null. */
+function sceneDate(chatId, scene) {
+  try {
+    return L.parseClock(scene?.time, storyDays.get(chatId) || loadLedger(chatId)?.storyDate || null)?.date || null;
+  } catch {
+    return null;
+  }
 }
 function loadRecallPrefs(chatId) {
   if (recallPrefsCache.has(chatId)) return recallPrefsCache.get(chatId);
@@ -408,6 +432,14 @@ function refreshWorld(chatId, store) {
         const old = loadKeepsakes(chatId);
         const next = Ks.fold(store, old);
         if (JSON.stringify(next) !== JSON.stringify(old)) { saveKeepsakes(chatId, next); changed = true; }
+      }
+      // A cycle's start the story states becomes a suggestion (never recorded by itself; no model call).
+      if (featureOn(chatId, 'trackers')) {
+        const old = loadTrackers(chatId);
+        if (old.items.some((t) => t.type === 'cycle')) {
+          const next = Tk.suggest(old, store, (scene) => sceneDate(chatId, scene));
+          if (next !== old) { saveTrackers(chatId, next); changed = true; }
+        }
       }
     });
   } catch (error) {
@@ -533,6 +565,7 @@ async function inheritBranch(sourceId, targetId) {
     const sourceState = fs.existsSync(stateFile(sourceId)) ? loadState(sourceId) : null;
     const sourcePlaces = fs.existsSync(placesFile(sourceId)) ? loadPlaces(sourceId) : null;
     const sourceKeeps = fs.existsSync(keepsakesFile(sourceId)) ? loadKeepsakes(sourceId) : null;
+    const sourceTrackers = fs.existsSync(trackersFile(sourceId)) ? loadTrackers(sourceId) : null;
     const sourceConflicts = fs.existsSync(conflictsFile(sourceId)) ? loadConflicts(sourceId) : null;
     const sourceMarks = fs.existsSync(recallPrefsFile(sourceId)) ? loadRecallPrefs(sourceId) : null;
     // This also makes a repeated hook harmless and protects an existing/broken destination file.
@@ -572,6 +605,8 @@ async function inheritBranch(sourceId, targetId) {
       if (sourceState && !fs.existsSync(stateFile(targetId))) { saveState(targetId, A.using(sourceId, () => St.fold(result.scenes || S.emptyStore(), structuredClone(sourceState)))); written.push(stateFile(targetId)); }
       if (sourcePlaces && !fs.existsSync(placesFile(targetId))) { savePlaces(targetId, A.using(sourceId, () => Pl.fold(result.scenes || S.emptyStore(), structuredClone(sourcePlaces)))); written.push(placesFile(targetId)); }
       if (sourceKeeps && !fs.existsSync(keepsakesFile(targetId))) { saveKeepsakes(targetId, A.using(sourceId, () => Ks.fold(result.scenes || S.emptyStore(), structuredClone(sourceKeeps)))); written.push(keepsakesFile(targetId)); }
+      // The user's date and cycle trackers come along as they are (suggestions for scenes this branch lacks drop out).
+      if (sourceTrackers && !fs.existsSync(trackersFile(targetId))) { saveTrackers(targetId, Tk.forBranch(sourceTrackers, result.scenes || S.emptyStore())); written.push(trackersFile(targetId)); }
       // Answers to record conflicts stay for the facts this branch really has.
       if (sourceConflicts && !fs.existsSync(conflictsFile(targetId))) { saveConflicts(targetId, Cf.fold(result.scenes || S.emptyStore(), structuredClone(sourceConflicts))); written.push(conflictsFile(targetId)); }
       // 중요/빼기 marks come along (those on scenes, chapters and facts this branch does not have drop out).
@@ -582,7 +617,7 @@ async function inheritBranch(sourceId, targetId) {
       }
     } catch (error) {
       for (const file of written) fs.rmSync(file, { force: true });
-      cache.delete(targetId); sceneCache.delete(targetId); vectorCache.delete(targetId); addressCache.delete(targetId); stateCache.delete(targetId); placesCache.delete(targetId); conflictsCache.delete(targetId); keepsakesCache.delete(targetId); recallPrefsCache.delete(targetId);
+      cache.delete(targetId); sceneCache.delete(targetId); vectorCache.delete(targetId); addressCache.delete(targetId); stateCache.delete(targetId); placesCache.delete(targetId); conflictsCache.delete(targetId); keepsakesCache.delete(targetId); trackersCache.delete(targetId); recallPrefsCache.delete(targetId);
       throw error;
     }
     log(`branch ${sourceId} -> ${targetId}: inherited ${result.matched} message(s), ${result.scenes?.scenes.length || 0} scene(s)${result.ledgerReset ? '; old fork: ledger will be read again' : ''}`);
@@ -662,7 +697,7 @@ function removeRoomFiles(chatId) {
 
 /** Everything held in memory for one room (not the files). The next read loads from disk again. */
 function clearRoomCaches(chatId) {
-  for (const map of [cache, windows, sceneCache, namesCache, addressCache, stateCache, placesCache, conflictsCache, keepsakesCache, recallPrefsCache, selectedViews, vectorCache, chatLangs, replyLedgers, translationCache, displayTranslationStatus, preparing, replyViews, speakerColors, recalls, turnQuery, storyDays, storyNow]) map.delete(chatId);
+  for (const map of [cache, windows, sceneCache, namesCache, addressCache, stateCache, placesCache, conflictsCache, keepsakesCache, trackersCache, recallPrefsCache, selectedViews, vectorCache, chatLangs, replyLedgers, translationCache, displayTranslationStatus, preparing, replyViews, speakerColors, recalls, turnQuery, storyDays, storyNow]) map.delete(chatId);
   for (const key of [...translating.keys()]) if (String(key).startsWith(`${chatId}:`)) translating.delete(key);
 }
 
@@ -2572,6 +2607,10 @@ function renderMemorySource(chatId, maxChars = MEMORY_MAX_CHARS, trace = null) {
       try { now.push(A.using(chatId, () => Ks.injectionBlock(loadKeepsakes(chatId), lastScenePeople(scenes)))); } catch {}
     }
   }
+  // The user's date and cycle trackers (one short line; nothing while the feature is off).
+  if (featureOn(chatId, 'trackers')) {
+    try { now.push(A.using(chatId, () => Tk.injectionBlock(loadTrackers(chatId), { present: scenes ? lastScenePeople(scenes) : [], story: today }))); } catch {}
+  }
   const parts = [...story, calls, ...now, ...fixed].filter(Boolean);
   return parts.length ? `${header}\n\n${parts.join('\n\n')}\n\n${footer}` : '';
 }
@@ -3081,6 +3120,7 @@ async function routes(app) {
       lastNumber: ledger?.lastNumber ?? null,
       rendered: renderLedger(chatId),
       recallReport: recallReport(chatId),
+      ...(featureOn(chatId, 'trackers') ? { trackerPick: trackerPick(chatId) } : {}),
       recallPrefs: (() => { const p = Rp.followMerges(loadRecallPrefs(chatId), scenes); return { pinned: p.pinned, excluded: p.excluded }; })(),
     };
   }));
@@ -3565,6 +3605,71 @@ async function routes(app) {
     }
     return { id: sid, status: action === 'accept' ? 'done' : 'ignored', ...addressView(chatId) };
   }));
+  /* ---------- 날짜·주기 트래커 ---------- */
+  /** The trackers with what each says today, the open suggestions, the names to pick from and the dates of the scenes. */
+  const trackersView = (chatId) => A.using(chatId, () => {
+    const scenes = loadScenes(chatId);
+    const ledger = loadLedger(chatId);
+    const file = loadTrackers(chatId);
+    const story = storyToday(chatId, ledger);
+    const labels = new Map(file.items.map((t) => [t.id, t.label]));
+    const sceneDates = {};
+    for (const s of scenes?.scenes || []) { const d = sceneDate(chatId, s); if (d) sceneDates[s.id] = d; }
+    return {
+      on: true,
+      storyDate: story,
+      realDate: Tk.localDate(),
+      items: Tk.view(file, { story }),
+      suggestions: (file.suggestions || []).filter((s) => s.status === 'open' && labels.has(s.trackerId)).map((s) => ({ id: s.id, trackerId: s.trackerId, label: labels.get(s.trackerId), date: s.date, sceneId: s.sceneId, text: s.text })),
+      people: N.knownPeople(scenes, ledger, loadNames(chatId)),
+      sceneDates,
+    };
+  });
+  /** What the scene cards need for "이 장면부터" (null while the feature is off). */
+  const trackerPick = (chatId) => {
+    const v = trackersView(chatId);
+    return { items: v.items.filter((t) => t.type !== 'until').map((t) => ({ id: t.id, label: t.label, type: t.type, scope: t.scope, people: t.people })), people: v.people, sceneDates: v.sceneDates };
+  };
+  app.get('/chats/:id/trackers', guard(async (req) => {
+    const chatId = safeChatId(req.params.id);
+    needFeature(chatId, 'trackers');
+    return trackersView(chatId);
+  }));
+  app.post('/chats/:id/trackers', guard(async (req) => {
+    const chatId = safeChatId(req.params.id);
+    needFeature(chatId, 'trackers');
+    const b = req.body || {};
+    const action = String(b.action || '');
+    const id = String(b.id || '');
+    const ACTIONS = ['add', 'edit', 'delete', 'start', 'addStart', 'removeStart', 'editStart', 'fromScene', 'accept', 'ignore'];
+    if (!ACTIONS.includes(action)) throw Error(`${ACTIONS.join(', ')} 중 하나여야 합니다.`);
+    // Read, change and save with no await in between, so a scan cannot overwrite the change.
+    A.using(chatId, () => {
+      const file = loadTrackers(chatId);
+      let next;
+      if (action === 'add') next = Tk.addItem(file, b.item);
+      else if (action === 'edit') next = Tk.editItem(file, id, b.item);
+      else if (action === 'delete') next = Tk.deleteItem(file, id);
+      else if (action === 'start') {
+        const item = file.items.find((t) => t.id === id);
+        if (!item) throw Error('해당 트래커를 찾지 못했습니다.');
+        const today = Tk.todayFor(item, { story: storyToday(chatId, loadLedger(chatId)), real: Tk.localDate() });
+        if (!today) throw Error('이야기 속 오늘 날짜를 아직 알 수 없습니다. 시작일을 직접 적어 주세요.');
+        next = Tk.addStart(file, id, today);
+      } else if (action === 'addStart') next = Tk.addStart(file, id, b.date);
+      else if (action === 'removeStart') next = Tk.removeStart(file, id, b.date);
+      else if (action === 'editStart') next = Tk.editStart(file, id, b.from, b.to);
+      else if (action === 'fromScene') {
+        const scene = (loadScenes(chatId)?.scenes || []).find((s) => s.id === String(b.sceneId || ''));
+        if (!scene) throw Error('해당 장면을 찾지 못했습니다.');
+        const date = sceneDate(chatId, scene);
+        if (!date) throw Error('이 장면에는 작중 날짜가 없습니다.');
+        next = Tk.startFromDate(file, { trackerId: id, label: b.label, scope: b.scope, people: b.people, clock: 'story', date });
+      } else next = Tk.answerSuggestion(file, String(b.sid || id), action);
+      saveTrackers(chatId, next);
+    });
+    return trackersView(chatId);
+  }));
   /* ---------- 인물 상태 and 장소 ---------- */
   const worldView = (chatId) => {
     const characterState = featureOn(chatId, 'characterState'), places = featureOn(chatId, 'places'), keepsakes = featureOn(chatId, 'keepsakes');
@@ -3574,7 +3679,7 @@ async function routes(app) {
       const keepList = keepsakes ? Ks.view(loadKeepsakes(chatId)) : [];
       const titles = new Map((loadScenes(chatId)?.scenes || []).map((s) => [s.id, s.title]));
       const ids = new Set([...cards.map((c) => c.asOf?.scene), ...placeList.flatMap((p) => [p.firstSeen?.scene, p.lastSeen?.scene]), ...keepList.flatMap((k) => [k.gotAt?.scene, ...(k.history || []).map((h) => h.scene)])].filter(Boolean));
-      return { characterState, places, keepsakes, cards, placeList, keepList, sceneTitles: Object.fromEntries([...ids].map((id) => [id, titles.get(id) || ''])) };
+      return { characterState, places, keepsakes, ...(featureOn(chatId, 'trackers') ? { trackers: trackersView(chatId) } : {}), cards, placeList, keepList, sceneTitles: Object.fromEntries([...ids].map((id) => [id, titles.get(id) || ''])) };
     });
   };
   /** Edit the file, work the scenes through it again and save, with no await in between (a scan cannot overwrite it). */
@@ -4051,7 +4156,7 @@ function attach(app) {
   log('admin API ready at /api/memory-module');
 }
 
-module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { loadAddress, saveAddress, refreshAddress, presentPeople, Addr, loadState, saveState, loadPlaces, savePlaces, loadKeepsakes, saveKeepsakes, loadConflicts, saveConflicts, refreshConflicts, refreshWorld, Cf, Ks, organizeFor, sceneTokens, lastScenePeople, St, Pl, listRooms, purgeChatMemory, purgeIfGone, deleteOnSend, deletePrepare, listOrphans, deleteOrphans, goneChats, loadNames, saveNames, enqueue, foldScenes, reviewAttributions, loadAttributionLog, sceneJobs, selectedForView, loadSelected, recalls, windows, loadRecallPrefs, saveRecallPrefs, recallReport, recallCandidates, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, loadTranslations, saveTranslations, chatLangs, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, jobs, writeLanguage, memoryCallOptions, routineSetting, routineEnabled, featureOn, featureSetting, F, B, clearRoomCaches, RESTORE_UNDO_DIR, connectionWithKey, memoryModel, startTrial, trials } };
+module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { loadAddress, saveAddress, refreshAddress, presentPeople, Addr, loadState, saveState, loadPlaces, savePlaces, loadKeepsakes, saveKeepsakes, loadTrackers, saveTrackers, Tk, loadConflicts, saveConflicts, refreshConflicts, refreshWorld, Cf, Ks, organizeFor, sceneTokens, lastScenePeople, St, Pl, listRooms, purgeChatMemory, purgeIfGone, deleteOnSend, deletePrepare, listOrphans, deleteOrphans, goneChats, loadNames, saveNames, enqueue, foldScenes, reviewAttributions, loadAttributionLog, sceneJobs, selectedForView, loadSelected, recalls, windows, loadRecallPrefs, saveRecallPrefs, recallReport, recallCandidates, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, loadTranslations, saveTranslations, chatLangs, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, jobs, writeLanguage, memoryCallOptions, routineSetting, routineEnabled, featureOn, featureSetting, F, B, clearRoomCaches, RESTORE_UNDO_DIR, connectionWithKey, memoryModel, startTrial, trials } };
 
 
 

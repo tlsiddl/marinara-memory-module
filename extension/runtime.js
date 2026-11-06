@@ -52,6 +52,9 @@
   let worldRoom = '';
   let worldError = '';
   let worldForm = { person: '', place: '', keep: '', keepOwner: '' };
+  // 날짜·주기 트래커: the form being filled (null = closed) and the small "이 장면부터" picker on a scene card.
+  let trackerDraft = null;
+  let scenePicker = null;
   // 알게 된 사실 tab: the conflicts between facts (null while not loaded; a failure only hides the banner).
   let conflicts = null;
   let conflictsRoom = '';
@@ -642,7 +645,7 @@
       })
       .join('');
     return `<div class="paper" id="sceneEditor" data-id="${esc(s.id)}">
-      <div class="paper-toolbar"><h2>${esc(s.id)} · 메시지 ${s.start}~${s.end}번</h2>${s.edited ? '<span class="pill">직접 고침</span>' : ''}${markButtons(s.id, info?.recallPrefs)}</div>
+      <div class="paper-toolbar"><h2>${esc(s.id)} · 메시지 ${s.start}~${s.end}번</h2>${s.edited ? '<span class="pill">직접 고침</span>' : ''}${markButtons(s.id, info?.recallPrefs)}${scenePickerBox(s)}</div>
       <div class="form-grid">
         <label class="full">제목<input id="sTitle" value="${esc(s.title)}"></label>${trNote(s.title)}
         <label>작중 시간<input id="sTime" value="${esc(s.time || '')}"></label>
@@ -897,13 +900,14 @@
   function viewWorld() {
     if (!info) return emptyRoom();
     if (!world || worldRoom !== room) return worldError ? `<div class="note" role="alert">인물·장소를 불러오지 못했습니다. ${esc(worldError)} 서버의 기억 모듈도 함께 업데이트했는지 확인해 주세요.</div>` : `<div class="empty">${icon('refresh')}불러오는 중입니다…</div>`;
-    const off = !world.characterState && !world.places && !world.keepsakes;
+    const off = !world.characterState && !world.places && !world.keepsakes && !world.trackers;
     return `<div class="eyebrow">STORY NOW</div><h1>인물·장소</h1>
       <p class="intro">장면을 정리할 때 같은 모델 호출에서 함께 읽어 둔 인물의 현재 상태, 장소의 모습, 소중한 물건입니다. 켠 뒤에 새로 정리하는 장면부터 채워지고, 원문에 보인 것만 적습니다. 고친 칸은 잠겨서 자동 기록이 덮어쓰지 않습니다.</p>
-      ${off ? '<div class="note" role="status">이 방에서는 <b>인물 현재 상태</b>·<b>장소 기억</b>·<b>소중한 물건</b>이 모두 꺼져 있습니다. <button data-tab="settings">설정 → 추가 기능에서 켜기</button></div>' : ''}
+      ${off ? '<div class="note" role="status">이 방에서는 <b>인물 현재 상태</b>·<b>장소 기억</b>·<b>소중한 물건</b>·<b>날짜·주기 트래커</b>가 모두 꺼져 있습니다. <button data-tab="settings">설정 → 추가 기능에서 켜기</button></div>' : ''}
       ${statePaper(world, worldForm, armed)}
       ${placesPaper(world, worldForm, armed)}
-      ${keepsakesPaper(world, worldForm, armed)}`;
+      ${keepsakesPaper(world, worldForm, armed)}
+      ${trackersPaper(world, armed)}`;
   }
 
   /** 인물 상태 cards: every field is an input (editing locks it), a locked field has a button that gives it back to the scenes. */
@@ -986,6 +990,94 @@
       ${list.length ? list.map(item).join('') : '<p class="hint">아직 없습니다. 켠 뒤에 정리되는 장면부터 채워집니다.</p>'}
       <h3>물건 직접 추가</h3>
       <div class="routine-row"><input id="keepNewName" value="${esc(form?.keep || '')}" placeholder="물건 이름" aria-label="물건 이름"><input id="keepNewOwner" value="${esc(form?.keepOwner || '')}" placeholder="가진 사람(선택)" aria-label="가진 사람"><button class="primary" data-act="keepAdd">추가</button></div></div>`;
+  }
+
+  /* ---------- 날짜·주기 트래커 ---------- */
+  const TK_TYPES = { count: '며칠째 (시작일부터 센다)', until: 'D-day (목표일까지 센다)', cycle: '주기 (반복되는 일)' };
+  const TK_INJECT = { present: '관련된 사람이 지금 장면에 있을 때', always: '항상', never: '넣지 않음' };
+  const TK_CLOCK = { story: '이야기 속 날짜', real: '실제 오늘 날짜' };
+  const tkBlank = () => ({ id: '', type: 'count', label: '', scope: 'room', p1: '', p2: '', clock: 'story', inject: 'present', start: '', firstDay: '1', target: '', every: '28', unit: 'day', length: '5', predict: 'fixed', starts: '' });
+  const tkFromItem = (it) => ({
+    id: it.id, type: it.type, label: it.label, scope: it.scope, p1: it.people?.[0] || '', p2: it.people?.[1] || '', clock: it.clock, inject: it.inject,
+    start: it.count?.start || '', firstDay: String(it.count?.firstDay ?? 1), target: it.until?.target || '',
+    every: String(it.cycle?.every ?? 28), unit: it.cycle?.unit || 'day', length: String(it.cycle?.length ?? 5), predict: it.cycle?.predict || 'fixed', starts: (it.cycle?.starts || []).join(', '),
+  });
+  /** The request body for a form: the people follow the scope, the type decides which dates are sent. */
+  function tkBody(d) {
+    const people = [d.p1, d.p2].map((s) => String(s || '').trim()).filter(Boolean);
+    const item = { type: d.type, label: d.label, scope: d.scope, people: d.scope === 'room' ? [] : d.scope === 'person' ? people.slice(0, 1) : people.slice(0, 2), clock: d.clock, inject: d.inject };
+    if (d.type === 'count') item.count = { start: d.start, firstDay: Number(d.firstDay) === 0 ? 0 : 1 };
+    else if (d.type === 'until') item.until = { target: d.target };
+    else item.cycle = { every: Number(d.every), unit: d.unit, length: Number(d.length), predict: d.predict, starts: String(d.starts || '').split(/[,\s]+/).filter(Boolean) };
+    return item;
+  }
+  function readTrackerForm() {
+    if (!trackerDraft) return;
+    for (const el of root.querySelectorAll('[data-tk]')) trackerDraft[el.dataset.tk] = el.value;
+  }
+  function readScenePicker() {
+    if (!scenePicker) return;
+    for (const el of root.querySelectorAll('[data-sp]')) scenePicker[el.dataset.sp] = el.value;
+  }
+  function trackerForm(t) {
+    const d = trackerDraft;
+    if (!d) return '<div class="buttons"><button class="primary" data-act="trackerNew">트래커 추가</button></div>';
+    const sel = (key, options, label) => `<label class="world-field"><span>${label}</span><select data-tk="${key}" aria-label="${label}">${Object.entries(options).map(([v, text]) => `<option value="${esc(v)}" ${String(d[key]) === v ? 'selected' : ''}>${esc(text)}</option>`).join('')}</select></label>`;
+    const txt = (key, label, hint) => `<label class="world-field"><span>${label}</span><input data-tk="${key}" ${key === 'p1' || key === 'p2' ? 'list="trackerPeople" ' : ''}value="${esc(d[key])}" placeholder="${esc(hint || '')}" aria-label="${label}"></label>`;
+    const people = d.scope === 'person' ? txt('p1', '사람', '이름') : d.scope === 'pair' ? txt('p1', '첫째 사람', '이름') + txt('p2', '둘째 사람', '이름') : '';
+    const fields = d.type === 'count'
+      ? txt('start', '시작일', '예: 24-07-16') + sel('firstDay', { 1: '시작한 날을 1일째로', 0: '시작한 날을 0일째로' }, '세는 법')
+      : d.type === 'until'
+      ? txt('target', '목표일', '예: 24-08-01')
+      : txt('every', '주기', '예: 28') + sel('unit', { day: '일마다', month: '개월마다' }, '단위') + txt('length', '기간(일)', '예: 5') + sel('predict', { fixed: '늘 같은 주기로', average: '지난 간격의 평균으로' }, '다음 날짜') + txt('starts', '지난 시작일', '쉼표로 나눠 적기 (선택)');
+    return `<h3>${d.id ? '트래커 고치기' : '트래커 추가'}</h3>
+      ${d.id ? '' : sel('type', TK_TYPES, '종류')}
+      ${txt('label', '이름', d.type === 'cycle' ? '예: 발정기' : d.type === 'until' ? '예: 시험' : '예: 만난 지')}
+      ${sel('scope', { room: '방 전체', person: '한 사람', pair: '두 사람' }, '대상')}${people}
+      ${fields}
+      ${sel('clock', TK_CLOCK, '날짜 기준')}${sel('inject', TK_INJECT, '기억 칸에 넣기')}
+      <div class="buttons"><button class="primary" data-act="trackerSave">${d.id ? '저장' : '추가'}</button><button class="ghost" data-act="trackerCancel">닫기</button></div>`;
+  }
+  function trackersPaper(w, armedNow) {
+    const t = w?.trackers;
+    if (!t) return '';
+    const card = (it) => {
+      const meta = [TK_TYPES[it.type], it.scope === 'room' ? '방 전체' : (it.people || []).join('·'), TK_CLOCK[it.clock], `기억 칸: ${TK_INJECT[it.inject]}`].join(' · ');
+      const cycle = it.type === 'cycle'
+        ? `<div class="world-field"><span>시작일</span>${(it.cycle.starts || []).length ? it.cycle.starts.map((s) => `<input data-tk-start="${esc(it.id)}" data-from="${esc(s)}" value="${esc(s)}" aria-label="${esc(it.label)} 시작일 ${esc(s)}"><button class="ghost" data-act="trackerDropStart" data-id="${esc(it.id)}" data-date="${esc(s)}">${armedNow === `trackerDropStart:${it.id}:${s}` ? '한 번 더 누르면 지웁니다' : '지우기'}</button>`).join('') : '<small>아직 기록이 없습니다</small>'}</div>
+          <div class="routine-row"><input data-tk-new="${esc(it.id)}" placeholder="시작일 직접 추가 (예: 24-07-16)" aria-label="${esc(it.label)} 시작일 추가"><button data-act="trackerAddStart" data-id="${esc(it.id)}">시작일 추가</button><button class="primary" data-act="trackerStart" data-id="${esc(it.id)}">오늘 시작</button></div>`
+        : '';
+      return `<div class="world-card" data-tracker="${esc(it.id)}"><h3>${esc(it.label)} <span class="pill ${it.status.ok ? '' : 'neutral'}">${esc(it.status.text)}</span></h3>
+        <p class="hint">${esc(meta)}${it.status.today ? ` · 기준일 ${esc(it.status.today)}` : ''}</p>${cycle}
+        <div class="buttons"><button class="ghost" data-act="trackerEdit" data-id="${esc(it.id)}">고치기</button><button class="ghost" data-act="trackerDelete" data-id="${esc(it.id)}">${armedNow === `trackerDelete:${it.id}` ? '한 번 더 누르면 지웁니다' : '지우기'}</button></div></div>`;
+    };
+    const suggestions = (t.suggestions || []).length
+      ? `<div class="note" role="status"><b>이야기에서 찾은 시작일</b>${t.suggestions.map((s) => `<p>${esc(s.text)} <a href="#" class="record-link" data-goto-scene="${esc(s.sceneId)}">${esc(s.sceneId)}</a> <button class="primary" data-act="trackerAnswer" data-sid="${esc(s.id)}" data-answer="accept">기록</button> <button class="ghost" data-act="trackerAnswer" data-sid="${esc(s.id)}" data-answer="ignore">무시</button></p>`).join('')}</div>`
+      : '';
+    return `<div class="paper"><h2>날짜·주기 트래커 · ${t.items.length}개</h2>
+      <p class="hint">직접 만든 날짜 기록입니다(모델 호출 없음). 오늘은 ${t.storyDate ? `이야기 속 ${esc(t.storyDate)}` : '이야기 날짜를 아직 모름'} · 실제 ${esc(t.realDate)}. 답변에는 \`[기록] …\` 한 줄(200자 이내)만 들어가고, 주기의 시작이 이야기에 나와도 기록은 제안만 합니다.</p>
+      ${suggestions}
+      ${t.items.length ? t.items.map(card).join('') : '<p class="hint">아직 없습니다.</p>'}
+      <datalist id="trackerPeople">${(t.people || []).map((n) => `<option value="${esc(n)}">`).join('')}</datalist>
+      ${trackerForm(t)}</div>`;
+  }
+
+  /** On a scene card: "이 장면부터" starts a tracker on the scene's story date (disabled when the scene has none). */
+  function scenePickerBox(s) {
+    const pick = info?.trackerPick;
+    if (!pick) return '';
+    const date = pick.sceneDates?.[s.id];
+    if (!date) return '<button class="ghost" disabled title="이 장면에는 작중 날짜가 없어 시작일로 쓸 수 없습니다">이 장면부터</button>';
+    const open = scenePicker?.scene === s.id;
+    const button = `<button class="ghost" data-act="scenePickOpen" data-id="${esc(s.id)}" title="이 장면의 날짜(${esc(date)})를 시작일로 하는 트래커">${open ? '이 장면부터 닫기' : '이 장면부터'}</button>`;
+    if (!open) return button;
+    const p = scenePicker;
+    const input = (key, label, hint) => `<label class="world-field"><span>${label}</span><input data-sp="${key}" list="scenePeople" value="${esc(p[key])}" placeholder="${hint}" aria-label="${label}"></label>`;
+    return `${button}<div class="note"><b>${esc(date)}</b>부터 세기
+      <label class="world-field"><span>트래커</span><select data-sp="trackerId" aria-label="트래커"><option value="">새 ‘며칠째’ 트래커 만들기</option>${pick.items.map((t) => `<option value="${esc(t.id)}" ${p.trackerId === t.id ? 'selected' : ''}>${esc((t.people || []).join('·') + ' ' + t.label)} (${t.type === 'cycle' ? '주기: 시작일로 기록' : '시작일 바꾸기'})</option>`).join('')}</select></label>
+      ${p.trackerId ? '' : input('label', '이름', '예: 만난 지') + input('p1', '첫째 사람', '비우면 방 전체') + input('p2', '둘째 사람', '둘이면 함께 적기')}
+      <datalist id="scenePeople">${(pick.people || []).map((n) => `<option value="${esc(n)}">`).join('')}</datalist>
+      <div class="buttons"><button class="primary" data-act="scenePickApply" data-id="${esc(s.id)}">적용</button></div></div>`;
   }
 
   function viewNames() {
@@ -1407,7 +1499,7 @@
   async function handle(actName, el) {
     const id = el?.dataset?.id;
     const chat = encodeURIComponent(room);
-    if (actName !== 'fresh' && !actName.startsWith('deleteFact') && actName !== 'closeThread' && actName !== 'rebuildChapters' && actName !== 'deleteRoutine' && !['nameApply', 'mergeApply', 'aliasApply', 'nameUndo', 'backupDownload', 'restoreApply', 'restoreUndo', 'addressDelete', 'stateReset', 'placeDelete', 'keepDelete'].includes(actName)) armed = '';
+    if (actName !== 'fresh' && !actName.startsWith('deleteFact') && actName !== 'closeThread' && actName !== 'rebuildChapters' && actName !== 'deleteRoutine' && !['nameApply', 'mergeApply', 'aliasApply', 'nameUndo', 'backupDownload', 'restoreApply', 'restoreUndo', 'addressDelete', 'stateReset', 'placeDelete', 'keepDelete', 'trackerDelete', 'trackerDropStart'].includes(actName)) armed = '';
     switch (actName) {
       case 'retryTranslation':
         return act(async () => {
@@ -1594,6 +1686,80 @@
           await api('POST', `/chats/${chat}/keepsakes`, { action: 'unlock', id, field: el.dataset.field });
           world = null;
         }, '이 항목을 자동 기록으로 되돌렸습니다.');
+      case 'trackerNew':
+        trackerDraft = trackerDraft ? null : tkBlank();
+        return render();
+      case 'trackerCancel':
+        trackerDraft = null;
+        return render();
+      case 'trackerEdit': {
+        const it = world?.trackers?.items?.find((x) => x.id === id);
+        if (!it) return;
+        trackerDraft = tkFromItem(it);
+        return render();
+      }
+      case 'trackerSave': {
+        readTrackerForm();
+        const d = { ...trackerDraft };
+        return act(async () => {
+          await api('POST', `/chats/${chat}/trackers`, d.id ? { action: 'edit', id: d.id, item: tkBody(d) } : { action: 'add', item: tkBody(d) });
+          trackerDraft = null;
+          world = null;
+        }, d.id ? '트래커를 고쳤습니다.' : '트래커를 추가했습니다.');
+      }
+      case 'trackerDelete':
+        if (armed !== `trackerDelete:${id}`) { armed = `trackerDelete:${id}`; return render(); }
+        armed = '';
+        return act(async () => {
+          await api('POST', `/chats/${chat}/trackers`, { action: 'delete', id });
+          if (trackerDraft?.id === id) trackerDraft = null;
+          world = null;
+        }, '트래커를 지웠습니다.');
+      case 'trackerStart':
+        return act(async () => {
+          await api('POST', `/chats/${chat}/trackers`, { action: 'start', id });
+          if (trackerDraft?.id === id) trackerDraft = null;
+          world = null;
+        }, '오늘을 새 시작일로 기록했습니다.');
+      case 'trackerAddStart': {
+        const date = (root.querySelector(`[data-tk-new="${id}"]`)?.value || '').trim();
+        if (!date) return;
+        return act(async () => {
+          await api('POST', `/chats/${chat}/trackers`, { action: 'addStart', id, date });
+          if (trackerDraft?.id === id) trackerDraft = null;
+          world = null;
+        }, '시작일을 추가했습니다.');
+      }
+      case 'trackerDropStart': {
+        const date = el.dataset.date;
+        if (armed !== `trackerDropStart:${id}:${date}`) { armed = `trackerDropStart:${id}:${date}`; return render(); }
+        armed = '';
+        return act(async () => {
+          await api('POST', `/chats/${chat}/trackers`, { action: 'removeStart', id, date });
+          if (trackerDraft?.id === id) trackerDraft = null;
+          world = null;
+        }, '시작일을 지웠습니다.');
+      }
+      case 'trackerAnswer': {
+        const answer = el.dataset.answer;
+        return act(async () => {
+          await api('POST', `/chats/${chat}/trackers`, { action: answer, sid: el.dataset.sid });
+          world = null;
+        }, answer === 'accept' ? '시작일로 기록했습니다.' : '제안을 무시했습니다. 다시 묻지 않습니다.');
+      }
+      case 'scenePickOpen':
+        scenePicker = scenePicker?.scene === id ? null : { scene: id, trackerId: '', label: '', p1: '', p2: '' };
+        return render();
+      case 'scenePickApply': {
+        readScenePicker();
+        const p = { ...scenePicker };
+        const people = [p.p1, p.p2].map((x) => String(x || '').trim()).filter(Boolean);
+        return act(async () => {
+          await api('POST', `/chats/${chat}/trackers`, { action: 'fromScene', sceneId: id, id: p.trackerId, label: p.label, scope: people.length === 0 ? 'room' : people.length === 1 ? 'person' : 'pair', people });
+          scenePicker = null;
+          world = null;
+        }, '이 장면의 날짜를 시작일로 기록했습니다.');
+      }
       case 'keepAdd': {
         const name = (root.querySelector('#keepNewName')?.value || '').trim();
         const owner = (root.querySelector('#keepNewOwner')?.value || '').trim();
@@ -2051,6 +2217,8 @@
       if (e.target.id === 'placeNewName') worldForm.place = e.target.value;
       if (e.target.id === 'keepNewName') worldForm.keep = e.target.value;
       if (e.target.id === 'keepNewOwner') worldForm.keepOwner = e.target.value;
+      if (e.target.dataset?.tk) readTrackerForm();
+      if (e.target.dataset?.sp) readScenePicker();
       if (e.target.id === 'attributionFilter') {
         attributionFilter = e.target.value;
         // Shown and hidden in place, so typing keeps the focus and the open sections.
@@ -2121,6 +2289,24 @@
       if (e.target.id === 'setSpeakerNames') {
         const on = e.target.checked;
         void act(() => api('POST', `/chats/${encodeURIComponent(room)}/speaker-names`, { on }), on ? '대사 앞에 이름 표시를 켰습니다.' : '대사 앞에 이름 표시를 껐습니다.');
+      }
+      // The form's fields follow the type and the scope; the scene picker follows the chosen tracker.
+      if (e.target.dataset?.tk && ['type', 'scope', 'unit'].includes(e.target.dataset.tk)) {
+        readTrackerForm();
+        return render();
+      }
+      if (e.target.dataset?.sp === 'trackerId') {
+        readScenePicker();
+        return render();
+      }
+      if (e.target.dataset?.tkStart) {
+        const id = e.target.dataset.tkStart;
+        const body = { action: 'editStart', id, from: e.target.dataset.from, to: e.target.value };
+        void act(async () => {
+          await api('POST', `/chats/${encodeURIComponent(room)}/trackers`, body);
+          if (trackerDraft?.id === id) trackerDraft = null;
+          world = null;
+        }, '시작일을 고쳤습니다.');
       }
       if (e.target.dataset?.featureGlobal) {
         const key = e.target.dataset.featureGlobal;

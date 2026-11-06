@@ -45,6 +45,12 @@ const FEATURES = {
     default: false,
     ready: true,
   },
+  trackers: {
+    label: '날짜·주기 트래커',
+    description: '"만난 지 N일째", "시험 D-3", "발정기 다음까지 D-9 / 진행 중 (2/5일째)"처럼 날짜를 세는 기록을 직접 만들어 둡니다. 모델 호출이 없고, 이야기 속 날짜(또는 실제 오늘)로 그때그때 계산합니다. 답변에는 지금 장면에 있는 사람의 것(또는 "항상"으로 정한 것)만 `[기록] …` 한 줄(200자 이내)로 들어갑니다. 주기의 시작이 이야기에 나오면 기록할지 "제안"만 하고 저절로 바꾸지 않습니다. 이미 있는 기록은 꺼도 지우지 않습니다.',
+    default: false,
+    ready: true,
+  },
 };
 
 const known = (key) => Object.prototype.hasOwnProperty.call(FEATURES, key);
