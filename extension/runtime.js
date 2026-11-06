@@ -68,6 +68,9 @@
   let busy = false;
   let pollTimer = null;
   let armed = '';
+  /** A backup file the person picked, with the server's preview of it: { room, doc, data, cross }. */
+  let restorePreview = null;
+  let backupVectors = false;
   let disposed = false;
   let theme = 'light';
   /** 'marinara' follows the font set in Marinara; 'own' uses the library's Myeongjo/sans pair. */
@@ -423,6 +426,7 @@
           ${info.scenes?.chapters ? `<button data-act="rebuildChapters" ${running() ? 'disabled' : ''}>${armed === 'chapters' ? '한 번 더 누르면 챕터를 다시 묶습니다' : '챕터만 다시 묶기'}</button>` : ''}
           ${running() ? '<button data-act="stop">멈추기</button>' : ''}
         </div>
+        ${armed === 'fresh' ? '<div class="note" role="status">처음부터 다시 정리하면 직접 고친 장면·사실도 사라집니다. <button data-act="backupDownload">먼저 백업 내려받기</button> 를 누르면 지금 상태가 파일로 저장되고, 이 확인 상태는 그대로 유지됩니다. 꼭 받으셔야 하는 것은 아닙니다.</div>' : ''}
         <small>‘이어서 정리’는 밀린 정리를 바로 처리합니다. ‘챕터만 다시 묶기’는 장면·사실·장부를 유지하고 챕터와 큰 흐름만 새로 만듭니다. 직접 고친 챕터·큰 흐름은 바뀌며, 정리 모델 사용량이 발생합니다. 처음부터 다시 정리하면 직접 고친 장면도 사라집니다.</small>
       </div>
       ${deadlinePaper()}
@@ -893,6 +897,59 @@
       <div class="buttons"><button class="primary" data-act="recallTest">시험하기</button></div>${result}</div>`;
   }
 
+  /** 설정 → 추가 기능: one row per implemented feature, with the all-rooms default and this room's own choice. */
+  function featuresPaper(list) {
+    if (!Array.isArray(list) || !list.length) return '';
+    const modes = [['default', '기본값 따름'], ['on', '켜기'], ['off', '끄기']];
+    return `<div class="paper"><h2>추가 기능</h2>
+      <p class="hint">기능마다 모든 방 기본값을 정하고, 방마다 따로 켜고 끌 수 있습니다. 바꾸면 바로 저장됩니다.</p>
+      ${list.map((f) => `<div class="feature-row" data-feature="${esc(f.key)}">
+        <label class="setting-switch"><span>${esc(f.label)} (모든 방 기본값)<small>${esc(f.description)}</small></span><input type="checkbox" data-feature-global="${esc(f.key)}" ${f.global ? 'checked' : ''}></label>
+        <label>이 방의 ${esc(f.label)}<select data-feature-room="${esc(f.key)}">${modes.map(([value, text]) => `<option value="${value}" ${f.room === value ? 'selected' : ''}>${value === 'default' ? `${text} (지금 모든 방 기본값: ${f.global ? '켜기' : '끄기'})` : text}</option>`).join('')}</select></label>
+      </div>`).join('')}
+    </div>`;
+  }
+
+  /** 설정 → 백업: download this room's memory as one file, restore from one, undo the last restore. */
+  function backupPaper(st) {
+    const { armed: arm, preview, withVectors, running: busyJob, undo } = st;
+    const date = (iso) => { try { return new Date(iso).toLocaleString('ko-KR'); } catch { return String(iso || ''); } };
+    const LINES = [['scenes', '장면'], ['chapters', '챕터'], ['facts', '알게 된 사실'], ['threads', '아직 끝나지 않은 일'], ['routine', '최근 생활 기록'], ['people', '이름 표의 사람'], ['selected', '직접 고른 기억'], ['vectors', '검색 색인']];
+    let previewHtml = '';
+    if (preview) {
+      const d = preview.data;
+      const s = d.source;
+      previewHtml = `<div class="note" role="status">
+        <b>불러올 백업</b>: ${esc(s.chatName || '(이름 없음)')} · 방 ID ${esc(s.chatId)} · ${esc(date(s.createdAt))} · 모듈 ${esc(s.moduleVersion || '?')}
+        <ul>${LINES.map(([k, label]) => `<li>${label}: 백업 ${esc(d.backup[k])} · 지금 ${esc(d.current[k])}</li>`).join('')}</ul>
+        <p class="hint">불러오면 이 방의 기억 파일이 백업의 내용으로 <b>통째로 바뀝니다</b>(백업에 없는 파일은 지워집니다). 바꾸기 전에 지금 상태를 안전 사본으로 한 번 남기며, 아래 '불러오기 되돌리기'로 돌릴 수 있습니다. 이 방의 '기억 사용' 켜짐 여부는 지금 그대로 둡니다.${d.vectors.inBackup ? '' : ' 백업에 검색 색인이 없어 <b>지금의 검색 색인은 지우고</b> 다음 정리 때 다시 만듭니다.'}${s.jobRunning ? ' 이 백업은 정리 작업이 돌아가는 중에 받은 것이라 파일끼리 시점이 조금 다를 수 있습니다.' : ''}</p>
+        ${d.crossRoomRequired ? `<div class="note"><label class="check-row"><input type="checkbox" id="restoreCross" ${preview.cross ? 'checked' : ''}><span><b>다른 방의 백업을 이 방에 적용</b><small>이 백업은 다른 방(${esc(s.chatId)})에서 받은 것입니다. 메시지 번호와 ID는 그대로 두므로 이 방의 메시지와 맞지 않을 수 있습니다. 확인하시면 체크해 주세요.</small></span></label></div>` : ''}
+        <div class="buttons"><button class="primary" data-act="restoreApply" ${busyJob || (d.crossRoomRequired && !preview.cross) ? 'disabled' : ''}>${arm === 'restoreApply' ? '한 번 더 누르면 백업을 불러옵니다' : '이 백업 불러오기'}</button><button class="ghost" data-act="restoreCancel">취소</button></div>
+      </div>`;
+    }
+    return `<div class="paper"><h2>백업</h2>
+      <p class="hint">이 방의 장면·사실·장부·이름 표·번역 등 기억 서재가 가진 모든 기록(과 이 방의 설정)을 파일 하나로 내 컴퓨터에 내려받습니다. 마리나라의 채팅 메시지는 들어 있지 않습니다.</p>
+      <label class="check-row"><input type="checkbox" id="setBackupVectors" ${withVectors ? 'checked' : ''}><span><b>검색 색인 포함 (크기 큼)</b><small>뜻으로 찾기용 색인입니다. 빼도 불러온 뒤 다시 만들 수 있습니다.</small></span></label>
+      <div class="buttons"><button data-act="backupDownload">백업 내려받기</button></div>
+      <p class="hint">백업에서 불러오기: 파일을 고르면 먼저 내용을 미리 보여 드리고, 확인하셔야 바뀝니다. 정리 작업 중에는 불러올 수 없습니다.</p>
+      <label>백업 파일 고르기<input type="file" id="restoreFile" accept=".json,application/json" ${busyJob ? 'disabled' : ''}></label>
+      ${previewHtml}
+      ${undo ? `<div class="buttons"><button class="ghost" data-act="restoreUndo" ${busyJob ? 'disabled' : ''}>${arm === 'restoreUndo' ? '한 번 더 누르면 불러오기를 되돌립니다' : `불러오기 되돌리기 (${esc(date(undo.at))} 이전 상태)`}</button></div>` : ''}
+    </div>`;
+  }
+
+  /** Saves a JSON document as a file on this computer. */
+  function saveFile(name, text) {
+    const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+  }
+
   function viewSettings() {
     if (!info) return emptyRoom();
     const current = serverSettings?.connection || '';
@@ -907,20 +964,16 @@
       <div class="paper"><h2>이 방</h2>
         <label class="setting-switch"><span>기억 사용<small>켜면 답변마다 장부와 장면을 자동으로 갱신합니다.</small></span><input type="checkbox" id="setEnabled" ${info.enabled ? 'checked' : ''}></label>
         <label class="setting-switch"><span>말풍선 태그 되살리기<small>화자 색상이 켜진 '합쳐서' 그룹 RP에서 모델이 원래의 숨은 화자 태그를 출력하도록 지침을 보강합니다. 보이는 이름표 없이 따옴표만 쓰는 대사에도 적용됩니다.</small></span><input type="checkbox" id="setTags" ${info.speakerTags ? 'checked' : ''}></label>
-        <label>최근 생활 기록<select id="setRoutineRoom">
-          <option value="default" ${(info.routineSetting?.room || 'default') === 'default' ? 'selected' : ''}>기본값 따름 (지금 모든 방 기본값: ${serverSettings?.routine === false ? '끄기' : '켜기'})</option>
-          <option value="on" ${info.routineSetting?.room === 'on' ? 'selected' : ''}>켜기</option>
-          <option value="off" ${info.routineSetting?.room === 'off' ? 'selected' : ''}>끄기</option></select></label>
-        <p class="hint">끄면 이 방에서는 식사·씻기·잠·약 기록을 새로 읽지 않고(그만큼 기억 모델에 보내는 지침이 짧아집니다) 기억 칸에도 넣지 않습니다. 이미 있는 기록은 지우지 않으며, 다시 켜면 그대로 보이고 그 뒤 새 메시지부터 이어서 기록합니다. 꺼져 있던 동안의 메시지는 '처음부터 다시 정리'를 해야 채워집니다.</p>
         <label class="setting-switch"><span>대사 앞에 이름 표시<small>캐릭터 대사에 '이름 | 대사'를 출력하도록 요청합니다. 말풍선 태그 기능과 독립적으로 설정할 수 있습니다.</small></span><input type="checkbox" id="setSpeakerNames" ${info.speakerNames ? 'checked' : ''}></label>
         <label>장면의 디테일<select id="setDetailLevel"><option value="standard" ${!info.organize?.detailLevel || info.organize.detailLevel === 'standard' ? 'selected' : ''}>보통</option><option value="detailed" ${info.organize?.detailLevel === 'detailed' ? 'selected' : ''}>자세히</option><option value="very_detailed" ${info.organize?.detailLevel === 'very_detailed' ? 'selected' : ''}>아주 자세히</option></select></label><p class="hint">자세할수록 행동과 반응, 사건의 앞뒤를 더 세밀하게 기록하도록 요청합니다. 정리와 회상에 쓰이는 토큰이 늘어날 수 있습니다.</p>
         <label>주변 인물 정리<select id="setNpcCoverage"><option value="standard" ${info.organize?.npcCoverage !== 'expanded' ? 'selected' : ''}>기본</option><option value="expanded" ${info.organize?.npcCoverage === 'expanded' ? 'selected' : ''}>NPC·모브 자세히</option></select></label>
         <p class="hint">기본은 기존 방식으로 정리합니다. NPC·모브 자세히를 선택하면 1:1 채팅에서도 주변 인물의 역할·행동·대화와 사건에 미친 영향을 더 자세히 정리하도록 요청합니다.</p>
         <label>원문 인용 방식<select id="setQuoteMode"><option value="dialogue" ${!info.organize?.quoteMode || info.organize.quoteMode === 'dialogue' ? 'selected' : ''}>대사 위주</option><option value="narration" ${info.organize?.quoteMode === 'narration' ? 'selected' : ''}>서술 위주</option><option value="both" ${info.organize?.quoteMode === 'both' ? 'selected' : ''}>대사 + 서술 둘 다 · 토큰량 높음</option></select></label><p class="hint">대사 위주는 중요한 대사를 중심으로, 서술 위주는 장면의 행동·상황을 보여 주는 서술을 중심으로 인용합니다. 서술 위주에서도 중요한 대사는 함께 보존하도록 요청합니다. 둘 다를 선택하면 대사와 서술을 더 넉넉히 인용하므로 정리와 회상에 쓰이는 토큰이 늘어날 수 있습니다.</p><p class="hint">이 방에만 적용됩니다. 저장 후 새로 정리하는 장면부터 적용되며, 이미 정리한 장면을 바꾸려면 원문부터 다시 정리해야 합니다. 실제 정리 결과는 사용하는 모델에 따라 달라질 수 있습니다.</p><div class="buttons"><button data-act="saveOrganizePreferences">이 방의 정리 방식 저장</button></div>
       </div>
+      ${featuresPaper(info.features)}
+      ${backupPaper({ armed, preview: restorePreview && restorePreview.room === room ? restorePreview : null, withVectors: backupVectors, running: running(), undo: info.restoreUndo })}
       <div class="paper"><h2>모든 방 공통</h2>
         <label>기억 정리에 쓸 연결<select id="setConnection">${connections.map((c) => `<option value="${esc(c.id)}" ${c.id === current ? 'selected' : ''}>${esc(c.name)}${c.model ? ` · ${esc(c.model)}` : ''}</option>`).join('')}</select></label>
-        <label class="setting-switch"><span>최근 생활 기록 (모든 방 기본값)<small>누가 언제 먹고 씻고 잤는지 기록해 기억 칸에 넣습니다. 방마다 설정 → 이 방 → 최근 생활 기록에서 따로 켜고 끌 수 있습니다. 바꾸면 바로 저장됩니다.</small></span><input type="checkbox" id="setRoutineDefault" ${serverSettings?.routine === false ? '' : 'checked'}></label>
         <label>회상 방식<select id="setRecall">
           <option value="model" ${recall === 'model' ? 'selected' : ''}>기억 모델이 목차를 보고 고르기 (답변마다 호출 1번)</option>
           <option value="fast" ${recall === 'fast' ? 'selected' : ''}>빠른 방식 (낱말과 장부, 호출 없음)</option>
@@ -1118,7 +1171,7 @@
   async function handle(actName, el) {
     const id = el?.dataset?.id;
     const chat = encodeURIComponent(room);
-    if (actName !== 'fresh' && !actName.startsWith('deleteFact') && actName !== 'closeThread' && actName !== 'rebuildChapters' && actName !== 'deleteRoutine' && !['nameApply', 'mergeApply', 'aliasApply', 'nameUndo'].includes(actName)) armed = '';
+    if (actName !== 'fresh' && !actName.startsWith('deleteFact') && actName !== 'closeThread' && actName !== 'rebuildChapters' && actName !== 'deleteRoutine' && !['nameApply', 'mergeApply', 'aliasApply', 'nameUndo', 'backupDownload', 'restoreApply', 'restoreUndo'].includes(actName)) armed = '';
     switch (actName) {
       case 'retryTranslation':
         return act(async () => {
@@ -1155,6 +1208,30 @@
         }
         armed = '';
         return act(() => api('POST', `/chats/${chat}/start`, { fresh: true }), '처음부터 다시 정리를 시작했습니다.');
+      case 'backupDownload':
+        return act(async () => {
+          const r = await api('GET', `/chats/${chat}/backup${backupVectors ? '?vectors=1' : ''}`);
+          saveFile(r.fileName, JSON.stringify(r.backup));
+          notice = r.backup.header.jobRunning ? '백업을 내려받았습니다. 정리 작업이 돌아가는 중이어서 파일끼리 시점이 조금 다를 수 있습니다.' : '백업을 내려받았습니다.';
+        }, '', { reload: false });
+      case 'restoreCancel':
+        restorePreview = null;
+        return render();
+      case 'restoreApply': {
+        const p = restorePreview;
+        if (!p || p.room !== room) return;
+        if (p.data.crossRoomRequired && !p.cross) { lastError = '다른 방의 백업을 적용하려면 "다른 방의 백업을 이 방에 적용"을 체크해 주세요.'; armed = ''; return render(); }
+        if (armed !== 'restoreApply') { armed = 'restoreApply'; return render(); }
+        armed = '';
+        return act(async () => {
+          await api('POST', `/chats/${chat}/restore/apply`, { backup: p.doc, crossRoom: p.cross });
+          restorePreview = null;
+        }, '백업을 불러왔습니다. 문제가 있으면 설정의 ‘불러오기 되돌리기’로 돌릴 수 있습니다.');
+      }
+      case 'restoreUndo':
+        if (armed !== 'restoreUndo') { armed = 'restoreUndo'; return render(); }
+        armed = '';
+        return act(() => api('POST', `/chats/${chat}/restore/undo`), '불러오기를 되돌렸습니다.');
       case 'tidy':
         return act(() => api('POST', `/chats/${chat}/tidy`), '장부 점검을 시작했습니다.');
       case 'stop':
@@ -1690,16 +1767,48 @@
         const on = e.target.checked;
         void act(() => api('POST', `/chats/${encodeURIComponent(room)}/speaker-names`, { on }), on ? '대사 앞에 이름 표시를 켰습니다.' : '대사 앞에 이름 표시를 껐습니다.');
       }
-      if (e.target.id === 'setRoutineDefault') {
+      if (e.target.dataset?.featureGlobal) {
+        const key = e.target.dataset.featureGlobal;
         const on = e.target.checked;
+        const label = (info?.features || []).find((f) => f.key === key)?.label || key;
         void act(async () => {
-          await api('POST', '/settings/routine', { on });
+          await api('POST', '/settings/features', { key, on });
           serverSettings = (await api('GET', '/status')).settings;
-        }, on ? '최근 생활 기록 기본값을 켰습니다. 기본값을 따르는 방은 새 메시지부터 기록합니다.' : '최근 생활 기록 기본값을 껐습니다. 기본값을 따르는 방은 새로 기록하지 않고 기억 칸에도 넣지 않습니다(기록은 남아 있습니다).');
+        }, `${label} 모든 방 기본값을 ${on ? '켰습니다. 기본값을 따르는 방에 바로 적용됩니다.' : '껐습니다. 기본값을 따르는 방에서는 쓰지 않습니다(이미 있는 기록은 남아 있습니다).'}`);
       }
-      if (e.target.id === 'setRoutineRoom') {
+      if (e.target.dataset?.featureRoom) {
+        const key = e.target.dataset.featureRoom;
         const mode = e.target.value;
-        void act(() => api('POST', `/chats/${encodeURIComponent(room)}/routine-mode`, { mode }), '이 방의 최근 생활 기록 설정을 저장했습니다.');
+        const label = (info?.features || []).find((f) => f.key === key)?.label || key;
+        void act(() => api('POST', `/chats/${encodeURIComponent(room)}/feature-mode`, { key, mode }), `이 방의 ${label} 설정을 저장했습니다.`);
+      }
+      if (e.target.id === 'setBackupVectors') {
+        backupVectors = e.target.checked;
+        return render();
+      }
+      if (e.target.id === 'restoreCross') {
+        if (restorePreview) restorePreview.cross = e.target.checked;
+        armed = '';
+        return render();
+      }
+      if (e.target.id === 'restoreFile') {
+        const file = e.target.files?.[0];
+        const from = room;
+        e.target.value = '';
+        if (!file) return;
+        armed = '';
+        void act(async () => {
+          restorePreview = null;
+          if (file.size > 50 * 1024 * 1024) throw Error('백업 파일이 너무 큽니다(최대 50MB).');
+          let doc;
+          try {
+            doc = JSON.parse(await file.text());
+          } catch {
+            throw Error('백업 파일을 읽지 못했습니다. 기억 서재에서 내려받은 .json 파일인지 확인해 주세요.');
+          }
+          const data = await api('POST', `/chats/${encodeURIComponent(from)}/restore/preview`, { backup: doc });
+          restorePreview = { room: from, doc, data, cross: false };
+        }, '백업을 확인했습니다. 아래 내용을 보시고 불러올지 정해 주세요.', { reload: false });
       }
       if (e.target.id === 'setTags') {
         const on = e.target.checked;

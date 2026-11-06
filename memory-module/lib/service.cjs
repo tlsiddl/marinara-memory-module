@@ -14,6 +14,8 @@ const T = require('./translate.cjs');
 const Selected = require('./selected.cjs');
 const A = require('./aliases.cjs');
 const N = require('./names.cjs');
+const F = require('./features.cjs');
+const B = require('./backup.cjs');
 
 /**
  * Marinara's own data folder, found the way Marinara finds it: DATA_DIR (relative to the server package) if set,
@@ -31,6 +33,8 @@ function marinaraDataDir() {
 const DATA_DIR = path.join(marinaraDataDir(), 'memory-module');
 const CHAT_DIR = path.join(DATA_DIR, 'chats');
 const SETTINGS_FILE = path.join(DATA_DIR, 'settings.json');
+/** One automatic safety copy per room, made before a backup is restored (so the restore can be undone). */
+const RESTORE_UNDO_DIR = path.join(DATA_DIR, 'restore-undo');
 // About three or four messages at a time: the same small view the model gets after a live reply.
 const REBUILD_BATCH_CHARS = Number(process.env.MEMORY_MODULE_BATCH_CHARS) || 8000;
 const TRIAL_MAX_MESSAGES = 40;
@@ -411,6 +415,12 @@ function removeRoomFiles(chatId) {
   return { files, bytes };
 }
 
+/** Everything held in memory for one room (not the files). The next read loads from disk again. */
+function clearRoomCaches(chatId) {
+  for (const map of [cache, windows, sceneCache, namesCache, selectedViews, vectorCache, chatLangs, replyLedgers, translationCache, displayTranslationStatus, preparing, replyViews, speakerColors, recalls, turnQuery, storyDays, storyNow]) map.delete(chatId);
+  for (const key of [...translating.keys()]) if (String(key).startsWith(`${chatId}:`)) translating.delete(key);
+}
+
 /**
  * Remove everything this module keeps for one room: its files, its entry in settings.json, what is cached in
  * memory, and any run still going for it (told to stop; it can no longer write). Callers first make sure the room
@@ -427,8 +437,8 @@ function purgeChatMemory(chatId) {
     }
     map.delete(chatId);
   }
-  for (const map of [cache, windows, sceneCache, namesCache, selectedViews, vectorCache, chatLangs, replyLedgers, translationCache, displayTranslationStatus, preparing, replyViews, speakerColors, recalls, turnQuery, storyDays, storyNow]) map.delete(chatId);
-  for (const key of [...translating.keys()]) if (String(key).startsWith(`${chatId}:`)) translating.delete(key);
+  clearRoomCaches(chatId);
+  try { fs.rmSync(path.join(RESTORE_UNDO_DIR, chatId), { recursive: true, force: true }); } catch {}
   const removed = removeRoomFiles(chatId);
   let settingsEntry = false;
   try {
@@ -709,12 +719,21 @@ function chatEnabled(chatId) {
  * room may follow that ('default'), or be 'on' or 'off' on its own. Off means it is not asked of the model, not
  * read from replies and not put in the prompt; what was recorded stays and shows again when it is turned back on.
  */
-const ROUTINE_MODES = ['default', 'on', 'off'];
+const ROUTINE_MODES = F.MODES;
 function routineSetting(chatId, all = settings()) {
-  const global = all.routine !== false;
-  const raw = all.chats?.[chatId]?.routine;
-  const room = ROUTINE_MODES.includes(raw) ? raw : 'default';
-  return { global, room, enabled: room === 'default' ? global : room === 'on' };
+  const { global, room, enabled } = F.resolve(all, chatId, 'recentLife');
+  return { global, room, enabled };
+}
+
+/**
+ * Optional features (lib/features.cjs): the global default plus the room's own choice. Features that are not
+ * implemented yet always answer false. Later phases ask this before doing any work of their own.
+ */
+function featureSetting(chatId, key, all = settings()) {
+  return F.resolve(all, chatId, key);
+}
+function featureOn(chatId, key) {
+  return featureSetting(chatId, key).enabled;
 }
 function routineEnabled(chatId) {
   return routineSetting(chatId).enabled;
@@ -2585,6 +2604,26 @@ async function routes(app) {
     saveSettings(next);
     return { routineSetting: routineSetting(chatId) };
   }));
+  // Optional features: global default and per-room override (recentLife keeps its older settings keys).
+  const readyFeature = (key) => {
+    if (!F.known(key)) throw Error('알 수 없는 기능입니다.');
+    if (!F.FEATURES[key].ready) throw Error('아직 준비 중인 기능입니다.');
+    return key;
+  };
+  app.post('/settings/features', guard(async (req) => {
+    const key = readyFeature(String(req.body?.key || ''));
+    if (typeof req.body?.on !== 'boolean') throw Error('기능 기본값은 on: true 또는 false로 보내 주세요.');
+    saveSettings(F.withGlobal(settings(), key, req.body.on));
+    return { key, global: featureSetting('', key).global };
+  }));
+  app.post('/chats/:id/feature-mode', guard(async (req) => {
+    const chatId = safeChatId(req.params.id);
+    const key = readyFeature(String(req.body?.key || ''));
+    const mode = String(req.body?.mode || '').trim();
+    if (!F.MODES.includes(mode)) throw Error(`기능 설정은 ${F.MODES.join(', ')} 중 하나여야 합니다.`);
+    saveSettings(F.withRoomMode(settings(), chatId, key, mode));
+    return { feature: { key, ...featureSetting(chatId, key) } };
+  }));
   app.post('/settings/recall', guard(async (req) => {
     const mode = String(req.body?.mode || '').trim();
     if (!RECALL_MODES.includes(mode)) throw Error(`회상 방식은 ${RECALL_MODES.join(', ')} 중 하나여야 합니다.`);
@@ -2649,6 +2688,8 @@ async function routes(app) {
       routine: ledger ? L.renderRoutine(ledger, storyNow.get(chatId) || ledger.storyTime || null) : '',
       routineItems: (ledger?.routine || []).map((r) => ({ ...r, displayWhat: L.routineDisplayKind(r), key: L.routineKey(r) })),
       routineSetting: routineSetting(chatId),
+      features: F.view(settings(), chatId),
+      restoreUndo: (() => { const m = readUndoMeta(chatId); return m ? { at: m.at, from: m.from || null } : null; })(),
       routineGaps: ledger?.routineGaps || [],
       storyNow: storyNow.get(chatId) || ledger?.storyTime || null,
       personas: scenes?.personas || [],
@@ -2843,14 +2884,187 @@ async function routes(app) {
   // Renaming and merging people across the room's memory. Preview first; apply only with the preview's token,
   // and never while a job is writing this room (both of its queues are held while the change is made).
   const roomBusy = (chatId) => jobs.get(chatId)?.state === 'running' || sceneJobs.get(chatId)?.state === 'running' || trials.get(chatId)?.state === 'running';
-  const refuseBusy = (chatId) => {
-    if (roomBusy(chatId)) throw Error('지금 이 방의 기억을 정리하는 중이라 이름을 바꿀 수 없습니다. 정리가 끝난 뒤(또는 멈춘 뒤)에 다시 시도해 주세요.');
+  const refuseBusy = (chatId, what = '이름을 바꿀') => {
+    if (roomBusy(chatId)) throw Error(`지금 이 방의 기억을 정리하는 중이라 ${what} 수 없습니다. 정리가 끝난 뒤(또는 멈춘 뒤)에 다시 시도해 주세요.`);
   };
-  const withRoom = (chatId, fn) => enqueue(chatId, () => enqueue(`scenes:${chatId}`, async () => {
+  const withRoom = (chatId, fn, what) => enqueue(chatId, () => enqueue(`scenes:${chatId}`, async () => {
     // A job that started while this waited has finished by now (it held the queue); one still marked running would
     // write over the change.
-    refuseBusy(chatId);
+    refuseBusy(chatId, what);
     return fn();
+  }));
+
+  /* ---------- backup and restore (the whole room's memory as one file) ---------- */
+  // Reading the room is always safe. Restoring replaces every memory file of the room, so it is refused while a job
+  // writes the room, keeps one safety copy of what was there, and clears everything the module holds in memory.
+  const roomPath = (chatId, key) => {
+    if (!B.KEYS.includes(key)) throw Error('invalid backup key');
+    const file = path.join(CHAT_DIR, `${safeChatId(chatId)}${B.FILES[key]}`);
+    if (path.dirname(file) !== CHAT_DIR) throw Error('invalid backup key');
+    return file;
+  };
+  /** { key: parsed JSON } of the room's existing memory files. A file that cannot be read stops the backup. */
+  const readRoomData = (chatId, { tolerant = false } = {}) => {
+    const files = {};
+    for (const key of B.KEYS) {
+      const file = roomPath(chatId, key);
+      let text;
+      try {
+        text = fs.readFileSync(file, 'utf8');
+      } catch (error) {
+        if (error?.code === 'ENOENT' || tolerant) continue;
+        throw Error(`${path.basename(file)} 파일을 읽지 못했습니다.`);
+      }
+      try {
+        files[key] = JSON.parse(text);
+      } catch {
+        if (tolerant) continue;
+        throw Error(`${path.basename(file)} 파일이 손상되어 백업에 넣을 수 없습니다.`);
+      }
+    }
+    return files;
+  };
+  const roomTitle = async (chatId) => {
+    try { return String((await (await engine()).chats.getById(chatId))?.name || ''); } catch { return ''; }
+  };
+  const putRoomFile = (chatId, key, text) => {
+    const file = roomPath(chatId, key);
+    if (goneChats.has(chatId)) throw Error('삭제된 방의 기억은 저장하지 않습니다.');
+    brokenFiles.delete(file);
+    if (text === null || text === undefined) { fs.rmSync(file, { force: true }); return; }
+    fs.mkdirSync(CHAT_DIR, { recursive: true });
+    const tmp = `${file}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, text);
+    fs.renameSync(tmp, file);
+  };
+  /** Puts exactly these files in the room (a key without text is removed), sets its settings entry, drops caches. */
+  const replaceRoom = (chatId, texts, entry) => {
+    // Every file is tried even after one fails, so a rollback gets as far as it can; the first error is reported.
+    let failure = null;
+    for (const key of B.KEYS) {
+      try { putRoomFile(chatId, key, texts[key] ?? null); } catch (error) { failure ||= error; }
+    }
+    try {
+      const next = settings();
+      const chats = { ...(next.chats || {}) };
+      if (entry === undefined) delete chats[chatId];
+      else chats[chatId] = entry;
+      saveSettings({ ...next, chats });
+    } catch (error) { failure ||= error; }
+    clearRoomCaches(chatId);
+    if (failure) throw failure;
+  };
+  const undoDir = (chatId) => path.join(RESTORE_UNDO_DIR, safeChatId(chatId));
+  const readUndoMeta = (chatId) => {
+    try {
+      const meta = JSON.parse(fs.readFileSync(path.join(undoDir(chatId), 'meta.json'), 'utf8'));
+      if (meta?.version !== 1 || meta.chatId !== chatId || !Array.isArray(meta.files) || meta.files.some((k) => !B.KEYS.includes(k))) return null;
+      return meta;
+    } catch { return null; }
+  };
+  const makeSafetyCopy = (chatId, from) => {
+    const dir = undoDir(chatId);
+    const tmp = `${dir}.tmp-${process.pid}`;
+    fs.rmSync(tmp, { recursive: true, force: true });
+    fs.mkdirSync(tmp, { recursive: true });
+    const had = [];
+    for (const key of B.KEYS) {
+      const src = roomPath(chatId, key);
+      if (!fs.existsSync(src)) continue;
+      fs.copyFileSync(src, path.join(tmp, `${key}.json`));
+      had.push(key);
+    }
+    const entry = settings().chats?.[chatId];
+    fs.writeFileSync(path.join(tmp, 'meta.json'), JSON.stringify({ version: 1, chatId, at: new Date().toISOString(), files: had, settings: entry ?? null, hadSettings: entry !== undefined, from }));
+    fs.rmSync(dir, { recursive: true, force: true });
+    fs.renameSync(tmp, dir);
+    return dir;
+  };
+  const restoreSafetyCopy = (chatId) => {
+    const meta = readUndoMeta(chatId);
+    if (!meta) throw Error('되돌릴 불러오기가 없습니다.');
+    const texts = {};
+    for (const key of meta.files) texts[key] = fs.readFileSync(path.join(undoDir(chatId), `${key}.json`), 'utf8');
+    replaceRoom(chatId, texts, meta.hadSettings ? meta.settings : undefined);
+    return meta;
+  };
+  /** The uploaded document, size-checked and validated strictly. */
+  const uploadedBackup = (body) => {
+    const doc = body?.backup;
+    if (!doc || typeof doc !== 'object') throw Error('백업 파일 내용이 없습니다.');
+    let size = 0;
+    try { size = Buffer.byteLength(JSON.stringify(doc)); } catch { throw Error('백업 파일을 읽지 못했습니다.'); }
+    if (size > B.MAX_BYTES) throw Error(`백업 파일이 너무 큽니다(${Math.round(size / 1048576)}MB, 최대 ${B.MAX_BYTES / 1048576}MB).`);
+    return B.validate(doc);
+  };
+  const postBig = (route, fn) => app.post(route, { bodyLimit: B.MAX_BYTES + 4 * 1048576 }, fn);
+
+  app.get('/chats/:id/backup', guard(async (req) => {
+    const chatId = safeChatId(req.params.id);
+    const files = readRoomData(chatId);
+    if (!['1', 'true', true, 1].includes(req.query?.vectors)) delete files.vectors;
+    if (!Object.keys(files).length) throw Error('이 방에는 백업할 기억이 없습니다.');
+    const chatName = await roomTitle(chatId);
+    const backup = B.build({ chatId, chatName, moduleVersion: globalThis.__marinaraMemory?.version || null, files, settingsEntry: settings().chats?.[chatId] ?? null, jobRunning: roomBusy(chatId) });
+    return { fileName: B.fileName(chatName), backup };
+  }));
+  postBig('/chats/:id/restore/preview', guard(async (req) => {
+    const chatId = safeChatId(req.params.id);
+    const doc = uploadedBackup(req.body);
+    const current = readRoomData(chatId, { tolerant: true });
+    const sameRoom = doc.header.chatId === chatId;
+    const backupHasVectors = 'vectors' in doc.files;
+    return {
+      source: { chatId: doc.header.chatId, chatName: doc.header.chatName || '', createdAt: doc.header.createdAt, moduleVersion: doc.header.moduleVersion || null, version: doc.header.version, jobRunning: doc.header.jobRunning === true },
+      sameRoom,
+      crossRoomRequired: !sameRoom,
+      backup: B.counts(doc.files),
+      current: B.counts(current),
+      vectors: { inBackup: backupHasVectors, willClear: !backupHasVectors && 'vectors' in current },
+      removes: B.KEYS.filter((k) => !(k in doc.files) && k in current && k !== 'vectors'),
+      busy: roomBusy(chatId),
+      undoAvailable: !!readUndoMeta(chatId),
+    };
+  }));
+  postBig('/chats/:id/restore/apply', guard(async (req) => {
+    const chatId = safeChatId(req.params.id);
+    refuseBusy(chatId, '불러올');
+    const doc = uploadedBackup(req.body);
+    if (doc.header.chatId !== chatId && req.body?.crossRoom !== true) throw Error('다른 방의 백업입니다. "다른 방의 백업을 이 방에 적용"을 확인해야 불러올 수 있습니다.');
+    return withRoom(chatId, () => enqueue(`selected:${chatId}`, async () => {
+      const texts = Object.fromEntries(Object.entries(doc.files).map(([k, v]) => [k, JSON.stringify(v)]));
+      const current = settings().chats?.[chatId];
+      let entry;
+      if (doc.settings) {
+        entry = { ...doc.settings };
+        // Whether memory is on for this room stays as it is now: a restore never starts or stops the module on its own.
+        if (current && 'enabled' in current) entry.enabled = current.enabled;
+        else delete entry.enabled;
+      } else if (current) entry = current;
+      try {
+        makeSafetyCopy(chatId, { chatId: doc.header.chatId, chatName: doc.header.chatName || '', createdAt: doc.header.createdAt });
+      } catch (error) {
+        throw Error(`지금 상태의 안전 사본을 만들지 못해 불러오지 않았습니다(바뀐 것은 없습니다): ${error?.message || error}`);
+      }
+      try {
+        replaceRoom(chatId, texts, entry);
+      } catch (error) {
+        let back = true;
+        try { restoreSafetyCopy(chatId); } catch (inner) { back = false; log(`chat ${chatId}: restore failed and the safety copy could not be put back (${inner?.message || inner})`); }
+        throw Error(`불러오지 못했습니다: ${error?.message || error}. ${back ? '이전 상태로 되돌렸습니다.' : `이전 상태로 완전히 되돌리지 못했습니다. 지금 상태의 사본이 ${undoDir(chatId)} 에 있습니다.`}`);
+      }
+      log(`chat ${chatId}: restored from a backup of ${doc.header.chatId} (${Object.keys(doc.files).join(', ')})`);
+      return { restored: Object.keys(doc.files), counts: B.counts(doc.files), undoAvailable: true, vectorsCleared: !('vectors' in doc.files) };
+    }), '불러올');
+  }));
+  app.post('/chats/:id/restore/undo', guard(async (req) => {
+    const chatId = safeChatId(req.params.id);
+    return withRoom(chatId, () => enqueue(`selected:${chatId}`, async () => {
+      const meta = restoreSafetyCopy(chatId);
+      fs.rmSync(undoDir(chatId), { recursive: true, force: true });
+      log(`chat ${chatId}: backup restore undone`);
+      return { undone: true, restoredFiles: meta.files };
+    }), '되돌릴');
   }));
   const namesState = (chatId) => {
     const store = structuredClone(loadScenes(chatId) || S.emptyStore());
@@ -3282,7 +3496,7 @@ function attach(app) {
   log('admin API ready at /api/memory-module');
 }
 
-module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { listRooms, purgeChatMemory, purgeIfGone, deleteOnSend, deletePrepare, listOrphans, deleteOrphans, goneChats, loadNames, saveNames, enqueue, foldScenes, reviewAttributions, loadAttributionLog, sceneJobs, selectedForView, loadSelected, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, loadTranslations, saveTranslations, chatLangs, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, jobs, writeLanguage, memoryCallOptions, routineSetting, routineEnabled, connectionWithKey, memoryModel, startTrial, trials } };
+module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { listRooms, purgeChatMemory, purgeIfGone, deleteOnSend, deletePrepare, listOrphans, deleteOrphans, goneChats, loadNames, saveNames, enqueue, foldScenes, reviewAttributions, loadAttributionLog, sceneJobs, selectedForView, loadSelected, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, loadTranslations, saveTranslations, chatLangs, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, jobs, writeLanguage, memoryCallOptions, routineSetting, routineEnabled, featureOn, featureSetting, F, B, clearRoomCaches, RESTORE_UNDO_DIR, connectionWithKey, memoryModel, startTrial, trials } };
 
 
 
