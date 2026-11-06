@@ -1212,7 +1212,7 @@ function titleMap(store) {
   for (const scene of store.scenes || []) {
     for (const q of [...(scene.events || []).flatMap((e) => e.quotes || []), ...(scene.loose || [])]) {
       const to = splitTo(q.to);
-      if (!q.by || to.length !== 1 || !isSpoken(parseLine(q.text).text) || !GENERIC_IN.test(quoteText(q))) continue;
+      if (!q.by || q.toGuess || to.length !== 1 || !isSpoken(parseLine(q.text).text) || !GENERIC_IN.test(quoteText(q))) continue;
       const a = addressedIn(quoteText(q), sceneNames(store, scene));
       if (a.names.length || !a.titles.length) continue;
       for (const t of a.titles) {
@@ -1258,6 +1258,11 @@ function quoteFacts(q, message, names, scope, ctx = {}) {
   };
 }
 const splitTo = (to) => String(to || '').split('·').map((x) => x.trim()).filter(Boolean);
+/** The listeners a line is sure of: a listener that was only guessed (q.toGuess) is no listener to the rules. */
+const certainTo = (q) => (q.toGuess ? [] : splitTo(q.to));
+const GUESS_RULE = '추정한 상대';
+// Lines with a speaker and no listener are checked once more to get a guess; this marks the ones already asked.
+const GUESS_CHECKED = 1;
 const samePerson = (a, b, names) => !!a && !!b && (a === b || (matchAlias(a, names) || a) === (matchAlias(b, names) || b));
 
 /** Which rules the stored speaker and listener break. */
@@ -1329,7 +1334,7 @@ const stampOf = (q, scene) => JSON.stringify([q.by || null, q.to || null, !!q.ma
  */
 function replyFact(prev, here, names, order) {
   const p = prev.q, q = here.q;
-  const listeners = splitTo(p.to);
+  const listeners = certainTo(p);
   if (!p.by || listeners.length !== 1 || samePerson(p.by, listeners[0], names)) return null;
   const toListener = (n) => samePerson(n, listeners[0], names);
   if (!prev.facts.addressed.some(toListener) && !prev.facts.titled.some(toListener) && !/\?/.test(parseLine(p.text).text)) return null;
@@ -1385,7 +1390,52 @@ const ATTRIBUTION_RULES_VERSION = 9;
  */
 function attributionFingerprint(e) {
   const violations = e.facts ? ruleViolations(e.q, e.facts, e.names) : [];
-  return L.hashText(JSON.stringify([ATTRIBUTION_RULES_VERSION, e.m.id || null, e.m.h || null, e.context, e.q.by || null, e.q.to || null, e.names, violations]));
+  return L.hashText(JSON.stringify([ATTRIBUTION_RULES_VERSION, e.m.id || null, e.m.h || null, e.context, e.q.by || null, e.q.to || null, e.names, violations, ...(e.q.toGuess ? ['guess'] : [])]));
+}
+
+/**
+ * The people around one line, for a guess at its listener: the other speakers of the lines near it (this message and
+ * the ones right before and after) and the characters the narration near it names. Known names only; the speaker is
+ * left out by the caller. The scene's own list of who is present counts as present too, but only for checking a
+ * model's guess, never for the fallback.
+ */
+function peopleAround(lines, at, names, window, order) {
+  const known = (n) => (typeof n === 'string' && n.trim() ? matchAlias(n, names) : null);
+  const uniq = (list) => list.filter((n, i) => n && list.findIndex((u) => u && samePerson(u, n, names)) === i);
+  const here = lines[at];
+  const near = order.get(here.m.number);
+  const speakers = [];
+  for (let j = Math.max(0, at - 6); j <= Math.min(lines.length - 1, at + 3); j++) {
+    const other = lines[j];
+    if (j === at || other.stale || Math.abs(order.get(other.m.number) - near) > 1) continue;
+    speakers.push(known(other.q.by));
+  }
+  // The user's message is written by the user's character, who is then in the scene without being named.
+  for (const m of [here.m, window.previousMessage]) if (m?.role === 'user') speakers.push(known(m.speaker));
+  const narrated = [...window.previous.slice(-3), ...window.before.slice(-6), ...window.after.slice(0, 6)].filter((s) => !isSpoken(parseLine(s).text) && !isTranslation(s));
+  const named = names.filter((n) => narrated.some((s) => mentions(s, n)));
+  return { speakers: uniq(speakers), named: uniq(named) };
+}
+
+/**
+ * The most likely listener when none can be proven, as a list of names, or null. The model's own guess (toGuess, or
+ * the names it gave as listeners without proof) is taken when it names someone present who is not the speaker;
+ * otherwise the people around the line are the guess. Never the speaker, never a person the line only asks to tell.
+ */
+function guessListeners(e, by, answers) {
+  const same = (x, y) => samePerson(x, y, e.names);
+  const f = e.facts;
+  const around = e.around || { speakers: [], named: [] };
+  const present = [...around.speakers, ...around.named, ...(e.scene.present || [])];
+  const usable = (n) => !same(n, by) && !(f.relay.names.some((r) => same(r, n)) && !f.addressed.some((a) => same(a, n)));
+  const lists = answers.filter((j) => j?.valid)
+    .map((j) => (j.guessNamed.length ? j.guessNamed : j.toNamed).filter((n) => usable(n) && present.some((p) => same(p, n))))
+    .filter((l) => l.length);
+  let list = lists[0] || [];
+  if (lists.length > 1) { const both = lists[0].filter((n) => lists[1].some((u) => same(n, u))); if (both.length) list = both; }
+  if (list.length) return { to: list.slice(0, 5), source: 'model' };
+  const nearby = [...around.speakers, ...around.named].filter((n, i, all) => usable(n) && all.findIndex((u) => same(u, n)) === i);
+  return nearby.length ? { to: nearby.slice(0, 5), source: 'nearby' } : null;
 }
 const ROLE_NOTE_MAX = 4;
 /** Sentences of the scene that may give a role its name ("Mi chiamo …", "…라는 직원"), for the model. */
@@ -1408,13 +1458,14 @@ function attributionCandidates(store, messages, limit = 20, attempted = new Set(
   for (const scene of store.scenes || []) {
     if (scene.edited) continue;
     const { names, scope, lines } = sceneLines(store, scene, messages, byNumber, order, ctx);
-    for (const line of lines) {
+    for (const [at, line] of lines.entries()) {
       const { q, event } = line;
       // A line the user corrected by hand is theirs; the check never touches it.
       if (line.stale || attempted.has(q) || q.manual) continue;
       const { m, source, facts } = line;
       const violations = ruleViolations(q, facts, names);
-      const { after, context, externalContext } = lineContext(line, messages, order);
+      const window = lineContext(line, messages, order);
+      const { after, context, externalContext } = window;
       // Include the sender as a candidate when a user message has one unlabelled utterance.
       // Auto-fill only when the entire message consists of that utterance.
       const onlySpeech = m.sentences.filter((part) => isSpoken(parseLine(part).text)).length === 1;
@@ -1427,12 +1478,15 @@ function attributionCandidates(store, messages, limit = 20, attempted = new Set(
         roleNotes: roleNotes(scope, facts.narrationRole || roleIn(after.slice(0, 2).join(' ')), source),
       };
       e.fingerprint = attributionFingerprint(e);
+      // A speaker with no listener is asked once more for a guess, even when it was checked before; only these.
+      const wantsGuess = !!q.by && !q.to && !q.toGuess && q.toGuessChecked !== GUESS_CHECKED;
       // Checked before with exactly this input: the same question would get the same answer. A rule the saved
       // values still break is part of the fingerprint, so it was weighed when they were saved.
-      if (!force && q.attributionFp === e.fingerprint) {
+      if (!force && !wantsGuess && q.attributionFp === e.fingerprint) {
         if (stats) { stats.skipped = (stats.skipped || 0) + 1; if (stats.byScene) stats.byScene[scene.id || ''] = (stats.byScene[scene.id || ''] || 0) + 1; }
         continue;
       }
+      if (q.by) e.around = peopleAround(lines, at, names, window, order);
       result.push(e);
       if (result.length >= limit) return result;
     }
@@ -1452,7 +1506,7 @@ function settledByRules(e) {
   if (!speaker) return null;
   const want = [...f.addressed, ...f.titled].filter((n) => !same(n, e.q.by));
   if (f.reply && same(f.reply.listener, e.q.by)) want.push(f.reply.asker);
-  const to = splitTo(e.q.to);
+  const to = certainTo(e.q);
   if (!want.length || !to.length) return null;
   return to.every((t) => want.some((w) => same(w, t))) && want.every((w) => to.some((t) => same(t, w))) ? `settled-${speaker}` : null;
 }
@@ -1460,6 +1514,7 @@ function settledByRules(e) {
 /** Record that a line was checked as it now stands (after its values were saved). */
 function stampAttribution(e) {
   e.q.attributionChecked = 7;
+  e.q.toGuessChecked = GUESS_CHECKED;
   e.q.attributionFp = attributionFingerprint(e);
 }
 
@@ -1537,7 +1592,7 @@ function anchors(evidence, who, e) {
  * toNamed lists every known listener the answer gave, before the evidence check, for comparing with stored values.
  */
 function judgeAnswer(e, a) {
-  if (!a || !(a.by === null || typeof a.by === 'string') || !Array.isArray(a.to)) return { valid: false, by: null, to: [], toNamed: [], byReason: 'malformed', toReasons: [] };
+  if (!a || !(a.by === null || typeof a.by === 'string') || !Array.isArray(a.to)) return { valid: false, by: null, to: [], toNamed: [], guessNamed: [], byReason: 'malformed', toReasons: [] };
   // Evidence copied with the sentence number the input put in front of it.
   const unnumber = (x) => (typeof x === 'string' ? x.replace(/\[\d+\.\d+\]\s*/g, '') : x);
   a = { ...a, byEvidence: unnumber(a.byEvidence), toEvidence: unnumber(a.toEvidence) };
@@ -1598,7 +1653,14 @@ function judgeAnswer(e, a) {
       to.splice(0, to.length, ...direct);
     }
   }
-  return { valid: true, by, said, to, toNamed, byReason, toReasons, raw: { by: typeof a.by === 'string' ? a.by.trim().slice(0, 40) : null, to: a.to.filter((x) => typeof x === 'string').map((x) => x.trim().slice(0, 40)).slice(0, 5) } };
+  // The model's guess at the listener when it could not prove one: known names only (no evidence is asked for).
+  const guessNamed = [];
+  const guessed = Array.isArray(a.toGuess) ? a.toGuess : typeof a.toGuess === 'string' ? splitTo(a.toGuess) : [];
+  for (const raw of guessed) {
+    const who = typeof raw === 'string' && raw.trim().length <= 40 ? matchAlias(raw, e.names) : null;
+    if (who && !(said && same(who, said)) && !relayed(who) && !guessNamed.some((t) => same(t, who))) guessNamed.push(who);
+  }
+  return { valid: true, by, said, to, toNamed, guessNamed: guessNamed.slice(0, 5), byReason, toReasons, raw: { by: typeof a.by === 'string' ? a.by.trim().slice(0, 40) : null, to: a.to.filter((x) => typeof x === 'string').map((x) => x.trim().slice(0, 40)).slice(0, 5) } };
 }
 
 /**
@@ -1616,7 +1678,7 @@ function attributionFlags(e, item) {
   else if (!j.valid) out.push('malformed');
   if (e.violations.length) out.push(...e.violations);
   if (['vocative', 'role-unresolved', 'narration-conflict', 'label-contradicted'].includes(j.byReason)) out.push(j.byReason);
-  const stored = splitTo(e.q.to);
+  const stored = certainTo(e.q);
   if (j.valid) {
     // What the answer named, before the evidence check: weak evidence for the stored speaker is no disagreement.
     const named = j.by || j.said;
@@ -1685,6 +1747,8 @@ function applyAttributionResults(candidates, results) {
     if (!e || seen.has(e.id)) continue;
     seen.add(e.id);
     const prev = { by: e.q.by || null, to: e.q.to || null };
+    // A listener that was only guessed is not one the rules or the answers may keep as certain.
+    const prevTo = certainTo(e.q), prevGuess = !!e.q.toGuess;
     if (e.scene.edited || e.q.manual) { e.outcome = { decision: 'skipped', rule: 'manual', before: prev }; continue; }
     if (stampOf(e.q, e.scene) !== e.stamp) { e.outcome = { decision: 'skipped', rule: 'changed-during-check', before: prev }; continue; }
     const d = item.decided ? item : (() => { const j = judgeAnswer(e, item); return { by: j.by, to: j.to, reason: j.valid ? 'single-answer' : 'malformed', first: j, valid: j.valid }; })();
@@ -1698,7 +1762,7 @@ function applyAttributionResults(candidates, results) {
     const breaksRule = reversed || e.violations.some((v) => v === 'vocative-speaker' || v === 'narration-speaker' || v === 'label-contradicted');
     let by = d.by, to = [...(d.to || [])], rule = d.reason;
     if (!by) {
-      const listeners = splitTo(prev.to);
+      const listeners = prevTo;
       // The answers name only a role nobody in the scene is named for (or the stored listener) as the speaker:
       // the stored pair is turned round rather than kept, when the stored listener is not the user's character.
       const swap = reversed && listeners.length === 1 && !same(listeners[0], prev.by) && !f.addressed.some((n) => same(n, listeners[0]))
@@ -1708,7 +1772,7 @@ function applyAttributionResults(candidates, results) {
       // the people the line calls: the rules and the answers agree, so the value is not wiped by a weaker rule.
       const agreedStored = !!prev.by && !reversed && answers.length >= 2 && answers.every((j) => j.said && same(j.said, prev.by))
         && !f.addressed.some((n) => same(n, prev.by)) && !(f.labelWrong && same(f.tag, prev.by))
-        && f.addressed.length > 0 && f.addressed.every((n) => splitTo(prev.to).some((t) => same(t, n)));
+        && f.addressed.length > 0 && f.addressed.every((n) => prevTo.some((t) => same(t, n)));
       if (f.narration && !f.addressed.some((n) => same(n, f.narration))) [by, rule] = [f.narration, 'narration'];
       else if (agreedStored) [by, rule] = [prev.by, 'kept-agreed'];
       else if (prev.by && !breaksRule) [by, rule] = [prev.by, d.reason === 'disagree' ? 'kept-disagree' : 'kept'];
@@ -1718,7 +1782,7 @@ function applyAttributionResults(candidates, results) {
     }
     if (by) {
       const relayed = (t) => f.relay.names.some((n) => same(n, t)) && !f.addressed.some((n) => same(n, t));
-      const storedTo = same(by, prev.by) ? splitTo(prev.to) : [];
+      const storedTo = same(by, prev.by) ? prevTo : [];
       if (!to.length && storedTo.length) to = storedTo.filter((t) => !relayed(t));
       const add = (t, code) => { if (t && !same(t, by) && !relayed(t) && !to.some((u) => same(u, t))) { to.push(t); fired.push(code); } };
       // A stored listener every answer also gives is kept: an agreed value is not cut down without a broken rule.
@@ -1735,14 +1799,21 @@ function applyAttributionResults(candidates, results) {
       // (a doubtful tag or narration, not a reversed pair or a call by name) the stored listeners stay as well.
       const relayed = (t) => f.relay.names.some((n) => same(n, t)) && !f.addressed.some((n) => same(n, t));
       const onlySpeaker = !reversed && !e.violations.includes('vocative-speaker');
-      to = [...(onlySpeaker ? splitTo(prev.to).filter((t) => !same(t, prev.by)) : []), ...f.addressed].filter((t, i, all) => !relayed(t) && all.findIndex((u) => same(u, t)) === i);
-      if (to.length && !splitTo(prev.to).length) fired.push('vocative-listener');
+      to = [...(onlySpeaker ? prevTo.filter((t) => !same(t, prev.by)) : []), ...f.addressed].filter((t, i, all) => !relayed(t) && all.findIndex((u) => same(u, t)) === i);
+      if (to.length && !prevTo.length) fired.push('vocative-listener');
+    }
+    // Nothing certain: the most likely listener is stored as a guess, marked as one. A certain value never gets here.
+    let guess = null;
+    if (by && !to.length) {
+      guess = guessListeners(e, by, [d.first, d.second, d.reason === 'reask' ? d.reask : null]);
+      if (guess) { to = guess.to; fired.push(GUESS_RULE); }
     }
     const recipient = [...new Set(to)].join('·') || null;
-    if (e.q.by !== by || (e.q.to || null) !== recipient) changed++;
+    if (e.q.by !== by || (e.q.to || null) !== recipient || prevGuess !== !!guess) changed++;
     e.q.by = by; e.q.to = recipient;
+    if (guess) e.q.toGuess = true; else delete e.q.toGuess;
     stampAttribution(e);
-    e.outcome = { decision: prev.by === by && prev.to === recipient ? 'unchanged' : 'applied', rule: [rule, ...fired].filter(Boolean).join(','), fired, before: prev, after: { by, to: recipient } };
+    e.outcome = { decision: prev.by === by && prev.to === recipient && prevGuess === !!guess ? 'unchanged' : 'applied', rule: [rule, ...fired].filter(Boolean).join(','), fired, before: prev, after: { by, to: recipient, ...(guess ? { guess: true } : {}) } };
   }
   return changed;
 }
@@ -1775,7 +1846,10 @@ function enforceAttributionRules(store, messages) {
       const before = { by: q.by || null, to: q.to || null };
       const rules = [];
       const labelled = facts.label && same(facts.label, q.by);
-      let by = before.by, to = splitTo(before.to);
+      // A guessed listener is not certain: the rules below decide on certain listeners only, and a guess survives
+      // them only while its speaker is unchanged and it is still not the speaker or a person only to be told.
+      const guessed = !!q.toGuess;
+      let by = before.by, to = certainTo(q);
       // A speaker the line calls by name: the stored pair is likely the wrong way round, so its listeners go too
       // (the person called is added back below). A doubtful tag only puts the speaker in doubt: listeners stay.
       if (by && !labelled && facts.addressed.some((n) => same(n, by))) { by = null; to = []; rules.push('vocative-speaker'); }
@@ -1795,11 +1869,17 @@ function enforceAttributionRules(store, messages) {
         for (const n of facts.titled) if (!same(n, by) && !to.some((t) => same(t, n))) { to.push(n); rules.push('title-listener'); }
         if (!to.length && facts.reply && same(by, facts.reply.listener) && !same(by, facts.reply.asker)) { to = [facts.reply.asker]; rules.push('reply'); }
       }
+      let keepGuess = false;
+      if (guessed && !to.length && by && by === before.by) {
+        to = splitTo(before.to).filter((t) => !same(t, by) && !relayed(t));
+        keepGuess = to.length > 0;
+      }
       const recipient = to.join('·') || null;
-      if (by !== before.by || recipient !== before.to) {
+      if (by !== before.by || recipient !== before.to || guessed !== keepGuess) {
         const window = lineContext(line, messages, order);
         const current = q.attributionFp && q.attributionFp === attributionFingerprint({ m: line.m, q, names, facts, context: window.context });
         q.by = by; q.to = recipient;
+        if (keepGuess) q.toGuess = true; else delete q.toGuess;
         if (current) q.attributionFp = attributionFingerprint({ m: line.m, q, names, facts, context: window.context });
         out.push({ scene: scene.id || '', number: q.number, sentence: q.sentence, decision: 'applied', rule: rules.join(','), fired: rules, before, after: { by, to: recipient } });
       }
@@ -1816,7 +1896,7 @@ function lineContext(line, messages, order) {
   const after = m.sentences.slice(q.sentence, q.sentence + 20);
   const previous = messages[order.get(m.number) - 1]?.sentences?.slice(-6) || [];
   return {
-    before, after, previous,
+    before, after, previous, previousMessage: messages[order.get(m.number) - 1] || null,
     context: [...previous, ...before, source, ...after].join('\n'),
     externalContext: [...previous, ...before, ...after].filter((s) => !s.includes(parseLine(source).text)).join('\n'),
   };
@@ -1829,7 +1909,7 @@ function attributionDiagnostics(candidates, first, second, agreed, before) {
   const clean = (item, e, judged) => {
     if (!item) return null;
     const proof = (x, context) => typeof x === 'string' && squash(x).length >= 4 && squash(context).includes(squash(x));
-    return { by: name(item.by), to: Array.isArray(item.to) ? item.to.map(name).filter(Boolean).slice(0, 5) : [], byEvidenceFound: proof(item.byEvidence, e.context), byExternalEvidenceFound: proof(item.byEvidence, e.externalContext), toEvidenceFound: proof(item.toEvidence, e.context), ...(judged ? { byReason: judged.byReason, toRejected: judged.toReasons } : {}) };
+    return { by: name(item.by), to: Array.isArray(item.to) ? item.to.map(name).filter(Boolean).slice(0, 5) : [], ...(Array.isArray(item.toGuess) && item.toGuess.length ? { toGuess: item.toGuess.map(name).filter(Boolean).slice(0, 5) } : {}), byEvidenceFound: proof(item.byEvidence, e.context), byExternalEvidenceFound: proof(item.byEvidence, e.externalContext), toEvidenceFound: proof(item.toEvidence, e.context), ...(judged ? { byReason: judged.byReason, toRejected: judged.toReasons } : {}) };
   };
   return candidates.map((e, i) => {
     const d = maps[2].get(e.id);
@@ -1845,7 +1925,7 @@ function attributionDiagnostics(candidates, first, second, agreed, before) {
       ...(e.facts?.narrationRole ? { role: e.facts.narrationRole, roleName: resolveRole(e.facts.narrationRole, e.scope, e.names) } : {}),
       violations: e.violations || [], decision: e.outcome?.decision || 'unanswered', rule: e.outcome?.rule || null,
       fired: e.outcome?.fired || [], rejected,
-      after: { by: e.q.by || null, to: e.q.to || null },
+      after: { by: e.q.by || null, to: e.q.to || null, ...(e.q.toGuess ? { guess: true } : {}) },
     };
   });
 }
@@ -2185,7 +2265,8 @@ function quoteLine(q) {
   const text = cleanQuote(quoteText(q));
   const by = q.by || parseLine(q.text).by;
   if (!by) return isSpoken(text) ? text : `(서술) ${text}`;
-  return `${by}${q.to ? ` → ${q.to}` : ''}: ${isSpoken(text) ? text : `"${text}"`}`;
+  // A listener that was only guessed is marked, so the story model is not told it is certain.
+  return `${by}${q.to ? ` → ${q.to}${q.toGuess ? '(추정)' : ''}` : ''}: ${isSpoken(text) ? text : `"${text}"`}`;
 }
 
 function renderExpanded(scene, n, personas = [], cast = []) {
@@ -2844,6 +2925,7 @@ module.exports = {
   matchAlias,
   narrationSpeaker,
   attributionCandidates,
+  GUESS_RULE,
   attributionBatches,
   attributionInput,
   attributionFlags,

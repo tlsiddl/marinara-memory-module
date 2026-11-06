@@ -107,7 +107,7 @@ function translateText(text, target, lookup) {
   const missing = [];
   const lines = planLines(text, target).map((p) => {
     if (p.kind === 'static') return p.text;
-    if (p.kind === 'keep') return p.narration && target === 'en' ? p.line.replace('(서술) ', '(narration) ') : p.line;
+    if (p.kind === 'keep') return target === 'en' ? (p.narration ? p.line.replace('(서술) ', '(narration) ') : p.line.replace(/\(추정\)(?=: ["“「『])/, '(guess)')) : p.line;
     const indent = p.line.match(/^\s*/)[0];
     const body = p.line.slice(indent.length);
     const done = lookup(body);
