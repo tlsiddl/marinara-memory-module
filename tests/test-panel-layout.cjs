@@ -86,3 +86,15 @@ test('reset: a settings button puts the default layout back and forgets the stor
   assert.match(rt, /function resetPanelGeometry\(\) \{\s*panelGeo = null;\s*try \{\s*localStorage\.removeItem\(PANEL_GEO_KEY\);/);
   assert.match(rt, /for \(const k of \['left', 'top', 'width', 'height', 'transform'\]\) panel\.style\.removeProperty\(k\)/);
 });
+
+test('narrow layout: tabs wrap instead of scrolling sideways, header is compact, touch targets stay >=36px', () => {
+  const theme = fs.readFileSync(path.join(__dirname, '..', 'extension', 'theme.css'), 'utf8').replace(/\r\n/g, '\n');
+  const narrow = theme.slice(theme.lastIndexOf('@media(max-width:720px){'));
+  assert.match(narrow, /\.sidebar nav\{[^}]*flex-wrap:wrap/);
+  assert.match(narrow, /\.sidebar nav\{[^}]*overflow:visible/);
+  assert.doesNotMatch(narrow, /overflow-x:(auto|scroll)/);
+  assert.match(narrow, /\.sidebar nav button\{[^}]*min-height:36px/);
+  assert.match(narrow, /\.brand \.logo\{width:28px;height:28px/);
+  assert.match(narrow, /#close,#themeToggle\{[^}]*width:36px;height:36px/);
+  assert.match(narrow, /\.topbar\{min-height:0;/);
+});
