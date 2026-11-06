@@ -19,6 +19,8 @@ const B = require('./backup.cjs');
 const Addr = require('./address.cjs');
 const St = require('./state.cjs');
 const Pl = require('./places.cjs');
+const Cf = require('./conflicts.cjs');
+const Ks = require('./keepsakes.cjs');
 
 /**
  * Marinara's own data folder, found the way Marinara finds it: DATA_DIR (relative to the server package) if set,
@@ -240,20 +242,20 @@ function saveAddress(chatId, book) {
   writeJson(addressFile(chatId), book);
   addressCache.set(chatId, book);
 }
-// The dialogue rules ask for the terms of the room they are working on, and only while the feature is on.
+// The dialogue rules ask for the terms of the room they are working on (the address book is always on).
 S.setAddressProvider(() => {
   const id = A.roomId();
-  if (!id || !/^[A-Za-z0-9_-]{1,128}$/.test(id) || !featureOn(id, 'addressBook')) return null;
+  if (!id || !/^[A-Za-z0-9_-]{1,128}$/.test(id)) return null;
   const terms = Addr.termMap(loadAddress(id));
   return terms.size ? terms : null;
 });
 /**
- * Bring the address book up to date with the saved dialogue (no model call). Does nothing while the feature is off.
+ * Bring the address book up to date with the saved dialogue (no model call).
  * Never throws: the book is a helper, and a scan must not fail because of it.
  */
 function refreshAddress(chatId, store) {
   try {
-    if (!featureOn(chatId, 'addressBook') || goneChats.has(chatId)) return false;
+    if (goneChats.has(chatId)) return false;
     const book = structuredClone(loadAddress(chatId));
     if (!A.using(chatId, () => Addr.refresh(book, store))) return false;
     saveAddress(chatId, book);
@@ -266,8 +268,12 @@ function refreshAddress(chatId, store) {
 // The room's character state cards (인물 상태) and places (장소 기억): both are worked out again from the scenes.
 const stateFile = (chatId) => path.join(CHAT_DIR, `${safeChatId(chatId)}.state.json`);
 const placesFile = (chatId) => path.join(CHAT_DIR, `${safeChatId(chatId)}.places.json`);
+const conflictsFile = (chatId) => path.join(CHAT_DIR, `${safeChatId(chatId)}.conflicts.json`);
+const keepsakesFile = (chatId) => path.join(CHAT_DIR, `${safeChatId(chatId)}.keepsakes.json`);
 const stateCache = new Map();
 const placesCache = new Map();
+const conflictsCache = new Map();
+const keepsakesCache = new Map();
 function loadState(chatId) {
   if (stateCache.has(chatId)) return stateCache.get(chatId);
   const file = stateFile(chatId);
@@ -292,17 +298,43 @@ function savePlaces(chatId, value) {
   writeJson(placesFile(chatId), value);
   placesCache.set(chatId, value);
 }
+// Record conflicts (기록 충돌 알림, built in) and meaningful objects (소중한 물건): both are worked out again from the scenes.
+function loadConflicts(chatId) {
+  if (conflictsCache.has(chatId)) return conflictsCache.get(chatId);
+  const file = conflictsFile(chatId);
+  const stored = supported(file, readJson(file, null), Cf.CONFLICTS_VERSION);
+  const value = stored && Array.isArray(stored.conflicts) ? stored : Cf.emptyConflicts();
+  conflictsCache.set(chatId, value);
+  return value;
+}
+function saveConflicts(chatId, value) {
+  writeJson(conflictsFile(chatId), value);
+  conflictsCache.set(chatId, value);
+}
+function loadKeepsakes(chatId) {
+  if (keepsakesCache.has(chatId)) return keepsakesCache.get(chatId);
+  const file = keepsakesFile(chatId);
+  const stored = supported(file, readJson(file, null), Ks.KEEPSAKES_VERSION);
+  const value = stored && Array.isArray(stored.items) ? stored : Ks.emptyKeepsakes();
+  keepsakesCache.set(chatId, value);
+  return value;
+}
+function saveKeepsakes(chatId, value) {
+  writeJson(keepsakesFile(chatId), value);
+  keepsakesCache.set(chatId, value);
+}
 /** The room's scene preferences, plus the switches of the optional records (nothing added while both are off). */
 function organizeFor(chatId) {
   const organize = settings().chats?.[chatId]?.organize || {};
   const extra = sceneRecords(chatId);
   return Object.keys(extra).length ? { ...organize, ...extra } : organize;
 }
-/** { characterState?, places? }: which optional records the scene call asks for in this room. */
+/** { characterState?, places?, keepsakes? }: which optional records the scene call asks for in this room. */
 function sceneRecords(chatId) {
   const out = {};
   if (featureOn(chatId, 'characterState')) out.characterState = true;
   if (featureOn(chatId, 'places')) out.places = true;
+  if (featureOn(chatId, 'keepsakes')) out.keepsakes = true;
   return out;
 }
 /** The scene call's answer limit; a little more room while it also writes the optional records. */
@@ -338,11 +370,35 @@ function refreshWorld(chatId, store) {
         const next = Pl.fold(store, old);
         if (JSON.stringify(next) !== JSON.stringify(old)) { savePlaces(chatId, next); changed = true; }
       }
+      if (featureOn(chatId, 'keepsakes')) {
+        const old = loadKeepsakes(chatId);
+        const next = Ks.fold(store, old);
+        if (JSON.stringify(next) !== JSON.stringify(old)) { saveKeepsakes(chatId, next); changed = true; }
+      }
     });
   } catch (error) {
-    log(`chat ${chatId}: character states / places not updated (${error?.message || error})`);
+    log(`chat ${chatId}: character states / places / keepsakes not updated (${error?.message || error})`);
   }
+  if (refreshConflicts(chatId, store)) changed = true;
   return changed;
+}
+/**
+ * Look through the facts for ones that disagree (no model call, always on). The file is only written once there is a
+ * conflict to keep, so a room without any gets no file. Never throws.
+ */
+function refreshConflicts(chatId, store) {
+  try {
+    if (goneChats.has(chatId) || !store) return false;
+    const old = loadConflicts(chatId);
+    const next = Cf.fold(store, old);
+    if (JSON.stringify(next) === JSON.stringify(old)) return false;
+    if (!next.conflicts.length && !fs.existsSync(conflictsFile(chatId))) return false;
+    saveConflicts(chatId, next);
+    return true;
+  } catch (error) {
+    log(`chat ${chatId}: record conflicts not checked (${error?.message || error})`);
+    return false;
+  }
 }
 /** The people of the scene shown now (the last one): the ones a reply is about. */
 function lastScenePeople(scenes) {
@@ -442,6 +498,8 @@ async function inheritBranch(sourceId, targetId) {
     const sourceBook = fs.existsSync(addressFile(sourceId)) ? loadAddress(sourceId) : null;
     const sourceState = fs.existsSync(stateFile(sourceId)) ? loadState(sourceId) : null;
     const sourcePlaces = fs.existsSync(placesFile(sourceId)) ? loadPlaces(sourceId) : null;
+    const sourceKeeps = fs.existsSync(keepsakesFile(sourceId)) ? loadKeepsakes(sourceId) : null;
+    const sourceConflicts = fs.existsSync(conflictsFile(sourceId)) ? loadConflicts(sourceId) : null;
     // This also makes a repeated hook harmless and protects an existing/broken destination file.
     if (files.some((file) => fs.existsSync(file)) || settings().chats?.[targetId]) return { skipped: true };
     checkFiles(sourceId);
@@ -478,13 +536,16 @@ async function inheritBranch(sourceId, targetId) {
       // Cards and places keep the user's own edits and are worked out again from the scenes this branch really has.
       if (sourceState && !fs.existsSync(stateFile(targetId))) { saveState(targetId, A.using(sourceId, () => St.fold(result.scenes || S.emptyStore(), structuredClone(sourceState)))); written.push(stateFile(targetId)); }
       if (sourcePlaces && !fs.existsSync(placesFile(targetId))) { savePlaces(targetId, A.using(sourceId, () => Pl.fold(result.scenes || S.emptyStore(), structuredClone(sourcePlaces)))); written.push(placesFile(targetId)); }
+      if (sourceKeeps && !fs.existsSync(keepsakesFile(targetId))) { saveKeepsakes(targetId, A.using(sourceId, () => Ks.fold(result.scenes || S.emptyStore(), structuredClone(sourceKeeps)))); written.push(keepsakesFile(targetId)); }
+      // Answers to record conflicts stay for the facts this branch really has.
+      if (sourceConflicts && !fs.existsSync(conflictsFile(targetId))) { saveConflicts(targetId, Cf.fold(result.scenes || S.emptyStore(), structuredClone(sourceConflicts))); written.push(conflictsFile(targetId)); }
       if (sourceSettings) {
         next.chats = { ...next.chats, [targetId]: structuredClone(sourceSettings) };
         saveSettings(next);
       }
     } catch (error) {
       for (const file of written) fs.rmSync(file, { force: true });
-      cache.delete(targetId); sceneCache.delete(targetId); vectorCache.delete(targetId); addressCache.delete(targetId); stateCache.delete(targetId); placesCache.delete(targetId);
+      cache.delete(targetId); sceneCache.delete(targetId); vectorCache.delete(targetId); addressCache.delete(targetId); stateCache.delete(targetId); placesCache.delete(targetId); conflictsCache.delete(targetId); keepsakesCache.delete(targetId);
       throw error;
     }
     log(`branch ${sourceId} -> ${targetId}: inherited ${result.matched} message(s), ${result.scenes?.scenes.length || 0} scene(s)${result.ledgerReset ? '; old fork: ledger will be read again' : ''}`);
@@ -564,7 +625,7 @@ function removeRoomFiles(chatId) {
 
 /** Everything held in memory for one room (not the files). The next read loads from disk again. */
 function clearRoomCaches(chatId) {
-  for (const map of [cache, windows, sceneCache, namesCache, addressCache, stateCache, placesCache, selectedViews, vectorCache, chatLangs, replyLedgers, translationCache, displayTranslationStatus, preparing, replyViews, speakerColors, recalls, turnQuery, storyDays, storyNow]) map.delete(chatId);
+  for (const map of [cache, windows, sceneCache, namesCache, addressCache, stateCache, placesCache, conflictsCache, keepsakesCache, selectedViews, vectorCache, chatLangs, replyLedgers, translationCache, displayTranslationStatus, preparing, replyViews, speakerColors, recalls, turnQuery, storyDays, storyNow]) map.delete(chatId);
   for (const key of [...translating.keys()]) if (String(key).startsWith(`${chatId}:`)) translating.delete(key);
 }
 
@@ -2420,7 +2481,10 @@ function renderMemorySource(chatId, maxChars = MEMORY_MAX_CHARS) {
     const total = 9000 + 4500 + chapterChars;
     const overviewMax = Math.min(total, Math.floor(room * (chapterChars > CHAPTER_LENGTHS.normal ? 0.65 : 0.5)));
     const scale = Math.min(1, overviewMax / total);
-    const overview = S.renderScenes(scenes, firstInside, { maxChars: Math.floor(9000 * scale), factChars: Math.floor(4500 * scale), chapterChars: Math.floor(chapterChars * scale), query, today, npc });
+    // Facts the user decided against in a record conflict stay out; the people of the scene shown now are told which facts they do not know.
+    let hideFacts = null;
+    try { hideFacts = Cf.hiddenIds(loadConflicts(chatId), scenes); } catch {}
+    const overview = S.renderScenes(scenes, firstInside, { maxChars: Math.floor(9000 * scale), factChars: Math.floor(4500 * scale), chapterChars: Math.floor(chapterChars * scale), query, today, npc, present: lastScenePeople(scenes), hideFacts });
     if (overview) {
       story.push(overview);
       room -= overview.length + 2;
@@ -2442,7 +2506,7 @@ function renderMemorySource(chatId, maxChars = MEMORY_MAX_CHARS) {
   if (selected) story.push(`[직접 선택해 정리한 기억]\n${selected}`);
   // Who calls whom what, for the people of this scene only (a single short line).
   let calls = '';
-  if (scenes && featureOn(chatId, 'addressBook')) {
+  if (scenes) {
     try { calls = A.using(chatId, () => Addr.injectionBlock(loadAddress(chatId), presentPeople(chatId, scenes))); } catch { calls = ''; }
   }
   // How people and the place are right now (two short lines, only for the scene shown now).
@@ -2453,6 +2517,9 @@ function renderMemorySource(chatId, maxChars = MEMORY_MAX_CHARS) {
     }
     if (featureOn(chatId, 'places')) {
       try { now.push(A.using(chatId, () => Pl.injectionBlock(loadPlaces(chatId), scenes.scenes.at(-1).place))); } catch {}
+    }
+    if (featureOn(chatId, 'keepsakes')) {
+      try { now.push(A.using(chatId, () => Ks.injectionBlock(loadKeepsakes(chatId), lastScenePeople(scenes)))); } catch {}
     }
   }
   const parts = [...story, calls, ...now, ...fixed].filter(Boolean);
@@ -2773,6 +2840,7 @@ async function routes(app) {
   }));
   // Optional features: global default and per-room override (recentLife keeps its older settings keys).
   const readyFeature = (key) => {
+    if (F.isBuiltin(key)) throw Error('이 기능은 모듈에 포함되어 항상 켜져 있어 끌 수 없습니다.');
     if (!F.known(key)) throw Error('알 수 없는 기능입니다.');
     if (!F.FEATURES[key].ready) throw Error('아직 준비 중인 기능입니다.');
     return key;
@@ -2929,7 +2997,7 @@ async function routes(app) {
   const learnFromEdit = (chatId, wasStore, wasScene, scene) => {
     try {
       const book = structuredClone(loadAddress(chatId));
-      const made = A.using(chatId, () => Addr.learnFromSceneEdit(book, { store: wasStore, oldScene: wasScene, newScene: scene, table: loadNames(chatId), options: { address: featureOn(chatId, 'addressBook') } }));
+      const made = A.using(chatId, () => Addr.learnFromSceneEdit(book, { store: wasStore, oldScene: wasScene, newScene: scene, table: loadNames(chatId), options: { address: true } }));
       if (made.address || made.alias || made.guess) {
         saveAddress(chatId, book);
         log(`chat ${chatId}: learned from a hand edit (${made.address} call term, ${made.alias} name, ${made.guess} guess suggestion(s))`);
@@ -2959,9 +3027,8 @@ async function routes(app) {
     return editScenes(chatId, (store) => {
       const scene = store.scenes.find((x) => x.id === req.params.sceneId);
       if (!scene) throw Error('해당 장면을 찾지 못했습니다.');
-      const learning = featureOn(chatId, 'learnFromEdits');
-      const wasScene = learning ? structuredClone(scene) : null;
-      const wasStore = learning ? structuredClone(store) : null;
+      const wasScene = structuredClone(scene);
+      const wasStore = structuredClone(store);
       for (const field of ['title', 'summary', 'time', 'place', 'weather']) if (typeof req.body?.[field] === 'string') scene[field] = req.body[field].trim();
       // The chapter (and arc) that summarized this scene no longer says what it says now.
       S.markStale(store, { scene: scene.id });
@@ -3006,7 +3073,7 @@ async function routes(app) {
           });
       scene.edited = true;
       scene.editedAt = new Date().toISOString();
-      if (learning) learnFromEdit(chatId, wasStore, wasScene, scene);
+      learnFromEdit(chatId, wasStore, wasScene, scene);
       return scene;
     });
   }));
@@ -3053,8 +3120,10 @@ async function routes(app) {
       S.editFact(fact, {
         text: typeof req.body?.text === 'string' ? req.body.text.trim() : undefined,
         about: typeof req.body?.about === 'string' ? req.body.about.trim() : undefined,
-        unaware: req.body?.unaware !== undefined ? nameList(req.body.unaware) : undefined,
+        // "unknownTo" is the same list as "unaware" (the people who do not know the fact yet).
+        unaware: req.body?.unaware !== undefined ? nameList(req.body.unaware) : req.body?.unknownTo !== undefined ? nameList(req.body.unknownTo) : undefined,
         guess: req.body?.guess !== undefined ? nameList(req.body.guess) : undefined,
+        knownBy: req.body?.knownBy !== undefined ? nameList(req.body.knownBy) : undefined,
       });
       return fact;
     });
@@ -3285,11 +3354,8 @@ async function routes(app) {
     return planned;
   };
   /* ---------- 호칭 사전 and what is learned from the user's edits ---------- */
-  const addressView = (chatId) => {
-    const addressBook = featureOn(chatId, 'addressBook'), learnFromEdits = featureOn(chatId, 'learnFromEdits');
-    if (!addressBook && !learnFromEdits) return null;
-    return A.using(chatId, () => Addr.view(loadAddress(chatId), { addressBook, learnFromEdits }));
-  };
+  // The address book and the suggestions learned from the user's edits are part of the module (no switch).
+  const addressView = (chatId) => A.using(chatId, () => Addr.view(loadAddress(chatId), { addressBook: true, learnFromEdits: true }));
   const needFeature = (chatId, key) => {
     if (!featureOn(chatId, key)) throw Error(`이 방에서 ${F.FEATURES[key].label} 기능이 꺼져 있습니다. 설정 → 추가 기능에서 켜 주세요.`);
   };
@@ -3302,11 +3368,10 @@ async function routes(app) {
   };
   app.get('/chats/:id/address', guard(async (req) => {
     const chatId = safeChatId(req.params.id);
-    return addressView(chatId) || { addressBook: false, learnFromEdits: false, entries: [], suggestions: [], edits: [] };
+    return addressView(chatId);
   }));
   app.post('/chats/:id/address', guard(async (req) => {
     const chatId = safeChatId(req.params.id);
-    needFeature(chatId, 'addressBook');
     const action = String(req.body?.action || '');
     const id = String(req.body?.id || '');
     const entry = changeBook(chatId, (book) => {
@@ -3324,7 +3389,6 @@ async function routes(app) {
   }));
   app.post('/chats/:id/address/suggestion/:sid', guard(async (req) => {
     const chatId = safeChatId(req.params.id);
-    needFeature(chatId, 'learnFromEdits');
     const action = String(req.body?.action || '');
     if (!['accept', 'ignore'].includes(action)) throw Error('accept 또는 ignore 중 하나여야 합니다.');
     const sid = String(req.params.sid || '');
@@ -3333,7 +3397,6 @@ async function routes(app) {
     if (item.status !== 'open') throw Error('이미 답한 제안입니다.');
     if (action === 'accept') {
       if (item.kind === 'address') {
-        needFeature(chatId, 'addressBook');
         changeBook(chatId, (book) => { Addr.addEntry(book, { from: item.from, to: item.to, term: item.term }); Addr.answerSuggestion(book, sid, 'done'); });
       } else if (item.kind === 'alias') {
         // The name table is changed first; if it refuses, the suggestion stays open.
@@ -3351,13 +3414,14 @@ async function routes(app) {
   }));
   /* ---------- 인물 상태 and 장소 ---------- */
   const worldView = (chatId) => {
-    const characterState = featureOn(chatId, 'characterState'), places = featureOn(chatId, 'places');
+    const characterState = featureOn(chatId, 'characterState'), places = featureOn(chatId, 'places'), keepsakes = featureOn(chatId, 'keepsakes');
     return A.using(chatId, () => {
       const cards = characterState ? St.view(loadState(chatId)) : [];
       const placeList = places ? Pl.view(loadPlaces(chatId)) : [];
+      const keepList = keepsakes ? Ks.view(loadKeepsakes(chatId)) : [];
       const titles = new Map((loadScenes(chatId)?.scenes || []).map((s) => [s.id, s.title]));
-      const ids = new Set([...cards.map((c) => c.asOf?.scene), ...placeList.flatMap((p) => [p.firstSeen?.scene, p.lastSeen?.scene])].filter(Boolean));
-      return { characterState, places, cards, placeList, sceneTitles: Object.fromEntries([...ids].map((id) => [id, titles.get(id) || ''])) };
+      const ids = new Set([...cards.map((c) => c.asOf?.scene), ...placeList.flatMap((p) => [p.firstSeen?.scene, p.lastSeen?.scene]), ...keepList.flatMap((k) => [k.gotAt?.scene, ...(k.history || []).map((h) => h.scene)])].filter(Boolean));
+      return { characterState, places, keepsakes, cards, placeList, keepList, sceneTitles: Object.fromEntries([...ids].map((id) => [id, titles.get(id) || ''])) };
     });
   };
   /** Edit the file, work the scenes through it again and save, with no await in between (a scan cannot overwrite it). */
@@ -3365,6 +3429,7 @@ async function routes(app) {
     const store = loadScenes(chatId) || S.emptyStore();
     A.using(chatId, () => {
       if (key === 'state') saveState(chatId, St.fold(store, fn(structuredClone(loadState(chatId)))));
+      else if (key === 'keeps') saveKeepsakes(chatId, Ks.fold(store, fn(structuredClone(loadKeepsakes(chatId)))));
       else savePlaces(chatId, Pl.fold(store, fn(structuredClone(loadPlaces(chatId)))));
     });
     recalls.delete(chatId);
@@ -3401,6 +3466,37 @@ async function routes(app) {
       return Pl.deletePlace(file, id);
     });
     return worldView(chatId);
+  }));
+  app.post('/chats/:id/keepsakes', guard(async (req) => {
+    const chatId = safeChatId(req.params.id);
+    needFeature(chatId, 'keepsakes');
+    const b = req.body || {};
+    const action = String(b.action || '');
+    const id = String(b.id || '');
+    if (!['set', 'unlock', 'aliases', 'add', 'merge', 'delete'].includes(action)) throw Error('set, unlock, aliases, add, merge, delete 중 하나여야 합니다.');
+    changeWorld(chatId, 'keeps', (file) => {
+      if (action === 'set') return Ks.setField(file, id, String(b.field || ''), b.value);
+      if (action === 'unlock') return Ks.unlockField(file, id, String(b.field || ''));
+      if (action === 'aliases') return Ks.setAliases(file, id, b.value);
+      if (action === 'add') return Ks.addItem(file, b.name, b.owner);
+      if (action === 'merge') return Ks.mergeItems(file, id, String(b.into || ''));
+      return Ks.deleteItem(file, id);
+    });
+    return worldView(chatId);
+  }));
+  /* ---------- 기록 충돌 알림 (built in) ---------- */
+  const conflictsView = (chatId) => Cf.view(loadConflicts(chatId), loadScenes(chatId));
+  app.get('/chats/:id/conflicts', guard(async (req) => conflictsView(safeChatId(req.params.id))));
+  app.post('/chats/:id/conflicts/:cid', guard(async (req) => {
+    const chatId = safeChatId(req.params.id);
+    const action = String(req.body?.action || '');
+    const status = { keepA: 'keepA', keepB: 'keepB', both: 'both', dismiss: 'dismissed', reopen: 'open' }[action];
+    if (!status) throw Error('keepA, keepB, both, dismiss, reopen 중 하나여야 합니다.');
+    // Read, change and save with no await in between, so a scan cannot overwrite the answer.
+    saveConflicts(chatId, Cf.answer(loadConflicts(chatId), String(req.params.cid || ''), status));
+    // Keeping one fact changes what the memory says: pick the scenes again on the next reply.
+    recalls.delete(chatId);
+    return conflictsView(chatId);
   }));
   app.get('/chats/:id/names', guard(async (req) => {
     const chatId = safeChatId(req.params.id);
@@ -3802,7 +3898,7 @@ function attach(app) {
   log('admin API ready at /api/memory-module');
 }
 
-module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { loadAddress, saveAddress, refreshAddress, presentPeople, Addr, loadState, saveState, loadPlaces, savePlaces, refreshWorld, organizeFor, sceneTokens, lastScenePeople, St, Pl, listRooms, purgeChatMemory, purgeIfGone, deleteOnSend, deletePrepare, listOrphans, deleteOrphans, goneChats, loadNames, saveNames, enqueue, foldScenes, reviewAttributions, loadAttributionLog, sceneJobs, selectedForView, loadSelected, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, loadTranslations, saveTranslations, chatLangs, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, jobs, writeLanguage, memoryCallOptions, routineSetting, routineEnabled, featureOn, featureSetting, F, B, clearRoomCaches, RESTORE_UNDO_DIR, connectionWithKey, memoryModel, startTrial, trials } };
+module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { loadAddress, saveAddress, refreshAddress, presentPeople, Addr, loadState, saveState, loadPlaces, savePlaces, loadKeepsakes, saveKeepsakes, loadConflicts, saveConflicts, refreshConflicts, refreshWorld, Cf, Ks, organizeFor, sceneTokens, lastScenePeople, St, Pl, listRooms, purgeChatMemory, purgeIfGone, deleteOnSend, deletePrepare, listOrphans, deleteOrphans, goneChats, loadNames, saveNames, enqueue, foldScenes, reviewAttributions, loadAttributionLog, sceneJobs, selectedForView, loadSelected, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, loadTranslations, saveTranslations, chatLangs, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, jobs, writeLanguage, memoryCallOptions, routineSetting, routineEnabled, featureOn, featureSetting, F, B, clearRoomCaches, RESTORE_UNDO_DIR, connectionWithKey, memoryModel, startTrial, trials } };
 
 
 

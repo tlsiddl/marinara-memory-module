@@ -202,3 +202,16 @@ details.paper>summary{font-size:13px;font-weight:600;color:var(--im-ink)}
 
 .counts{border-collapse:collapse;margin:8px 0;font-size:12px}.counts th{text-align:left;font-weight:500;padding:3px 16px 3px 0;color:var(--im-ink)}.counts td{padding:3px 0}
 .warn{color:#b0623f}:host([data-theme=dark]) .warn{color:#ffb08a}
+/* 아는 사람·모르는 사람, 기록 충돌, 소중한 물건. */
+.know-chips{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:4px 0 8px;font-size:11px}
+.know-label{font-size:10px;color:var(--im-muted)}
+.kchip{padding:2px 9px;border-radius:999px;background:var(--im-soft);border:1px solid var(--im-line);font-size:11px}
+.kchip.is-unknown{color:#b0623f}:host([data-theme=dark]) .kchip.is-unknown{color:#ffb08a}
+.conflict-row{border-top:1px solid var(--im-line);padding:12px 0}
+.conflict-head{margin:0 0 6px;font-size:12px;font-weight:600}
+.conflict-pair{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.conflict-pair>div{background:var(--im-soft);border-radius:10px;padding:8px 10px}
+.conflict-pair small{display:block;font-size:10px;color:var(--im-muted)}
+.conflict-pair p{margin:4px 0 0;font-size:12px;white-space:pre-wrap}
+.world-field select{flex:0 1 160px;width:auto}
+@media(max-width:720px){.conflict-pair{grid-template-columns:1fr}}

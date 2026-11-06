@@ -317,7 +317,7 @@ function rewriteName(name, table = current()) {
 
 // Fields of saved memory that hold names, and fields of running text. Quoted story lines and source pointers are
 // the story's own words: they are never rewritten.
-const NAME_FIELDS = new Set(['by', 'to', 'who', 'toward', 'about', 'from', 'present', 'unaware', 'guess']);
+const NAME_FIELDS = new Set(['by', 'to', 'who', 'toward', 'about', 'from', 'present', 'unaware', 'guess', 'knownBy', 'owner']);
 const TEXT_FIELDS = new Set(['title', 'summary', 'text', 'why', 'kept', 'what', 'detail', 'cause', 'need', 'how', 'turns', 'keep', 'latest', 'closed']);
 const LINE_LISTS = new Set(['quotes', 'loose']);
 const SOURCE_FIELDS = new Set(['evidence', 'clues', 'sentences', 'messages', 'parts', 'covered']);

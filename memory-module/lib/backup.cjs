@@ -25,6 +25,8 @@ const FILES = {
   address: '.address.json',
   state: '.state.json',
   places: '.places.json',
+  conflicts: '.conflicts.json',
+  keepsakes: '.keepsakes.json',
 };
 const KEYS = Object.keys(FILES);
 
@@ -42,6 +44,8 @@ const CHECKS = {
   address: (v) => v.version === 1 && Array.isArray(v.entries),
   state: (v) => v.version === 1 && Array.isArray(v.cards),
   places: (v) => v.version === 1 && Array.isArray(v.places),
+  conflicts: (v) => v.version === 1 && Array.isArray(v.conflicts),
+  keepsakes: (v) => v.version === 1 && Array.isArray(v.items),
 };
 
 /** Walks a parsed value once: bounded size, no prototype tricks. */
@@ -134,6 +138,8 @@ function counts(files) {
     addressEntries: len(f.address?.entries),
     stateCards: len(f.state?.cards),
     places: len(f.places?.places),
+    conflicts: len(f.conflicts?.conflicts),
+    keepsakes: len(f.keepsakes?.items),
   };
 }
 

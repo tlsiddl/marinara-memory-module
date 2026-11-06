@@ -10,8 +10,14 @@
 //
 // A feature with ready:false is not implemented yet: it is hidden from the screen, its switches cannot be saved and
 // featureOn() answers false for it, so nothing can run by accident.
+//
+// BUILTIN names are features that used to have (or never had) a switch and are now part of the module itself: they are
+// always on, are not in the registry, are not shown under 추가 기능 and ignore whatever an older settings file stored.
 
 const MODES = ['default', 'on', 'off'];
+/** 호칭 사전, 직접 고친 것 배우기, 아는 사람·모르는 사람, 기록 충돌 알림: always on. */
+const BUILTIN = ['addressBook', 'learnFromEdits', 'knowledge', 'conflicts'];
+const isBuiltin = (key) => BUILTIN.includes(key);
 
 const FEATURES = {
   recentLife: {
@@ -20,18 +26,6 @@ const FEATURES = {
     default: true,
     ready: true,
     legacy: { global: 'routine', room: 'routine' },
-  },
-  addressBook: {
-    label: '호칭 사전',
-    description: '누가 누구를 어떻게 부르는지(보스·애칭·"○○ 씨" 같은 부르는 말)를 이미 저장된 대사에서 모아 기록합니다. 모델을 더 부르지 않습니다. 켜면 같은 부르는 말을 두 번 이상 쓴 사람 사이만 사전에 올라가고, 대사의 화자·상대를 확인할 때 ‘그 말로 불린 사람이 상대이고 화자는 아니다’로 씁니다. 답변에는 장면에 함께 있는 사람들의 호칭만 한 줄로 들어갑니다. 이미 있는 사전은 끄더라도 지우지 않습니다.',
-    default: false,
-    ready: true,
-  },
-  learnFromEdits: {
-    label: '직접 고친 것 배우기',
-    description: '장면 편집에서 대사의 말한 사람·들은 사람을 직접 고치면, 거기서 배울 만한 것(부르는 말, 같은 사람의 다른 이름)을 ‘제안’으로 모아 이름 정리 탭에 보여 줍니다. 제안은 누르기 전까지 아무것도 바꾸지 않고, 모델을 부르지 않습니다. 호칭 제안은 ‘호칭 사전’도 켜져 있을 때만 만듭니다.',
-    default: false,
-    ready: true,
   },
   characterState: {
     label: '인물 현재 상태',
@@ -45,8 +39,12 @@ const FEATURES = {
     default: false,
     ready: true,
   },
-  knowledge: { label: '아는 것·모르는 것', description: '인물별로 무엇을 알고 모르는지 기록합니다.', default: false, ready: false },
-  conflicts: { label: '기억 충돌 점검', description: '서로 어긋나는 기억을 찾아 알려 줍니다.', default: false, ready: false },
+  keepsakes: {
+    label: '소중한 물건',
+    description: '선물·기념품·유품처럼 이야기에서 뜻이 있는 물건(누가 누구에게 받았는지, 어떤 뜻인지, 지금 어디에 있는지)을 물건별로 기록합니다. 켜면 장면을 정리할 때 같은 모델 호출에서 함께 읽으므로 호출은 늘지 않고, 정리 요청에 안내가 조금 더 붙습니다. 새로 정리하는 장면부터 채워집니다. 답변에는 지금 장면에 있는 사람의 물건만 한 줄로 들어갑니다. 직접 고친 항목은 자동 기록이 덮어쓰지 않습니다. 이미 있는 기록은 꺼도 지우지 않습니다.',
+    default: false,
+    ready: true,
+  },
   recallReasons: { label: '회상 이유 보기', description: '왜 그 기억이 골라졌는지 이유를 보여 줍니다.', default: false, ready: false },
 };
 
@@ -54,6 +52,7 @@ const known = (key) => Object.prototype.hasOwnProperty.call(FEATURES, key);
 
 /** { global, room, enabled } for one feature in one room, from a settings object. Unknown values follow the default. */
 function resolve(all, chatId, key, registry = FEATURES) {
+  if (isBuiltin(key)) return { global: true, room: 'default', enabled: true, ready: true, builtin: true };
   const f = registry[key];
   if (!f) return { global: false, room: 'default', enabled: false, ready: false };
   const room = all?.chats?.[chatId];
@@ -103,4 +102,4 @@ function view(all, chatId, registry = FEATURES) {
   }));
 }
 
-module.exports = { FEATURES, MODES, known, resolve, withGlobal, withRoomMode, view };
+module.exports = { FEATURES, MODES, BUILTIN, isBuiltin, known, resolve, withGlobal, withRoomMode, view };

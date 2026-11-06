@@ -425,7 +425,7 @@ test('routes: edit, unlock, add, merge and delete; refused while the feature is 
   settingsFor('wc', {});
   assert.match((await call('POST /chats/:id/state', 'wc', { action: 'add', name: HARIN })).error, /꺼져 있습니다/);
   assert.match((await call('POST /chats/:id/places', 'wc', { action: 'add', name: '옥상' })).error, /꺼져 있습니다/);
-  assert.deepEqual((await call('GET /chats/:id/world', 'wc')).result, { characterState: false, places: false, cards: [], placeList: [], sceneTitles: {} });
+  assert.deepEqual((await call('GET /chats/:id/world', 'wc')).result, { characterState: false, places: false, keepsakes: false, cards: [], placeList: [], keepList: [], sceneTitles: {} });
   settingsFor('wc', { characterState: 'on', places: 'on' });
   X.refreshWorld('wc', X.loadScenes('wc'));
   let world = (await call('GET /chats/:id/world', 'wc')).result;

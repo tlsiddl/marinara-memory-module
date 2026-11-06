@@ -72,12 +72,9 @@ test('(a) a line that opens with a term and a listener the user set: suggest spe
   assert.equal(X.loadScenes('ra').scenes[0].events[0].quotes[1].manual, undefined);
 });
 
-test('(a) needs the address book on, a certain single listener, and a term that opens the line', async () => {
-  features('rb', true, false);
+test('(a) needs a certain single listener and a term that opens the line (the address book is built in)', async () => {
+  features('rb', false, false);
   seed('rb', [dq(1, 1, '"Zuzu, vieni qui."', ADEL, null), dq(2, 1, '"Vieni qui, Zuzu."', ADEL, null), dq(3, 1, '"Andiamo."', ADEL, null), dq(4, 1, '"Zuzu, noi."', ADEL, null)]);
-  await edit('rb', (q) => { q[0].to = VITO; });
-  assert.equal(open('rb').length, 0, 'address book off: nothing to add to');
-  features('rb', true, true);
   await edit('rb', (q) => { q[1].to = VITO; });
   assert.equal(open('rb').length, 0, 'the term closes the line');
   await edit('rb', (q) => { q[2].to = VITO; });
@@ -134,14 +131,21 @@ test('(c) a guessed listener the user changed is recorded, nothing is suggested'
   assert.equal(b.edits.filter((e) => e.sentence === 2).length, 0);
 });
 
-test('off: no suggestion, no file, and the edit saves exactly as before', async () => {
-  features('rf', false, true);
+test('built in: an old stored "off" is ignored, the edit is saved as before and a suggestion is made', async () => {
+  X.saveSettings({ connection: null, chats: { rf: { features: { learnFromEdits: 'off', addressBook: 'off' } }, }, features: { learnFromEdits: false, addressBook: false } });
   seed('rf', [dq(1, 1, '"Zuzu, vieni qui."', ADEL, null)]);
   const r = await edit('rf', (q) => { q[0].to = VITO; });
   assert.ifError(r.error);
-  assert.equal(fs.existsSync(bookFile('rf')), false);
   assert.equal(X.loadScenes('rf').scenes[0].events[0].quotes[0].to, VITO);
-  assert.match((await call('POST /chats/:id/address/suggestion/:sid', 'rf', { action: 'ignore' }, { sid: 'x' })).error, /꺼져 있습니다/);
+  assert.equal(open('rf').length, 1);
+  assert.match((await call('POST /chats/:id/address/suggestion/:sid', 'rf', { action: 'ignore' }, { sid: 'x' })).error, /찾지 못했습니다/);
+  // the switch routes refuse them: there is nothing to switch
+  const was = Object.keys(X.settings().features || {});
+  for (const key of ['addressBook', 'learnFromEdits']) {
+    const refused = await call('POST /settings/features', null, { key, on: false });
+    assert.match(refused.error, /항상 켜져 있어/);
+  }
+  assert.deepEqual(Object.keys(X.settings().features || {}), was, 'nothing was stored');
 });
 
 test('accept writes a user entry (address) or an alias; ignore is remembered; neither can be answered twice', async () => {
@@ -175,14 +179,15 @@ test('accept writes a user entry (address) or an alias; ignore is remembered; ne
   assert.match((await call('POST /chats/:id/address/suggestion/:sid', 'rh', { action: 'accept' }, { sid: 'nope' })).error, /찾지 못했습니다/);
 });
 
-test('accepting an address suggestion needs the address book on; the suggestion stays open', async () => {
+test('accepting an address suggestion works whatever an old settings file says', async () => {
   features('ri', true, true);
   seed('ri', [dq(1, 1, '"Zuzu, vieni qui."', ADEL, null)]);
   await edit('ri', (q) => { q[0].to = VITO; });
-  features('ri', true, false);
+  X.saveSettings({ connection: null, chats: { ri: { features: { addressBook: 'off' } } } });
   const id = open('ri')[0].id;
-  assert.match((await call('POST /chats/:id/address/suggestion/:sid', 'ri', { action: 'accept' }, { sid: id })).error, /호칭 사전/);
-  assert.equal(open('ri').length, 1);
+  assert.ifError((await call('POST /chats/:id/address/suggestion/:sid', 'ri', { action: 'accept' }, { sid: id })).error);
+  assert.equal(open('ri').length, 0);
+  assert.equal(book('ri').entries.length, 1);
 });
 
 const source = fs.readFileSync(path.join(__dirname, '../extension/runtime.js'), 'utf8').replace(/\r\n/g, '\n');

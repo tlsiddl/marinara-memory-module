@@ -7,7 +7,7 @@
 //   suggestions  what the user's own corrections suggest: { id, kind: 'address' | 'alias', ..., status: 'open' |
 //                'ignored' | 'done' }. Nothing here changes any rule until the user accepts it.
 //   edits        a short record of listeners the user changed after the module had only guessed them.
-// Pure logic; the service loads and saves the file and decides whether the features are on.
+// Both are part of the module (no switch since 0.11.59). Pure logic; the service loads and saves the file.
 
 const crypto = require('node:crypto');
 const A = require('./aliases.cjs');

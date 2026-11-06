@@ -8,6 +8,8 @@ const L = require('./ledger.cjs');
 const A = require('./aliases.cjs');
 const St = require('./state.cjs');
 const Pl = require('./places.cjs');
+const K = require('./knowledge.cjs');
+const Ks = require('./keepsakes.cjs');
 
 const SCENES_VERSION = 1;
 const REMEMBERS = ['full', 'partial', 'none'];
@@ -108,6 +110,7 @@ const SCENE_PROMPT = `너는 장기 롤플레이의 기억 관리자야. 지나�
     아는지 모르는지 원문에 안 나오면 적지 마.
     about에 적은 인물(사실의 주인공)은 자기 일을 알아. unaware에 넣지 마. 사용자 캐릭터가 몰랐다는 내용은 unaware가 아니라 text에 써(예: "서아는 최근에야 알게 됐다").
     '(추정)'인 사실은 다른 인물도 보고 짐작할 수 있다는 뜻이니 unaware를 비워.
+  knownBy: 숨긴 일·비밀·귓속말처럼 아는 사람이 갈리는 사실일 때만, 이 장면에서 그 사실을 직접 보거나 듣거나 말해서 알게 된 인물(알려 준 인물 포함)을 적어. 모두가 아는 평범한 사실이거나 확실하지 않으면 [](비움). 모르는 사람은 unaware에, 나중에 알게 되는 사람은 learned에 적어(여기 넣지 마).
     원문에 그 인물이 "짐작은 갔다", "눈치챘다", "뭔가 숨긴다는 건 안다"처럼 나오면 모르는 게 아니야. 자세히는 모르고 짐작만 하면 {"who":"하준","why":"숨겼지만 짐작은 함","guess":true}로 적어.
   [사용자 캐릭터]의 감정·속마음·성향은 그 인물이 대사로 직접 밝혔을 때만 단정해서 써. 지문이나 다른 인물의 말로만 드러났으면 끝을 "~인 것으로 보인다(추정)"로 써.
 
@@ -138,7 +141,7 @@ const SCENE_PROMPT = `너는 장기 롤플레이의 기억 관리자야. 지나�
 {"scenes":[{"end":25,"time":"…","place":"…","weather":"… 또는 null","title":"…","summary":"…","present":["인물"],
  "events":[{"text":"누가 누구에게 무엇을 어떻게","time":"작중 시각 또는 null","why":"이유·계기 또는 null","importance":"critical|major|minor","with":["그 사건 때 그 자리에 있던 인물"],"quotes":[{"n":"23.4","q":"…","by":"말한 사람 또는 null","to":"들은 사람 또는 null","byEvidence":"화자 근거 또는 null","toEvidence":"수신자 근거 또는 null"}]}],
  "recollections":[{"who":"인물","text":"…","remembers":"full|partial|none","why":"…또는 null","kept":"…또는 null"}],
- "facts":[{"about":"인물","text":"…","evidence":[{"n":"23.9","q":"…"}],"replaces":null,"unaware":[{"who":"인물","why":"이유","guess":false}]}],
+ "facts":[{"about":"인물","text":"…","evidence":[{"n":"23.9","q":"…"}],"replaces":null,"unaware":[{"who":"인물","why":"이유","guess":false}],"knownBy":["인물"]}],
  "learned":[],"later":[]}]}`;
 
 const PRESENCE_SCENES = 40;
@@ -288,6 +291,7 @@ function buildScenePrompt(store, slice, required, problem = null, preferences = 
   const extras = [];
   if (preferences.characterState) extras.push(St.PROMPT);
   if (preferences.places) extras.push(Pl.PROMPT);
+  if (preferences.keepsakes) extras.push(Ks.PROMPT);
   return [
     { role: 'system', content: base + (guidance.length ? '\n\n사용자가 선택한 정리 우선순위 (위의 대사 우선 규칙보다 우선):\n' + guidance.join('\n') : '') + (extras.length ? '\n\n' + extras.join('\n\n') : '') },
     { role: 'user', content: parts.join('\n') },
@@ -673,6 +677,22 @@ function sceneStateOf(raw, { cast, personas, index, inScene }) {
   }
   return out.slice(0, 8);
 }
+/** The meaningful objects of a scene, cleaned: only owners from the story's people, only with evidence from this scene's own sentences. */
+function sceneKeepsakesOf(raw, { cast, personas, index, inScene }) {
+  const out = [];
+  const people = [...cast, ...personas];
+  const person = (n) => (n ? L.matchName(n, people) || '' : '');
+  for (const item of Array.isArray(raw) ? raw : []) {
+    const cleaned = Ks.cleanEntry(item, { person });
+    if (!cleaned) continue;
+    const evidence = L.resolveEvidence(item.evidence, index).filter(inScene).slice(0, 4).map((p) => ({ number: p.number, sentence: p.sentence }));
+    if (!evidence.length) continue;
+    const at = out.findIndex((x) => Ks.keyOf(x.name) === Ks.keyOf(cleaned.name));
+    if (at >= 0) out[at] = { ...out[at], ...cleaned, evidence: [...out[at].evidence, ...evidence].slice(0, 4) };
+    else out.push({ ...cleaned, evidence });
+  }
+  return out.slice(0, Ks.PER_SCENE);
+}
 /** Details of the places of a scene, cleaned. */
 function sceneNotesOf(raw, scenePlace) {
   const out = [];
@@ -688,7 +708,7 @@ function sceneNotesOf(raw, scenePlace) {
  * Turn a model result into scenes for this slice. Scenes follow each other with no gap, from the slice start,
  * and the last one must reach `required`. Returns { scenes, facts, covered } or { error }.
  */
-function applyScenes(store, result, slice, required, now = new Date().toISOString(), { partial = false, quoteMode = 'dialogue', verifyAttribution = false, strictCoverage = false, characterState = false, places = false } = {}) {
+function applyScenes(store, result, slice, required, now = new Date().toISOString(), { partial = false, quoteMode = 'dialogue', verifyAttribution = false, strictCoverage = false, characterState = false, places = false, keepsakes = false } = {}) {
   const raw = Array.isArray(result?.scenes) ? result.scenes : null;
   if (!raw || !raw.length) return { error: '장면이 비어 있습니다' };
   const index = L.indexBatch(slice);
@@ -737,6 +757,7 @@ function applyScenes(store, result, slice, required, now = new Date().toISOStrin
     // Optional records, read only while the room asked for them (the prompt asked for them too).
     const stateNotes = characterState ? sceneStateOf(item.state, { cast, personas, index, inScene }) : [];
     const placeNotes = places ? sceneNotesOf(item.placeNotes, cleanText(item.place, 60)) : [];
+    const keeps = keepsakes ? sceneKeepsakesOf(item.keepsakes, { cast, personas, index, inScene }) : [];
     made.push({
       id,
       start: messages[0].number,
@@ -753,6 +774,7 @@ function applyScenes(store, result, slice, required, now = new Date().toISOStrin
       ...(extras.length ? { extras } : {}),
       ...(stateNotes.length ? { state: stateNotes } : {}),
       ...(placeNotes.length ? { placeNotes } : {}),
+      ...(keeps.length ? { keepsakes: keeps } : {}),
       heardLater: [],
       edited: false,
       createdAt: now,
@@ -787,7 +809,10 @@ function applyScenes(store, result, slice, required, now = new Date().toISOStrin
         unaware = unaware.filter((n) => n !== who);
         if (level === 'guess' && !guess.includes(who)) guess.push(who);
       }
-      newFacts.push({ id: `F${store.nextFact + newFacts.length}`, about, text, evidence, sceneId: id, when: cleanText(item.time, 60), replaces, unaware, guess, edited: false, createdAt: now });
+      // Who knows it: as the model listed, or (for a fact some people do not know) the people of the scene who do. Empty = not specified.
+      const people = [...cast, ...personas];
+      const knownBy = K.deriveKnownBy({ listed: castNames(f?.knownBy, people), present: castNames(scene.present, people), unaware, guess, guessed: /\(추정\)|추정된다|보인다/.test(text) });
+      newFacts.push({ id: `F${store.nextFact + newFacts.length}`, about, text, evidence, sceneId: id, when: cleanText(item.time, 60), replaces, unaware, guess, ...(knownBy.length ? { knownBy } : {}), edited: false, createdAt: now });
     }
     for (const l of Array.isArray(item.learned) ? item.learned : []) {
       const who = castNames([l?.who], cast)[0];
@@ -2364,6 +2389,8 @@ function setKnowing(fact, who, inScene, { unaware, guess }) {
   if (unaware !== undefined) fact.unaware = unaware ? [...new Set([...(fact.unaware || []), who])] : (fact.unaware || []).filter((n) => n !== who);
   if (guess !== undefined) fact.guess = guess ? [...new Set([...(fact.guess || []), who])] : (fact.guess || []).filter((n) => n !== who);
   const after = { unaware: !!fact.unaware?.includes(who), guess: !!fact.guess?.includes(who) };
+  // A list of who knows it (if the fact has one) follows: a person who learned it is added, one who no longer knows is taken off.
+  K.syncKnownBy(fact, who, (before.unaware || before.guess) && !after.unaware && !after.guess);
   if (inScene && (after.unaware !== before.unaware || after.guess !== before.guess)) {
     fact.knowHistory = [...(fact.knowHistory || []), before];
     // A later scene changed it again: undoing that scene goes back to what the user had set.
@@ -2376,7 +2403,7 @@ function setKnowing(fact, who, inScene, { unaware, guess }) {
  * A hand edit of a fact. Fixing its wording and changing who knows it are recorded apart: only the people whose
  * knowing the user set by hand (fact.knowSet) are kept when a scene is undone; a typo fix protects nobody's.
  */
-function editFact(fact, { text, about, unaware, guess }) {
+function editFact(fact, { text, about, unaware, guess, knownBy }) {
   // Edits from now on are recorded apart; a fact hand-edited before this (edited, no mark) keeps the old rule.
   if (!fact.edited) fact.editsSplit = true;
   else if (!fact.editsSplit && !fact.knowSet) fact.knowSet = [...new Set([...(fact.unaware || []), ...(fact.guess || []), ...(fact.knowHistory || []).map((h) => h.who)])];
@@ -2398,6 +2425,14 @@ function editFact(fact, { text, about, unaware, guess }) {
     fact[key] = [...after];
   }
   if (changed.size) fact.knowSet = [...new Set([...(fact.knowSet || []), ...changed])];
+  // Who knows it, set by hand: kept as written (locked against what later scenes say) until the user empties the list.
+  if (knownBy !== undefined) {
+    const list = [...new Set(knownBy.filter((n) => typeof n === 'string' && n.trim()))];
+    if (JSON.stringify(list) !== JSON.stringify(fact.knownBy || [])) {
+      if (list.length) { fact.knownBy = list; fact.knownLock = true; } else { delete fact.knownBy; delete fact.knownLock; }
+    }
+  }
+  K.reconcile(fact);
   return fact;
 }
 
@@ -2419,6 +2454,7 @@ function undoKnowing(facts, droppedIds) {
       if (handSet.has(h.who)) continue;
       f.unaware = h.unaware ? [...new Set([...(f.unaware || []), h.who])] : (f.unaware || []).filter((n) => n !== h.who);
       f.guess = h.guess ? [...new Set([...(f.guess || []), h.who])] : (f.guess || []).filter((n) => n !== h.who);
+      K.syncKnownBy(f, h.who, true);
     }
     if (state(f) !== was) changed.add(f.id);
   }
@@ -3113,6 +3149,7 @@ function applyFactMerge(store, about, facts, result, now = new Date().toISOStrin
     const text = stripAbout(cleanText(item?.text, 320), about);
     if (!text || sources.length < 2 || sources.length !== ids.length || sources.some((f) => used.has(f.id))) continue;
     if (!sources.every((f) => sameSet(f.unaware, sources[0].unaware) && sameSet(f.guess, sources[0].guess))) continue;
+    const knownBy = K.mergeKnownBy(sources);
     const guessed = (f) => /\(추정\)/.test(f.text);
     if (sources.some(guessed) !== sources.every(guessed)) continue;
     const latest = [...sources].sort((a, b) => (order.get(a.sceneId) ?? 0) - (order.get(b.sceneId) ?? 0)).at(-1);
@@ -3127,6 +3164,7 @@ function applyFactMerge(store, about, facts, result, now = new Date().toISOStrin
       when: whens.length === 1 ? whens[0] : null,
       unaware: [...(sources[0].unaware || [])],
       guess: [...(sources[0].guess || [])],
+      ...(knownBy.length ? { knownBy, ...(sources.some((f) => f.knownLock) ? { knownLock: true } : {}) } : {}),
       // Who learned it in which scene comes along, so undoing that scene undoes it on the merged fact as well.
       ...inheritKnowing(sources),
       sources: sources.map((f) => f.id),
@@ -3148,7 +3186,7 @@ function applyFactMerge(store, about, facts, result, now = new Date().toISOStrin
  * The memory text for scenes that have left the context window (start before `firstInside`).
  * All of them get a one-line summary (newest `maxSummaries`); the newest `expand` get events and recollections.
  */
-function renderScenes(store, firstInside, { maxChars = 9000, maxSummaries = 40, expand = 2, maxFacts = 70, factChars = 4500, chapterChars = 4000, query = '', today = null, npc = false } = {}) {
+function renderScenes(store, firstInside, { maxChars = 9000, maxSummaries = 40, expand = 2, maxFacts = 70, factChars = 4500, chapterChars = 4000, query = '', today = null, npc = false, present = [], hideFacts = null } = {}) {
   // Scenes already folded into a chapter are told by the chapter.
   // (a chapter waiting to be summarized again after a hand edit does not count: its scenes speak for themselves)
   const chaptered = new Set((store.chapters || []).filter((c) => !c.stale).flatMap((c) => c.scenes));
@@ -3181,8 +3219,13 @@ function renderScenes(store, firstInside, { maxChars = 9000, maxSummaries = 40, 
   }
   // Facts grouped by person, in story order. When there are too many, each person keeps their newest ones
   // first (merged facts are new too, and carry the old groundwork), so no one is left out.
-  const facts = pickFacts(liveFacts(store), maxFacts, factChars);
+  // Facts the user decided against in a record conflict (기록 충돌) are left out; the people of the scene shown now are told
+  // which facts they do not know.
+  const facts = pickFacts(liveFacts(store).filter((f) => !hideFacts?.has(f.id)), maxFacts, factChars);
   const group = castOf(store).length >= 2;
+  // Only people of the story are told what they do not know (not a bystander named by role).
+  const story = new Set([...castOf(store), ...(store.personas || [])]);
+  const here = (present || []).filter((n) => story.has(n));
   if (facts.length) {
     const groups = new Map();
     let used = 0;
@@ -3191,7 +3234,8 @@ function renderScenes(store, firstInside, { maxChars = 9000, maxSummaries = 40, 
       const when = f.when || store.scenes.find((s) => s.id === f.sceneId)?.time;
       const dated = when && DATED.test(base) && !/\d{2}-\d{1,2}-\d{1,2}/.test(base) ? `${base} (${when.split(/[~·]/)[0].trim()})` : base;
       const marks = group ? [f.unaware?.length ? `모름: ${f.unaware.join('·')}` : null, f.guess?.length ? `짐작만: ${f.guess.join('·')}` : null].filter(Boolean) : [];
-      const text = marks.length ? `${dated} [${marks.join(' / ')}]` : dated;
+      const unknown = K.unknownMarker(f, here, { personas: store.personas || [], covered: group ? f.unaware || [] : [] });
+      const text = (marks.length ? `${dated} [${marks.join(' / ')}]` : dated) + unknown;
       if (used + text.length + 4 > factChars) break;
       used += text.length + 4;
       const key = f.about || '기타';
@@ -3262,6 +3306,7 @@ module.exports = {
   setStateProvider,
   sceneStateOf,
   sceneNotesOf,
+  sceneKeepsakesOf,
   sceneNames,
   isDialogue,
   quoteText,

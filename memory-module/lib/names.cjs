@@ -69,7 +69,7 @@ function fieldsOf(store, ledger) {
     const label = `${f.id || `F${fi + 1}`}`;
     add('scenes', 'facts', [...base, 'about'], 'names', label, mark);
     add('scenes', 'facts', [...base, 'text'], 'text', label, mark);
-    for (const k of ['unaware', 'guess']) add('scenes', 'facts', [...base, k], 'list', label, mark);
+    for (const k of ['unaware', 'guess', 'knownBy']) add('scenes', 'facts', [...base, k], 'list', label, mark);
   });
   for (const key of ['chapters', 'arcs']) {
     (store?.[key] || []).forEach((c, ci) => {
