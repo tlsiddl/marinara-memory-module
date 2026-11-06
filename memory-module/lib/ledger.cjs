@@ -26,12 +26,12 @@ function emptyLedger() {
 }
 
 /** Split one message into numbered sentences. Paragraph breaks always split; sentence ends split inside a paragraph. */
-function segment(text) {
+function segment(text, strict = false) {
   const out = [];
   for (const paragraph of String(text || '').split(/\n+/)) {
     const trimmed = paragraph.trim();
     if (!trimmed) continue;
-    for (const part of splitSentences(trimmed)) {
+    for (const part of splitSentences(trimmed, strict)) {
       const sentence = part.trim();
       if (sentence) out.push(sentence);
     }
@@ -44,9 +44,10 @@ const ENDERS = new Set(['.', '!', '?', '…', '。', '？', '！']);
 const CLOSERS_AFTER_END = new Set(['”', '"', '’', "'", ')', ']', '」', '』']);
 
 /** Split at sentence ends followed by a space, but never inside a quote or parentheses. */
-function splitSentences(paragraph) {
+function splitSentences(paragraph, strictOnly = false) {
   const strict = splitSentencesWith(paragraph, false);
-  if (!strict.unclosed) return strict.parts;
+  // strictOnly: the reading before v0.11.48, kept so lines saved from it can be recognised (never used to number).
+  if (strictOnly || !strict.unclosed) return strict.parts;
   // Only a paragraph the strict reading leaves with an unclosed quote is read again, with " “ ” as one kind of
   // quote mark (a model opens with one and closes with another) and an inch mark (5") ignored. Any other
   // paragraph keeps exactly the split it always had, so saved sentence numbers do not move.
@@ -2153,6 +2154,7 @@ module.exports = {
   emptyLedger,
   hashText,
   segment,
+  splitSentences,
   prepareMessages,
   planBatches,
   buildPrompt,

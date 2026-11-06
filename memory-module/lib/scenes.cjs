@@ -874,6 +874,138 @@ function attachTranslations(store, messages) {
   return changed;
 }
 
+/**
+ * Quotes saved as pieces of a line. Before v0.11.48 a paragraph with mismatched quote marks (opened with " and closed
+ * with ”, or the reverse, or an inch mark before it) was split at every period, so a saved quote could be one piece of
+ * a line ("Andiamo.") while the message holds the whole line with its translation. Such a piece is replaced by the whole
+ * line, read the same way as any other quote (original in `text`, translation in `translation`), and its pointer
+ * moves to the line's sentence. Several pieces of one line become one quote (the first one's speaker and listener stay).
+ *
+ * No model is asked. Only a quote whose message still exists with the same id, whose text is exactly one piece the
+ * old reading made of a paragraph that is now read differently, and that lies inside exactly one spoken sentence of
+ * that paragraph, is changed. Quotes corrected by hand, scenes edited by hand and every other quote are left alone.
+ * A repaired quote that had been checked and whose check still holds keeps being "checked" (its fingerprint is
+ * re-taken), unless it now breaks a rule. Running it again changes nothing. Returns { repaired, merged }.
+ */
+function repairFragmentQuotes(store, messages) {
+  const result = { repaired: 0, merged: 0 };
+  const byId = new Map(messages.map((m) => [m.id, m]));
+  const index = L.indexBatch(messages);
+  const flat = (text) => String(text || '').replace(/\s+/g, ' ').trim();
+  // Per message: the paragraphs whose old and present readings differ.
+  const plans = new Map();
+  const planOf = (m) => {
+    if (!plans.has(m.id)) {
+      const changed = [];
+      for (const paragraph of String(m.content || '').split(/\n+/)) {
+        const trimmed = paragraph.trim();
+        if (!trimmed) continue;
+        const clean = (parts) => parts.map((s) => s.trim()).filter(Boolean);
+        const older = clean(L.splitSentences(trimmed, true));
+        const newer = clean(L.splitSentences(trimmed));
+        if (JSON.stringify(older) !== JSON.stringify(newer)) changed.push({ older, newer });
+      }
+      plans.set(m.id, changed);
+    }
+    return plans.get(m.id);
+  };
+  const lineOf = (sentence) => flat(parseLine(sentence).text);
+  /** Where the whole line of a saved piece is: { sentence (1-based), paired } or null. */
+  const wholeLine = (q, m) => {
+    const piece = flat(q.text);
+    if (piece.length < 2) return null;
+    const holdsPiece = (older, j) => [older[j], isTranslation(older[j + 1]) ? `${older[j]} ${older[j + 1]}` : null]
+      .some((c) => c && (lineOf(c) === piece || flat(splitBilingual(lineOf(c)).text) === piece));
+    const found = [];
+    for (const { older, newer } of planOf(m)) {
+      if (!older.some((_, j) => holdsPiece(older, j))) continue;
+      for (const s of newer) {
+        if (!isSpoken(lineOf(s))) continue;
+        const at = m.sentences.reduce((list, x, i) => (x.trim() === s ? [...list, i] : list), []);
+        const pointer = at.length === 1 && index.get(`${m.number}.${at[0] + 1}`);
+        if (!pointer) continue;
+        // The line as any quote holds it: with the translation that follows it, when there is one.
+        const paired = bilingualQuote(pointer, index);
+        const whole = lineOf(paired.text);
+        if (whole.length > piece.length && whole.includes(piece)) found.push(paired);
+      }
+    }
+    return found.length === 1 ? { paired: found[0] } : null;
+  };
+  const quotesOf = (scene) => [...(scene.events || []).map((e) => e.quotes), scene.loose || []].filter(Array.isArray);
+  const everyQuote = (scene) => quotesOf(scene).flat();
+  const fingerprints = (scene) => {
+    const copy = structuredClone(scene);
+    const mine = everyQuote(copy);
+    const order = new Map(messages.map((m, i) => [m.number, i]));
+    const ctx = { titles: titleMap(store), personas: store.personas || [], byId };
+    const { names, lines } = sceneLines(store, copy, messages, new Map(messages.map((m) => [m.number, m])), order, ctx);
+    const out = new Map();
+    for (const line of lines) {
+      if (line.stale) continue;
+      const context = lineContext(line, messages, order).context;
+      out.set(mine.indexOf(line.q), { fp: attributionFingerprint({ m: line.m, q: line.q, names, facts: line.facts, context }), broken: ruleViolations(line.q, line.facts, names).length > 0 });
+    }
+    return out;
+  };
+
+  for (const scene of store.scenes || []) {
+    if (scene.edited) continue;
+    // Plan first, change after: nothing is touched unless a piece is found.
+    const plan = [];
+    for (const q of everyQuote(scene)) {
+      if (q.manual || !q.messageId) continue;
+      const m = byId.get(q.messageId);
+      if (!m || m.number !== q.number) continue;
+      const whole = wholeLine(q, m);
+      if (whole) plan.push({ q, whole });
+    }
+    if (!plan.length) continue;
+    const checked = plan.some(({ q }) => q.attributionFp);
+    let before = null;
+    if (checked) { try { before = fingerprints(scene); } catch { before = null; } }
+    const flatBefore = everyQuote(scene);
+    const was = new Map(plan.map(({ q }) => [q, { fp: before?.get(flatBefore.indexOf(q)), saved: q.attributionFp }]));
+    const repaired = new Set();
+    for (const { q, whole } of plan) {
+      const line = parseLine(whole.paired.text);
+      setQuoteText(q, line.text);
+      q.sentence = whole.paired.sentence;
+      if (!q.by && line.by) q.by = line.by;
+      repaired.add(q);
+      result.repaired++;
+    }
+    // Pieces of one line become one quote: the first stays; a quote that already holds the line (by hand too) stays instead.
+    for (const quotes of quotesOf(scene)) {
+      const holders = new Set(quotes.filter((q) => !repaired.has(q)).map((q) => `${q.number}.${q.sentence}`));
+      const seen = new Set();
+      for (let i = 0; i < quotes.length; i++) {
+        const q = quotes[i];
+        if (!repaired.has(q)) continue;
+        const key = `${q.number}.${q.sentence}`;
+        if (holders.has(key) || seen.has(key)) {
+          quotes.splice(i--, 1);
+          repaired.delete(q);
+          result.merged++;
+        } else seen.add(key);
+      }
+    }
+    if (checked && before) {
+      try {
+        const after = fingerprints(scene);
+        const flatAfter = everyQuote(scene);
+        for (const q of repaired) {
+          const { fp, saved } = was.get(q);
+          const now = after.get(flatAfter.indexOf(q));
+          // The earlier check still held for this line before the repair, and nothing it depends on broke a rule.
+          if (saved && fp === saved && now && !now.broken) q.attributionFp = now.fp;
+        }
+      } catch {}
+    }
+  }
+  return result;
+}
+
 /* ---------- deterministic attribution rules ---------- */
 // Checks that do not depend on the model: who is called by name inside a line, who is only mentioned as someone to
 // pass a message on to, which narration names the speaker, and a reply to the line right before it.
@@ -2913,6 +3045,7 @@ module.exports = {
   applyLearned,
   parseScenesReply,
   attachTranslations,
+  repairFragmentQuotes,
   orderSceneEvents,
   attributionDiagnostics,
   confirmAttributionResults,
