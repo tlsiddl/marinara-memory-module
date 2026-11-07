@@ -298,7 +298,7 @@ const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const fn = (name) => {
   const start = source.indexOf(`  function ${name}(`);
   assert.ok(start >= 0, name);
-  return vm.runInNewContext(`(${source.slice(start, source.indexOf('\n  }\n', start) + 4).trim()})`, { esc });
+  return vm.runInNewContext(`(${source.slice(start, source.indexOf('\n  }\n', start) + 4).trim()})`, { esc, ...require('./ui-shared.cjs')(source, esc) });
 };
 
 test('screen: a banner with the count, both facts side by side, four buttons; answered ones show the answer and "다시 열기"', () => {
@@ -312,7 +312,7 @@ test('screen: a banner with the count, both facts side by side, four buttons; an
   const html = paper(c, { scenes: [{ id: 'S1', title: '첫 장면' }] });
   assert.match(html, /서로 다른 기록 1건/);
   assert.match(html, /도하 · 한쪽은 아니라고 함/);
-  assert.match(html, /앞 · F1 · S1 첫 장면<\/small><p>&lt;b&gt;커피&lt;\/b&gt;를 마신다<\/p>/, 'escaped, with the scene');
+  assert.match(html, /앞 · F1<\/small><p>&lt;b&gt;커피&lt;\/b&gt;를 마신다<\/p><div class="record-links">[^]*data-goto-scene="S1"><span class="chip-id">S1<\/span><span class="chip-title">첫 장면<\/span>/, 'escaped, with the scene');
   assert.match(html, /뒤 · F2<\/small><p>커피를 안 마신다/);
   for (const [answer, label] of [['keepA', '앞의 것 유지'], ['keepB', '뒤의 것 유지'], ['both', '둘 다 맞음'], ['dismiss', '무시']]) assert.match(html, new RegExp(`data-id="C1" data-answer="${answer}">${label}`), answer);
   assert.match(html, /내 답: 뒤의 것을 남김 <button class="ghost" data-act="conflictAnswer" data-id="C2" data-answer="reopen">다시 열기/);

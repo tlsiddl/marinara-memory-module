@@ -152,7 +152,33 @@ function markBroken(file, error, fallback, replaceable, reason = 'broken') {
   return fallback;
 }
 
+/**
+ * Files read often and changed rarely (the dialogue check record, the chosen memories) are parsed again only when
+ * the file's modified time or size moved. What comes back is shared: callers must not change it.
+ */
+const jsonMemo = new Map();
+const NOT_READ = Symbol('not read');
+function fileStamp(file) {
+  try {
+    const s = fs.statSync(file, { bigint: true });
+    return `${s.mtimeNs}:${s.size}`;
+  } catch {
+    return '';
+  }
+}
+function readJsonMemo(file, fallback, options) {
+  const stamp = fileStamp(file);
+  if (!stamp) { jsonMemo.delete(file); return readJson(file, fallback, options); }
+  const hit = jsonMemo.get(file);
+  if (hit && hit.stamp === stamp) return hit.value;
+  const value = readJson(file, NOT_READ, options);
+  if (value === NOT_READ) return fallback;
+  jsonMemo.set(file, { stamp, value });
+  return value;
+}
+
 function writeJson(file, value) {
+  jsonMemo.delete(file);
   if (path.dirname(file) === CHAT_DIR && goneChats.has(roomOfFile(path.basename(file)))) throw Error('삭제된 방의 기억은 저장하지 않습니다.');
   const broken = brokenFiles.get(file);
   if (broken && !broken.replaceable && fs.existsSync(file)) {
@@ -190,6 +216,12 @@ function saveLedger(chatId, ledger) {
 const windows = new Map();
 const scenesFile = (chatId) => path.join(CHAT_DIR, `${safeChatId(chatId)}.scenes.json`);
 const sceneCache = new Map();
+// A stamp that moves every time the room's scenes are saved or replaced: jobs compare it instead of serializing the
+// whole store to learn whether anyone else wrote the scenes in the meantime.
+const sceneStamps = new Map();
+let sceneStampCounter = 0;
+const sceneStamp = (chatId) => sceneStamps.get(chatId) || 0;
+const touchScenes = (chatId) => sceneStamps.set(chatId, ++sceneStampCounter);
 
 function loadScenes(chatId) {
   if (sceneCache.has(chatId)) return sceneCache.get(chatId);
@@ -202,6 +234,7 @@ function saveScenes(chatId, store) {
   store.updatedAt = new Date().toISOString();
   writeJson(scenesFile(chatId), store);
   sceneCache.set(chatId, store);
+  touchScenes(chatId);
 }
 
 // The room's name table: other names each person goes by, and the last renames (for undo).
@@ -485,14 +518,14 @@ function presentPeople(chatId, scenes) {
 }
 
 const selectedFile = chatId => path.join(CHAT_DIR, `${safeChatId(chatId)}.selected.json`);
-function loadSelected(chatId) {
-  const file = selectedFile(chatId), data = supported(file, readJson(file, null), 1);
+function loadSelected(chatId, { readonly = false } = {}) {
+  const file = selectedFile(chatId), data = supported(file, readonly ? readJsonMemo(file, null) : readJson(file, null), 1);
   if (data && (!Array.isArray(data.items) || data.version !== 1)) throw Error('선택 기억 파일 형식을 확인할 수 없습니다.');
   return data || {version: 1, items: []};
 }
 const selectedViews = new Map();
 function selectedForView(chatId, messages) {
-  const items = loadSelected(chatId).items.map(x => ({...x, stale: Selected.stale(x, messages)}));
+  const items = loadSelected(chatId, { readonly: true }).items.map(x => ({...x, stale: Selected.stale(x, messages)}));
   selectedViews.set(chatId, items); return items;
 }
 
@@ -617,7 +650,7 @@ async function inheritBranch(sourceId, targetId) {
       }
     } catch (error) {
       for (const file of written) fs.rmSync(file, { force: true });
-      cache.delete(targetId); sceneCache.delete(targetId); vectorCache.delete(targetId); addressCache.delete(targetId); stateCache.delete(targetId); placesCache.delete(targetId); conflictsCache.delete(targetId); keepsakesCache.delete(targetId); trackersCache.delete(targetId); recallPrefsCache.delete(targetId);
+      cache.delete(targetId); sceneCache.delete(targetId); touchScenes(targetId); vectorCache.delete(targetId); addressCache.delete(targetId); stateCache.delete(targetId); placesCache.delete(targetId); conflictsCache.delete(targetId); keepsakesCache.delete(targetId); trackersCache.delete(targetId); recallPrefsCache.delete(targetId);
       throw error;
     }
     log(`branch ${sourceId} -> ${targetId}: inherited ${result.matched} message(s), ${result.scenes?.scenes.length || 0} scene(s)${result.ledgerReset ? '; old fork: ledger will be read again' : ''}`);
@@ -698,6 +731,7 @@ function removeRoomFiles(chatId) {
 /** Everything held in memory for one room (not the files). The next read loads from disk again. */
 function clearRoomCaches(chatId) {
   for (const map of [cache, windows, sceneCache, namesCache, addressCache, stateCache, placesCache, conflictsCache, keepsakesCache, trackersCache, recallPrefsCache, selectedViews, vectorCache, chatLangs, replyLedgers, translationCache, displayTranslationStatus, preparing, replyViews, speakerColors, recalls, turnQuery, storyDays, storyNow]) map.delete(chatId);
+  touchScenes(chatId);
   for (const key of [...translating.keys()]) if (String(key).startsWith(`${chatId}:`)) translating.delete(key);
 }
 
@@ -1742,9 +1776,14 @@ function keptAttributionRun(run) {
   return { ...rest, entries: kept, dropped: listed.length - kept.length, summary: [...byScene.values()].sort((a, b) => order(a.scene) - order(b.scene)), notes: run.notes.slice(-20) };
 }
 function loadAttributionLog(chatId) {
-  const data = readJson(attributionLogFile(chatId), null, { replaceable: true });
+  const data = readJsonMemo(attributionLogFile(chatId), null, { replaceable: true });
   return data && data.version === 1 && Array.isArray(data.runs) ? data : { version: 1, runs: [] };
 }
+function threadStats(ledger) {
+  const open = (ledger?.threads || []).filter((t) => t.status === 'open');
+  return { open: open.length, emotion: open.filter((t) => t.kind === 'emotion').length, promise: open.filter((t) => t.kind === 'promise').length };
+}
+const threadsStamp = (ledger) => `${ledger?.updatedAt || ''}:${(ledger?.threads || []).length}`;
 function saveAttributionRun(chatId, run) {
   // A run that only met lines whose source changed is not worth pushing an earlier check out of the record.
   const moved = (r) => new Set((r?.entries || []).filter((x) => x.source === 'rule' && x.decision === 'skipped').map((x) => `${x.number}.${x.sentence}.${x.rule}`));
@@ -1776,9 +1815,9 @@ async function reviewAttributions(chatId, store, messages, getModel, job, reason
   job.attributionProgress = counts;
   let changedUnderneath = false;
   // What this check last saw on disk: anything else that saves the scenes in between makes this copy stale.
-  let seen = JSON.stringify(loadScenes(chatId));
-  const unchanged = () => JSON.stringify(loadScenes(chatId)) === seen;
-  const save = () => { saveScenes(chatId, store); seen = JSON.stringify(store); };
+  let seen = sceneStamp(chatId);
+  const unchanged = () => sceneStamp(chatId) === seen;
+  const save = () => { saveScenes(chatId, store); seen = sceneStamp(chatId); };
   const progress = () => { job.stage = `대사 화자와 상대 확인 · 확인 ${counts.reviewed}/${counts.toReview} · 건너뜀 ${counts.skipped + counts.settled} · 전체 ${counts.total}`; };
   const rulePass = (last = false) => {
     const ruled = S.enforceAttributionRules(store, messages);
@@ -1979,7 +2018,7 @@ function rebuildChapters(chatId) {
       checkFiles(chatId);
       const original = loadScenes(chatId);
       if (!original) throw Error('아직 장면이 없습니다.');
-      const originalSnapshot = JSON.stringify(original);
+      const originalStamp = sceneStamp(chatId);
       const store = structuredClone(original);
       const before = (store.chapters || []).length;
       store.chapters = [];
@@ -1989,7 +2028,7 @@ function rebuildChapters(chatId) {
       const model = { ...(await memoryModel()), signal: job.abort.signal, lang: await writeLanguageOf(chatId) };
       job.calls = await condense(chatId, store, model, job, { maxCalls: Infinity, chaptersOnly: true, staged: true });
       if (job.cancel) throw Error('중단했습니다.');
-      if (JSON.stringify(loadScenes(chatId)) !== originalSnapshot) throw Error('정리하는 동안 장면이 변경되어 기존 챕터를 유지했습니다. 다시 시도해 주세요.');
+      if (sceneStamp(chatId) !== originalStamp) throw Error('정리하는 동안 장면이 변경되어 기존 챕터를 유지했습니다. 다시 시도해 주세요.');
       saveScenes(chatId, store);
       log(`chat ${chatId}: chapters rebuilt (${before} → ${(store.chapters || []).length})`);
       job.state = 'done';
@@ -3064,9 +3103,13 @@ async function routes(app) {
       translationPrep: (maybePrepareTranslation(chatId), prepareStatus(chatId)),
       job,
       sceneJob,
-      attributionLog: loadAttributionLog(chatId).runs,
+      // The record and the chosen memories are large: they have their own routes, fetched when their screen opens
+      // (the stamps tell the screen when what it holds is out of date).
+      attributionRuns: loadAttributionLog(chatId).runs.length,
+      attributionStamp: fileStamp(attributionLogFile(chatId)),
       speakerTags: speakerTagsOn(chatId),
-      selectedMemories: fs.existsSync(selectedFile(chatId)) ? selectedForView(chatId, await chatMessages(chatId)) : [],
+      selectedCount: fs.existsSync(selectedFile(chatId)) ? loadSelected(chatId, { readonly: true }).items.length : 0,
+      selectedStamp: fileStamp(selectedFile(chatId)),
       speakerNames: speakerNamesOn(chatId),
       organize: settings().chats?.[chatId]?.organize || { npcCoverage: 'standard', quoteMode: 'dialogue', detailLevel: 'standard' },
       routine: ledger ? L.renderRoutine(ledger, storyNow.get(chatId) || ledger.storyTime || null) : '',
@@ -3090,7 +3133,9 @@ async function routes(app) {
       })(),
       summary: summary(ledger),
       scenes: { count: scenes?.scenes.length || 0, chapters: scenes?.chapters?.length || 0, facts: scenes ? S.liveFacts(scenes).length : 0, coveredThrough: scenes?.scenes.at(-1)?.end ?? null, firstInside: windows.get(chatId) ?? scenes?.window?.firstInside ?? null },
-      threads: ledger?.threads || [],
+      // The open items carry their evidence quotes (most of this response): /chats/:id/threads, for the screens that list them.
+      threadStats: threadStats(ledger),
+      threadsStamp: threadsStamp(ledger),
       storyDate: storyToday(chatId, ledger),
       deadlines: ledger ? L.deadlineList(ledger, storyToday(chatId, ledger)) : [],
       lastNumber: ledger?.lastNumber ?? null,
@@ -3098,6 +3143,12 @@ async function routes(app) {
       ...(featureOn(chatId, 'trackers') ? { trackerPick: trackerPick(chatId) } : {}),
       recallPrefs: (() => { const p = Rp.followMerges(loadRecallPrefs(chatId), scenes); return { pinned: p.pinned, excluded: p.excluded }; })(),
     };
+  }));
+  app.get('/chats/:id/threads', guard(async (req) => ({ threads: loadLedger(safeChatId(req.params.id))?.threads || [] })));
+  app.get('/chats/:id/attribution-log', guard(async (req) => ({ runs: loadAttributionLog(safeChatId(req.params.id)).runs })));
+  app.get('/chats/:id/selected-memories', guard(async (req) => {
+    const chatId = safeChatId(req.params.id);
+    return { items: fs.existsSync(selectedFile(chatId)) ? selectedForView(chatId, await chatMessages(chatId)) : [] };
   }));
   // 왜 이 기억이 들어갔나: a full extra memory render, so only on demand (the 주입 확인 tab), never inside GET /chats/:id.
   app.get('/chats/:id/recall-report', guard(async (req) => recallReport(safeChatId(req.params.id))));

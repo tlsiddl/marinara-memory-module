@@ -519,7 +519,7 @@ const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const fn = (name) => {
   const start = source.indexOf(`  function ${name}(`);
   assert.ok(start >= 0, name);
-  return vm.runInNewContext(`(${source.slice(start, source.indexOf('\n  }\n', start) + 4).trim()})`, { esc });
+  return vm.runInNewContext(`(${source.slice(start, source.indexOf('\n  }\n', start) + 4).trim()})`, { esc, ...require('./ui-shared.cjs')(source, esc) });
 };
 
 test('screen: a card per person with editable fields, locks and the scene link', () => {
@@ -537,7 +537,7 @@ test('screen: a card per person with editable fields, locks and the scene link',
   assert.match(html, /value="&lt;b&gt;셔츠&lt;\/b&gt;"/, 'escaped');
   assert.equal((html.match(/data-act="stateUnlock"/g) || []).length, 1, 'only the locked field has the button');
   assert.match(html, /data-act="stateUnlock" data-name="하린" data-field="outfit">자동으로 되돌리기/);
-  assert.match(html, /data-goto-scene="S2">S2 · 정원 &lt;장면&gt;/);
+  assert.match(html, /data-goto-scene="S2"><span class="chip-id">S2<\/span><span class="chip-title">정원 &lt;장면&gt;<\/span>[^]*<small>기준 장면<\/small>/);
   assert.match(html, /근거 #5\.1/);
   assert.match(html, /자동 기록 없음/);
   assert.match(html, /id="stateNewName" value="새 사람"/);
@@ -559,7 +559,7 @@ test('screen: a section per place with description, layout, features, other name
   assert.match(html, /data-place-field="aliases" value="사무실"/);
   assert.equal((html.match(/data-act="placeUnlock"/g) || []).length, 1);
   assert.match(html, /data-place-merge="pl_1"[^>]*>[^]*<option value="pl_2">정원/);
-  assert.match(html, /2개 장면 · 처음 <a[^>]*data-goto-scene="S1">S1 · 집무실/);
+  assert.match(html, /2개 장면<\/p><div class="record-links">[^]*data-goto-scene="S1"><span class="chip-id">S1<\/span><span class="chip-title">집무실<\/span>[^]*<small>처음<\/small>/);
   assert.match(html, /장면에 연결되지 않은 장소/);
   assert.match(html, /id="placeNewName"/);
   assert.match(paper(w, {}, 'placeDelete:pl_2'), /한 번 더 누르면 지웁니다/);

@@ -154,7 +154,10 @@ input::placeholder,textarea::placeholder{color:var(--im-muted);opacity:1}.global
 /* Links between records: soft chips and rows instead of underlined text. */
 a.record-link{text-decoration:none;color:inherit;cursor:pointer;transition:background .15s,border-color .15s,transform .15s}
 .record-links{display:flex;flex-wrap:wrap;gap:8px 14px;margin:6px 0 12px}
-.chip-wrap{display:inline-flex;align-items:center;gap:6px}
+.chip-wrap{display:inline-flex;align-items:center;gap:6px;max-width:100%;min-width:0}
+.chip-title{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.record-links+.hint,.world-card .record-links{margin-top:4px}
+@media(max-width:720px){.record-links{flex-direction:column;align-items:stretch}.record-links .chip-wrap{display:flex;width:100%}.record-links a.chip{flex:1 1 auto;min-width:0}.record-links .chip-wrap small{flex:none}}
 .chip-wrap small{font-size:10px;color:var(--im-muted)}
 a.chip{display:inline-flex;align-items:center;gap:6px;max-width:100%;padding:4px 8px 4px 5px;border-radius:999px;background:var(--im-soft);color:var(--im-accent);font-size:11px;font-weight:600;border:1px solid transparent}
 a.chip:hover{background:var(--im-button-hover);border-color:var(--im-field-border)}
