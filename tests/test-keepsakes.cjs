@@ -363,7 +363,7 @@ const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const fn = (name) => {
   const start = source.indexOf(`  function ${name}(`);
   assert.ok(start >= 0, name);
-  return vm.runInNewContext(`(${source.slice(start, source.indexOf('\n  }\n', start) + 4).trim()})`, { esc });
+  return vm.runInNewContext(`(${source.slice(start, source.indexOf('\n  }\n', start) + 4).trim()})`, { esc, ...require('./ui-shared.cjs')(source, esc) });
 };
 
 test('screen: a card per item with editable fields, the status choice, locks, history, merge and delete', () => {
@@ -383,8 +383,8 @@ test('screen: a card per item with editable fields, the status choice, locks, hi
   assert.match(html, /data-keep-field="status"[^>]*>(<option[^>]*>[^<]*<\/option>){5}<\/select>/);
   assert.equal((html.match(/data-act="keepUnlock"/g) || []).length, 1, 'only the locked field has the button');
   assert.match(html, /data-act="keepUnlock" data-id="ks_1" data-field="meaning">자동으로 되돌리기/);
-  assert.match(html, /처음 <a[^>]*data-goto-scene="S1">S1 · 선물 &lt;장면&gt;<\/a> \(24-05-01\)/);
-  assert.match(html, /<li><a[^>]*data-goto-scene="S1">[^<]*<\/a> · 건네받았다<\/li>/);
+  assert.match(html, /data-goto-scene="S1"><span class="chip-id">S1<\/span><span class="chip-title">선물 &lt;장면&gt;<\/span>[^]*<small>처음<\/small>[^]*처음 얻은 날 24-05-01/);
+  assert.match(html, /<li>건네받았다<div class="record-links">[^]*data-goto-scene="S1"/);
   assert.match(html, /장면에 연결되지 않은 물건/);
   assert.match(html, /data-keep-merge="ks_1"[^>]*>[^]*<option value="ks_2">나침반/);
   assert.match(html, /id="keepNewName" value="새 물건"/);

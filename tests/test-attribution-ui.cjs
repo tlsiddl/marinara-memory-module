@@ -55,7 +55,9 @@ test('the overview shows the stored dialogue check record while no job runs', as
     { scene: 'S1', number: 1, sentence: 9, source: 'rule', decision: 'applied', rule: 'reply', before: { by: '렌조', to: null }, after: { by: '렌조', to: '니코' } },
     { scene: 'S1', number: 1, sentence: 11, before: { by: '니코', to: '렌조' }, first: { by: '니코', to: ['렌조', '도라'], byReason: 'narration', toRejected: ['evidence'] }, second: null, asked: 1, flags: [], decision: 'unchanged', rule: 'single-clean,kept-listener', fired: ['kept-listener'], rejected: ['listener-evidence'], after: { by: '니코', to: '렌조·도라' } },
   ], counts: { total: 30, skipped: 25, settled: 2, reviewed: 3, second: 1, calls: 2 } };
-  const info = { enabled: true, threads: [], scenes: { count: 1 }, job: { state: 'done' }, sceneJob: { state: 'done' }, attributionLog: [run] };
+  // The record is not part of the room data: only its count and stamp are; the runs come from their own route.
+  const info = { enabled: true, threadStats: { open: 0, emotion: 0, promise: 0 }, scenes: { count: 1 }, job: { state: 'done' }, sceneJob: { state: 'done' }, attributionRuns: 1, attributionStamp: 'a' };
+  const fetched = [];
   const elements = new Map();
   const document = {
     createElement() { const e = new Element(); e.attachShadow = () => (e.shadowRoot = new Shadow(e)); return e; },
@@ -65,7 +67,7 @@ test('the overview shows the stored dialogue check record while no job runs', as
   };
   let cleanup;
   t.after(() => cleanup?.());
-  const fetch = async (url) => ({ ok: true, status: 200, text: async () => JSON.stringify(url.endsWith('/chats') ? [{ id: 'room', name: '시험 방', enabled: true }] : url.includes('/scenes') ? S.emptyStore() : url.includes('/translations') ? { items: [] } : info) });
+  const fetch = async (url) => (fetched.push(url), { ok: true, status: 200, text: async () => JSON.stringify(url.endsWith('/attribution-log') ? { runs: [run] } : url.endsWith('/chats') ? [{ id: 'room', name: '시험 방', enabled: true }] : url.includes('/scenes') ? S.emptyStore() : url.includes('/translations') ? { items: [] } : info) });
   const storage = { getItem: (k) => k === 'marinara-active-chat-id' ? 'room' : null, setItem() {}, removeItem() {} };
   const context = { window: { matchMedia: () => ({ matches: false }), dispatchEvent() {} }, document, fetch, localStorage: storage, marinara: { onCleanup: (fn) => { cleanup = fn; } }, addEventListener() {}, CustomEvent: class {}, setTimeout, clearTimeout, innerWidth: 390, innerHeight: 844, console };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../deliverable/extension.js'), 'utf8'), context);
@@ -76,6 +78,12 @@ test('the overview shows the stored dialogue check record while no job runs', as
   const content = root.querySelector('#content');
   for (let i = 0; i < 100 && !String(content.innerHTML || '').includes('대사 확인 기록'); i++) await new Promise((r) => setTimeout(r, 10));
   assert.match(content.innerHTML, /대사 확인 기록 \(1회\)/);
+  assert.ok(!fetched.some((u) => u.endsWith('/attribution-log')), 'not fetched while the record is folded');
+  assert.match(content.innerHTML, /불러오는 중…/);
+  // unfolding it fetches the record once
+  for (const f of root.listeners.toggle || []) f({ target: { dataset: { list: 'attrlog' }, open: true } });
+  for (let i = 0; i < 100 && !String(content.innerHTML || '').includes('첫 판단'); i++) await new Promise((r) => setTimeout(r, 10));
+  assert.equal(fetched.filter((u) => u.endsWith('/attribution-log')).length, 1);
   assert.match(content.innerHTML, /첫 판단: 도라 → 파비오 \(대사 안에서 불린 사람을 화자로 답함\)/);
   assert.match(content.innerHTML, /다시 물음: 파비오 → 도라/);
   assert.match(content.innerHTML, /앞 대사에 대한 대답/);

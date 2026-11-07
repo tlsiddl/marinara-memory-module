@@ -468,7 +468,7 @@ const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const fn = (name, globals = {}) => {
   const start = source.indexOf(`  function ${name}(`);
   assert.ok(start >= 0, name);
-  return vm.runInNewContext(`(${source.slice(start, source.indexOf('\n  }\n', start) + 4).trim()})`, { esc, ...globals });
+  return vm.runInNewContext(`(${source.slice(start, source.indexOf('\n  }\n', start) + 4).trim()})`, { esc, ...require('./ui-shared.cjs')(source, esc), ...globals });
 };
 const constant = (name) => {
   const start = source.indexOf(`  const ${name} = `);

@@ -36,6 +36,28 @@
   let roomLoadSequence = 0;
   // Tabs that show scenes, facts or links into them (the open-items tab links each item to its scenes).
   const needsScenes = () => ['scenes', 'search', 'facts', 'ledger'].includes(tab);
+  // The open items carry their evidence quotes (most of the room data): fetched with the scenes, only for the tabs that list them.
+  const needsThreads = () => ['scenes', 'search', 'ledger'].includes(tab);
+  let threadsData = null;
+  let threadsRoom = '';
+  let threadsKey = '';
+  const threadsFresh = () => !needsThreads() || Array.isArray(info?.threads) || (threadsRoom === room && threadsKey === info?.threadsStamp);
+  const threadList = () => (Array.isArray(info?.threads) ? info.threads : threadsRoom === room && threadsData ? threadsData : []);
+  /** Counts for the overview and the side rail (an older server sends the whole list instead). */
+  const threadStats = () => {
+    if (info?.threadStats) return info.threadStats;
+    const open = (info?.threads || []).filter((t) => t.status === 'open');
+    return { open: open.length, emotion: open.filter((t) => t.kind === 'emotion').length, promise: open.filter((t) => t.kind === 'promise').length };
+  };
+  async function loadThreads(id) {
+    if (Array.isArray(info?.threads) || (threadsRoom === id && threadsKey === info?.threadsStamp)) return;
+    const key = info?.threadsStamp;
+    const t = await api('GET', `/chats/${encodeURIComponent(id)}/threads`);
+    if (room !== id || disposed) return;
+    threadsData = t.threads || [];
+    threadsRoom = id;
+    threadsKey = key;
+  }
   let scenesLoading = false;
   let selectedScene = '';
   /** Which shelf the scenes tab shows: a chapter id, or '' for the scenes not in a chapter yet. */
@@ -178,6 +200,33 @@
     if (room !== id) void ensureRecallReport();
   }
 
+  // The dialogue check record and the chosen memories are large too: fetched only while the overview shows them, and
+  // fetched again when the room data says they changed (their stamp).
+  const lazy = {};
+  const lazyPart = (name) => (lazy[name] ||= { room: '', key: '', data: null, error: '', loading: false });
+  const lazyData = (name) => { const p = lazyPart(name); return p.room === room ? p.data : null; };
+  const lazyError = (name) => { const p = lazyPart(name); return p.room === room ? p.error : ''; };
+  async function ensureLazy(name, route, key) {
+    const p = lazyPart(name);
+    const id = room;
+    if (!id || p.loading || (p.room === id && p.key === key && (p.data || p.error))) return;
+    p.loading = true;
+    try {
+      const data = await api('GET', `/chats/${encodeURIComponent(id)}/${route}`);
+      if (room === id && !disposed) { p.data = data; p.room = id; p.key = key; p.error = ''; }
+    } catch (error) {
+      if (room === id) { p.data = null; p.room = id; p.key = key; p.error = error?.message || String(error); }
+    } finally {
+      p.loading = false;
+      if (!disposed) render();
+    }
+  }
+  function ensureLazyParts() {
+    if (!info || tab !== 'home') return;
+    if (info.selectedCount > 0) void ensureLazy('selected', 'selected-memories', info.selectedStamp);
+    if (info.attributionRuns > 0 && (attributionFilter || openLists.has('attrlog'))) void ensureLazy('attribution', 'attribution-log', info.attributionStamp);
+  }
+
   async function loadRoom(id) {
     const sequence = ++roomLoadSequence;
     if (!id) { info = null; store = null; storeRoom = ''; return; }
@@ -194,6 +243,8 @@
     if (needsWorld()) await loadWorld(id);
     if (sequence !== roomLoadSequence || room !== id || disposed) return;
     if (needsConflicts()) await loadConflicts(id);
+    if (sequence !== roomLoadSequence || room !== id || disposed) return;
+    if (needsThreads()) await loadThreads(id);
     if (sequence !== roomLoadSequence || room !== id || disposed) return;
     if (!needsScenes()) return;
     if (storeRoom !== id || !store) {
@@ -288,15 +339,19 @@
    * running (that action would otherwise swallow the request and leave the tab empty).
    */
   async function ensureScenes() {
-    if (!needsScenes() || !room || (store && storeRoom === room) || scenesLoading) return;
+    if (!needsScenes() || !room || ((store && storeRoom === room) && threadsFresh()) || scenesLoading) return;
     const id = room;
     scenesLoading = true;
     render();
     try {
-      const scenes = await api('GET', `/chats/${encodeURIComponent(id)}/scenes`);
+      if (needsThreads()) await loadThreads(id);
       if (room !== id || disposed) return;
-      store = scenes;
-      storeRoom = id;
+      if (!store || storeRoom !== id) {
+        const scenes = await api('GET', `/chats/${encodeURIComponent(id)}/scenes`);
+        if (room !== id || disposed) return;
+        store = scenes;
+        storeRoom = id;
+      }
       if (selectedScene && !store.scenes.some((x) => x.id === selectedScene)) selectedScene = '';
       if (!selectedScene && selectedGroup === null) selectedScene = store.scenes.at(-1)?.id || '';
     } catch (error) {
@@ -324,14 +379,24 @@
 
   /** A small button that opens a scene in the scene tab. */
   function sceneLink(scene, label = '') {
-    return scene ? `<span class="chip-wrap"><a href="#" class="record-link chip" data-goto-scene="${esc(scene.id)}"><span class="chip-id">${esc(scene.id)}</span>${esc(scene.title)}<span class="chip-arrow">›</span></a>${label ? `<small>${esc(label)}</small>` : ''}</span>` : '';
+    return scene ? `<span class="chip-wrap"><a href="#" class="record-link chip" data-goto-scene="${esc(scene.id)}"><span class="chip-id">${esc(scene.id)}</span><span class="chip-title">${esc(scene.title)}</span><span class="chip-arrow">›</span></a>${label ? `<small>${esc(label)}</small>` : ''}</span>` : '';
   }
+
+  /**
+   * The same link for a scene known only by its id (the people, places and items tabs, trackers): the title comes from
+   * the given id-to-title map, else from the loaded scenes. Always inside .record-links, so the links stack on a phone.
+   */
+  function sceneRef(id, label = '', titles = {}) {
+    if (!id) return '';
+    return sceneLink({ id, title: titles?.[id] || (store?.scenes || []).find((x) => x.id === id)?.title || '' }, label);
+  }
+  const sceneRefs = (...refs) => { const html = refs.filter(Boolean).join(''); return html ? `<div class="record-links">${html}</div>` : ''; };
 
   /** Ledger items that started, changed or ended inside a scene. */
   function threadsIn(scene) {
     const inside = (n) => n != null && scene.start <= n && n <= scene.end;
     const out = [];
-    for (const t of info?.threads || []) {
+    for (const t of threadList()) {
       const how = inside(t.openedAt?.number)
         ? '시작'
         : (t.closed?.evidence || []).some((p) => inside(p.number))
@@ -465,14 +530,17 @@
   }
 
   function selectedMemoriesHtml() {
-    const list = info?.selectedMemories || [];
-    if (!list.length) return '';
-    return `<div class="paper"><h2>직접 선택한 기억 · ${list.length}개</h2><p class="hint">채팅에서 선택해 정리한 기억입니다. 관련된 내용이 나오면 원문과 함께 참고합니다.</p>${list.map(x => `<details><summary>${esc(x.title)}${x.stale ? ' · 원문 변경됨' : ''}</summary><p>${esc(x.summary)}</p>${x.parts.map(p => `<blockquote>${esc(p.text)}</blockquote>`).join('')}<button data-act="deleteSelectedMemory" data-selected-id="${esc(x.id)}">삭제</button></details>`).join('')}</div>`;
+    const loaded = Array.isArray(info?.selectedMemories) ? info.selectedMemories : lazyData('selected')?.items || null;
+    const count = loaded ? loaded.length : info?.selectedCount || 0;
+    if (!count) return '';
+    const list = loaded || [];
+    const wait = loaded ? '' : lazyError('selected') ? `<div class="note">${esc(lazyError('selected'))}</div>` : '<p class="hint">불러오는 중…</p>';
+    return `<div class="paper"><h2>직접 선택한 기억 · ${count}개</h2><p class="hint">채팅에서 선택해 정리한 기억입니다. 관련된 내용이 나오면 원문과 함께 참고합니다.</p>${wait}${list.map(x => `<details><summary>${esc(x.title)}${x.stale ? ' · 원문 변경됨' : ''}</summary><p>${esc(x.summary)}</p>${x.parts.map(p => `<blockquote>${esc(p.text)}</blockquote>`).join('')}<button data-act="deleteSelectedMemory" data-selected-id="${esc(x.id)}">삭제</button></details>`).join('')}</div>`;
   }
 
   function viewHome() {
     if (!info) return emptyRoom();
-    const openCount = (info.threads || []).filter((t) => t.status === 'open').length;
+    const openCount = threadStats().open;
     const job = info.job || {};
     const sj = info.sceneJob || {};
     const rc = info.recall || {};
@@ -598,7 +666,7 @@
       ['챕터', 'chapter', store.chapters || []],
       ['큰 흐름', 'arc', store.arcs || []],
       ['사실', 'fact', store.facts || []],
-      ['미해결·닫힌 기록', 'thread', info?.threads || []],
+      ['미해결·닫힌 기록', 'thread', threadList()],
     ];
     const results = [];
     if (query) for (const [label, kind, records] of groups) for (const record of records) {
@@ -770,8 +838,8 @@
   function conflictsPaper(c, st) {
     if (!c || !Array.isArray(c.conflicts) || !c.conflicts.length) return '';
     const ANSWER = { keepA: '앞의 것을 남김', keepB: '뒤의 것을 남김', both: '둘 다 맞음', dismissed: '무시함' };
-    const scene = (id) => (id ? (st?.scenes || []).find((x) => x.id === id) : null);
-    const side = (label, fid, text, sid) => `<div><small>${label} · ${esc(fid)}${sid ? ` · ${esc(sid)}${scene(sid)?.title ? ` ${esc(scene(sid).title)}` : ''}` : ''}</small><p>${esc(text)}</p></div>`;
+    const titles = Object.fromEntries((st?.scenes || []).map((x) => [x.id, x.title]));
+    const side = (label, fid, text, sid) => `<div><small>${label} · ${esc(fid)}</small><p>${esc(text)}</p>${sceneRefs(sceneRef(sid, '', titles))}</div>`;
     const row = (x) => `<div class="conflict-row" data-cid="${esc(x.id)}"><p class="conflict-head">${esc(x.about)} · ${esc(x.reason)}</p>
       <div class="conflict-pair">${side('앞', x.a, x.aText, x.aScene)}${side('뒤', x.b, x.bText, x.bScene)}</div>
       ${x.status === 'open'
@@ -811,7 +879,7 @@
 
   function viewLedger() {
     if (!info) return emptyRoom();
-    const threads = info.threads || [];
+    const threads = threadList();
     const open = threads.filter((t) => t.status === 'open');
     const closed = threads.filter((t) => t.status !== 'open');
     const groups = KIND_ORDER.map((k) => [k, open.filter((t) => t.kind === k)]).filter(([, l]) => l.length);
@@ -951,7 +1019,7 @@
       const scene = c.asOf?.scene;
       return `<div class="world-card" data-card="${esc(c.name)}"><h3>${esc(c.name)}</h3>
         ${fields.map((f) => field(c, f)).join('')}
-        <p class="hint">${scene ? `기준 장면 <a href="#" class="record-link" data-goto-scene="${esc(scene)}">${esc(scene)}${titles[scene] ? ` · ${esc(titles[scene])}` : ''}</a> · ${esc(c.asOf?.number ?? '')}번 메시지까지` : '자동 기록 없음(직접 적은 카드)'}${marks ? ` · 근거 ${marks}` : ''}</p>
+        ${sceneRefs(sceneRef(scene, '기준 장면', titles))}<p class="hint">${scene ? `${esc(c.asOf?.number ?? '')}번 메시지까지` : '자동 기록 없음(직접 적은 카드)'}${marks ? ` · 근거 ${marks}` : ''}</p>
         <div class="buttons"><button class="ghost" data-act="stateReset" data-name="${esc(c.name)}">${armedNow === `stateReset:${c.name}` ? '한 번 더 누르면 지웁니다' : '카드의 직접 고침 모두 지우기'}</button></div></div>`;
     };
     return `<div class="paper"><h2>인물 현재 상태 · ${cards.length}명</h2>
@@ -970,13 +1038,12 @@
       const locked = (k) => p.sources?.[k] === 'user';
       const input = (key, label, value, hint) => `<div class="world-field"><span>${label}</span><input data-place-id="${esc(p.id)}" data-place-field="${key}" value="${esc(value)}" placeholder="${hint}" aria-label="${esc(p.name)} ${label}">${key !== 'aliases' && locked(key) ? `<button class="ghost lock" data-act="placeUnlock" data-id="${esc(p.id)}" data-field="${key}">자동으로 되돌리기</button><small>직접 고침</small>` : ''}</div>`;
       const others = list.filter((x) => x.id !== p.id);
-      const seen = (at) => (at?.scene ? `<a href="#" class="record-link" data-goto-scene="${esc(at.scene)}">${esc(at.scene)}${titles[at.scene] ? ` · ${esc(titles[at.scene])}` : ''}</a>` : '');
       return `<div class="world-card" data-place="${esc(p.id)}"><h3>${esc(p.name)}</h3>
         ${input('description', '모습', p.description || '', '한 구절')}
         ${input('layout', '배치', p.layout || '', '한 구절')}
         ${input('features', '특징', (p.features || []).join(' · '), '· 로 나눠 적기 (자동으로는 최근 12개까지)')}
         ${input('aliases', '다른 이름', (p.aliases || []).join(' · '), '같은 곳의 다른 이름, · 로 나눠 적기')}
-        <p class="hint">${(p.scenes || []).length ? `${esc(p.scenes.length)}개 장면 · 처음 ${seen(p.firstSeen)} · 마지막 ${seen(p.lastSeen)}` : '장면에 연결되지 않은 장소'}</p>
+        <p class="hint">${(p.scenes || []).length ? `${esc(p.scenes.length)}개 장면` : '장면에 연결되지 않은 장소'}</p>${(p.scenes || []).length ? sceneRefs(sceneRef(p.firstSeen?.scene, '처음', titles), sceneRef(p.lastSeen?.scene, '마지막', titles)) : ''}
         <div class="routine-row">${others.length ? `<select data-place-merge="${esc(p.id)}" aria-label="합칠 장소"><option value="">다른 장소에 합치기…</option>${others.map((o) => `<option value="${esc(o.id)}">${esc(o.name)}</option>`).join('')}</select>` : ''}<button class="ghost" data-act="placeDelete" data-id="${esc(p.id)}">${armedNow === `placeDelete:${p.id}` ? '한 번 더 누르면 지웁니다' : '이 장소 지우기'}</button></div></div>`;
     };
     return `<div class="paper"><h2>장소 · ${list.length}곳</h2>
@@ -992,20 +1059,19 @@
     const list = w.keepList || [];
     const titles = w.sceneTitles || {};
     const STATUS = [['kept', '간직함'], ['given', '남에게 줌'], ['lost', '잃어버림'], ['broken', '망가짐'], ['unknown', '모름']];
-    const sceneAt = (id) => (id ? `<a href="#" class="record-link" data-goto-scene="${esc(id)}">${esc(id)}${titles[id] ? ` · ${esc(titles[id])}` : ''}</a>` : '');
     const item = (it) => {
       const locked = (k) => it.sources?.[k] === 'user';
       const unlock = (k) => (locked(k) ? `<button class="ghost lock" data-act="keepUnlock" data-id="${esc(it.id)}" data-field="${k}">자동으로 되돌리기</button><small>직접 고침</small>` : '');
       const input = (key, label, value, hint) => `<div class="world-field"><span>${label}</span><input data-keep-id="${esc(it.id)}" data-keep-field="${key}" value="${esc(value)}" placeholder="${hint}" aria-label="${esc(it.name)} ${label}">${key === 'aliases' ? '' : unlock(key)}</div>`;
       const others = list.filter((x) => x.id !== it.id);
-      const history = (it.history || []).map((h) => `<li>${sceneAt(h.scene)} · ${esc(h.event)}</li>`).join('');
+      const history = (it.history || []).map((h) => `<li>${esc(h.event)}${sceneRefs(sceneRef(h.scene, '', titles))}</li>`).join('');
       return `<div class="world-card" data-keep="${esc(it.id)}"><h3>${esc(it.name)}</h3>
         ${input('owner', '가진 사람', it.owner || '', '지금 가진 사람')}
         ${input('from', '준 사람·유래', it.from || '', '준 사람이나 유래')}
         ${input('meaning', '담긴 뜻', it.meaning || '', '한 구절')}
         <div class="world-field"><span>상태</span><select data-keep-id="${esc(it.id)}" data-keep-field="status" aria-label="${esc(it.name)} 상태">${STATUS.map(([v, t]) => `<option value="${v}" ${(it.status || 'unknown') === v ? 'selected' : ''}>${t}</option>`).join('')}</select>${unlock('status')}</div>
         ${input('aliases', '다른 이름', (it.aliases || []).join(' · '), '같은 물건의 다른 이름, · 로 나눠 적기')}
-        <p class="hint">${it.gotAt?.scene ? `처음 ${sceneAt(it.gotAt.scene)}${it.gotAt.date ? ` (${esc(it.gotAt.date)})` : ''}` : '장면에 연결되지 않은 물건'}</p>
+        ${it.gotAt?.scene ? sceneRefs(sceneRef(it.gotAt.scene, '처음', titles)) : ''}<p class="hint">${it.gotAt?.scene ? (it.gotAt.date ? `처음 얻은 날 ${esc(it.gotAt.date)}` : '') : '장면에 연결되지 않은 물건'}</p>
         ${history ? `<ul class="hint">${history}</ul>` : ''}
         <div class="routine-row">${others.length ? `<select data-keep-merge="${esc(it.id)}" aria-label="합칠 물건"><option value="">다른 물건에 합치기…</option>${others.map((o) => `<option value="${esc(o.id)}">${esc(o.name)}</option>`).join('')}</select>` : ''}<button class="ghost" data-act="keepDelete" data-id="${esc(it.id)}">${armedNow === `keepDelete:${it.id}` ? '한 번 더 누르면 지웁니다' : '이 물건 지우기'}</button></div></div>`;
     };
@@ -1076,10 +1142,10 @@
         <div class="buttons"><button class="ghost" data-act="trackerEdit" data-id="${esc(it.id)}">고치기</button><button class="ghost" data-act="trackerDelete" data-id="${esc(it.id)}">${armedNow === `trackerDelete:${it.id}` ? '한 번 더 누르면 지웁니다' : '지우기'}</button></div></div>`;
     };
     const suggestions = (t.suggestions || []).length
-      ? `<div class="note" role="status"><b>이야기에서 찾은 시작일</b>${t.suggestions.map((s) => `<p>${esc(s.text)} <a href="#" class="record-link" data-goto-scene="${esc(s.sceneId)}">${esc(s.sceneId)}</a> <button class="primary" data-act="trackerAnswer" data-sid="${esc(s.id)}" data-answer="accept">기록</button> <button class="ghost" data-act="trackerAnswer" data-sid="${esc(s.id)}" data-answer="ignore">무시</button></p>`).join('')}</div>`
+      ? `<div class="note" role="status"><b>이야기에서 찾은 시작일</b>${t.suggestions.map((s) => `<div>${esc(s.text)}${sceneRefs(sceneRef(s.sceneId, '에서 찾음', w.sceneTitles))} <button class="primary" data-act="trackerAnswer" data-sid="${esc(s.id)}" data-answer="accept">기록</button> <button class="ghost" data-act="trackerAnswer" data-sid="${esc(s.id)}" data-answer="ignore">무시</button></div>`).join('')}</div>`
       : '';
     const applied = (t.applied || []).length
-      ? `<div class="note" role="status"><b>자동으로 적용함</b>${t.applied.map((x) => `<p>자동으로 적용함: ${esc(x.text)} <a href="#" class="record-link" data-goto-scene="${esc(x.sceneId)}">${esc(x.sceneId)}</a> <button class="ghost" data-act="trackerUndoApplied" data-aid="${esc(x.id)}">되돌리기</button></p>`).join('')}</div>`
+      ? `<div class="note" role="status"><b>자동으로 적용함</b>${t.applied.map((x) => `<div>자동으로 적용함: ${esc(x.text)}${sceneRefs(sceneRef(x.sceneId, '에서 받음', w.sceneTitles))} <button class="ghost" data-act="trackerUndoApplied" data-aid="${esc(x.id)}">되돌리기</button></div>`).join('')}</div>`
       : '';
     return `<div class="paper"><h2>날짜·주기 트래커 · ${t.items.length}개</h2>
       <p class="hint">직접 만든 날짜 기록입니다(모델 호출 없음). 오늘은 ${t.storyDate ? `이야기 속 ${esc(t.storyDate)}` : '이야기 날짜를 아직 모름'} · 실제 ${esc(t.realDate)}. 답변에는 \`[기록] …\` 한 줄(200자 이내)만 들어가고, 주기의 시작이 이야기에 나오면 ‘제안 자동 적용’(설정 → 추가 기능)이 켜져 있을 때는 바로 기록하고 ‘자동으로 적용함’에서 되돌릴 수 있으며, 꺼져 있으면 제안만 합니다.</p>
@@ -1228,7 +1294,7 @@
     if (!rc.picks?.length && !rc.semantic?.length && !rc.semanticError) return '';
     const scene = (id) => store?.scenes.find((x) => x.id === id);
     const picks = (rc.picks || []).map((p) => `<a href="#" class="record-link record-row" data-goto-scene="${esc(p.id)}"><span class="pill">떠오름</span><span class="row-main"><b>${esc(p.title || scene(p.id)?.title || p.id)}</b><small>${esc(p.id)}${p.why ? ` · ${esc(p.why)}` : ''}</small></span><span class="chip-arrow">›</span></a>`).join('');
-    const near = (rc.semantic || []).map((x) => `<span class="chip-wrap"><a href="#" class="record-link chip" data-goto-scene="${esc(x.id)}"><span class="chip-id">${esc(x.id)}</span>${esc(x.title || x.id)}<span class="chip-arrow">›</span></a><small>${x.score}${x.strong ? ' · 뚜렷함' : ''}</small></span>`).join('');
+    const near = (rc.semantic || []).map((x) => sceneLink({ id: x.id, title: x.title || x.id }, `${x.score}${x.strong ? ' · 뚜렷함' : ''}`)).join('');
     return `<div class="paper"><h2>이번 답변에 떠오른 장면</h2>
       ${picks ? `<div class="record-list">${picks}</div>` : '<p class="hint">고른 장면이 없습니다.</p>'}
       ${near ? `<h3>뜻이 가까운 장면 (임베딩)</h3><p class="record-links">${near}</p><small>숫자는 비슷한 정도입니다. 다른 장면보다 눈에 띄게 가까운 장면(뚜렷함)은 모델이 놓쳐도 함께 떠올립니다.</small>` : ''}
@@ -1405,11 +1471,11 @@
 
   function inspector() {
     if (!info) return '';
-    const open = (info.threads || []).filter((t) => t.status === 'open');
+    const stats = threadStats();
     return `<div class="rail-title">이 방의 기억</div>
       <div class="rail-stat"><b>${info.scenes?.count ?? 0}</b><small>장면<br>메시지 ${info.scenes?.coveredThrough ?? '-'}번까지</small></div>
-      <div class="rail-stat"><b>${open.filter((t) => t.kind === 'emotion').length}</b><small>풀리지 않은 감정</small></div>
-      <div class="rail-stat"><b>${open.filter((t) => t.kind === 'promise').length}</b><small>지켜야 할 약속</small></div>
+      <div class="rail-stat"><b>${stats.emotion}</b><small>풀리지 않은 감정</small></div>
+      <div class="rail-stat"><b>${stats.promise}</b><small>지켜야 할 약속</small></div>
       <div class="rail-divider"></div>
       <div class="rail-note">${icon('spark')}<h3>기억은 서버에 있습니다</h3><p>여기서 고친 내용은 서버의 기억 모듈에 바로 저장되고, 다음 답변부터 반영됩니다.</p></div>
       <div class="rail-footer">기억 서재 · 기억 모듈판 v${VERSION}</div>`;
@@ -1438,7 +1504,7 @@
   function attributionEntryHtml(d) {
     const who = (a) => a ? `${esc(a.by || '미확정')} → ${esc(Array.isArray(a.to) ? a.to.join('·') || '미확정' : a.to || '미확정')}` : '응답 없음';
     const why = (a) => a?.byReason ? ` (${esc(attributionWord(a.byReason))})` : '';
-    const lines = [`<strong>${esc(d.scene)} · #${esc(d.number)}.${esc(d.sentence)}</strong>${d.source === 'rule' ? ' · 규칙' : ''}${d.from ? ` · 전에는 #${esc(d.from.number)}.${esc(d.from.sentence)}` : ''}`];
+    const lines = [`${sceneRef(d.scene, '', {})}<strong>#${esc(d.number)}.${esc(d.sentence)}</strong>${d.source === 'rule' ? ' · 규칙' : ''}${d.from ? ` · 전에는 #${esc(d.from.number)}.${esc(d.from.sentence)}` : ''}`];
     if (d.role) lines.push(`역할: ${esc(d.role)}${d.roleName ? ` → ${esc(d.roleName)}` : ' (장면에서 이름을 못 찾음)'}`);
     if (d.first !== undefined && d.source !== 'rule') lines.push(`첫 판단: ${who(d.first)}${why(d.first)}`, d.asked === 1 ? '두 번째 판단: 묻지 않음 (첫 판단에 문제 없음)' : `두 번째 판단: ${who(d.second)}${why(d.second)}`);
     if (d.reask) lines.push(`다시 물음: ${who(d.reask)}${why(d.reask)}`);
@@ -1465,14 +1531,17 @@
     return `<p class="hint">${rows.map((x) => `${esc(x.scene || '?')}: ${[part(x.changed, '바뀜'), part(x.listed, '목록'), part(x.unchanged, '그대로'), part(x.settled, '규칙 확정'), part(x.skipped, '변화 없어 건너뜀'), part(x.moved, '위치 고침')].filter(Boolean).join(' · ')}`).join('<br>')}</p>`;
   }
   function attributionLogHtml(info, sj) {
-    const runs = Array.isArray(info.attributionLog) ? info.attributionLog : [];
+    const stored = Array.isArray(info.attributionLog) ? info.attributionLog : lazyData('attribution')?.runs || null;
+    const runs = stored || [];
+    const count = stored ? stored.length : info.attributionRuns || 0;
     const byPlace = (a, b) => a.number - b.number || a.sentence - b.sentence;
     const live = sj.state === 'running' && (sj.attributionDiagnostics || []).length ? [...sj.attributionDiagnostics].sort(byPlace) : null;
     const tally = (c) => c ? ` · 확인 ${c.reviewed ?? 0} · 두 번 물음 ${c.second ?? 0} · 건너뜀 ${(c.skipped ?? 0) + (c.settled ?? 0)} · 모델 호출 ${c.calls ?? 0}` : '';
-    if (!runs.length && !live) return '';
+    if (!count && !live) return '';
     const changed = (entries) => entries.filter((d) => d.decision === 'applied').length;
     const run = (r, i) => `<details${i === 0 && !live ? ' open' : ''}><summary>${esc((r.at || '').replace('T', ' ').slice(0, 16))} · ${esc(r.reason || '')} · ${r.entries.length}줄 · 바뀜 ${changed(r.entries)}${esc(tally(r.counts))}${r.dropped ? ` · ${r.dropped}줄은 기록 한도로 생략` : ''}</summary>${(r.notes || []).map((n) => `<p class="hint">${esc(n)}</p>`).join('')}${attributionSummaryHtml(r)}${r.entries.map(attributionEntryHtml).join('')}</details>`;
-    return `<details${attributionFilter ? ' open' : ''}><summary>대사 확인 기록 (${runs.length}회${live ? ' · 진행 중' : ''})</summary><p class="hint">화자·상대 판단과 저장 결과입니다. 서버에 방마다 최근 5회까지 남고, 정리가 끝나거나 서버를 다시 켜도 유지됩니다. 바뀌었거나 다시 물었거나 받아들이지 않은 대사는 모두 남고, 문제없이 그대로인 대사는 장면별 개수로만 보입니다. 대사 원문과 근거 문구는 기록하지 않습니다.</p><label>대사 번호로 찾기<input id="attributionFilter" value="${esc(attributionFilter)}" placeholder="예: #1.24" autocomplete="off"></label>${live ? `<details open><summary>진행 중 (${live.length}${esc(tally(sj.attributionProgress))})</summary>${live.map(attributionEntryHtml).join('')}</details>` : ''}${runs.map(run).join('')}</details>`;
+    const wait = stored ? '' : lazyError('attribution') ? `<div class="note">${esc(lazyError('attribution'))}</div>` : '<p class="hint">불러오는 중…</p>';
+    return `<details data-list="attrlog"${attributionFilter || openLists.has('attrlog') ? ' open' : ''}><summary>대사 확인 기록 (${count}회${live ? ' · 진행 중' : ''})</summary><p class="hint">화자·상대 판단과 저장 결과입니다. 서버에 방마다 최근 5회까지 남고, 정리가 끝나거나 서버를 다시 켜도 유지됩니다. 바뀌었거나 다시 물었거나 받아들이지 않은 대사는 모두 남고, 문제없이 그대로인 대사는 장면별 개수로만 보입니다. 대사 원문과 근거 문구는 기록하지 않습니다.</p>${wait}<label>대사 번호로 찾기<input id="attributionFilter" value="${esc(attributionFilter)}" placeholder="예: #1.24" autocomplete="off"></label>${live ? `<details open><summary>진행 중 (${live.length}${esc(tally(sj.attributionProgress))})</summary>${live.map(attributionEntryHtml).join('')}</details>` : ''}${runs.map(run).join('')}</details>`;
   }
 
   const VIEWS = { home: viewHome, scenes: viewScenes, search: viewSearch, facts: viewFacts, ledger: viewLedger, life: viewLife, world: viewWorld, names: viewNames, inject: viewInject, settings: viewSettings };
@@ -1525,6 +1594,7 @@
         target.scrollIntoView?.({ block: 'center' });
       }
     }
+    ensureLazyParts();
   }
 
   /* ---------- actions ---------- */
@@ -2651,6 +2721,7 @@
     root.addEventListener('toggle', (e) => {
       const key = e.target?.dataset?.list;
       if (key) e.target.open ? openLists.add(key) : openLists.delete(key);
+      if (key === 'attrlog' && e.target.open) ensureLazyParts();
     }, true);
     // The settings switch for the room mirrors the sidebar one.
     root.addEventListener('change', (e) => {
