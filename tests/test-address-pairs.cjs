@@ -180,3 +180,34 @@ test('screen: a pair is one row "원어(번역) ×N" with the toggle, edit, dele
   assert.match(source, /case 'addressSplit'/);
   assert.match(source, /action: 'split'/);
 });
+
+test('pairing: a lower-case endearment inside the line is collected and pairs with its translation', () => {
+  const book = scan([
+    bq('"Vieni qui, principessa, subito."', '"이리 와, 공주님, 어서."'), bq('"Dai, principessa."', '"어서, 공주님."'),
+    bq('"Principessa, ascolta."', '"공주님, 들어."'), bq('"Grazie, principessa."', '"고마워, 공주님."'),
+  ]);
+  const o = book.entries.find((e) => e.term.toLowerCase() === 'principessa'), k = by(book, '공주님');
+  assert.ok(o && k);
+  assert.equal(o.term, 'principessa', 'shown in the spelling used most outside the start of a line');
+  assert.equal(o.translation, '공주님');
+  assert.equal(o.pairCount, 4);
+});
+
+test('pairing: co-occurrence is counted case-insensitively, as whole words, even for a term collected with a capital', () => {
+  // "Tesoro" is collected from two capitalized lines; the other lines hold it in lower case, and "tesoro" inside a longer word does not count
+  const book = scan([
+    bq('"Tesoro, vieni."', '"자기, 와."'), bq('"Ciao, Tesoro."', '"안녕, 자기."'),
+    bq('"Vieni, tesoro, dai."', '"와, 자기, 어서."'), bq('"Dai, tesoro."', '"어서, 자기."'),
+    bq('"Il tesoroX, dai."', '"보물, 어서."'),
+  ]);
+  const o = by(book, 'Tesoro') || by(book, 'tesoro');
+  assert.ok(o && o.pairWith, 'paired');
+  assert.equal(o.pairCount, 4);
+});
+
+test('pairing: a lower-case word that is not an endearment or title is still not collected', () => {
+  const book = scan([
+    bq('"Vieni, amico, dai."', '"와, 친구, 어서."'), bq('"Dai, amico."', '"어서, 친구."'), bq('"Bene, amico."', '"좋아, 친구."'),
+  ]);
+  assert.equal(book.entries.some((e) => e.term.toLowerCase() === 'amico'), false);
+});

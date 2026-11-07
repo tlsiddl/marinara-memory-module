@@ -92,9 +92,14 @@ function tally(store) {
   const bi = new Map(); // from|listener|korean -> ids of lines with a translation whose translation part holds the Korean term
   let nextId = 0;
   const add = (map, key, id) => { if (!map.has(key)) map.set(key, new Set()); map.get(key).add(id); };
-  const bump = (map, key, base, at, id) => {
-    const row = map.get(key) || { ...base, count: 0, firstSeen: at, lastSeen: at, ids: new Set() };
+  const lines = []; // bilingual single-listener lines: the original and the Korean terms of its translation
+  const bump = (map, key, base, at, id, where) => {
+    const row = map.get(key) || { ...base, count: 0, firstSeen: at, lastSeen: at, ids: new Set(), forms: new Map() };
     row.count++;
+    // Spellings seen: a capitalized one opening a line says nothing about how the word is written, so it only counts alone.
+    const f = row.forms.get(base.term) || { n: 0, opens: 0, order: row.forms.size };
+    f.n++; if (where === 'start') f.opens++;
+    row.forms.set(base.term, f);
     row.ids.add(id);
     if (before(at, row.firstSeen)) row.firstSeen = at;
     if (before(row.lastSeen, at)) row.lastSeen = at;
@@ -115,12 +120,9 @@ function tally(store) {
       const translated = typeof q.translation === 'string' && q.translation.trim();
       if (translated && listeners.length === 1) {
         const lk = `${from}|${listeners[0]}|`;
-        const ours = S.vocativeTerms(q.text, names, { mid: true }).filter((t) => !hasKo(t.term));
         const theirs = S.vocativeTerms(translated, names, { mid: true }).filter((t) => hasKo(t.term));
-        for (const k of theirs) {
-          add(bi, `${lk}${keyOfTerm(k.term)}`, id);
-          for (const o of ours) add(cooc, `${lk}${keyOfTerm(o.term)}|${keyOfTerm(k.term)}`, id);
-        }
+        for (const k of theirs) add(bi, `${lk}${keyOfTerm(k.term)}`, id);
+        if (theirs.length) lines.push({ lk, id, orig: String(q.text || ''), ks: theirs.map((k) => keyOfTerm(k.term)) });
       }
       for (const { term, at: where } of S.vocativeTerms(S.quoteText(q), names, { mid: true })) {
         if (listeners.length > 1) { multi.push({ from, listeners, term, at, id }); continue; }
@@ -132,7 +134,7 @@ function tally(store) {
         }
         const key = `${from}|${listener}|${keyOfTerm(term)}`;
         singles.add(key);
-        bump(rows, key, { from, to: listener, term }, at, id);
+        bump(rows, key, { from, to: listener, term }, at, id, where);
       }
     }
   }
@@ -168,6 +170,33 @@ function tally(store) {
     if (/\s/.test(row.term) && row.count < MIN_COUNT + 1) { rows.delete(key); continue; }
     if (S.termExempt(row.term)) continue;
     if ((opens.get(`${row.from}|${keyOfTerm(row.term)}`)?.size || 0) >= 2) rows.delete(key);
+  }
+  // Which foreign terms stand in the original of the lines whose translation holds a Korean term: the foreign terms
+  // collected here for this pair of people, or a known endearment or title, in any case and position, as whole words.
+  const calls = S.callWords();
+  const wordRe = (w) => new RegExp(`(?<![\p{L}\p{N}])${w.replace(/[.*+?^${}()|[]\]/g, '\$&').replace(/s+/g, '\s+')}(?![\p{L}\p{N}])`, 'iu');
+  const candidates = new Map(); // from|listener| -> Map(key -> RegExp)
+  const candidatesOf = (lk) => {
+    if (candidates.has(lk)) return candidates.get(lk);
+    const m = new Map();
+    for (const w of calls) m.set(keyOfTerm(w), wordRe(w));
+    for (const row of rows.values()) if (`${row.from}|${row.to}|` === lk && !hasKo(row.term)) m.set(keyOfTerm(row.term), wordRe(tidy(row.term)));
+    candidates.set(lk, m);
+    return m;
+  };
+  for (const ln of lines) {
+    for (const [fk, re] of candidatesOf(ln.lk)) {
+      if (!re.test(ln.orig)) continue;
+      for (const kk of ln.ks) add(cooc, `${ln.lk}${fk}|${kk}`, ln.id);
+    }
+  }
+  // The spelling shown for a term: the one most used (an opening capital counts only when nothing else was seen).
+  for (const row of rows.values()) {
+    const all = [...row.forms];
+    const other = all.filter(([, f]) => f.n > f.opens);
+    const pick = (other.length ? other : all).sort((a, b) => (b[1].n - b[1].opens) - (a[1].n - a[1].opens) || b[1].n - a[1].n || a[1].order - b[1].order)[0];
+    if (pick && !hasKo(row.term)) row.term = pick[0];
+    delete row.forms;
   }
   rows.cooc = cooc;
   rows.bi = bi;
