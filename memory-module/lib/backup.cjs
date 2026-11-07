@@ -29,6 +29,7 @@ const FILES = {
   keepsakes: '.keepsakes.json',
   'recall-prefs': '.recall-prefs.json',
   trackers: '.trackers.json',
+  lang: '.lang.json',
 };
 const KEYS = Object.keys(FILES);
 
@@ -50,6 +51,7 @@ const CHECKS = {
   keepsakes: (v) => v.version === 1 && Array.isArray(v.items),
   'recall-prefs': (v) => v.version === 1 && Array.isArray(v.pinned) && Array.isArray(v.excluded),
   trackers: (v) => v.version === 1 && Array.isArray(v.items),
+  lang: (v) => v.version === 1 && (v.lang === 'ko' || v.lang === 'en'),
 };
 
 /** Walks a parsed value once: bounded size, no prototype tricks. */

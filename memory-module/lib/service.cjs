@@ -633,6 +633,8 @@ async function inheritBranch(sourceId, targetId) {
       if (result.ledger) { saveLedger(targetId, result.ledger); written.push(files[0]); }
       if (result.scenes) { saveScenes(targetId, result.scenes); written.push(files[1]); }
       if (copiedVectors) { saveVectors(targetId, copiedVectors); written.push(files[2]); }
+      // The room's language comes along (the branch is the same story up to here).
+      { const lang = chatLangs.get(sourceId) || loadLang(sourceId)?.lang; if (lang && target.length) { saveLang(targetId, lang, target); written.push(langFile(targetId)); } }
       if (sourceBook && !fs.existsSync(addressFile(targetId))) { saveAddress(targetId, structuredClone(sourceBook)); written.push(addressFile(targetId)); }
       // Cards and places keep the user's own edits and are worked out again from the scenes this branch really has.
       if (sourceState && !fs.existsSync(stateFile(targetId))) { saveState(targetId, A.using(sourceId, () => St.fold(result.scenes || S.emptyStore(), structuredClone(sourceState)))); written.push(stateFile(targetId)); }
@@ -650,7 +652,7 @@ async function inheritBranch(sourceId, targetId) {
       }
     } catch (error) {
       for (const file of written) fs.rmSync(file, { force: true });
-      cache.delete(targetId); sceneCache.delete(targetId); touchScenes(targetId); vectorCache.delete(targetId); addressCache.delete(targetId); stateCache.delete(targetId); placesCache.delete(targetId); conflictsCache.delete(targetId); keepsakesCache.delete(targetId); trackersCache.delete(targetId); recallPrefsCache.delete(targetId);
+      cache.delete(targetId); sceneCache.delete(targetId); touchScenes(targetId); vectorCache.delete(targetId); addressCache.delete(targetId); stateCache.delete(targetId); placesCache.delete(targetId); conflictsCache.delete(targetId); keepsakesCache.delete(targetId); trackersCache.delete(targetId); recallPrefsCache.delete(targetId); langRecords.delete(targetId); chatLangs.delete(targetId);
       throw error;
     }
     log(`branch ${sourceId} -> ${targetId}: inherited ${result.matched} message(s), ${result.scenes?.scenes.length || 0} scene(s)${result.ledgerReset ? '; old fork: ledger will be read again' : ''}`);
@@ -730,8 +732,9 @@ function removeRoomFiles(chatId) {
 
 /** Everything held in memory for one room (not the files). The next read loads from disk again. */
 function clearRoomCaches(chatId) {
-  for (const map of [cache, windows, sceneCache, namesCache, addressCache, stateCache, placesCache, conflictsCache, keepsakesCache, trackersCache, recallPrefsCache, selectedViews, vectorCache, chatLangs, replyLedgers, translationCache, displayTranslationStatus, preparing, replyViews, speakerColors, recalls, turnQuery, storyDays, storyNow]) map.delete(chatId);
+  for (const map of [cache, windows, sceneCache, namesCache, addressCache, stateCache, placesCache, conflictsCache, keepsakesCache, trackersCache, recallPrefsCache, selectedViews, vectorCache, chatLangs, langRecords, replyLedgers, translationCache, displayTranslationStatus, preparing, replyViews, speakerColors, recalls, turnQuery, storyDays, storyNow]) map.delete(chatId);
   touchScenes(chatId);
+  langRefreshed.delete(chatId);
   for (const key of [...translating.keys()]) if (String(key).startsWith(`${chatId}:`)) translating.delete(key);
 }
 
@@ -1156,15 +1159,58 @@ async function chatMessages(chatId) {
   await addTrackerClock(e, chatId, out);
   for (const m of out) delete m.swipe;
   const prepared = L.prepareMessages(out);
-  if (prepared.length) chatLangs.set(chatId, T.chatLanguage(prepared));
+  noteLanguage(chatId, prepared);
   return prepared;
 }
 
-/** The language each chat is written in, as last read. */
+/**
+ * The language each chat is written in, as last known. It is kept in <chatId>.lang.json ({ version, lang, count,
+ * lastId, detectedAt }) so the first look after a restart needs no read of the whole chat.
+ */
 const chatLangs = new Map();
+const langRecords = new Map();
+const langFile = (chatId) => path.join(CHAT_DIR, `${safeChatId(chatId)}.lang.json`);
+const LANG_REFRESH_EVERY = 20; // new (or removed) messages after which the stored value is looked at again
+const LANG_STALE_MS = 6 * 3600_000; // an old stored value is checked again once per start, behind the answer
+const langRefreshed = new Set();
+
+function loadLang(chatId) {
+  if (langRecords.has(chatId)) return langRecords.get(chatId);
+  const v = readJson(langFile(chatId), null, { replaceable: true });
+  const record = v && v.version === 1 && (v.lang === 'ko' || v.lang === 'en') ? v : null;
+  langRecords.set(chatId, record);
+  if (record) chatLangs.set(chatId, record.lang);
+  return record;
+}
+function saveLang(chatId, lang, prepared) {
+  const record = { version: 1, lang, count: prepared.length, lastId: prepared.at(-1)?.id ?? null, detectedAt: new Date().toISOString() };
+  chatLangs.set(chatId, lang);
+  langRecords.set(chatId, record);
+  try { writeJson(langFile(chatId), record); } catch {}
+  return record;
+}
+/** Messages are already in hand: settle the language from them, and store it when it is new or the stored basis has moved on. */
+function noteLanguage(chatId, prepared) {
+  if (!prepared.length) return;
+  const lang = T.chatLanguage(prepared);
+  chatLangs.set(chatId, lang);
+  langRefreshed.add(chatId);
+  const prev = loadLang(chatId);
+  if (prev && prev.lang === lang && Math.abs(prepared.length - prev.count) < LANG_REFRESH_EVERY && prepared.some((m) => m.id === prev.lastId)) return;
+  saveLang(chatId, lang, prepared);
+}
 async function chatLanguage(chatId) {
-  if (!chatLangs.has(chatId)) await chatMessages(chatId).catch(() => null);
-  return chatLangs.get(chatId) || 'ko';
+  const record = loadLang(chatId);
+  if (!record && !chatLangs.has(chatId)) {
+    await chatMessages(chatId).catch(() => null);
+    return chatLangs.get(chatId) || 'ko';
+  }
+  // The stored value answers at once; an old one is read again behind the answer (once per start).
+  if (record && !langRefreshed.has(chatId) && !(Date.now() - Date.parse(record.detectedAt) < LANG_STALE_MS)) {
+    langRefreshed.add(chatId);
+    chatMessages(chatId).catch(() => null);
+  }
+  return chatLangs.get(chatId) || record.lang;
 }
 
 const CLOCK_FIELD = /날짜|일자|date|day|시간|시각|time|작중|게임 ?내|in-?game/i;
@@ -1350,7 +1396,7 @@ const LANGUAGE_NOTE = {
 
 /** The language this chat's memory is written in: the chat's own, or English when set so for every chat. */
 function writeLanguage(chatId) {
-  return settings().writeLanguage === 'en' ? 'en' : chatLangs.get(chatId) || 'ko';
+  return settings().writeLanguage === 'en' ? 'en' : chatLangs.get(chatId) || loadLang(chatId)?.lang || 'ko';
 }
 async function writeLanguageOf(chatId) {
   await chatLanguage(chatId);
@@ -3542,7 +3588,7 @@ async function routes(app) {
       backup: B.counts(doc.files),
       current: B.counts(current),
       vectors: { inBackup: backupHasVectors, willClear: !backupHasVectors && 'vectors' in current },
-      removes: B.KEYS.filter((k) => !(k in doc.files) && k in current && k !== 'vectors'),
+      removes: B.KEYS.filter((k) => !(k in doc.files) && k in current && k !== 'vectors' && k !== 'lang'),
       busy: roomBusy(chatId),
       undoAvailable: !!readUndoMeta(chatId),
     };
@@ -4256,7 +4302,7 @@ function attach(app) {
   log('admin API ready at /api/memory-module');
 }
 
-module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { loadAddress, saveAddress, refreshAddress, presentPeople, Addr, loadState, saveState, loadPlaces, savePlaces, loadKeepsakes, saveKeepsakes, loadTrackers, saveTrackers, Tk, loadConflicts, saveConflicts, refreshConflicts, refreshWorld, Cf, Ks, organizeFor, sceneTokens, lastScenePeople, St, Pl, listRooms, purgeChatMemory, purgeIfGone, deleteOnSend, deletePrepare, listOrphans, deleteOrphans, goneChats, loadNames, saveNames, enqueue, foldScenes, reviewAttributions, loadAttributionLog, sceneJobs, selectedForView, loadSelected, recalls, windows, loadRecallPrefs, saveRecallPrefs, recallReport, recallCandidates, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, loadTranslations, saveTranslations, chatLangs, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, jobs, writeLanguage, memoryCallOptions, routineSetting, routineEnabled, featureOn, featureSetting, F, B, clearRoomCaches, RESTORE_UNDO_DIR } };
+module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { loadAddress, saveAddress, refreshAddress, presentPeople, Addr, loadState, saveState, loadPlaces, savePlaces, loadKeepsakes, saveKeepsakes, loadTrackers, saveTrackers, Tk, loadConflicts, saveConflicts, refreshConflicts, refreshWorld, Cf, Ks, organizeFor, sceneTokens, lastScenePeople, St, Pl, listRooms, purgeChatMemory, purgeIfGone, deleteOnSend, deletePrepare, listOrphans, deleteOrphans, goneChats, loadNames, saveNames, enqueue, foldScenes, reviewAttributions, loadAttributionLog, sceneJobs, selectedForView, loadSelected, recalls, windows, loadRecallPrefs, saveRecallPrefs, recallReport, recallCandidates, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, loadTranslations, saveTranslations, chatLangs, langRecords, loadLang, noteLanguage, LANG_REFRESH_EVERY, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, jobs, writeLanguage, memoryCallOptions, routineSetting, routineEnabled, featureOn, featureSetting, F, B, clearRoomCaches, RESTORE_UNDO_DIR } };
 
 
 
