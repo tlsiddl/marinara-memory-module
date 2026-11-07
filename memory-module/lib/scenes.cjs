@@ -1312,7 +1312,7 @@ const KO_SOUNDS = /^(?:으+[응음]|어+|아+|음+|응+|흠+|하+|헤+|오+|우+
 // 지 only on longer words: 수지, 은지 are names, 들었지 is a sentence.
 const KO_ENDING = /(?:어|요|네|다|까|잖아|거든|[가-힣]{2}지)$/;
 // Terms of endearment: real forms of address even though they are ordinary words.
-const ENDEARMENTS = new Set(['tesoro', 'amore', 'cara', 'caro', 'honey', 'darling', 'babe', 'baby', 'sweetheart', 'sweetie', 'love', 'dear', 'bella', 'bello', 'piccola', 'piccolo', 'cucciolo', 'cucciola', 'stella', 'angelo', 'bimba', 'bimbo', 'gioia', 'cuore', '공주', '자기', '애기', '여보', '왕자', '아가', '달링', '허니', '공주님', '왕자님']);
+const ENDEARMENTS = new Set(['tesoro', 'amore', 'cara', 'caro', 'honey', 'darling', 'babe', 'baby', 'sweetheart', 'sweetie', 'love', 'dear', 'bella', 'bello', 'piccola', 'piccolo', 'cucciolo', 'cucciola', 'stella', 'angelo', 'bimba', 'bimbo', 'gioia', 'cuore', 'principessa', 'principe', 'gattina', 'gattino', 'princess', 'prince', 'kitten', 'kitty', '공주', '자기', '애기', '여보', '왕자', '아가', '달링', '허니', '공주님', '왕자님']);
 // Common English and Italian words that are not names (a capitalized one at the start of a line is just a sentence start).
 const COMMON_EN = new Set(('the a an of to in on at by with from into onto upon over under about above below between among near far close open shut ' +
   'i me my mine you your yours he him his she her hers it its we us our ours they them their theirs ' +
@@ -1339,6 +1339,10 @@ const COMMON_IT = new Set(('il lo la i gli le un uno una di a da in con su per t
 const normWord = (w) => String(w || '').normalize('NFC').toLowerCase().replace(/[.,!?'’]+$/g, '');
 const isStopword = (w) => { const k = normWord(w); return NOT_A_TERM.has(k) || NOT_A_TERM_MORE.has(k) || NOT_A_TERM_IT.has(k) || NOT_A_TERM_KO.has(k); };
 /** An endearment or a generic title: real forms of address even though ordinary words. */
+/** The Latin endearments and titles that count as a call in any case and position (lower-case words). */
+function callWords() {
+  return [...new Set([...[...ENDEARMENTS].filter((w) => !hasHangul(w)), 'boss', 'capo', 'signore', 'signora', 'signorina', 'sir', 'madam'])];
+}
 function termExempt(term) {
   const t = String(term || '').trim();
   return ENDEARMENTS.has(normWord(t)) || GENERIC.test(t);
@@ -3422,6 +3426,7 @@ module.exports = {
   vocativeTerms,
   plausibleTerm,
   termExempt,
+  callWords,
   setAddressProvider,
   setStateProvider,
   sceneStateOf,
