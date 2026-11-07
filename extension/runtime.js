@@ -156,12 +156,36 @@
     return data;
   }
 
+  // 왜 이 기억이 들어갔나 is a full extra render on the server, so it is fetched only while the 주입 확인 tab is shown and kept until the room data reloads.
+  let recallReportData = null;
+  let recallReportRoom = '';
+  let recallReportError = '';
+  let recallReportLoading = false;
+  async function ensureRecallReport() {
+    if (tab !== 'inject' || !room || recallReportLoading || (recallReportRoom === room && (recallReportData || recallReportError))) return;
+    const id = room;
+    recallReportLoading = true;
+    render();
+    try {
+      const report = await api('GET', `/chats/${encodeURIComponent(id)}/recall-report`);
+      if (room === id && !disposed) { recallReportData = report; recallReportRoom = id; recallReportError = ''; }
+    } catch (error) {
+      if (room === id) { recallReportData = null; recallReportRoom = id; recallReportError = error?.message || String(error); }
+    } finally {
+      recallReportLoading = false;
+      if (!disposed) render();
+    }
+    if (room !== id) void ensureRecallReport();
+  }
+
   async function loadRoom(id) {
     const sequence = ++roomLoadSequence;
     if (!id) { info = null; store = null; storeRoom = ''; return; }
     const i = await api('GET', `/chats/${encodeURIComponent(id)}`);
     if (sequence !== roomLoadSequence || room !== id || disposed) return;
     info = i;
+    recallReportData = null; recallReportRoom = ''; recallReportError = '';
+    if (tab === 'inject') void ensureRecallReport();
     // Korean notes for memory in English are shown on every tab (open items, daily life, home), not only scenes.
     await loadTranslations(id);
     if (sequence !== roomLoadSequence || room !== id || disposed) return;
@@ -1170,7 +1194,7 @@
     if (!info) return emptyRoom();
     return `<div class="eyebrow">INJECTION · 약 ${tokens(info.rendered)} 토큰</div><h1>주입 확인</h1>
       <p class="intro">지금 프리셋의 {{기억}} 자리에 들어가는 내용 그대로입니다. 회상한 장면은 답변마다 바뀝니다.</p>
-      ${recallCard()}${recallTestCard()}${recallReasonsPaper(info.recallReport, info.recallPrefs)}
+      ${recallCard()}${recallTestCard()}${recallReasonsPaper(recallReportRoom === room ? recallReportData : null, info.recallPrefs, recallReportRoom !== room || (!recallReportData && !recallReportError) ? 'loading' : recallReportError)}
       ${info.rendered ? `<pre>${esc(info.rendered)}</pre>` : `<div class="empty">${info.enabled ? '아직 들어가는 기억이 없습니다.' : '이 방에서 기억 사용이 꺼져 있어 {{기억}} 자리에 아무것도 들어가지 않습니다. 저장된 기억은 그대로 남아 있습니다.'}</div>`}`;
   }
 
@@ -1183,7 +1207,9 @@
   }
 
   /** 주입 확인: why each memory in the reply was chosen, with its 중요 / 빼기 buttons; marked items that are not in the reply are listed to undo. */
-  function recallReasonsPaper(report, prefs) {
+  function recallReasonsPaper(report, prefs, status) {
+    if (status === 'loading') return '<div class="paper"><h2>왜 이 기억이 들어갔나</h2><p class="hint">불러오는 중…</p></div>';
+    if (status) return `<div class="paper"><h2>왜 이 기억이 들어갔나</h2><div class="note" role="alert">불러오지 못했습니다. ${esc(status)}</div></div>`;
     if (!report) return '';
     const TITLES = { chapters: '지난 이야기 흐름', overview: '지난 장면들 (한 줄 요약)', recalled: '지금 떠오르는 지난 장면', near: '뜻이 가까운 지난 사건', raw: '원문에서 떠오른 대목', facts: '알게 된 사실', threads: '아직 끝나지 않은 일', selected: '직접 선택한 기억' };
     const chips = (list) => (list || []).map((r) => `<span class="pill ${r.kind === 'pinned' ? 'green' : 'neutral'}" title="${esc(r.why || '')}">${esc(r.label)}</span>`).join('');
@@ -2602,6 +2628,7 @@
         void ensureNames();
         void ensureWorld();
         void ensureConflicts();
+        void ensureRecallReport();
         return render();
       }
       if (n.dataset.group !== undefined) {
