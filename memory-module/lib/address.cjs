@@ -7,6 +7,10 @@
 //                useForCheck, note? }. 'auto' entries are worked out again from the saved dialogue on every scan
 //                (no model call); 'user' entries are never removed or changed by a scan except for their counts. 'auto-learned'
 //                entries are the ones 제안 자동 적용 added from a suggestion; a scan treats them like 'user' ones.
+//                Pairs (0.12.6): an automatic foreign term and its Korean translation that the saved bilingual lines show together
+//                are linked, both entries staying as they are: the foreign one has `translation` (the Korean term) and `pairWith`
+//                (its id), the Korean one `pairOf` (that id); both carry `pairCount` (distinct lines of either). The links are
+//                worked out again on every scan; `book.split` lists pairs the user chose to see apart.
 //   suggestions  what the user's own corrections suggest: { id, kind: 'address' | 'alias', ..., status: 'open' |
 //                'ignored' | 'done' }. Nothing here changes any rule until the user accepts it.
 //   edits        a short record of listeners the user changed after the module had only guessed them.
@@ -60,8 +64,20 @@ function normalize(book) {
     else if (e.source === 'auto-learned' && old.source !== 'user') old.source = 'auto-learned';
     if (e.useForCheck === false) old.useForCheck = false;
   }
-  return [...merged.values()].map((e) => ({ ...e, id: entryId(e) }));
+  const out = [...merged.values()].map((e) => ({ ...e, id: entryId(e) }));
+  // A link whose other half is gone (or does not point back) is dropped.
+  const byId = new Map(out.map((e) => [e.id, e]));
+  for (const e of out) {
+    const other = byId.get(e.pairWith || e.pairOf);
+    const ok = other && other !== e && (e.pairWith ? other.pairOf === e.id : other.pairWith === e.id) && other.from === e.from && other.to === e.to;
+    if (!ok) { delete e.pairWith; delete e.pairOf; delete e.translation; delete e.pairCount; }
+  }
+  return out;
 }
+/** The other half of an entry's pair (in a normalized list), or null. */
+const partnerOf = (list, e) => list.find((x) => x.id === (e.pairWith || e.pairOf)) || null;
+const hasKo = (t) => /[가-힣]/.test(t);
+const pairKey = (o, k) => `${entryKey(o)}~${entryKey(k)}`;
 
 /** A listener share that counts as "the" listener of a term one speaker uses toward several people. */
 const MAJORITY = 0.75;
@@ -72,9 +88,14 @@ function tally(store) {
   const singles = new Set(); // from|listener|term seen in a single-listener line
   const multi = []; // terms from lines to several listeners, settled below
   const opens = new Map(); // speaker|term -> listeners whose quotes it opens
-  const bump = (map, key, base, at) => {
-    const row = map.get(key) || { ...base, count: 0, firstSeen: at, lastSeen: at };
+  const cooc = new Map(); // from|listener|foreign|korean -> ids of lines with the foreign term in the original and the Korean one in the translation
+  const bi = new Map(); // from|listener|korean -> ids of lines with a translation whose translation part holds the Korean term
+  let nextId = 0;
+  const add = (map, key, id) => { if (!map.has(key)) map.set(key, new Set()); map.get(key).add(id); };
+  const bump = (map, key, base, at, id) => {
+    const row = map.get(key) || { ...base, count: 0, firstSeen: at, lastSeen: at, ids: new Set() };
     row.count++;
+    row.ids.add(id);
     if (before(at, row.firstSeen)) row.firstSeen = at;
     if (before(row.lastSeen, at)) row.lastSeen = at;
     map.set(key, row);
@@ -90,8 +111,19 @@ function tally(store) {
       const from = A.canonical(q.by);
       if (!from || !listeners.length || listeners.includes(from)) continue;
       const at = { number: q.number, sentence: q.sentence };
+      const id = nextId++;
+      const translated = typeof q.translation === 'string' && q.translation.trim();
+      if (translated && listeners.length === 1) {
+        const lk = `${from}|${listeners[0]}|`;
+        const ours = S.vocativeTerms(q.text, names, { mid: true }).filter((t) => !hasKo(t.term));
+        const theirs = S.vocativeTerms(translated, names, { mid: true }).filter((t) => hasKo(t.term));
+        for (const k of theirs) {
+          add(bi, `${lk}${keyOfTerm(k.term)}`, id);
+          for (const o of ours) add(cooc, `${lk}${keyOfTerm(o.term)}|${keyOfTerm(k.term)}`, id);
+        }
+      }
       for (const { term, at: where } of S.vocativeTerms(S.quoteText(q), names, { mid: true })) {
-        if (listeners.length > 1) { multi.push({ from, listeners, term, at }); continue; }
+        if (listeners.length > 1) { multi.push({ from, listeners, term, at, id }); continue; }
         const listener = listeners[0];
         if (where === 'start') {
           const ok = `${from}|${keyOfTerm(term)}`;
@@ -100,7 +132,7 @@ function tally(store) {
         }
         const key = `${from}|${listener}|${keyOfTerm(term)}`;
         singles.add(key);
-        bump(rows, key, { from, to: listener, term }, at);
+        bump(rows, key, { from, to: listener, term }, at, id);
       }
     }
   }
@@ -108,7 +140,7 @@ function tally(store) {
   // that person in lines to that person alone, and toward only one of them.
   for (const m of multi) {
     const own = m.listeners.filter((l) => singles.has(`${m.from}|${l}|${keyOfTerm(m.term)}`));
-    if (own.length === 1) bump(rows, `${m.from}|${own[0]}|${keyOfTerm(m.term)}`, { from: m.from, to: own[0], term: m.term }, m.at);
+    if (own.length === 1) bump(rows, `${m.from}|${own[0]}|${keyOfTerm(m.term)}`, { from: m.from, to: own[0], term: m.term }, m.at, m.id);
   }
   // One term for several listeners of one speaker belongs to the listener with the clear majority of its uses
   // (at least MIN_COUNT and MAJORITY of all); otherwise it is ambiguous and left out.
@@ -137,7 +169,55 @@ function tally(store) {
     if (S.termExempt(row.term)) continue;
     if ((opens.get(`${row.from}|${keyOfTerm(row.term)}`)?.size || 0) >= 2) rows.delete(key);
   }
+  rows.cooc = cooc;
+  rows.bi = bi;
   return rows;
+}
+
+/** A Korean term pairs with a foreign one seen together in at least this many lines... */
+const PAIR_MIN = 2;
+/** ...and in at least this share of the Korean term's uses in lines that have a translation. */
+const PAIR_SHARE = 0.6;
+
+/**
+ * Links each foreign term with its Korean translation inside `entries` (fresh objects of one scan), by the lines that
+ * show them together (the foreign term in the original, the Korean one in its translation: at least PAIR_MIN lines and
+ * PAIR_SHARE of the Korean term's uses in translated lines) or by sound ("Riri"/"리리"). Two Korean or two foreign terms
+ * are never linked, nor two of the user's own entries; a pair the user split stays apart. Each term has one partner at most.
+ */
+function pairUp(entries, found, split) {
+  const apart = new Set(split || []);
+  const groups = new Map();
+  for (const e of entries) {
+    delete e.pairWith; delete e.pairOf; delete e.translation; delete e.pairCount;
+    const key = `${e.from}|${e.to}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(e);
+  }
+  for (const [gk, list] of groups) {
+    const cands = [];
+    for (const o of list.filter((e) => !hasKo(e.term))) {
+      for (const k of list.filter((e) => hasKo(e.term))) {
+        if (isOwn(o) && isOwn(k)) continue;
+        if (apart.has(pairKey(o, k))) continue;
+        const c = found?.cooc?.get(`${gk}|${keyOfTerm(o.term)}|${keyOfTerm(k.term)}`)?.size || 0;
+        const total = found?.bi?.get(`${gk}|${keyOfTerm(k.term)}`)?.size || 0;
+        const seen = c >= PAIR_MIN && total > 0 && c / total >= PAIR_SHARE;
+        const sound = sameSound(o.term, k.term);
+        if (seen || sound) cands.push({ o, k, c, sound });
+      }
+    }
+    cands.sort((a, b) => b.c - a.c || (b.sound ? 1 : 0) - (a.sound ? 1 : 0));
+    const used = new Set();
+    for (const { o, k } of cands) {
+      if (used.has(o) || used.has(k)) continue;
+      used.add(o); used.add(k);
+      const ids = new Set([...(found?.get(`${gk}|${keyOfTerm(o.term)}`)?.ids || []), ...(found?.get(`${gk}|${keyOfTerm(k.term)}`)?.ids || [])]);
+      const count = ids.size || Math.max(o.count || 0, k.count || 0);
+      o.translation = k.term; o.pairWith = k.id; o.pairCount = count;
+      k.pairOf = o.id; k.pairCount = count;
+    }
+  }
 }
 
 /**
@@ -162,6 +242,8 @@ function refresh(book, store) {
   }
   next.sort((a, b) => b.count - a.count || a.from.localeCompare(b.from) || a.to.localeCompare(b.to) || a.term.localeCompare(b.term));
   const entries = next.slice(0, MAX_ENTRIES);
+  for (const e of entries) e.id = e.id || entryId(e);
+  pairUp(entries, found, book.split);
   if (JSON.stringify(entries) === JSON.stringify(book.entries)) return false;
   book.entries = entries;
   book.updatedAt = new Date().toISOString();
@@ -171,8 +253,10 @@ function refresh(book, store) {
 /** Terms the rules may use: Map(key) -> the one person it calls. A term that calls two people is left out. */
 function termMap(book) {
   const by = new Map();
-  for (const e of normalize(book)) {
-    if (e.useForCheck === false) continue;
+  const list = normalize(book);
+  for (const e of list) {
+    // A pair is used when either half is switched on.
+    if (e.useForCheck === false) { const other = partnerOf(list, e); if (!other || other.useForCheck === false) continue; }
     const key = keyOfTerm(e.term);
     const set = by.get(key) || new Set();
     set.add(e.to);
@@ -198,15 +282,16 @@ function sameSound(a, b) {
 const stretched = (a, b) => { const [s, l] = a.length <= b.length ? [a, b] : [b, a]; return l.length === s.length + 1 && l.startsWith(s) && '이야아'.includes(l.slice(-1)) && /[가-힣]$/.test(s); };
 
 /** The terms of one pair with spellings of the same word merged (the more used spelling stays; a tie goes to Korean). */
-function groupTerms(entries) {
+function groupTerms(entries, split) {
+  const apart = new Set(split || []);
   const list = entries.slice().sort((a, b) => b.count - a.count || (/[가-힣]/.test(b.term) ? 1 : 0) - (/[가-힣]/.test(a.term) ? 1 : 0) || a.term.localeCompare(b.term));
   const out = [];
   for (const e of list) {
-    const same = out.find((g) => keyOfTerm(g.term) === keyOfTerm(e.term) || sameSound(g.term, e.term) || stretched(g.term, e.term));
+    const same = out.find((g) => keyOfTerm(g.term) === keyOfTerm(e.term) || (!(g.entry && (apart.has(pairKey(g.entry, e)) || apart.has(pairKey(e, g.entry)))) && (sameSound(g.term, e.term) || stretched(g.term, e.term))));
     if (same) {
       same.count = Math.max(same.count, e.count);
-      if (!/[가-힣]/.test(same.term) && /[가-힣]/.test(e.term)) same.term = e.term; // the Korean spelling is shown
-    } else out.push({ term: e.term, count: e.count });
+      if (!/[가-힣]/.test(same.term) && /[가-힣]/.test(e.term)) { same.term = e.term; same.entry = e; } // the Korean spelling is shown
+    } else out.push({ term: e.term, count: e.count, entry: e });
   }
   return out;
 }
@@ -220,16 +305,21 @@ function injectionBlock(book, present, max = INJECT_CHARS) {
   const here = new Set([...(present || [])].map((n) => A.canonical(n)));
   if (!here.size) return '';
   const pairs = new Map();
-  for (const e of normalize(book)) {
+  const all = normalize(book);
+  for (const e of all) {
     if (!here.has(e.from) || !here.has(e.to)) continue;
     const key = `${e.from}→${e.to}`;
     const row = pairs.get(key) || { label: key, entries: [], count: 0 };
-    row.entries.push(e);
-    row.count += e.count;
     pairs.set(key, row);
+    if (e.pairOf && all.some((x) => x.id === e.pairOf)) continue; // shown with its foreign half
+    const other = e.pairWith ? partnerOf(all, e) : null;
+    // "원어(번역)": a pair is one term, as often used as the lines holding either form.
+    const shown = other ? { ...e, term: `${e.term}(${other.term})`, count: e.pairCount || Math.max(e.count, other.count), paired: true } : e;
+    row.entries.push(shown);
+    row.count += shown.count;
   }
   const rows = [...pairs.values()].sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
-  for (const row of rows) { row.terms = groupTerms(row.entries).map((g) => g.term); row.n = 0; }
+  for (const row of rows) { row.terms = groupTerms(row.entries, book.split).map((g) => g.term); row.n = 0; }
   const render = () => '[호칭] ' + rows.filter((r) => r.n).map((r) => `${r.label}: ${r.terms.slice(0, r.n).join('/')}`).join(' · ');
   const fits = () => rows.some((r) => r.n) && render().length <= max;
   // Round 1: the top term of every pair; later rounds: one more term per pair, in the same order.
@@ -293,7 +383,8 @@ function deleteEntry(book, id) {
   const entries = normalize(book);
   const found = entries.find((e) => e.id === id);
   if (!found) throw Error('해당 호칭을 찾지 못했습니다.');
-  book.entries = entries.filter((e) => e.id !== id);
+  const other = partnerOf(entries, found); // a pair goes as one
+  book.entries = entries.filter((e) => e.id !== id && e.id !== other?.id);
   book.updatedAt = new Date().toISOString();
   return found;
 }
@@ -303,9 +394,27 @@ function toggleEntry(book, id, on) {
   const found = entries.find((e) => e.id === id);
   if (!found) throw Error('해당 호칭을 찾지 못했습니다.');
   found.useForCheck = on !== false;
+  const other = partnerOf(entries, found); // a pair is switched as one
+  if (other) other.useForCheck = found.useForCheck;
   book.entries = entries;
   book.updatedAt = new Date().toISOString();
   return found;
+}
+
+/** "따로 보기": a pair is shown as two entries again, and a later scan does not join them. Returns the two entries. */
+function splitPair(book, id) {
+  const entries = normalize(book);
+  const found = entries.find((e) => e.id === id);
+  if (!found) throw Error('해당 호칭을 찾지 못했습니다.');
+  const other = partnerOf(entries, found);
+  if (!other) throw Error('짝이 있는 호칭이 아닙니다.');
+  const [o, k] = found.pairWith ? [found, other] : [other, found];
+  const key = pairKey(o, k);
+  book.split = [...new Set([...(book.split || []), key])].slice(-MAX_ENTRIES);
+  for (const e of [o, k]) { delete e.pairWith; delete e.pairOf; delete e.translation; delete e.pairCount; }
+  book.entries = entries;
+  book.updatedAt = new Date().toISOString();
+  return [o, k];
 }
 
 /* ---------- suggestions from the user's own corrections ---------- */
@@ -503,5 +612,5 @@ function view(book, { addressBook, learnFromEdits }) {
 
 module.exports = {
   ADDRESS_VERSION, MIN_COUNT, INJECT_CHARS, emptyBook, isBook, normalize, tally, refresh, termMap, injectionBlock,
-  MAX_APPLIED, autoApply, undoApplied, appliedView, addEntry, editEntry, deleteEntry, toggleEntry, pushSuggestion, answerSuggestion, recordEdit, learnFromSceneEdit, view, entryKey, keyOfTerm,
+  MAX_APPLIED, autoApply, undoApplied, appliedView, addEntry, editEntry, deleteEntry, toggleEntry, splitPair, pairUp, pushSuggestion, answerSuggestion, recordEdit, learnFromSceneEdit, view, entryKey, keyOfTerm,
 };

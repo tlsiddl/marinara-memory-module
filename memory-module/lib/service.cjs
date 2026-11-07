@@ -3729,7 +3729,8 @@ async function routes(app) {
         if (typeof req.body?.on !== 'boolean') throw Error('on: true 또는 false로 보내 주세요.');
         return Addr.toggleEntry(book, id, req.body.on);
       }
-      throw Error('add, edit, delete, toggle 중 하나여야 합니다.');
+      if (action === 'split') return Addr.splitPair(book, id)[0];
+      throw Error('add, edit, delete, toggle, split 중 하나여야 합니다.');
     });
     recalls.delete(chatId);
     return { entry, ...addressView(chatId) };

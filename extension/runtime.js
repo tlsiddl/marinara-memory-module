@@ -1221,11 +1221,15 @@
   function addressPaper(a, form, armedNow, known) {
     if (!a || (!a.addressBook && !a.learnFromEdits)) return '';
     const f = form || {};
-    const entries = a.entries || [];
+    const all = a.entries || [];
+    // A foreign term and its Korean translation are one row "원어(번역)"; the Korean half is not listed on its own.
+    const half = (e) => all.find((x) => x.id === e.pairWith);
+    const entries = all.filter((e) => !(e.pairOf && all.some((x) => x.id === e.pairOf)));
     const suggestions = a.suggestions || [];
-    const row = (e) => `<div class="routine-row address-row" data-aid="${esc(e.id)}"><span><b>${esc(e.from)}</b> → <b>${esc(e.to)}</b>: <b>${esc(e.term)}</b> ×${esc(e.count)} <small>${e.source === 'user' ? '직접 추가' : e.source === 'auto-learned' ? '자동 적용' : '자동'}${e.note ? ` · ${esc(e.note)}` : ''}</small></span>
-      <label class="mini"><input type="checkbox" data-address-use="${esc(e.id)}" ${e.useForCheck === false ? '' : 'checked'}>대사 확인에 쓰기</label>
-      <button data-act="addressEdit" data-id="${esc(e.id)}">고치기</button><button class="ghost" data-act="addressDelete" data-id="${esc(e.id)}">${armedNow === `addressDelete:${e.id}` ? '한 번 더 누르면 지웁니다' : '지우기'}</button></div>`;
+    const row = (e) => { const t = half(e); const label = t ? `${e.term}(${t.term})` : e.term; const count = t ? (e.pairCount || e.count) : e.count; const on = e.useForCheck !== false || (t && t.useForCheck !== false);
+      return `<div class="routine-row address-row" data-aid="${esc(e.id)}"><span><b>${esc(e.from)}</b> → <b>${esc(e.to)}</b>: <b>${esc(label)}</b> ×${esc(count)} <small>${e.source === 'user' ? '직접 추가' : e.source === 'auto-learned' ? '자동 적용' : '자동'}${e.note ? ` · ${esc(e.note)}` : ''}</small></span>
+      <label class="mini"><input type="checkbox" data-address-use="${esc(e.id)}" ${on ? 'checked' : ''}>대사 확인에 쓰기</label>
+      <button data-act="addressEdit" data-id="${esc(e.id)}">고치기</button>${t ? `<button class="ghost" data-act="addressSplit" data-id="${esc(e.id)}">따로 보기</button>` : ''}<button class="ghost" data-act="addressDelete" data-id="${esc(e.id)}">${armedNow === `addressDelete:${e.id}` ? '한 번 더 누르면 지웁니다' : t ? '둘 다 지우기' : '지우기'}</button></div>`; };
     const people = (known || []).map((n) => `<option value="${esc(n)}">`).join('');
     const book = a.addressBook ? `<div class="paper"><h2>호칭 사전 · ${entries.length}개</h2>
       <p class="hint">누가 누구를 어떻게 부르는지입니다. 저장된 대사에서 같은 부르는 말을 두 번 이상 쓴 것만 자동으로 올라오고(모델을 부르지 않습니다), 직접 추가한 것은 횟수와 상관없이 남습니다. ‘대사 확인에 쓰기’를 켜 둔 말은 대사의 화자·상대를 확인할 때 쓰입니다(그 말로 불린 사람은 상대이고 화자가 아님). 자동으로 올라온 항목은 다음 정리 때 대사에 맞게 다시 계산되고, 고치면 직접 추가한 것이 됩니다.</p>
@@ -1917,6 +1921,11 @@
         addressForm = { id: e.id, from: e.from, to: e.to, term: e.term, note: e.note || '' };
         return render();
       }
+      case 'addressSplit':
+        return act(async () => {
+          await api('POST', `/chats/${chat}/address`, { action: 'split', id });
+          names = null;
+        }, '둘을 따로 보도록 했습니다.');
       case 'addressCancel':
         addressForm = { id: '', from: '', to: '', term: '', note: '' };
         return render();
