@@ -1939,6 +1939,27 @@ function stampAttribution(e) {
 }
 
 /**
+ * "Rules only" check: no model answer exists, so a speaker with no certain listener gets the deterministic guess (the
+ * speakers of nearby lines and people the narration near it names, who are present), marked as a guess. Nothing is
+ * stamped as checked, so a later, fuller check still looks at these lines. Returns the diagnostics entries.
+ */
+function applyRulesGuesses(candidates) {
+  const out = [];
+  for (const e of candidates) {
+    const { q } = e;
+    if (e.scene.edited || q.manual || !q.by || certainTo(q).length) continue;
+    if (q.toGuess && q.guessRule === GUESS_RULE_VERSION) continue;
+    const guess = guessListeners(e, q.by, []);
+    if (!guess) continue;
+    const before = { by: q.by || null, to: q.to || null };
+    q.to = guess.to.join('·'); q.toGuess = true; q.guessRule = GUESS_RULE_VERSION;
+    delete q.viaBook;
+    out.push({ scene: e.scene.id || '', number: q.number, sentence: q.sentence, source: 'rule', decision: 'applied', rule: GUESS_RULE, fired: [GUESS_RULE], before, after: { by: q.by, to: q.to, guess: true } });
+  }
+  return out;
+}
+
+/**
  * Candidates in groups for one model call each: lines of the same message stay together, so the text around them
  * is sent once. A group holds up to maxItems lines and about maxChars characters of source text.
  */
@@ -3422,6 +3443,7 @@ module.exports = {
   attributionFingerprint,
   settledByRules,
   stampAttribution,
+  applyRulesGuesses,
   titleMap,
   resolveRole,
   roleAppositive,

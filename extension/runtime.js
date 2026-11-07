@@ -1322,6 +1322,17 @@
       <div class="buttons"><button class="primary" data-act="recallTest">시험하기</button></div>${result}</div>`;
   }
 
+  /** 대사 확인 방식: the four modes with a short cost hint (the same words in the all-rooms default and the room's choice). */
+  const ATTRIBUTION_MODES = [
+    ['off', '끄기', '모델 호출 없음, 정리 모델이 적은 값 그대로'],
+    ['rules', '규칙만', '모델 호출 없음, 이름 부름·앞 대사·호칭 규칙으로 고침'],
+    ['default', '기본', '장면마다 1~2번, 애매한 대사만 물어봄, 추천'],
+    ['thorough', '꼼꼼히', '장면마다 2~4번, 한 번 더 확인'],
+  ];
+  const attributionModeLabel = (mode) => (ATTRIBUTION_MODES.find((m) => m[0] === mode) || ATTRIBUTION_MODES[2])[1];
+  const attributionModeOptions = (selected) => ATTRIBUTION_MODES.map(([value, label, hint]) => `<option value="${value}" ${selected === value ? 'selected' : ''}>${esc(label)} (${esc(hint)})</option>`).join('');
+  const ATTRIBUTION_MODE_HINT = '대사를 누가 누구에게 말했는지 저장된 값을 확인하는 방식입니다. 바꿔도 이미 저장된 값은 지우지 않고, 나중에 더 꼼꼼한 방식으로 바꾸면 아직 모델이 확인하지 않은 대사만 새로 확인합니다.';
+
   /** 설정 → 추가 기능: one row per implemented feature, with the all-rooms default and this room's own choice. */
   function featuresPaper(list) {
     if (!Array.isArray(list) || !list.length) return '';
@@ -1396,6 +1407,7 @@
         <label>주변 인물 정리<select id="setNpcCoverage"><option value="standard" ${info.organize?.npcCoverage !== 'expanded' ? 'selected' : ''}>기본</option><option value="expanded" ${info.organize?.npcCoverage === 'expanded' ? 'selected' : ''}>NPC·모브 자세히</option></select></label>
         <p class="hint">기본은 기존 방식으로 정리합니다. NPC·모브 자세히를 선택하면 1:1 채팅에서도 주변 인물의 역할·행동·대화와 사건에 미친 영향을 더 자세히 정리하도록 요청합니다.</p>
         <label>원문 인용 방식<select id="setQuoteMode"><option value="dialogue" ${!info.organize?.quoteMode || info.organize.quoteMode === 'dialogue' ? 'selected' : ''}>대사 위주</option><option value="narration" ${info.organize?.quoteMode === 'narration' ? 'selected' : ''}>서술 위주</option><option value="both" ${info.organize?.quoteMode === 'both' ? 'selected' : ''}>대사 + 서술 둘 다 · 토큰량 높음</option></select></label><p class="hint">대사 위주는 중요한 대사를 중심으로, 서술 위주는 장면의 행동·상황을 보여 주는 서술을 중심으로 인용합니다. 서술 위주에서도 중요한 대사는 함께 보존하도록 요청합니다. 둘 다를 선택하면 대사와 서술을 더 넉넉히 인용하므로 정리와 회상에 쓰이는 토큰이 늘어날 수 있습니다.</p><p class="hint">이 방에만 적용됩니다. 저장 후 새로 정리하는 장면부터 적용되며, 이미 정리한 장면을 바꾸려면 원문부터 다시 정리해야 합니다. 실제 정리 결과는 사용하는 모델에 따라 달라질 수 있습니다.</p><div class="buttons"><button data-act="saveOrganizePreferences">이 방의 정리 방식 저장</button></div>
+        <label>이 방의 대사 확인 방식<select id="setAttributionRoom" data-attribution-room="1"><option value="follow" ${(info.attributionCheck?.room || 'follow') === 'follow' ? 'selected' : ''}>기본값 따름 (지금 모든 방 기본값: ${esc(attributionModeLabel(info.attributionCheck?.global))})</option>${attributionModeOptions(info.attributionCheck?.room)}</select></label><p class="hint">${ATTRIBUTION_MODE_HINT} 바꾸면 바로 저장되고, 다음 정리부터 적용됩니다.</p>
       </div>
       ${featuresPaper(info.features)}
       ${backupPaper({ armed, preview: restorePreview && restorePreview.room === room ? restorePreview : null, withVectors: backupVectors, running: running(), undo: info.restoreUndo })}
@@ -1420,6 +1432,8 @@
           <option value="natural" ${!serverSettings?.recallStyle || serverSettings?.recallStyle === 'natural' ? 'selected' : ''}>자연스럽게 — 상황에 맞으면 묻지 않아도 먼저 꺼냄</option>
           <option value="active" ${serverSettings?.recallStyle === 'active' ? 'selected' : ''}>적극적으로 — 지난 약속·했던 말을 자주 끌어옴</option></select></label>
         <p class="hint">어느 쪽이든 지난 일을 줄줄이 설명하지는 않게 합니다.</p>
+        <label>대사 확인 방식 (모든 방 기본값)<select id="setAttributionCheck">${attributionModeOptions(serverSettings?.attributionCheck || 'default')}</select></label>
+        <p class="hint">${ATTRIBUTION_MODE_HINT} 방마다 따로 정할 수도 있습니다(설정 → 이 방).</p>
         <div class="buttons"><button class="primary" data-act="saveSettings">저장</button></div>
       </div>
       <div class="paper"><h2>기억 언어</h2>
@@ -1539,9 +1553,9 @@
     const tally = (c) => c ? ` · 확인 ${c.reviewed ?? 0} · 두 번 물음 ${c.second ?? 0} · 건너뜀 ${(c.skipped ?? 0) + (c.settled ?? 0)} · 모델 호출 ${c.calls ?? 0}` : '';
     if (!count && !live) return '';
     const changed = (entries) => entries.filter((d) => d.decision === 'applied').length;
-    const run = (r, i) => `<details${i === 0 && !live ? ' open' : ''}><summary>${esc((r.at || '').replace('T', ' ').slice(0, 16))} · ${esc(r.reason || '')} · ${r.entries.length}줄 · 바뀜 ${changed(r.entries)}${esc(tally(r.counts))}${r.dropped ? ` · ${r.dropped}줄은 기록 한도로 생략` : ''}</summary>${(r.notes || []).map((n) => `<p class="hint">${esc(n)}</p>`).join('')}${attributionSummaryHtml(r)}${r.entries.map(attributionEntryHtml).join('')}</details>`;
+    const run = (r, i) => `<details${i === 0 && !live ? ' open' : ''}><summary>${esc((r.at || '').replace('T', ' ').slice(0, 16))} · ${esc(r.reason || '')}${r.mode ? ` · ${esc(attributionModeLabel(r.mode))}` : ''} · ${r.entries.length}줄 · 바뀜 ${changed(r.entries)}${esc(tally(r.counts))}${r.dropped ? ` · ${r.dropped}줄은 기록 한도로 생략` : ''}</summary>${(r.notes || []).map((n) => `<p class="hint">${esc(n)}</p>`).join('')}${attributionSummaryHtml(r)}${r.entries.map(attributionEntryHtml).join('')}</details>`;
     const wait = stored ? '' : lazyError('attribution') ? `<div class="note">${esc(lazyError('attribution'))}</div>` : '<p class="hint">불러오는 중…</p>';
-    return `<details data-list="attrlog"${attributionFilter || openLists.has('attrlog') ? ' open' : ''}><summary>대사 확인 기록 (${count}회${live ? ' · 진행 중' : ''})</summary><p class="hint">화자·상대 판단과 저장 결과입니다. 서버에 방마다 최근 5회까지 남고, 정리가 끝나거나 서버를 다시 켜도 유지됩니다. 바뀌었거나 다시 물었거나 받아들이지 않은 대사는 모두 남고, 문제없이 그대로인 대사는 장면별 개수로만 보입니다. 대사 원문과 근거 문구는 기록하지 않습니다.</p>${wait}<label>대사 번호로 찾기<input id="attributionFilter" value="${esc(attributionFilter)}" placeholder="예: #1.24" autocomplete="off"></label>${live ? `<details open><summary>진행 중 (${live.length}${esc(tally(sj.attributionProgress))})</summary>${live.map(attributionEntryHtml).join('')}</details>` : ''}${runs.map(run).join('')}</details>`;
+    return `<details data-list="attrlog"${attributionFilter || openLists.has('attrlog') ? ' open' : ''}><summary>대사 확인 기록 (${count}회${live ? ' · 진행 중' : ''}) · 확인 방식: ${esc(attributionModeLabel(info.attributionCheck?.mode))}</summary><p class="hint">화자·상대 판단과 저장 결과입니다. 서버에 방마다 최근 5회까지 남고, 정리가 끝나거나 서버를 다시 켜도 유지됩니다. 바뀌었거나 다시 물었거나 받아들이지 않은 대사는 모두 남고, 문제없이 그대로인 대사는 장면별 개수로만 보입니다. 대사 원문과 근거 문구는 기록하지 않습니다.</p>${wait}<label>대사 번호로 찾기<input id="attributionFilter" value="${esc(attributionFilter)}" placeholder="예: #1.24" autocomplete="off"></label>${live ? `<details open><summary>진행 중 (${live.length}${esc(tally(sj.attributionProgress))})</summary>${live.map(attributionEntryHtml).join('')}</details>` : ''}${runs.map(run).join('')}</details>`;
   }
 
   const VIEWS = { home: viewHome, scenes: viewScenes, search: viewSearch, facts: viewFacts, ledger: viewLedger, life: viewLife, world: viewWorld, names: viewNames, inject: viewInject, settings: viewSettings };
@@ -2066,6 +2080,7 @@
         const amount = root.querySelector('#setRecallAmount')?.value;
         const length = root.querySelector('#setChapterLength')?.value;
         const style = root.querySelector('#setRecallStyle')?.value;
+        const attribution = root.querySelector('#setAttributionCheck')?.value;
         // Only send changed settings. These endpoints update shared server settings,
         // so keep writes sequential and refresh their authoritative values afterward.
         const changes = [];
@@ -2074,6 +2089,7 @@
         if (amount && amount !== (serverSettings?.recallAmount || 'normal')) changes.push(['/settings/recall-amount', { amount }]);
         if (length && length !== (serverSettings?.chapterLength || 'normal')) changes.push(['/settings/chapter-length', { length }]);
         if (style && style !== (serverSettings?.recallStyle || 'natural')) changes.push(['/settings/recall-style', { style }]);
+        if (attribution && attribution !== (serverSettings?.attributionCheck || 'default')) changes.push(['/settings/attribution-check', { mode: attribution }]);
         if (!changes.length) {
           notice = '변경된 설정이 없습니다.';
           return render();
@@ -2563,6 +2579,10 @@
           await api('POST', '/settings/features', { key, on });
           serverSettings = (await api('GET', '/status')).settings;
         }, `${label} 모든 방 기본값을 ${on ? '켰습니다. 기본값을 따르는 방에 바로 적용됩니다.' : '껐습니다. 기본값을 따르는 방에서는 쓰지 않습니다(이미 있는 기록은 남아 있습니다).'}`);
+      }
+      if (e.target.dataset?.attributionRoom) {
+        const mode = e.target.value;
+        void act(() => api('POST', `/chats/${encodeURIComponent(room)}/attribution-check`, { mode }), '이 방의 대사 확인 방식을 저장했습니다. 다음 정리부터 적용됩니다.');
       }
       if (e.target.dataset?.featureRoom) {
         const key = e.target.dataset.featureRoom;
