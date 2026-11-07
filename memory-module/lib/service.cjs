@@ -938,22 +938,44 @@ async function connectionEmbedding() {
 }
 
 /** The current embedding source (cached for a minute); null when meaning search is off or not set up. */
+let embedPending = null;
 async function embeddingSource(force = false) {
   const mode = embeddingMode();
   const key = JSON.stringify([mode, settings().embedding, settings().connection]);
   if (!force && embedSource.key === key && Date.now() - embedSource.at < EMBED_SOURCE_TTL_MS) return embedSource.value;
-  let value = null;
-  let error = null;
-  try {
-    if (mode === 'manual') {
-      const m = await memoryModel();
-      value = { model: trimmed(settings().embedding.model), provider: m.provider, label: `연결 "${m.name}"` };
-    } else if (mode === 'connection') value = await connectionEmbedding();
-  } catch (e) {
-    error = String(e?.message || e);
+  // One look-up at a time: the connection list and its key are read once for everyone waiting.
+  if (!force && embedPending?.key === key) return embedPending.promise;
+  const pending = { key, promise: null };
+  pending.promise = (async () => {
+    let value = null;
+    let error = null;
+    try {
+      if (mode === 'manual') {
+        const m = await memoryModel();
+        value = { model: trimmed(settings().embedding.model), provider: m.provider, label: `연결 "${m.name}"` };
+      } else if (mode === 'connection') value = await connectionEmbedding();
+    } catch (e) {
+      error = String(e?.message || e);
+    }
+    embedSource = { key, at: Date.now(), value, error };
+    return value;
+  })().finally(() => { if (embedPending === pending) embedPending = null; });
+  embedPending = pending;
+  return pending.promise;
+}
+
+/**
+ * For screens that only show state (status, room data): the last known source even when its minute is up, refreshed
+ * in the background, so the page does not wait on the connection list and key look-up (about a second). Nothing
+ * known yet, or the settings changed: it waits like embeddingSource. Replies and memory runs keep using embeddingSource.
+ */
+async function embeddingSourceForView() {
+  const key = JSON.stringify([embeddingMode(), settings().embedding, settings().connection]);
+  if (embedSource.key === key && embedSource.at) {
+    if (Date.now() - embedSource.at >= EMBED_SOURCE_TTL_MS) embeddingSource().catch(() => {});
+    return embedSource.value;
   }
-  embedSource = { key, at: Date.now(), value, error };
-  return value;
+  return embeddingSource();
 }
 
 /** The model name for vectors already resolved (sync; call embeddingSource() first). */
@@ -2801,10 +2823,27 @@ function summary(ledger) {
 }
 
 async function routes(app) {
-  const guard = (fn) => async (req, reply) => {
+  // Server-Timing on every module route: the total and, where a route marks them, its phases (names and
+  // milliseconds only, no data), so a slow screen can be traced from the browser's network panel.
+  const phase = async (req, name, fn) => {
+    const t = performance.now();
+    try { return await fn(); } finally { if (req?.mmTiming) req.mmTiming[name] = (req.mmTiming[name] || 0) + performance.now() - t; }
+  };
+  const stampTiming = (req, reply, started) => {
     try {
-      return await fn(req, reply);
+      const parts = Object.entries(req?.mmTiming || {}).map(([k, v]) => `${k};dur=${v.toFixed(1)}`);
+      reply?.header?.('Server-Timing', [...parts, `total;dur=${(performance.now() - started).toFixed(1)}`].join(', '));
+    } catch {}
+  };
+  const guard = (fn) => async (req, reply) => {
+    const started = performance.now();
+    if (req) req.mmTiming = {};
+    try {
+      const out = await fn(req, reply);
+      stampTiming(req, reply, started);
+      return out;
     } catch (error) {
+      stampTiming(req, reply, started);
       return reply.status(400).send({ error: error?.message || String(error) });
     }
   };
@@ -2868,8 +2907,8 @@ async function routes(app) {
     const file = path.join(CHAT_DIR, `${safeChatId(req.params.id)}.scene-error.txt`);
     return { text: fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null };
   }));
-  app.get('/status', guard(async () => {
-    const src = await embeddingSource();
+  app.get('/status', guard(async (req) => {
+    const src = await phase(req, 'embedding-source', embeddingSourceForView);
     return {
       version: globalThis.__marinaraMemory?.version || null, settings: settings(), dataDir: DATA_DIR, health: health(),
       embedding: { mode: embeddingMode(), model: src?.model || null, label: src?.label || null, error: src ? null : embedSource.error },
@@ -3120,7 +3159,7 @@ async function routes(app) {
     return { deleted: result.deleted, refused: result.refused };
   }));
   app.get('/chats/:id', guard(async (req) => {
-    await embeddingSource();
+    await phase(req, 'embedding-source', embeddingSourceForView);
     const chatId = safeChatId(req.params.id);
     const ledger = loadLedger(chatId);
     const { cancel: _cancel, abort: _abort, cancelReason: _reason, ...job } = jobStatus(chatId);
@@ -3130,7 +3169,7 @@ async function routes(app) {
       version: globalThis.__marinaraMemory?.version || null,
       health: health(),
       enabled: chatEnabled(chatId),
-      chatLang: await chatLanguage(chatId).catch(() => null),
+      chatLang: await phase(req, 'chat-language', () => chatLanguage(chatId)).catch(() => null),
       memoryLanguage: memoryLanguage(chatId),
       writeLanguage: writeLanguage(chatId),
       translationPrep: (maybePrepareTranslation(chatId), prepareStatus(chatId)),
@@ -3172,7 +3211,7 @@ async function routes(app) {
       storyDate: storyToday(chatId, ledger),
       deadlines: ledger ? L.deadlineList(ledger, storyToday(chatId, ledger)) : [],
       lastNumber: ledger?.lastNumber ?? null,
-      rendered: renderLedger(chatId),
+      rendered: await phase(req, 'render-ledger', async () => renderLedger(chatId)),
       ...(featureOn(chatId, 'trackers') ? { trackerPick: trackerPick(chatId) } : {}),
       recallPrefs: (() => { const p = Rp.followMerges(loadRecallPrefs(chatId), scenes); return { pinned: p.pinned, excluded: p.excluded }; })(),
     };
