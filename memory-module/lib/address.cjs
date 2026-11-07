@@ -182,7 +182,7 @@ const PAIR_SHARE = 0.6;
 /**
  * Links each foreign term with its Korean translation inside `entries` (fresh objects of one scan), by the lines that
  * show them together (the foreign term in the original, the Korean one in its translation: at least PAIR_MIN lines and
- * PAIR_SHARE of the Korean term's uses in translated lines) or by sound ("Riri"/"리리"). Two Korean or two foreign terms
+ * PAIR_SHARE of the Korean term's uses in translated lines) or by sound ("Lili"/"릴리"). Two Korean or two foreign terms
  * are never linked, nor two of the user's own entries; a pair the user split stays apart. Each term has one partner at most.
  */
 function pairUp(entries, found, split) {
@@ -297,7 +297,7 @@ function groupTerms(entries, split) {
 }
 
 /**
- * "[호칭] A→B: 보스 · B→C: 리리": only pairs where both are in `present`, the most used first, within `max` characters.
+ * "[호칭] A→B: 보스 · B→C: 릴리": only pairs where both are in `present`, the most used first, within `max` characters.
  * Spellings of one word count once. Every pair gets its most used term before any pair gets a second one; the extra
  * terms of a pair share it ("A→B: 보스/대장"). Empty string when nothing qualifies.
  */

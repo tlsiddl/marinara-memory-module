@@ -73,10 +73,10 @@ test('pairing: never two Korean terms, never two foreign terms, never across dif
 });
 
 test('pairing: a sound-alike spelling pairs even with fewer co-occurrences; a user entry pairs only by evidence; two user entries never', () => {
-  const quotes = [mono('"Riri, vieni."'), mono('"Riri, dai."'), mono('"리리, 와."'), mono('"리리, 어서."'), bq('"Riri, ecco."', '"리리, 여기."')];
+  const quotes = [mono('"Lili, vieni."'), mono('"Lili, dai."'), mono('"릴리, 와."'), mono('"릴리, 어서."'), bq('"Lili, ecco."', '"릴리, 여기."')];
   const book = scan(quotes);
-  assert.equal(by(book, 'Riri').pairWith, by(book, '리리').id, 'by sound, one shared line');
-  assert.equal(by(book, 'Riri').pairCount, 5);
+  assert.equal(by(book, 'Lili').pairWith, by(book, '릴리').id, 'by sound, one shared line');
+  assert.equal(by(book, 'Lili').pairCount, 5);
   // a user's Korean term and an automatic foreign term: evidence rule applies
   const user = Addr.emptyBook();
   Addr.addEntry(user, { from: ADEL, to: VITO, term: '자기' });
