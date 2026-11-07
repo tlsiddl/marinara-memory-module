@@ -113,4 +113,30 @@ function view(all, chatId, registry = FEATURES) {
   }));
 }
 
-module.exports = { FEATURES, MODES, BUILTIN, isBuiltin, known, resolve, withGlobal, withRoomMode, view };
+// Choice settings with more than on/off. "attributionCheck" (대사 확인 방식): how the speaker/listener of saved quotes is checked.
+//   settings.attributionCheck                 'off' | 'rules' | 'default' | 'thorough'   global default (missing = 'default')
+//   settings.chats[id].attributionCheck       same values                                 per-room override (missing = follow the global)
+const ATTRIBUTION_MODES = ['off', 'rules', 'default', 'thorough'];
+const ATTRIBUTION_DEFAULT = 'default';
+const ATTRIBUTION_LABELS = { off: '끄기', rules: '규칙만', default: '기본', thorough: '꼼꼼히' };
+const attributionMode = (v) => (ATTRIBUTION_MODES.includes(v) ? v : null);
+
+/** { global, room, mode } : room is a mode or 'follow' (the global applies); mode is what applies in that room. */
+function resolveAttribution(all, chatId) {
+  const global = attributionMode(all?.attributionCheck) || ATTRIBUTION_DEFAULT;
+  const own = attributionMode(all?.chats?.[chatId]?.attributionCheck);
+  return { global, room: own || 'follow', mode: own || global };
+}
+function withGlobalAttribution(all, mode) {
+  const next = { ...all };
+  next.attributionCheck = mode;
+  return next;
+}
+/** room: a mode, or 'follow' for the global (stores nothing). */
+function withRoomAttribution(all, chatId, room) {
+  const own = { ...(all.chats?.[chatId] || {}) };
+  if (room === 'follow') delete own.attributionCheck; else own.attributionCheck = room;
+  return { ...all, chats: { ...(all.chats || {}), [chatId]: own } };
+}
+
+module.exports = { ATTRIBUTION_MODES, ATTRIBUTION_DEFAULT, ATTRIBUTION_LABELS, resolveAttribution, withGlobalAttribution, withRoomAttribution, FEATURES, MODES, BUILTIN, isBuiltin, known, resolve, withGlobal, withRoomMode, view };
