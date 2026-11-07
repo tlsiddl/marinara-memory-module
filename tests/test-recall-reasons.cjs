@@ -384,8 +384,12 @@ test('route: pin and exclude toggle and persist; the file survives a reload; bad
   assert.deepEqual(X.loadRecallPrefs('ri'), { version: 1, pinned: ['S2', 'T2'], excluded: ['F1', 'C1'] }, 'read back from the file');
   const info = (await call('GET /chats/:id', 'ri', null)).result;
   assert.deepEqual(info.recallPrefs, { pinned: ['S2', 'T2'], excluded: ['F1', 'C1'] });
-  assert.ok(Array.isArray(info.recallReport.sections));
-  assert.ok(info.recallReport.marks.some((m) => m.id === 'F1' && m.state === 'excluded' && /놋쇠/.test(m.title)), 'a left-out item can be found to undo');
+  assert.ok(!('recallReport' in info), 'GET /chats/:id no longer carries the report');
+  const rep = (await call('GET /chats/:id/recall-report', 'ri', null)).result;
+  assert.deepEqual(rep, X.recallReport('ri'), 'the route returns the same report');
+  assert.ok(Array.isArray(rep.sections));
+  assert.ok((await call('GET /chats/:id/recall-report', '../x', null)).error, 'same id guard');
+  assert.ok(rep.marks.some((m) => m.id === 'F1' && m.state === 'excluded' && /놋쇠/.test(m.title)), 'a left-out item can be found to undo');
   const same = JSON.stringify(onDisk('ri'));
   for (const body of [{ id: 'S2', action: 'delete' }, { id: '../x', action: 'pin' }, { id: 'S99', action: 'pin' }, { id: 'F99', action: 'exclude' }, { id: '', action: 'pin' }]) {
     assert.ok((await call('POST /chats/:id/recall-prefs', 'ri', body)).error, JSON.stringify(body));
@@ -394,6 +398,20 @@ test('route: pin and exclude toggle and persist; the file survives a reload; bad
   assert.ok((await call('POST /chats/:id/recall-prefs', '../x', { id: 'S1', action: 'pin' })).error);
   await mark('ri', 'S2', 'pin');
   assert.deepEqual(onDisk('ri').pinned, ['T2']);
+});
+
+test('GET /chats/:id does not render the report; the report route does (spy on the traced render)', async () => {
+  seed('rs');
+  const traced = [];
+  const real = S.renderScenes;
+  S.renderScenes = function (store, first, opts) { if (opts && opts.trace) traced.push(1); return real.apply(this, arguments); };
+  try {
+    await call('GET /chats/:id', 'rs', null);
+    assert.equal(traced.length, 0, 'no traced (report) render inside GET /chats/:id');
+    const rep = (await call('GET /chats/:id/recall-report', 'rs', null)).result;
+    assert.ok(traced.length >= 1, 'the report route renders with a trace');
+    assert.ok(rep.sections.length);
+  } finally { S.renderScenes = real; }
 });
 
 test('persistence: ids stay when text is renamed or facts are merged; deleted items drop out on the next choice', async () => {
@@ -504,7 +522,14 @@ test('screen: the buttons show their state and name what they do; reasons sit ne
 });
 
 test('screen: the tab shows the reasons, the cards carry the buttons, the action is wired', () => {
-  assert.match(source, /\$\{recallCard\(\)\}\$\{recallTestCard\(\)\}\$\{recallReasonsPaper\(info\.recallReport, info\.recallPrefs\)\}/);
+  assert.match(source, /\$\{recallCard\(\)\}\$\{recallTestCard\(\)\}\$\{recallReasonsPaper\(recallReportRoom === room \? recallReportData : null, info\.recallPrefs,/);
+  assert.doesNotMatch(source, /info\.recallReport/, 'the report is no longer part of the room info');
+  // fetched only for the injection tab: when that tab's room data reloads, and when the tab is opened
+  assert.equal((source.match(/\/recall-report/g) || []).length, 1, 'one fetch site');
+  assert.match(source, /async function ensureRecallReport\(\) \{\n    if \(tab !== 'inject'/);
+  assert.match(source, /recallReportData = null; recallReportRoom = ''; recallReportError = '';\n    if \(tab === 'inject'\) void ensureRecallReport\(\);/, 'cache dropped when the room data reloads, refetched only on that tab');
+  assert.equal((source.match(/void ensureRecallReport\(\)/g) || []).length, 3, 'loadRoom, the tab click, and the room-changed retry');
+  assert.match(fn('recallReasonsPaper', ['markButtons'])(null, {}, 'loading'), /왜 이 기억이 들어갔나[^]*불러오는 중…/);
   assert.match(source, /case 'recallMark':/);
   assert.match(source, /\/recall-prefs`, \{ id, action: el\.dataset\.mark \}/);
   for (const id of ['s.id', 'c.id', 'f.id', 't.id']) assert.ok(source.includes(`markButtons(${id}, info?.recallPrefs)`), id);

@@ -3095,11 +3095,12 @@ async function routes(app) {
       deadlines: ledger ? L.deadlineList(ledger, storyToday(chatId, ledger)) : [],
       lastNumber: ledger?.lastNumber ?? null,
       rendered: renderLedger(chatId),
-      recallReport: recallReport(chatId),
       ...(featureOn(chatId, 'trackers') ? { trackerPick: trackerPick(chatId) } : {}),
       recallPrefs: (() => { const p = Rp.followMerges(loadRecallPrefs(chatId), scenes); return { pinned: p.pinned, excluded: p.excluded }; })(),
     };
   }));
+  // 왜 이 기억이 들어갔나: a full extra memory render, so only on demand (the 주입 확인 tab), never inside GET /chats/:id.
+  app.get('/chats/:id/recall-report', guard(async (req) => recallReport(safeChatId(req.params.id))));
   // 중요 (pin) / 빼기 (leave out of automatic recall) for one scene, chapter, fact or open thread; the same button again takes it back.
   app.post('/chats/:id/recall-prefs', guard(async (req) => {
     const chatId = safeChatId(req.params.id);
