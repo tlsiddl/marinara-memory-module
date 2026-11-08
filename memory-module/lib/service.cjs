@@ -1425,9 +1425,21 @@ const LANGUAGE_NOTE = {
   zh: '\n\n[기록 언어] 네가 새로 쓰는 모든 글(제목·요약·사건·사실·이유·메모·생활 기록)은 중국어(간체)로 써. 채팅이 한국어여도 마찬가지야. 인용(q)은 원문에서 그대로 복사하고(번역하지 마), 이름도 쓰인 그대로 둬.',
 };
 
-/** The language this chat's memory is written in: the chat's own, or English / Chinese when set so for every chat. */
+// A room's own choice of the language its memory is written in: 'chat' (the chat's own language), 'en' or 'zh'.
+// Nothing stored means the room follows the all-rooms setting.
+const ROOM_WRITE_LANGS = ['chat', 'en', 'zh'];
+const roomWriteLanguage = (chatId) => {
+  const own = settings().chats?.[chatId]?.writeLanguage;
+  return ROOM_WRITE_LANGS.includes(own) ? own : 'follow';
+};
+
+/**
+ * The language this chat's memory is written in: the room's own choice when it has one, else the all-rooms setting
+ * (English or Chinese for every room, or each chat's own language).
+ */
 function writeLanguage(chatId) {
-  const set = settings().writeLanguage;
+  const own = roomWriteLanguage(chatId);
+  const set = own === 'follow' ? settings().writeLanguage : own;
   return set === 'en' || set === 'zh' ? set : chatLangs.get(chatId) || loadLang(chatId)?.lang || 'ko';
 }
 async function writeLanguageOf(chatId) {
@@ -3143,6 +3155,20 @@ async function routes(app) {
     saveSettings(F.withRoomAttribution(settings(), chatId, mode));
     return { attributionCheck: attributionSetting(chatId) };
   }));
+  // This room's memory language, apart from the all-rooms setting: follow (stores nothing), chat, en or zh.
+  app.post('/chats/:id/write-language', guard(async (req) => {
+    const chatId = safeChatId(req.params.id);
+    const lang = String(req.body?.lang || '').trim();
+    if (lang !== 'follow' && !ROOM_WRITE_LANGS.includes(lang)) throw Error('이 방의 기억 정리 언어는 follow, chat, en, zh 중 하나여야 합니다.');
+    const all = settings();
+    const own = { ...(all.chats?.[chatId] || {}) };
+    if (lang === 'follow') delete own.writeLanguage; else own.writeLanguage = lang;
+    saveSettings({ ...all, chats: { ...(all.chats || {}), [chatId]: own } });
+    // What goes into replies may now be another language: get it ready in the background.
+    preparing.delete(chatId);
+    maybePrepareTranslation(chatId);
+    return { roomWriteLanguage: roomWriteLanguage(chatId), writeLanguage: writeLanguage(chatId) };
+  }));
   app.post('/settings/recall-style', guard(async (req) => {
     const style = String(req.body?.style || '').trim();
     if (!RECALL_STYLES[style]) throw Error('기억을 드러내는 정도는 quiet, natural, active 중 하나여야 합니다.');
@@ -3379,6 +3405,7 @@ async function routes(app) {
       chatLang: await phase(req, 'chat-language', () => chatLanguage(chatId)).catch(() => null),
       memoryLanguage: memoryLanguage(chatId),
       writeLanguage: writeLanguage(chatId),
+      roomWriteLanguage: roomWriteLanguage(chatId),
       translationPrep: (maybePrepareTranslation(chatId), prepareStatus(chatId)),
       job,
       sceneJob,
@@ -4501,7 +4528,7 @@ function attach(app) {
   log('admin API ready at /api/memory-module');
 }
 
-module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { loadAddress, saveAddress, refreshAddress, presentPeople, Addr, loadState, saveState, loadPlaces, savePlaces, loadKeepsakes, saveKeepsakes, loadTrackers, saveTrackers, Tk, loadConflicts, saveConflicts, refreshConflicts, refreshWorld, Cf, Ks, organizeFor, sceneTokens, lastScenePeople, St, Pl, listRooms, purgeChatMemory, purgeIfGone, deleteOnSend, deletePrepare, listOrphans, deleteOrphans, goneChats, loadNames, saveNames, enqueue, foldScenes, reviewAttributions, loadAttributionLog, sceneJobs, selectedForView, loadSelected, recalls, windows, loadRecallPrefs, saveRecallPrefs, recallReport, recallCandidates, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, loadTranslations, saveTranslations, chatLangs, langRecords, loadLang, noteLanguage, LANG_REFRESH_EVERY, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, jobs, writeLanguage, memoryCallOptions, routineSetting, routineEnabled, attributionSetting, featureOn, featureSetting, F, B, clearRoomCaches, RESTORE_UNDO_DIR, connectionWithKey, memoryModel, startTrial, trials } };
+module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { loadAddress, saveAddress, refreshAddress, presentPeople, Addr, loadState, saveState, loadPlaces, savePlaces, loadKeepsakes, saveKeepsakes, loadTrackers, saveTrackers, Tk, loadConflicts, saveConflicts, refreshConflicts, refreshWorld, Cf, Ks, organizeFor, sceneTokens, lastScenePeople, St, Pl, listRooms, purgeChatMemory, purgeIfGone, deleteOnSend, deletePrepare, listOrphans, deleteOrphans, goneChats, loadNames, saveNames, enqueue, foldScenes, reviewAttributions, loadAttributionLog, sceneJobs, selectedForView, loadSelected, recalls, windows, loadRecallPrefs, saveRecallPrefs, recallReport, recallCandidates, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, loadTranslations, saveTranslations, chatLangs, langRecords, loadLang, noteLanguage, LANG_REFRESH_EVERY, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, jobs, writeLanguage, roomWriteLanguage, memoryCallOptions, routineSetting, routineEnabled, attributionSetting, featureOn, featureSetting, F, B, clearRoomCaches, RESTORE_UNDO_DIR, connectionWithKey, memoryModel, startTrial, trials } };
 
 
 
