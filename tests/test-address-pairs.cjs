@@ -24,9 +24,9 @@ const by = (book, term) => book.entries.find((e) => e.term === term);
 
 test('pairing: a foreign and a Korean term seen together in at least 2 lines and most of the Korean term\'s translated uses', () => {
   const book = scan([
-    bq('"Tesoro, vieni qui."', '"자기, 이리 와."'), bq('"Tesoro, dai."', '"자기, 어서."'), bq('"Ciao, Tesoro."', '"안녕, 자기."'),
+    bq('"Cara, vieni qui."', '"자기, 이리 와."'), bq('"Cara, dai."', '"자기, 어서."'), bq('"Ciao, Cara."', '"안녕, 자기."'),
   ]);
-  const o = by(book, 'Tesoro'), k = by(book, '자기');
+  const o = by(book, 'Cara'), k = by(book, '자기');
   assert.ok(o && k);
   assert.equal(o.translation, '자기');
   assert.equal(o.pairWith, k.id);
@@ -37,22 +37,22 @@ test('pairing: a foreign and a Korean term seen together in at least 2 lines and
 });
 
 test('pairing: one shared line is not enough, and neither is a minority of the Korean term\'s uses', () => {
-  const one = scan([bq('"Tesoro, vieni."', '"자기, 와."'), mono('"Tesoro, dai."'), mono('"Tesoro, ecco."'), mono('"자기, 와."'), mono('"자기, 이리."')]);
-  assert.equal(by(one, 'Tesoro').pairWith, undefined, 'co-occurs once');
+  const one = scan([bq('"Cara, vieni."', '"자기, 와."'), mono('"Cara, dai."'), mono('"Cara, ecco."'), mono('"자기, 와."'), mono('"자기, 이리."')]);
+  assert.equal(by(one, 'Cara').pairWith, undefined, 'co-occurs once');
   // 자기 is translated from other words in 3 of its 5 translated lines: 2/5 < 60%
   const quotes = [
-    bq('"Tesoro, vieni."', '"자기, 와."'), bq('"Tesoro, dai."', '"자기, 어서."'),
+    bq('"Cara, vieni."', '"자기, 와."'), bq('"Cara, dai."', '"자기, 어서."'),
     bq('"Amico, vieni."', '"자기, 와."'), bq('"Amico, dai."', '"자기, 어서."'), bq('"Capo, vieni."', '"자기, 와."'),
   ];
   const few = scan(quotes);
   assert.ok(by(few, '자기'));
-  assert.equal(by(few, 'Tesoro').pairWith, undefined, 'a minority of the Korean term\'s uses');
+  assert.equal(by(few, 'Cara').pairWith, undefined, 'a minority of the Korean term\'s uses');
   assert.equal(by(few, '자기').pairOf, undefined);
 });
 
 test('pairing: never two Korean terms, never two foreign terms, never across different speaker→listener pairs', () => {
   const book = scan([
-    bq('"Tesoro, vieni."', '"자기, 와. 공주님, 이리."'), bq('"Tesoro, dai."', '"자기, 어서. 공주님, 여기."'),
+    bq('"Cara, vieni."', '"자기, 와. 공주님, 이리."'), bq('"Cara, dai."', '"자기, 어서. 공주님, 여기."'),
     bq('"Amore, vieni."', '"자기, 와."'), bq('"Amore, dai."', '"자기, 어서."'),
     mono('"공주님, 와."'), mono('"공주님, 어서."'),
   ]);
@@ -64,7 +64,7 @@ test('pairing: never two Korean terms, never two foreign terms, never across dif
   }
   // different listener: the pair evidence of Adel→Vito does not link terms of Adel→Silvi
   const other = scan([
-    bq('"Tesoro, vieni."', '"자기, 와."', ADEL, VITO), bq('"Tesoro, dai."', '"자기, 어서."', ADEL, VITO),
+    bq('"Cara, vieni."', '"자기, 와."', ADEL, VITO), bq('"Cara, dai."', '"자기, 어서."', ADEL, VITO),
     mono('"대장, 와."', ADEL, SILVI), mono('"대장, 어서."', ADEL, SILVI),
   ]);
   const silvi = other.entries.find((e) => e.to === SILVI && e.term === '대장');
@@ -73,31 +73,31 @@ test('pairing: never two Korean terms, never two foreign terms, never across dif
 });
 
 test('pairing: a sound-alike spelling pairs even with fewer co-occurrences; a user entry pairs only by evidence; two user entries never', () => {
-  const quotes = [mono('"Lili, vieni."'), mono('"Lili, dai."'), mono('"릴리, 와."'), mono('"릴리, 어서."'), bq('"Lili, ecco."', '"릴리, 여기."')];
+  const quotes = [mono('"Nami, vieni."'), mono('"Nami, dai."'), mono('"나미, 와."'), mono('"나미, 어서."'), bq('"Nami, ecco."', '"나미, 여기."')];
   const book = scan(quotes);
-  assert.equal(by(book, 'Lili').pairWith, by(book, '릴리').id, 'by sound, one shared line');
-  assert.equal(by(book, 'Lili').pairCount, 5);
+  assert.equal(by(book, 'Nami').pairWith, by(book, '나미').id, 'by sound, one shared line');
+  assert.equal(by(book, 'Nami').pairCount, 5);
   // a user's Korean term and an automatic foreign term: evidence rule applies
   const user = Addr.emptyBook();
   Addr.addEntry(user, { from: ADEL, to: VITO, term: '자기' });
-  scan([bq('"Tesoro, vieni."', '"자기, 와."'), bq('"Tesoro, dai."', '"자기, 어서."'), bq('"Tesoro, su."', '"자기, 자."')], user);
-  assert.equal(by(user, 'Tesoro').translation, '자기');
+  scan([bq('"Cara, vieni."', '"자기, 와."'), bq('"Cara, dai."', '"자기, 어서."'), bq('"Cara, su."', '"자기, 자."')], user);
+  assert.equal(by(user, 'Cara').translation, '자기');
   assert.equal(by(user, '자기').source, 'user');
   // two user entries are never joined
   const both = Addr.emptyBook();
-  Addr.addEntry(both, { from: ADEL, to: VITO, term: 'Tesoro' });
+  Addr.addEntry(both, { from: ADEL, to: VITO, term: 'Cara' });
   Addr.addEntry(both, { from: ADEL, to: VITO, term: '자기' });
-  scan([bq('"Tesoro, vieni."', '"자기, 와."'), bq('"Tesoro, dai."', '"자기, 어서."')], both);
+  scan([bq('"Cara, vieni."', '"자기, 와."'), bq('"Cara, dai."', '"자기, 어서."')], both);
   assert.ok(both.entries.every((e) => !e.pairWith && !e.pairOf));
 });
 
 test('injection: "원어(번역)" for a pair, plain for the rest, within the cap, every pair\'s top term first', () => {
   const book = scan([
-    bq('"Tesoro, vieni."', '"자기, 와."'), bq('"Tesoro, dai."', '"자기, 어서."'), bq('"Tesoro, su."', '"자기, 자."'),
+    bq('"Cara, vieni."', '"자기, 와."'), bq('"Cara, dai."', '"자기, 어서."'), bq('"Cara, su."', '"자기, 자."'),
     mono('"공주님, 와."'), mono('"공주님, 어서."'),
     mono('"Capo, ok."', VITO, ADEL), mono('"Capo, sì."', VITO, ADEL),
   ]);
-  assert.equal(Addr.injectionBlock(book, [ADEL, VITO]), '[호칭] 아델→비토: Tesoro(자기)/공주님 · 비토→아델: Capo');
+  assert.equal(Addr.injectionBlock(book, [ADEL, VITO]), '[호칭] 아델→비토: Cara(자기)/공주님 · 비토→아델: Capo');
   assert.equal(Addr.injectionBlock(book, [ADEL]), '');
   const many = Addr.emptyBook();
   many.entries = [];
@@ -120,12 +120,12 @@ test('injection: "원어(번역)" for a pair, plain for the rest, within the cap
 });
 
 test('attribution: both forms of a pair name the same listener, and the pair is used while either half is on', () => {
-  const book = scan([bq('"Tesoro, vieni."', '"자기, 와."'), bq('"Tesoro, dai."', '"자기, 어서."')]);
-  const o = by(book, 'Tesoro'), k = by(book, '자기');
-  assert.deepEqual([...Addr.termMap(book)].sort(), [['tesoro', VITO], ['자기', VITO]].sort());
+  const book = scan([bq('"Cara, vieni."', '"자기, 와."'), bq('"Cara, dai."', '"자기, 어서."')]);
+  const o = by(book, 'Cara'), k = by(book, '자기');
+  assert.deepEqual([...Addr.termMap(book)].sort(), [['cara', VITO], ['자기', VITO]].sort());
   k.useForCheck = false;
   assert.equal(Addr.termMap(book).get('자기'), VITO, 'the other half is on');
-  assert.equal(Addr.termMap(book).get('tesoro'), VITO);
+  assert.equal(Addr.termMap(book).get('cara'), VITO);
   o.useForCheck = false;
   assert.equal(Addr.termMap(book).size, 0, 'both off');
   // toggling one half switches the pair as one
@@ -137,22 +137,22 @@ test('attribution: both forms of a pair name the same listener, and the pair is 
 });
 
 test('delete removes both halves; 따로 보기 splits a pair and a later scan keeps it split', () => {
-  const quotes = [bq('"Tesoro, vieni."', '"자기, 와."'), bq('"Tesoro, dai."', '"자기, 어서."')];
+  const quotes = [bq('"Cara, vieni."', '"자기, 와."'), bq('"Cara, dai."', '"자기, 어서."')];
   const book = scan(quotes);
-  const o = by(book, 'Tesoro');
+  const o = by(book, 'Cara');
   Addr.splitPair(book, by(book, '자기').id);
   assert.ok(book.entries.every((e) => !e.pairWith && !e.pairOf && !e.translation));
   assert.equal(book.split.length, 1);
   Addr.refresh(book, storeOf(quotes));
   assert.ok(book.entries.every((e) => !e.pairWith && !e.pairOf), 'a scan does not join them again');
-  assert.match(Addr.injectionBlock(book, [ADEL, VITO]), /Tesoro/);
+  assert.match(Addr.injectionBlock(book, [ADEL, VITO]), /Cara/);
   assert.throws(() => Addr.splitPair(book, o.id), /짝/);
   // deleting a pair removes both
   const fresh = scan(quotes);
   Addr.deleteEntry(fresh, by(fresh, '자기').id);
   assert.equal(fresh.entries.length, 0);
   // an old file without any pair fields still reads fine
-  const old = { version: 1, entries: [{ from: ADEL, to: VITO, term: 'Tesoro', count: 3, source: 'auto' }, { from: ADEL, to: VITO, term: '자기', count: 3, source: 'auto' }], suggestions: [] };
+  const old = { version: 1, entries: [{ from: ADEL, to: VITO, term: 'Cara', count: 3, source: 'auto' }, { from: ADEL, to: VITO, term: '자기', count: 3, source: 'auto' }], suggestions: [] };
   assert.equal(Addr.normalize(old).length, 2);
   assert.ok(Addr.view(old, { addressBook: true }).entries.every((e) => !e.pairWith));
 });
@@ -163,13 +163,13 @@ test('screen: a pair is one row "원어(번역) ×N" with the toggle, edit, dele
   const start = source.indexOf('  function addressPaper(');
   const paper = vm.runInNewContext(`(${source.slice(start, source.indexOf('\n  }\n', start) + 4).trim()})`, { esc });
   const a = { addressBook: true, learnFromEdits: false, suggestions: [], entries: [
-    { id: 'o1', from: ADEL, to: VITO, term: 'Tesoro', count: 3, pairCount: 4, source: 'auto', useForCheck: false, translation: '자기', pairWith: 'k1' },
+    { id: 'o1', from: ADEL, to: VITO, term: 'Cara', count: 3, pairCount: 4, source: 'auto', useForCheck: false, translation: '자기', pairWith: 'k1' },
     { id: 'k1', from: ADEL, to: VITO, term: '자기', count: 4, pairCount: 4, source: 'auto', useForCheck: true, pairOf: 'o1' },
     { id: 'e2', from: ADEL, to: SILVI, term: 'Capo', count: 2, source: 'auto', useForCheck: true },
   ] };
   const html = paper(a, {}, '', []);
   assert.match(html, /호칭 사전 · 2개/, 'a pair is one entry');
-  assert.match(html, /<b>Tesoro\(자기\)<\/b> ×4/);
+  assert.match(html, /<b>Cara\(자기\)<\/b> ×4/);
   assert.doesNotMatch(html, /<b>자기<\/b>/, 'the Korean half has no row of its own');
   assert.match(html, /data-address-use="o1" checked>/, 'on while either half is on');
   assert.match(html, /data-act="addressSplit" data-id="o1">따로 보기/);
@@ -183,24 +183,24 @@ test('screen: a pair is one row "원어(번역) ×N" with the toggle, edit, dele
 
 test('pairing: a lower-case endearment inside the line is collected and pairs with its translation', () => {
   const book = scan([
-    bq('"Vieni qui, principessa, subito."', '"이리 와, 공주님, 어서."'), bq('"Dai, principessa."', '"어서, 공주님."'),
-    bq('"Principessa, ascolta."', '"공주님, 들어."'), bq('"Grazie, principessa."', '"고마워, 공주님."'),
+    bq('"Vieni qui, princess, subito."', '"이리 와, 공주님, 어서."'), bq('"Dai, princess."', '"어서, 공주님."'),
+    bq('"Princess, ascolta."', '"공주님, 들어."'), bq('"Grazie, princess."', '"고마워, 공주님."'),
   ]);
-  const o = book.entries.find((e) => e.term.toLowerCase() === 'principessa'), k = by(book, '공주님');
+  const o = book.entries.find((e) => e.term.toLowerCase() === 'princess'), k = by(book, '공주님');
   assert.ok(o && k);
-  assert.equal(o.term, 'principessa', 'shown in the spelling used most outside the start of a line');
+  assert.equal(o.term, 'princess', 'shown in the spelling used most outside the start of a line');
   assert.equal(o.translation, '공주님');
   assert.equal(o.pairCount, 4);
 });
 
 test('pairing: co-occurrence is counted case-insensitively, as whole words, even for a term collected with a capital', () => {
-  // "Tesoro" is collected from two capitalized lines; the other lines hold it in lower case, and "tesoro" inside a longer word does not count
+  // "Cara" is collected from two capitalized lines; the other lines hold it in lower case, and "cara" inside a longer word does not count
   const book = scan([
-    bq('"Tesoro, vieni."', '"자기, 와."'), bq('"Ciao, Tesoro."', '"안녕, 자기."'),
-    bq('"Vieni, tesoro, dai."', '"와, 자기, 어서."'), bq('"Dai, tesoro."', '"어서, 자기."'),
-    bq('"Il tesoroX, dai."', '"보물, 어서."'),
+    bq('"Cara, vieni."', '"자기, 와."'), bq('"Ciao, Cara."', '"안녕, 자기."'),
+    bq('"Vieni, cara, dai."', '"와, 자기, 어서."'), bq('"Dai, cara."', '"어서, 자기."'),
+    bq('"Il caraX, dai."', '"보물, 어서."'),
   ]);
-  const o = by(book, 'Tesoro') || by(book, 'tesoro');
+  const o = by(book, 'Cara') || by(book, 'cara');
   assert.ok(o && o.pairWith, 'paired');
   assert.equal(o.pairCount, 4);
 });

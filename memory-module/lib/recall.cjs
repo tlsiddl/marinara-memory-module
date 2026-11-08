@@ -109,10 +109,13 @@ function latestUser(recent, userMessage) {
  * The scene the newest user message points at by its rare words (e.g. a name or thing said once long ago).
  * Kept even when the model chose others, so a direct question is never left without its scene.
  */
-function directHit(list, text) {
+/** A whole English word counts as much as the two letter pairs a short Korean word gives, so one limit fits both. */
+const wordWeight = (w) => (w.length > 2 && /^[a-z']+$/.test(w) ? 2 : 1);
+
+function directHit(list, text, { tr = null } = {}) {
   if (!list.length || !text) return null;
   const now = words(text);
-  const bags = list.map((s) => words(sceneText(s)));
+  const bags = list.map((s) => words(sceneText(s, tr)));
   const df = new Map();
   for (const bag of bags) for (const w of bag) df.set(w, (df.get(w) || 0) + 1);
   let best = null;
@@ -123,7 +126,7 @@ function directHit(list, text) {
       if (!bags[i].has(w)) continue;
       const weight = Math.log((list.length + 1) / df.get(w));
       if (weight < 0.9) continue;
-      score += weight;
+      score += weight * wordWeight(w);
       hits.push(w);
     }
     if (score >= 2.2 && (!best || score > best.score)) best = { id: scene.id, score, hits };
@@ -137,20 +140,28 @@ function directHit(list, text) {
  */
 const COMMON = new Set(['있어', '없어', '있다', '없다', '이제', '아직', '그냥', '근데', '진짜', '어제', '오늘', '내일', '그때', '거야', '건데', '했어', '어쩔', '다음', '그거', '이거', '저거', '나도', '너도', '우리', '너희', '아까', '지금', '정말', '그래', '그럼', '이건', '그건', '뭐야', '어떻', '왜그', '언제', '어디', '누가', '무슨', '어젯', '일은', '일이', '일을', '하는', '하고', '해서', '했다', '한다', '같은', '같아', '많이', '조금', '이렇', '그렇', '저렇']);
 
-/** The first two letters of each word (its stem start), minus everyday words: names and things, not endings. */
+const latinWord = (w) => /[a-z]/.test(w) && !/[가-힣]/.test(w);
+
+/**
+ * The first two letters of each Korean word (its stem start), minus everyday words: names and things, not endings.
+ * English words are taken whole (plain ending, little words left out): their first two letters say nothing.
+ */
 function stems(text) {
   const out = new Set();
   for (const raw of String(text || '').toLowerCase().split(/[^\p{L}\p{N}]+/u)) {
+    if (latinWord(raw)) continue;
     const stem = raw.slice(0, 2);
     if (stem.length === 2 && !COMMON.has(stem)) out.add(stem);
   }
+  for (const w of L.englishWords(text)) out.add(w);
   return out;
 }
 
 function rawHits(messages, text, { max = 2, maxChars = 1400 } = {}) {
   if (!messages.length || !text) return [];
   const now = stems(text);
-  const bags = messages.map((m) => stems(m.content));
+  // `m.tr`: the message's saved Korean translation (a chat translated for display), so Korean words find English text.
+  const bags = messages.map((m) => stems(m.tr ? `${m.content}\n${m.tr}` : m.content));
   const df = new Map();
   for (const bag of bags) for (const w of bag) df.set(w, (df.get(w) || 0) + 1);
   const rare = (w) => Math.log((messages.length + 1) / df.get(w));
@@ -171,6 +182,16 @@ function rawHits(messages, text, { max = 2, maxChars = 1400 } = {}) {
       if (isTranslation(i + 1)) picked.push(i + 1);
     });
     const order = [...new Set(picked)].sort((a, b) => a - b).slice(0, 6);
+    // The words were only in the translation: its sentences that carry them stand in for the original.
+    if (!order.length && m.tr) {
+      const found = String(m.tr).split(/(?<=[.!?。…"”])\s+|\n+/).map((s) => s.trim()).filter((s) => s && [...stems(s)].some((w) => hits.includes(w))).slice(0, 4);
+      if (!found.length) continue;
+      const block = `(${m.number}번, 번역) ${found.join(' / ')}`.slice(0, 700);
+      if (used + block.length > maxChars) break;
+      out.push({ number: m.number, text: block, hits: hits.slice(0, 3) });
+      used += block.length;
+      continue;
+    }
     const lines = [];
     for (const i of order) {
       if (isTranslation(i) && lines.length && order.includes(i - 1)) {
@@ -198,14 +219,14 @@ function withDirectHit(picks, hit) {
   return out.slice(0, MAX_RECALL);
 }
 
-function applyRecall(result, list, chapters = [], nowText = '') {
+function applyRecall(result, list, chapters = [], nowText = '', { tr = null } = {}) {
   const ids = new Set(list.map((s) => s.id));
   const out = [];
   for (const item of Array.isArray(result?.recall) ? result.recall : []) {
     let id = String(item?.scene ?? item?.id ?? item ?? '').trim().toUpperCase().replace(/^(\d+)$/, 'S$1');
     // A chapter: the scene in it that shares the most rare words with the conversation now.
     const chapter = /^C\d+$/.test(id) && chapters.find((c) => c.id === id);
-    if (chapter) id = bestIn(list.filter((s) => chapter.scenes.includes(s.id)), nowText) || chapter.scenes.find((x) => ids.has(x)) || id;
+    if (chapter) id = bestIn(list.filter((s) => chapter.scenes.includes(s.id)), nowText, tr) || chapter.scenes.find((x) => ids.has(x)) || id;
     if (!ids.has(id) || out.some((x) => x.id === id)) continue;
     out.push({ id, why: typeof item?.why === 'string' ? item.why.slice(0, 120) : null });
     if (out.length >= MAX_RECALL) break;
@@ -213,12 +234,12 @@ function applyRecall(result, list, chapters = [], nowText = '') {
   return out;
 }
 
-function bestIn(scenes, text) {
+function bestIn(scenes, text, tr = null) {
   if (!scenes.length) return null;
   const now = words(text);
   let best = null;
   for (const scene of scenes) {
-    const score = [...words(sceneText(scene))].filter((w) => now.has(w)).length;
+    const score = [...words(sceneText(scene, tr))].filter((w) => now.has(w)).length;
     if (!best || score > best.score) best = { id: scene.id, score };
   }
   return best.id;
@@ -226,36 +247,48 @@ function bestIn(scenes, text) {
 
 /* ---------- fast: words and the ledger ---------- */
 
-/** Two-letter pieces of every word: Korean endings change, the stem's pieces stay. */
+/**
+ * Two-letter pieces of every Korean word (endings change, the stem's pieces stay), and English words whole: English
+ * letter pairs ("th", "er") are in every sentence and would make any two texts look alike.
+ */
 function words(text) {
   const out = new Set();
   for (const raw of String(text || '').toLowerCase().split(/[^\p{L}\p{N}]+/u)) {
-    if (raw.length < 2) continue;
+    if (raw.length < 2 || latinWord(raw)) continue;
     for (let i = 0; i + 2 <= raw.length; i++) out.add(raw.slice(i, i + 2));
   }
+  for (const w of L.englishWords(text)) out.add(w);
   return out;
 }
 
-function sceneText(scene) {
-  return [scene.title, scene.summary, ...(scene.later || []).map((x) => x.what), ...scene.events.map((e) => e.text), ...scene.events.flatMap((e) => e.quotes.map((q) => S.quoteText(q)))].join(' ');
+/**
+ * Everything a scene says, for finding it by words. `tr(text)` gives the Korean of a line of memory written in
+ * English (from the translation cache, no model call), so a message written in Korean finds an English scene, and one
+ * written (or translated) in English finds it by its English words.
+ */
+function sceneText(scene, tr = null) {
+  const own = [scene.title, scene.summary, ...(scene.later || []).map((x) => x.what), ...scene.events.map((e) => e.text)];
+  const korean = typeof tr === 'function' ? own.map((t) => (t ? tr(t) : null)).filter(Boolean) : [];
+  return [...own, ...korean, ...scene.events.flatMap((e) => e.quotes.map((q) => S.quoteText(q)))].join(' ');
 }
 
 /** Rarer shared words count more, so names that are in every scene do not decide. */
-function fastRecall(list, ledger, recent, userMessage) {
+function fastRecall(list, ledger, recent, userMessage, { tr = null } = {}) {
   if (!list.length) return [];
   const now = words([...recent.map((m) => m.content), userMessage || ''].join(' '));
-  const bags = list.map((s) => words(sceneText(s)));
+  const bags = list.map((s) => words(sceneText(s, tr)));
   const df = new Map();
   for (const bag of bags) for (const w of bag) df.set(w, (df.get(w) || 0) + 1);
   const scored = list.map((scene, i) => {
     let score = 0;
-    for (const w of bags[i]) if (now.has(w)) score += Math.log((list.length + 1) / df.get(w));
+    for (const w of bags[i]) if (now.has(w)) score += Math.log((list.length + 1) / df.get(w)) * wordWeight(w);
     return { scene, score };
   });
   // An open ledger item whose words come up now pulls in the scene it started in.
   for (const t of ledger?.threads || []) {
     if (t.status !== 'open' || !t.evidence?.[0]) continue;
-    const hit = [...words(t.title)].filter((w) => now.has(w)).length;
+    const title = typeof tr === 'function' && t.title ? `${t.title} ${tr(t.title) || ''}` : t.title;
+    const hit = [...words(title)].filter((w) => now.has(w)).length;
     if (!hit) continue;
     const origin = scored.find((x) => x.scene.start <= t.evidence[0].number && t.evidence[0].number <= x.scene.end);
     if (origin) origin.score += 2 * hit;

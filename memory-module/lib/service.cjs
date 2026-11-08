@@ -1162,7 +1162,10 @@ async function chatMessages(chatId) {
         : row.role === 'narrator'
           ? 'Narrator'
           : (await characterName(e, row.characterId)) || 'Character';
-    out.push({ id: row.id, number: row.rowid ?? index + 1, speaker, role: row.role, content: String(row.content), swipe: row.activeSwipeIndex });
+    // The Korean translation saved with a reply (a chat translated for display), when it is of the text as it is now:
+    // only for finding old lines by Korean words, never part of the story the memory reads.
+    const tr = row.role !== 'user' && typeof extra.translation === 'string' && extra.translation.trim() && (!extra.translationSource || extra.translationSource === row.content) ? extra.translation.trim() : null;
+    out.push({ id: row.id, number: row.rowid ?? index + 1, speaker, role: row.role, content: String(row.content), swipe: row.activeSwipeIndex, ...(tr ? { tr } : {}) });
   }
   await addTrackerClock(e, chatId, out);
   for (const m of out) delete m.swipe;
@@ -3157,6 +3160,7 @@ async function routes(app) {
     }
     if (req.body?.translateConnection !== undefined) next.translateConnection = String(req.body.translateConnection || '').trim() || null;
     if (req.body?.translateQuotes !== undefined) next.translateQuotes = req.body.translateQuotes === true;
+    if (req.body?.autoTranslate !== undefined) next.autoTranslate = req.body.autoTranslate !== false;
     saveSettings(next);
     // Get every room that uses memory ready in its (new) language now, one room after another, in the background.
     preparing.clear();
@@ -3168,7 +3172,7 @@ async function routes(app) {
         await preparing.get(id)?.run;
       }
     })().catch(() => {});
-    return { memoryLanguage: next.memoryLanguage || 'auto', writeLanguage: next.writeLanguage || 'auto', translateConnection: next.translateConnection || null, translateQuotes: next.translateQuotes === true };
+    return { memoryLanguage: next.memoryLanguage || 'auto', writeLanguage: next.writeLanguage || 'auto', translateConnection: next.translateConnection || null, translateQuotes: next.translateQuotes === true, autoTranslate: next.autoTranslate !== false };
   }));
   // Korean for what the library shows, when the memory is in another language. Missing ones are made in the
   // background (the library asks again on its next check).
@@ -3184,7 +3188,9 @@ async function routes(app) {
       if (done != null) items[t] = done;
       else missing.push(t);
     }
-    if (missing.length && settings().connection) startDisplayTranslation(chatId, missing);
+    // 자동 번역을 끄면 보여 줄 번역은 [지금 번역]을 누를 때만 만듭니다(답변에 넣을 번역은 그대로).
+    const auto = settings().autoTranslate !== false;
+    if (auto && missing.length && settings().connection) startDisplayTranslation(chatId, missing);
     // Name fields (who, toward, who does not know) are names, not sentences: written in Korean from the name table and
     // the glossary, with no model call.
     const names = roomKoreanNames(chatId);
@@ -3201,7 +3207,7 @@ async function routes(app) {
     }
     const glossary = loadTranslations(chatId).glossary;
     const status = displayTranslationStatus.get(chatId);
-    return { chatLang: chatLangs.get(chatId) || 'ko', items, glossary: glossary ? { count: glossary.pairs?.length || 0, source: glossary.source || null, at: glossary.at || null, hash: glossary.hash || null } : null, missing: missing.length, working: translating.has(`${chatId}:ko`), error: missing.length ? (status?.error || (!settings().connection ? '기억 정리 연결을 설정해 주세요.' : null)) : null };
+    return { chatLang: chatLangs.get(chatId) || 'ko', items, auto, glossary: glossary ? { count: glossary.pairs?.length || 0, source: glossary.source || null, at: glossary.at || null, hash: glossary.hash || null } : null, missing: missing.length, working: translating.has(`${chatId}:ko`), error: missing.length ? (status?.error || (!settings().connection ? '기억 정리 연결을 설정해 주세요.' : null)) : null };
   }));
   app.post('/chats/:id/translations/retry', guard(async (req) => {
     const chatId = safeChatId(req.params.id);
@@ -4362,6 +4368,9 @@ async function computeRecall(chatId, store, view, userMessage, { mode, firstInsi
   const left = () => RECALL_TIMEOUT_MS - (Date.now() - started);
   if (list.length) {
     const ledger = ledgerForReply(chatId);
+    // Memory written in English is also searched through its Korean (the library's translation cache, no model call),
+    // so a message written in Korean finds it as well as one written or translated into English.
+    const tr = writeLanguage(chatId) === 'en' ? translationLookup(chatId, 'ko') : null;
     // Meaning search first (quick): scenes close in meaning even when the words differ.
     await Promise.race([embeddingSource(), new Promise((r) => setTimeout(r, Math.min(QUERY_TIMEOUT_MS, left())))]);
     const index = loadVectors(chatId);
@@ -4392,13 +4401,13 @@ async function computeRecall(chatId, store, view, userMessage, { mode, firstInsi
         const reply = await askModel(model, R.buildRecallPrompt(list, ledger, recent, userMessage, store.chapters || [], entry.semantic || []), { maxTokens: 600 });
         const parsed = L.parseJsonObject(reply);
         if (!parsed) throw Error('기억 모델의 답을 읽지 못했습니다');
-        entry.picks = R.applyRecall(parsed, list, store.chapters || [], [...recent.map((m) => m.content), userMessage || ''].join(' '));
+        entry.picks = R.applyRecall(parsed, list, store.chapters || [], [...recent.map((m) => m.content), userMessage || ''].join(' '), { tr });
       } catch (error) {
         entry.error = error?.name === 'TimeoutError' ? `${RECALL_TIMEOUT_MS / 1000}초 안에 회상이 끝나지 않아 빠른 방식으로 골랐습니다` : String(error?.message || error);
         entry.used = 'fast';
       }
     }
-    if (entry.used === 'fast') entry.picks = R.fastRecall(list, ledger, recent, userMessage);
+    if (entry.used === 'fast') entry.picks = R.fastRecall(list, ledger, recent, userMessage, { tr });
     // The closest scene in meaning, when it clearly stands out, fills a free place (it never pushes out a pick).
     const strong = (entry.semantic || []).find((x) => x.strong && !entry.picks.some((p) => p.id === x.id));
     if (strong && entry.picks.length < R.MAX_PICKS) entry.picks.push({ id: strong.id, why: '뜻이 가까움(임베딩)' });
@@ -4408,7 +4417,7 @@ async function computeRecall(chatId, store, view, userMessage, { mode, firstInsi
     for (const x of [...(entry.pointed || [])].reverse()) {
       entry.picks = [{ id: x.id, why: `예전 일을 가리키는 말: "${x.text.slice(0, 40)}${x.text.length > 40 ? '…' : ''}"` }, ...entry.picks.filter((p) => p.id !== x.id)].slice(0, R.MAX_PICKS);
     }
-    const wordHit = R.directHit(list, latest);
+    const wordHit = R.directHit(list, latest, { tr });
     if (wordHit && entry.picks.length < R.MAX_PICKS && !entry.picks.some((p) => p.id === wordHit.id)) entry.picks.push({ id: wordHit.id, why: `방금 메시지의 낱말(${wordHit.hits.slice(0, 3).join(', ')})이 이 장면에 있음` });
     // Lines from old messages (outside the window) that the newest message names, for details a summary dropped.
     entry.raw = R.rawHits(view.filter((m) => firstInside != null && m.number < firstInside), latest);

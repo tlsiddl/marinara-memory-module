@@ -2160,6 +2160,7 @@ function renderCompact(ledger, { maxChars = 2400, query = '', today = ledger?.st
 }
 
 module.exports = {
+  englishWords,
   routineDisplayKind,
   pendingMealDisplays,
   applyMealDisplays,

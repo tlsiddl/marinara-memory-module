@@ -23,7 +23,7 @@ const call = async (key, id, body) => {
 };
 
 function seed(room) {
-  const store = Object.assign(S.emptyStore(), { cast: ['나델 크로스'], personas: ['유온'] });
+  const store = Object.assign(S.emptyStore(), { cast: ['나델 모로'], personas: ['유온'] });
   store.scenes.push({ id: 'S1', start: 1, end: 1, title: '나디의 편지', summary: '나디가 유온에게 편지를 줬다.', present: ['나디', '유온'], events: [{ text: '나디가 웃었다', quotes: [{ number: 1, sentence: 1, text: '"Tieni."', by: '나디', to: '유온' }] }], recollections: [] });
   const ledger = L.emptyLedger();
   ledger.routine = [{ who: '나디', what: 'meal', text: '빵', at: '2024-02-01T08:00', number: 1 }];
@@ -33,7 +33,7 @@ function seed(room) {
 
 test('preview, apply with the token, then undo', async () => {
   seed('r1');
-  const body = { source: '나디', target: '나델 크로스', display: '나델' };
+  const body = { source: '나디', target: '나델 모로', display: '나델' };
   const p = await call('POST /chats/:id/names/preview', 'r1', body);
   assert.ifError(p.error);
   assert.equal(p.result.counts.quoteBy, 1);
@@ -44,10 +44,10 @@ test('preview, apply with the token, then undo', async () => {
   const a = await call('POST /chats/:id/names/apply', 'r1', { ...body, confirm: true, token: p.result.token });
   assert.ifError(a.error);
   assert.equal(T.loadScenes('r1').scenes[0].title, '나델의 편지');
-  assert.equal(T.loadScenes('r1').scenes[0].events[0].quotes[0].by, '나델 크로스');
-  assert.equal(T.loadLedger('r1').routine[0].who, '나델 크로스');
+  assert.equal(T.loadScenes('r1').scenes[0].events[0].quotes[0].by, '나델 모로');
+  assert.equal(T.loadLedger('r1').routine[0].who, '나델 모로');
   const names = (await call('GET /chats/:id/names', 'r1')).result;
-  assert.deepEqual(names.people['나델 크로스'].aliases, ['나디']);
+  assert.deepEqual(names.people['나델 모로'].aliases, ['나디']);
   assert.equal(names.history.length, 1);
   // On disk, so a restart keeps it.
   assert.ok(fs.existsSync(path.join(dir, 'memory-module/chats/r1.names.json')));
@@ -55,12 +55,12 @@ test('preview, apply with the token, then undo', async () => {
   assert.ifError(u.error);
   assert.equal(T.loadScenes('r1').scenes[0].title, '나디의 편지');
   assert.equal(T.loadLedger('r1').routine[0].who, '나디');
-  assert.equal(T.loadNames('r1').people['나델 크로스'], undefined, 'the table is as it was');
+  assert.equal(T.loadNames('r1').people['나델 모로'], undefined, 'the table is as it was');
 });
 
 test('a rename is refused while a job writes the room, and one queued behind a job waits for it', async () => {
   seed('r2');
-  const body = { source: '나디', target: '나델 크로스' };
+  const body = { source: '나디', target: '나델 모로' };
   const p = (await call('POST /chats/:id/names/preview', 'r2', body)).result;
   T.sceneJobs.set('r2', { state: 'running' });
   const refused = await call('POST /chats/:id/names/apply', 'r2', { ...body, confirm: true, token: p.token });
@@ -86,26 +86,26 @@ test('a rename is refused while a job writes the room, and one queued behind a j
   assert.equal(T.loadScenes('r2').scenes[0].summary, '나디가 편지를 다시 썼다.', 'the job\'s work is kept');
   const fresh = (await call('POST /chats/:id/names/preview', 'r2', body)).result;
   assert.ifError((await call('POST /chats/:id/names/apply', 'r2', { ...body, confirm: true, token: fresh.token })).error);
-  assert.equal(T.loadScenes('r2').scenes[0].summary, '나델 크로스가 편지를 다시 썼다.');
+  assert.equal(T.loadScenes('r2').scenes[0].summary, '나델 모로가 편지를 다시 썼다.');
 });
 
 test('duplicates by rule merge at once, and a dismissed suggestion is not offered again', async () => {
-  const store = Object.assign(S.emptyStore(), { cast: ['나델 크로스'], personas: ['유나린'] });
+  const store = Object.assign(S.emptyStore(), { cast: ['나델 모로'], personas: ['유나린'] });
   T.saveScenes('r3', store);
   const ledger = L.emptyLedger();
   ledger.routine = [
-    { who: '나델 크로스', what: 'meal', text: '빵', at: '2024-02-01T08:00', number: 1 },
-    { who: '나델 크로스가', what: 'meal', text: '수프', at: '2024-02-01T12:00', number: 2 },
+    { who: '나델 모로', what: 'meal', text: '빵', at: '2024-02-01T08:00', number: 1 },
+    { who: '나델 모로가', what: 'meal', text: '수프', at: '2024-02-01T12:00', number: 2 },
     { who: 'Yunarin', what: 'sleep', text: '잠', at: '2024-02-01T23:00', number: 3 },
   ];
   T.saveLedger('r3', ledger);
   const names = (await call('GET /chats/:id/names', 'r3')).result;
-  assert.deepEqual(names.duplicates, [{ target: '나델 크로스', variants: [{ name: '나델 크로스가', count: 1 }] }]);
+  assert.deepEqual(names.duplicates, [{ target: '나델 모로', variants: [{ name: '나델 모로가', count: 1 }] }]);
   assert.ok(names.suggestions.some((x) => x.source === 'Yunarin' && x.target === '유나린'));
   const m = (await call('POST /chats/:id/names/merge-preview', 'r3')).result;
   assert.equal(m.counts.routine, 1);
   assert.ifError((await call('POST /chats/:id/names/merge', 'r3', { confirm: true, token: m.token })).error);
-  assert.equal(T.loadLedger('r3').routine.filter((r) => r.who === '나델 크로스').length, 2);
+  assert.equal(T.loadLedger('r3').routine.filter((r) => r.who === '나델 모로').length, 2);
   assert.equal(T.loadLedger('r3').routine.find((r) => r.who === 'Yunarin').who, 'Yunarin', 'a suggestion is never merged on its own');
   assert.ifError((await call('POST /chats/:id/names/dismiss', 'r3', { source: 'Yunarin', target: '유나린' })).error);
   assert.ok(!(await call('GET /chats/:id/names', 'r3')).result.suggestions.some((x) => x.source === 'Yunarin'));

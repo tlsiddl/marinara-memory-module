@@ -156,11 +156,12 @@ test('the room view lists only implemented features with their state', () => {
 // ---- settings screen ----
 const source = fs.readFileSync(path.join(__dirname, '../extension/runtime.js'), 'utf8').replace(/\r\n/g, '\n');
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+const openLists = new Set();
 const fn = (name) => {
   const start = source.indexOf(`  function ${name}(`);
   assert.ok(start >= 0, name);
   const end = source.indexOf('\n  }\n', start);
-  return vm.runInNewContext(`(${source.slice(start, end + 4).trim()})`, { esc });
+  return vm.runInNewContext(`(${source.slice(start, end + 4).trim()})`, { esc, openLists });
 };
 
 test('the 추가 기능 section: a row per implemented feature with the global checkbox and the 3-state room select', () => {
@@ -168,7 +169,12 @@ test('the 추가 기능 section: a row per implemented feature with the global c
   assert.equal(featuresPaper([]), '');
   assert.equal(featuresPaper(undefined), '');
   const html = featuresPaper(F.view({ routine: false, chats: { r: { routine: 'off' } } }, 'r'));
-  assert.match(html, /<h2>추가 기능<\/h2>/);
+  // Folded: the whole section and each feature open on a click, and the summary says what is on in this room.
+  assert.match(html, /<details class="paper" data-list="features" >\s*<summary>추가 기능 · 이 방에서 \d+\/\d+개 켜짐<\/summary>/);
+  assert.match(html, /<details class="feature-row" data-feature="recentLife" data-list="feature:recentLife" >\s*<summary><span class="feature-name">최근 생활 기록<\/span> <span class="pill neutral">꺼짐<\/span><\/summary>/);
+  openLists.add('features');
+  assert.match(featuresPaper(F.view({}, 'r')), /data-list="features" open>/, 'an opened section stays open');
+  openLists.clear();
   assert.match(html, /최근 생활 기록 \(모든 방 기본값\)/);
   assert.match(html, /<input type="checkbox" data-feature-global="recentLife" >/, 'global off: unchecked');
   assert.match(html, /<select data-feature-room="recentLife">/);

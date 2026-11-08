@@ -345,7 +345,7 @@ test('filter: discourse words, interjections and verb forms are not terms of add
   assert.deepEqual(terms('"Zuzu, vieni qui."'), ['Zuzu']);
   assert.deepEqual(terms('"Signor Verdi, venga."'), ['Signor Verdi']);
   assert.deepEqual(terms('"Boss, andiamo."'), ['Boss']);
-  for (const w of ['Tesoro', 'Amore', 'Honey', 'Darling', 'Babe', '공주', '자기', '애기', '여보']) assert.deepEqual(terms(`"${w}, come here."`), [w], w);
+  for (const w of ['Cara', 'Amore', 'Honey', 'Darling', 'Babe', '공주', '자기', '애기', '여보']) assert.deepEqual(terms(`"${w}, come here."`), [w], w);
   assert.deepEqual(terms('"Come here, honey."'), ['honey']);
   assert.equal(S.plausibleTerm('Zuzu'), true);
   assert.equal(S.plausibleTerm('알았어'), false);
@@ -358,7 +358,7 @@ test('filter: a word opening quotes to two listeners of one speaker is dropped; 
   for (let i = 0; i < 2; i++) {
     quotes.push(dq(1 + i * 10, 1, '"Zelmo, vieni qui."', ADEL, VITO), dq(2 + i * 10, 1, '"Zelmo, ascolta."', ADEL, VITO));
     quotes.push(dq(3 + i * 10, 1, '"Zorbo, vieni qui."', ADEL, VITO), dq(4 + i * 10, 1, '"Zorbo, ascolta."', ADEL, SILVI));
-    quotes.push(dq(5 + i * 10, 1, '"Tesoro, vieni qui."', ADEL, VITO), dq(6 + i * 10, 1, '"Tesoro, ascolta."', ADEL, SILVI));
+    quotes.push(dq(5 + i * 10, 1, '"Cara, vieni qui."', ADEL, VITO), dq(6 + i * 10, 1, '"Cara, ascolta."', ADEL, SILVI));
   }
   const book = Addr.emptyBook();
   book.entries = [
@@ -404,7 +404,7 @@ test('multi-listener lines count toward a listener only when the speaker uses th
 });
 
 test('majority: a term said to several listeners goes to the one with at least 75% of the uses and at least two; otherwise it is ambiguous', () => {
-  const mk = (n, to) => Array.from({ length: n }, (_, i) => dq(100 * (to === VITO ? 1 : 2) + i, 1, '"Tesoro, vieni qui."', ADEL, to));
+  const mk = (n, to) => Array.from({ length: n }, (_, i) => dq(100 * (to === VITO ? 1 : 2) + i, 1, '"Cara, vieni qui."', ADEL, to));
   const rows = (a, b) => [...Addr.tally(storeOf([...mk(a, VITO), ...mk(b, SILVI)])).values()].map((r) => `${r.to}:${r.count}`);
   assert.deepEqual(rows(9, 1), [`${VITO}:9`], '90% to one listener: only that one');
   assert.deepEqual(rows(3, 1), [`${VITO}:3`], 'exactly 75%');
