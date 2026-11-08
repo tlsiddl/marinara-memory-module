@@ -1403,6 +1403,17 @@
   const attributionModeOptions = (selected) => ATTRIBUTION_MODES.map(([value, label, hint]) => `<option value="${value}" ${selected === value ? 'selected' : ''}>${esc(label)} (${esc(hint)})</option>`).join('');
   const ATTRIBUTION_MODE_HINT = '대사를 누가 누구에게 말했는지 저장된 값을 확인하는 방식입니다. 바꿔도 이미 저장된 값은 지우지 않고, 나중에 더 꼼꼼한 방식으로 바꾸면 아직 모델이 확인하지 않은 대사만 새로 확인합니다.';
 
+  /** 설정 → 언어: this room's own memory language, apart from the all-rooms setting. Saved as soon as it changes. */
+  function roomWriteLanguagePicker() {
+    if (!room || !info) return '';
+    const LABEL = { chat: '채팅 언어로', en: '영어로', zh: '중국어로 (간체)' };
+    const all = ['en', 'zh'].includes(serverSettings?.writeLanguage) ? LABEL[serverSettings.writeLanguage] : LABEL.chat;
+    const own = info.roomWriteLanguage || 'follow';
+    const options = [['follow', `모든 방 설정 따름 (지금: ${all})`], ['chat', LABEL.chat], ['en', LABEL.en], ['zh', LABEL.zh]];
+    return `<label>이 방의 기억 정리 언어<select id="setRoomWriteLang">${options.map(([v, t]) => `<option value="${v}" ${own === v ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></label>
+        <p class="hint">이 방만 따로 정합니다. 영어 방은 영어로, 중국어 방은 중국어로 두고 나머지는 채팅 언어로 두는 식입니다. 바꾸면 바로 저장되고, <b>새로 정리되는 기억부터</b> 그 언어로 저장합니다. 이미 정리된 기억은 그대로이고 넣을 때 번역합니다.</p>`;
+  }
+
   /** 설정 → 추가 기능: one row per implemented feature, with the all-rooms default and this room's own choice. */
   function featuresPaper(list) {
     if (!Array.isArray(list) || !list.length) return '';
@@ -1514,11 +1525,12 @@
         <p class="hint">언어는 두 가지를 따로 고릅니다. <b>정리할 언어</b>는 기억 서재에 저장되는 언어이고, <b>넣을 언어</b>는 답변을 만들 때 프롬프트에 넣는 언어입니다. 넣을 언어만 바꾸면 저장된 기억은 그대로 두고 넣을 때만 번역하므로 <b>다시 정리할 필요가 없습니다</b>.</p>
         ${info?.chatLang ? `<p class="hint">이 방은 <b>${({ en: '영어', zh: '중국어' })[info.chatLang] || '한국어'}</b>로 진행되는 것으로 보입니다(최근 메시지 기준, 자동).</p>` : ''}
         ${prepNote()}
-        <label>기억을 정리할 언어<select id="setWriteLang">
+        <label>기억을 정리할 언어 (모든 방 기본값)<select id="setWriteLang">
           <option value="auto" ${!['en', 'zh'].includes(serverSettings?.writeLanguage) ? 'selected' : ''}>채팅 언어로 (기본)</option>
           <option value="en" ${serverSettings?.writeLanguage === 'en' ? 'selected' : ''}>영어로 (한국어 방도 영어로 정리)</option>
           <option value="zh" ${serverSettings?.writeLanguage === 'zh' ? 'selected' : ''}>중국어로 (간체 · 한국어 방도 중국어로 정리)</option></select></label>
         <p class="hint">기억 서재에 <b>저장되는</b> 언어입니다. 영어나 중국어로 바꾸면 <b>새로 정리되는 기억부터</b> 그 언어로 저장하고, 이 화면에서는 한국어 번역이 함께 보입니다. 이미 정리된 기억은 그대로 두고 넣을 때 번역하므로 바로 써도 됩니다. 전부 그 언어로 저장하고 싶으시면 한눈에 → <b>처음부터 다시 정리</b>를 눌러 주세요. 대사 인용과 이름은 늘 원문 그대로입니다. 한국어 방에서 영어나 중국어로 정리해도 낱말로 찾기는 이 화면의 한국어 번역과 원래 낱말을 함께 봅니다(번역이 아직 없는 기억은 원래 낱말로만 찾습니다).</p>
+        ${roomWriteLanguagePicker()}
         <label>기억을 넣을 언어<select id="setMemLang">
           <option value="auto" ${!serverSettings?.memoryLanguage || serverSettings?.memoryLanguage === 'auto' ? 'selected' : ''}>정리한 언어 그대로 (기본 · 번역 없음)</option>
           <option value="ko" ${serverSettings?.memoryLanguage === 'ko' ? 'selected' : ''}>한국어</option>
@@ -2632,6 +2644,13 @@
       void act(() => api('POST', `/chats/${encodeURIComponent(room)}/${on ? 'enable' : 'disable'}`), on ? '이 방에서 기억을 켰습니다. 처음 켜셨다면 ‘이어서 정리’를 눌러 주세요.' : '이 방의 기억 갱신을 껐습니다.');
     };
     root.addEventListener('change', (e) => {
+      if (e.target.id === 'setRoomWriteLang') {
+        const lang = e.target.value;
+        const chat = room;
+        return act(async () => {
+          await api('POST', `/chats/${encodeURIComponent(chat)}/write-language`, { lang });
+        }, lang === 'follow' ? '이 방은 모든 방 설정을 따릅니다.' : '이 방의 기억 정리 언어를 저장했습니다. 새로 정리되는 기억부터 적용됩니다.');
+      }
       // The short forms offered for running text follow the chosen name.
       if (['nameSource', 'nameTarget', 'nameText'].includes(e.target.id)) {
         readNameForm();
