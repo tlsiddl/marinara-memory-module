@@ -992,6 +992,42 @@ function bigrams(text, names = []) {
   return out;
 }
 
+// Little words that every English sentence shares; left out so two sentences only meet on what they are about.
+const ENGLISH_STOP = new Set(('a an the and or but nor of to in on at for from by with without into onto over under about after before as '
+  + 'is was were be been being are am it its he him his himself she her hers herself they them their themselves you your i me my we us our '
+  + 'this that these those then than so not no just only also even very what whether who whom which when where why how '
+  + 'can could would should will shall may might must do does did done have has had having let make made get got up down out off '
+  + 'again still any some all each every both either one two').split(' '));
+
+/** Content words of an English text, lowercased and with a plain ending (bites/bitten/biting → bit…), names left out. */
+function englishWords(text, names = []) {
+  let rest = String(text || '');
+  for (const name of names) if (name) rest = rest.split(name).join(' ');
+  const out = new Set();
+  for (const w of rest.toLowerCase().match(/[a-z']+/g) || []) {
+    if (w.length < 3 || ENGLISH_STOP.has(w)) continue;
+    const stem = w.replace(/'s$/, '').replace(/(?:ing|ed|es|s)$/, '');
+    if (stem.length >= 3) out.add(stem);
+  }
+  return out;
+}
+
+const hangulShare = (s) => {
+  const hangul = (s.match(/[가-힣]/g) || []).length;
+  const latin = (s.match(/[A-Za-z]/g) || []).length;
+  return hangul + latin ? hangul / (hangul + latin) : 1;
+};
+
+/**
+ * How alike two texts are (0–1), for telling one feeling or state written twice from two different ones. Korean is
+ * compared by letter pairs. English is compared by words: English letter pairs repeat across any two sentences
+ * ("th", "he", "er"), so two unrelated feelings already scored 0.30 by letter pairs and were merged.
+ */
+function likeness(a, b, names = []) {
+  const english = hangulShare(`${a || ''} ${b || ''}`) < 0.3;
+  return english ? overlap(englishWords(a, names), englishWords(b, names)) : overlap(bigrams(a, names), bigrams(b, names));
+}
+
 function overlap(a, b) {
   if (!a.size || !b.size) return 0;
   let shared = 0;
@@ -999,7 +1035,8 @@ function overlap(a, b) {
   return shared / Math.min(a.size, b.size);
 }
 
-// Measured on this chat: the same feeling reworded scored 0.35–0.70, different feelings 0.04–0.19.
+// Measured on this chat: the same feeling reworded scored 0.35–0.70, different feelings 0.04–0.19 (Korean, letter
+// pairs). English by words: the same feeling reworded 0.50–0.80, different feelings 0.00–0.10.
 const FEELING_MERGE_OVERLAP = 0.3;
 
 function sameParty(a, b) {
@@ -1018,11 +1055,11 @@ function mergeSimilarFeelings(ledger, now = new Date().toISOString()) {
     const keep = open[i];
     if (keep.status !== 'open') continue;
     const names = `${keep.who || ''},${keep.toward || ''}`.split(/[,·、\s→]+/).filter(Boolean);
-    const keepGrams = bigrams(`${keep.cause || ''} ${keep.need || ''}`, names);
+    const keepWhy = `${keep.cause || ''} ${keep.need || ''}`;
     for (let j = i + 1; j < open.length; j++) {
       const drop = open[j];
       if (drop.status !== 'open' || !sameParty(keep, drop)) continue;
-      if (overlap(keepGrams, bigrams(`${drop.cause || ''} ${drop.need || ''}`, names)) < FEELING_MERGE_OVERLAP) continue;
+      if (likeness(keepWhy, `${drop.cause || ''} ${drop.need || ''}`, names) < FEELING_MERGE_OVERLAP) continue;
       addEvidence(keep, drop.evidence, drop.latest?.text || drop.detail, now, drop.latest?.at || drop.since);
       // Someone who knew either of the two knows the merged one.
       if (keep.unaware?.length) keep.unaware = keep.unaware.filter((n) => (drop.unaware || []).includes(n));
@@ -1047,7 +1084,7 @@ function mergeSimilarStates(ledger, now = new Date().toISOString()) {
     const names = String(keep.who || '').split(/[,·、\s→]+/).filter(Boolean);
     for (const drop of open) {
       if (drop === keep || drop.status !== 'open' || !sameParty(keep, drop) || !overlaps(keep, drop)) continue;
-      if (overlap(bigrams(keep.title, names), bigrams(drop.title, names)) < FEELING_MERGE_OVERLAP) continue;
+      if (likeness(keep.title, drop.title, names) < FEELING_MERGE_OVERLAP) continue;
       addEvidence(keep, drop.evidence, null, now);
       // Someone who knew either of the two knows the merged one.
       if (keep.unaware?.length) keep.unaware = keep.unaware.filter((n) => (drop.unaware || []).includes(n));
