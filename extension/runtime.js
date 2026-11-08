@@ -367,6 +367,41 @@
   const nameShown = (field) => String(field ?? '').split(/(\s*[·,、]\s*)/).map((part, i) => (i % 2 ? part : trMap[part] || part)).join('');
   const trNote = (text) => (ko(text) ? `<p class="tr-note full"><span>한국어</span>${esc(ko(text))}</p>` : '');
   const shown = (text) => ko(text) || text || '';
+  /**
+   * The Korean of an English memory note, editable: a correction here is turned into the English note when the form is
+   * saved (only what the correction changes). Lines quoted from the story keep the read-only note (trNote).
+   */
+  const trEdit = (text) => {
+    const k = ko(text);
+    if (!k) return '';
+    return `<label class="tr-edit full"><span>한국어 · 고치면 저장할 때 영어 기억도 고쳐집니다</span><textarea class="event-field" data-tr-src="${esc(String(text).trim())}" data-tr-ko="${esc(k)}">${esc(k)}</textarea></label>`;
+  };
+  /** The English field a Korean box belongs to: the field right before it (or inside the label right before it). */
+  const englishFieldOf = (box) => {
+    const prev = box.closest('.tr-edit')?.previousElementSibling;
+    if (!prev) return null;
+    return prev.matches('input, textarea') ? prev : prev.querySelector('input, textarea');
+  };
+  /**
+   * Korean corrections in `scope` become English before the form is read: the translation model changes each English
+   * note only where the corrected Korean differs, and the English field gets the result. A field whose English was
+   * edited by hand too keeps the hand edit (the Korean correction is left out). Throws when the model cannot do it,
+   * so nothing is saved half-way.
+   */
+  async function applyKoreanEdits(scope) {
+    const pending = [];
+    for (const box of scope?.querySelectorAll('textarea[data-tr-src]') || []) {
+      const after = box.value.trim();
+      if (!after || after === box.dataset.trKo.trim()) continue;
+      const field = englishFieldOf(box);
+      if (!field || field.value.trim() !== box.dataset.trSrc) continue;
+      pending.push({ field, en: box.dataset.trSrc, ko: after });
+    }
+    if (!pending.length) return 0;
+    const result = await api('POST', `/chats/${encodeURIComponent(room)}/translations/back`, { items: pending.map(({ en, ko }) => ({ en, ko })) });
+    (result?.items || []).forEach((x, i) => { if (pending[i] && x?.en) pending[i].field.value = x.en; });
+    return pending.length;
+  }
 
   /**
    * A tab that needs the scenes was opened before they were loaded: fetch them now, even while another action is
@@ -721,8 +756,8 @@
     return `<div class="paper chapter-paper" id="arcEditor" data-id="${esc(a.id)}">
       <div class="paper-toolbar"><h2>${esc(a.id)} · ${esc(a.chapters[0])}~${esc(a.chapters.at(-1))}${a.time ? ` · ${esc(a.time)}` : ''}</h2>${a.edited ? '<span class="pill">직접 고침</span>' : ''}</div>
       <div class="form-grid">
-        <label class="full">큰 흐름 제목<input id="aTitle" value="${esc(a.title)}"></label>${trNote(a.title)}
-        <label class="full">요약<textarea id="aSummary" class="event-field" style="min-height:110px">${esc(a.summary)}</textarea></label>${trNote(a.summary)}
+        <label class="full">큰 흐름 제목<input id="aTitle" value="${esc(a.title)}"></label>${trEdit(a.title)}
+        <label class="full">요약<textarea id="aSummary" class="event-field" style="min-height:110px">${esc(a.summary)}</textarea></label>${trEdit(a.summary)}
         <label class="full">그 시기를 바꾼 일 (한 줄에 하나)<textarea id="aTurns" class="event-field">${esc((a.turns || []).join('\n'))}</textarea></label>
         <label class="full">지금까지 영향을 주는 세부 사항 (한 줄에 하나)<textarea id="aKeep" class="event-field">${esc((a.keep || []).join('\n'))}</textarea></label>
       </div>
@@ -734,8 +769,8 @@
     return `<div class="paper chapter-paper" id="chapterEditor" data-id="${esc(c.id)}">
       <div class="paper-toolbar"><h2>${esc(c.id)} · ${esc(c.scenes[0])}~${esc(c.scenes.at(-1))}${c.time ? ` · ${esc(c.time)}` : ''}</h2>${c.edited ? '<span class="pill">직접 고침</span>' : ''}${markButtons(c.id, info?.recallPrefs)}</div>
       <div class="form-grid">
-        <label class="full">챕터 제목<input id="cTitle" value="${esc(c.title)}"></label>${trNote(c.title)}
-        <label class="full">챕터 요약 (기억 칸의 '지난 이야기 흐름'에 들어갑니다)<textarea id="cSummary" class="event-field" style="min-height:120px">${esc(c.summary)}</textarea></label>${trNote(c.summary)}
+        <label class="full">챕터 제목<input id="cTitle" value="${esc(c.title)}"></label>${trEdit(c.title)}
+        <label class="full">챕터 요약 (기억 칸의 '지난 이야기 흐름'에 들어갑니다)<textarea id="cSummary" class="event-field" style="min-height:120px">${esc(c.summary)}</textarea></label>${trEdit(c.summary)}
         <label class="full">전환점 (한 줄에 하나)<textarea id="cTurns" class="event-field">${esc((c.turns || []).join('\n'))}</textarea></label>
         <label class="full">꼭 기억할 세부 사항 (날짜·기한·조건 등, 한 줄에 하나)<textarea id="cKeep" class="event-field">${esc((c.keep || []).join('\n'))}</textarea></label>
       </div>
@@ -748,10 +783,10 @@
     const events = s.events
       .map((e, i) => `<article data-event="${i}">
         <div class="form-grid">
-          <label class="full">사건 (누가 누구에게 무엇을 어떻게)<textarea class="event-field" data-f="text">${esc(e.text)}</textarea></label>${trNote(e.text)}
+          <label class="full">사건 (누가 누구에게 무엇을 어떻게)<textarea class="event-field" data-f="text">${esc(e.text)}</textarea></label>${trEdit(e.text)}
           <label>작중 시각<input data-f="time" value="${esc(e.time || '')}" placeholder="예: 02:22"></label>
           <label>중요도<select data-f="importance">${Object.entries(IMPORTANCE).map(([k, v]) => `<option value="${k}" ${(e.importance || 'major') === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
-          <label class="full">계기 (원문에 있을 때만)<input data-f="why" value="${esc(e.why || '')}"></label>${trNote(e.why)}
+          <label class="full">계기 (원문에 있을 때만)<input data-f="why" value="${esc(e.why || '')}"></label>${trEdit(e.why)}
         </div>
         ${e.quotes.map((q, qi) => [q, qi]).sort(([a], [b]) => (a.number ?? 0) - (b.number ?? 0) || (a.sentence ?? 0) - (b.sentence ?? 0)).map(([q, qi]) => { const l = quoteLine(q); return `<div class="quote-card" data-quote="${qi}"><small>${esc(l.who)} · #${q.number}.${q.sentence}</small><blockquote>${esc(l.text)}</blockquote>${q.translation ? '' : trNote(q.text)}<label>말한 사람<input data-quote-by value="${esc(q.by || '')}" placeholder="모르면 비워 두기"></label><label>들은 사람${q.toGuess ? ' (추정 · 고치면 확정)' : ''}<input data-quote-to value="${esc(q.to || '')}" placeholder="모르면 비워 두기"></label></div>`; }).join('')}
       </article>`)
@@ -765,7 +800,7 @@
             <label>인물<input data-f="who" value="${esc(r.who)}"></label>
             <label>기억 정도<select data-f="remembers">${Object.entries(REMEMBERS).map(([k, v]) => `<option value="${k}" ${r.remembers === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
             <label class="full">이유 (잠, 열, 술 등)<input data-f="why" value="${esc(r.why || '')}"></label>
-            ${persona ? '<p class="full hint">사용자 캐릭터는 속마음을 적지 않습니다. 한 말과 행동은 사건에 기록되어 있습니다.</p>' : `<label class="full">그때 (그 인물이 실제로 한 말·행동·느낌)<textarea class="event-field" data-f="text">${esc(r.text || '')}</textarea></label>${trNote(r.text)}`}
+            ${persona ? '<p class="full hint">사용자 캐릭터는 속마음을 적지 않습니다. 한 말과 행동은 사건에 기록되어 있습니다.</p>' : `<label class="full">그때 (그 인물이 실제로 한 말·행동·느낌)<textarea class="event-field" data-f="text">${esc(r.text || '')}</textarea></label>${trEdit(r.text)}`}
             <label class="full">남은 기억 (흐릿하게만 기억할 때)<input data-f="kept" value="${esc(r.kept || '')}"></label>
           </div></article>`;
       })
@@ -773,11 +808,11 @@
     return `<div class="paper" id="sceneEditor" data-id="${esc(s.id)}">
       <div class="paper-toolbar"><h2>${esc(s.id)} · 메시지 ${s.start}~${s.end}번</h2>${s.edited ? '<span class="pill">직접 고침</span>' : ''}${markButtons(s.id, info?.recallPrefs)}${scenePickerBox(s)}</div>
       <div class="form-grid">
-        <label class="full">제목<input id="sTitle" value="${esc(s.title)}"></label>${trNote(s.title)}
+        <label class="full">제목<input id="sTitle" value="${esc(s.title)}"></label>${trEdit(s.title)}
         <label>작중 시간<input id="sTime" value="${esc(s.time || '')}"></label>
         <label>장소<input id="sPlace" value="${esc(s.place || '')}"></label>
         <label>날씨<input id="sWeather" value="${esc(s.weather || '')}" placeholder="예: 비, 첫눈 / 모르면 비워 두세요"></label>
-        <label class="full">요약<textarea id="sSummary" style="min-height:110px">${esc(s.summary)}</textarea></label>${trNote(s.summary)}
+        <label class="full">요약<textarea id="sSummary" style="min-height:110px">${esc(s.summary)}</textarea></label>${trEdit(s.summary)}
         ${group() ? `<label class="full">그 자리에 있던 사람 (쉼표로 구분 · 없던 인물은 이 장면 일을 모르는 것으로 기억합니다)<input id="sPresent" value="${esc((s.present || []).join(', '))}" placeholder="예: 서아, 도윤"></label>
         ${(s.heardLater || []).length ? `<p class="full hint">나중에 들은 사람: ${s.heardLater.map((h) => `${esc(h.who)}${h.from ? `(${esc(h.from)}에게)` : ''}`).join(', ')}</p>` : ''}` : ''}
         ${(s.extras || []).length ? `<p class="full hint">주변 인물: ${s.extras.map(esc).join(', ')}</p>` : ''}
@@ -852,7 +887,7 @@
           return `<div class="fact-row" data-fact="${esc(f.id)}"><label>${esc(f.id)}${f.unaware?.length ? ` · 모름: ${esc(f.unaware.join('·'))}` : ''}${f.guess?.length ? ` · 짐작만: ${esc(f.guess.join('·'))}` : ''}${f.edited || f.knowSet?.length || f.knownLock ? ' · 직접 고침' : ''}${replaced ? ` · ${esc(f.replacedBy)}로 바뀜(기억 칸에서 제외)` : ''}${superseded.has(f.id) ? ' · 기록 충돌에서 뒤로 물림(기억 칸에서 제외)' : ''}</label>
             ${f.sceneId ? `<p class="record-links">${sceneLink(store.scenes.find((x) => x.id === f.sceneId), '에서 알게 됨')}</p>` : ''}
             ${knowChips(f)}
-            <textarea class="event-field">${esc(f.text)}</textarea>${trNote(f.text)}
+            <textarea class="event-field">${esc(f.text)}</textarea>${trEdit(f.text)}
             ${group() ? `<div class="form-grid"><label>아는 사람 (쉼표로 구분)<input data-f="knownBy" value="${esc((f.knownBy || []).join(', '))}" placeholder="비워 두면 따로 정하지 않음"></label><label>아직 모르는 인물 (쉼표로 구분)<input data-f="unaware" value="${esc((f.unaware || []).join(', '))}" placeholder="모두 알면 비워 두세요"></label><label>짐작만 하는 인물<input data-f="guess" value="${esc((f.guess || []).join(', '))}" placeholder="없으면 비워 두세요"></label></div>` : ''}
             <div class="buttons"><button data-act="saveFact" data-id="${esc(f.id)}">저장</button><button class="ghost" data-act="deleteFact" data-id="${esc(f.id)}">${armed === `fact:${f.id}` ? '한 번 더 누르면 삭제됩니다' : '삭제'}</button>${replaced ? '' : markButtons(f.id, info?.recallPrefs)}</div></div>`;
         })
@@ -891,9 +926,9 @@
     return `<details class="event-row" data-tid="${esc(t.id)}"><summary><span class="event-no">${esc(t.id)}</span><span class="event-main"><b title="${esc(t.title)}">${esc(shown(t.title))}</b><small>${esc(who)}${when ? ` · ${esc(when)}` : ''}${t.unaware?.length ? ` · 모름: ${esc(t.unaware.map(nameShown).join('·'))}` : ''}${t.guess?.length ? ` · 짐작만: ${esc(t.guess.map(nameShown).join('·'))}` : ''}${closed ? ` · 닫힘: ${esc(shown(t.closed?.how))}` : ''}</small></span><span class="pill ${closed ? 'neutral' : ''}">${KIND[t.kind] || t.kind}</span></summary>
       <div class="event-body">
         <div class="form-grid" data-thread="${esc(t.id)}">
-          <label class="full">제목<input data-f="title" value="${esc(t.title)}"></label>${trNote(t.title)}
-          <label class="full">설명<textarea class="event-field" data-f="detail">${esc(t.detail || '')}</textarea></label>${trNote(t.detail)}
-          ${t.kind === 'emotion' ? `<label class="full">풀리려면<input data-f="need" value="${esc(t.need || '')}"></label>${trNote(t.need)}` : ''}
+          <label class="full">제목<input data-f="title" value="${esc(t.title)}"></label>${trEdit(t.title)}
+          <label class="full">설명<textarea class="event-field" data-f="detail">${esc(t.detail || '')}</textarea></label>${trEdit(t.detail)}
+          ${t.kind === 'emotion' ? `<label class="full">풀리려면<input data-f="need" value="${esc(t.need || '')}"></label>${trEdit(t.need)}` : ''}
           ${['promise', 'pending'].includes(t.kind) ? `<label>기한 날짜 (작중)<input data-f="dueDate" value="${esc(t.due?.date || '')}" placeholder="예: 24-10-20 / 비우면 기한 없음"></label><label>기한 시각<input data-f="dueTime" value="${esc(t.due?.time || '')}" placeholder="예: 17:00"></label>` : ''}
           ${group() ? `<label>아직 모르는 인물 (쉼표로 구분)<input data-f="unaware" value="${esc((t.unaware || []).join(', '))}" placeholder="모두 알면 비워 두세요"></label><label>짐작만 하는 인물<input data-f="guess" value="${esc((t.guess || []).join(', '))}" placeholder="없으면 비워 두세요"></label>` : ''}
         </div>
@@ -2038,24 +2073,33 @@
       }
       case 'saveArc': {
         const ed = root.querySelector('#arcEditor');
-        const body = { title: ed.querySelector('#aTitle').value, summary: ed.querySelector('#aSummary').value, turns: ed.querySelector('#aTurns').value.split('\n'), keep: ed.querySelector('#aKeep').value.split('\n') };
-        return act(() => api('PATCH', `/chats/${chat}/arcs/${encodeURIComponent(ed.dataset.id)}`, body), '큰 흐름을 저장했습니다.');
+        return act(async () => {
+          await applyKoreanEdits(ed);
+          const body = { title: ed.querySelector('#aTitle').value, summary: ed.querySelector('#aSummary').value, turns: ed.querySelector('#aTurns').value.split('\n'), keep: ed.querySelector('#aKeep').value.split('\n') };
+          await api('PATCH', `/chats/${chat}/arcs/${encodeURIComponent(ed.dataset.id)}`, body);
+        }, '큰 흐름을 저장했습니다.');
       }
       case 'saveChapter': {
         const ed = root.querySelector('#chapterEditor');
-        const body = { title: ed.querySelector('#cTitle').value, summary: ed.querySelector('#cSummary').value, turns: ed.querySelector('#cTurns').value.split('\n'), keep: ed.querySelector('#cKeep').value.split('\n') };
-        return act(() => api('PATCH', `/chats/${chat}/chapters/${encodeURIComponent(ed.dataset.id)}`, body), '챕터를 저장했습니다.');
+        return act(async () => {
+          await applyKoreanEdits(ed);
+          const body = { title: ed.querySelector('#cTitle').value, summary: ed.querySelector('#cSummary').value, turns: ed.querySelector('#cTurns').value.split('\n'), keep: ed.querySelector('#cKeep').value.split('\n') };
+          await api('PATCH', `/chats/${chat}/chapters/${encodeURIComponent(ed.dataset.id)}`, body);
+        }, '챕터를 저장했습니다.');
       }
       case 'saveScene': {
-        const { id: sid, body } = readScene();
-        return act(() => api('PATCH', `/chats/${chat}/scenes/${encodeURIComponent(sid)}`, body), '장면을 저장했습니다.');
+        return act(async () => {
+          await applyKoreanEdits(root.querySelector('#sceneEditor'));
+          const { id: sid, body } = readScene();
+          await api('PATCH', `/chats/${chat}/scenes/${encodeURIComponent(sid)}`, body);
+        }, '장면을 저장했습니다.');
       }
       case 'saveFact': {
         const row = root.querySelector(`[data-fact="${CSS.escape(id)}"]`);
         const unaware = row.querySelector('[data-f="unaware"]');
         const guess = row.querySelector('[data-f="guess"]');
         const knownBy = row.querySelector('[data-f="knownBy"]');
-        return act(() => api('PATCH', `/chats/${chat}/facts/${encodeURIComponent(id)}`, { text: row.querySelector('textarea').value, ...(unaware ? { unaware: unaware.value, guess: guess.value } : {}), ...(knownBy ? { knownBy: knownBy.value } : {}) }), '사실을 저장했습니다.');
+        return act(async () => { await applyKoreanEdits(row); await api('PATCH', `/chats/${chat}/facts/${encodeURIComponent(id)}`, { text: row.querySelector('textarea').value, ...(unaware ? { unaware: unaware.value, guess: guess.value } : {}), ...(knownBy ? { knownBy: knownBy.value } : {}) }); }, '사실을 저장했습니다.');
       }
       case 'deleteFact':
         if (armed !== `fact:${id}`) {
@@ -2066,12 +2110,15 @@
         return act(() => api('DELETE', `/chats/${chat}/facts/${encodeURIComponent(id)}`), '사실을 삭제했습니다.');
       case 'editThread': {
         const box = root.querySelector(`[data-thread="${CSS.escape(id)}"]`);
-        const body = {};
-        for (const f of ['title', 'detail', 'need', 'unaware', 'guess', 'dueDate', 'dueTime']) {
-          const el = box?.querySelector(`[data-f="${f}"]`);
-          if (el) body[f] = el.value;
-        }
-        return act(() => api('POST', `/chats/${chat}/threads/${encodeURIComponent(id)}/edit`, body), `${id} 항목을 저장했습니다.`);
+        return act(async () => {
+          await applyKoreanEdits(box);
+          const body = {};
+          for (const f of ['title', 'detail', 'need', 'unaware', 'guess', 'dueDate', 'dueTime']) {
+            const el = box?.querySelector(`[data-f="${f}"]`);
+            if (el) body[f] = el.value;
+          }
+          await api('POST', `/chats/${chat}/threads/${encodeURIComponent(id)}/edit`, body);
+        }, `${id} 항목을 저장했습니다.`);
       }
       case 'reopen':
         return act(() => api('POST', `/chats/${chat}/threads/${encodeURIComponent(id)}/reopen`), `${id} 항목을 다시 열었습니다.`);
