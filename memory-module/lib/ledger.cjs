@@ -1012,19 +1012,20 @@ function englishWords(text, names = []) {
   return out;
 }
 
-const hangulShare = (s) => {
-  const hangul = (s.match(/[가-힣]/g) || []).length;
+/** Whether a text is mostly English: Latin letters outnumber Hangul and Chinese characters together, by 7 to 3. */
+const mostlyLatin = (s) => {
+  const other = (s.match(/[가-힣㐀-䶿一-鿿]/g) || []).length;
   const latin = (s.match(/[A-Za-z]/g) || []).length;
-  return hangul + latin ? hangul / (hangul + latin) : 1;
+  return latin + other ? other / (latin + other) < 0.3 : false;
 };
 
 /**
- * How alike two texts are (0–1), for telling one feeling or state written twice from two different ones. Korean is
- * compared by letter pairs. English is compared by words: English letter pairs repeat across any two sentences
- * ("th", "he", "er"), so two unrelated feelings already scored 0.30 by letter pairs and were merged.
+ * How alike two texts are (0–1), for telling one feeling or state written twice from two different ones. Korean and
+ * Chinese are compared by character pairs. English is compared by words: English letter pairs repeat across any two
+ * sentences ("th", "he", "er"), so two unrelated feelings already scored 0.30 by letter pairs and were merged.
  */
 function likeness(a, b, names = []) {
-  const english = hangulShare(`${a || ''} ${b || ''}`) < 0.3;
+  const english = mostlyLatin(`${a || ''} ${b || ''}`);
   return english ? overlap(englishWords(a, names), englishWords(b, names)) : overlap(bigrams(a, names), bigrams(b, names));
 }
 

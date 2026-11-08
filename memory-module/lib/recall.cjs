@@ -140,7 +140,9 @@ function directHit(list, text, { tr = null } = {}) {
  */
 const COMMON = new Set(['있어', '없어', '있다', '없다', '이제', '아직', '그냥', '근데', '진짜', '어제', '오늘', '내일', '그때', '거야', '건데', '했어', '어쩔', '다음', '그거', '이거', '저거', '나도', '너도', '우리', '너희', '아까', '지금', '정말', '그래', '그럼', '이건', '그건', '뭐야', '어떻', '왜그', '언제', '어디', '누가', '무슨', '어젯', '일은', '일이', '일을', '하는', '하고', '해서', '했다', '한다', '같은', '같아', '많이', '조금', '이렇', '그렇', '저렇']);
 
-const latinWord = (w) => /[a-z]/.test(w) && !/[가-힣]/.test(w);
+const latinWord = (w) => /[a-z]/.test(w) && !/[가-힣㐀-䶿一-鿿]/.test(w);
+const HAN_RUN = /[㐀-䶿一-鿿]{2}/;
+const HAN_RUNS = /[㐀-䶿一-鿿]{2,}/g;
 
 /**
  * The first two letters of each Korean word (its stem start), minus everyday words: names and things, not endings.
@@ -150,6 +152,11 @@ function stems(text) {
   const out = new Set();
   for (const raw of String(text || '').toLowerCase().split(/[^\p{L}\p{N}]+/u)) {
     if (latinWord(raw)) continue;
+    // Chinese has no spaces: a whole sentence is one "word". Its character pairs stand in for words.
+    if (HAN_RUN.test(raw)) {
+      for (const run of raw.match(HAN_RUNS) || []) for (let i = 0; i + 2 <= run.length; i++) out.add(run.slice(i, i + 2));
+      continue;
+    }
     const stem = raw.slice(0, 2);
     if (stem.length === 2 && !COMMON.has(stem)) out.add(stem);
   }

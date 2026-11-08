@@ -1189,7 +1189,7 @@ const langRefreshed = new Set();
 function loadLang(chatId) {
   if (langRecords.has(chatId)) return langRecords.get(chatId);
   const v = readJson(langFile(chatId), null, { replaceable: true });
-  const record = v && v.version === 1 && (v.lang === 'ko' || v.lang === 'en') ? v : null;
+  const record = v && v.version === 1 && T.LANGS.includes(v.lang) ? v : null;
   langRecords.set(chatId, record);
   if (record) chatLangs.set(chatId, record.lang);
   return record;
@@ -1404,11 +1404,13 @@ function translateModel() {
  */
 const LANGUAGE_NOTE = {
   en: '\n\n[기록 언어] 네가 새로 쓰는 모든 글(제목·요약·사건·사실·이유·메모·생활 기록)은 영어로 써. 채팅이 한국어여도 마찬가지야. 인용(q)은 원문에서 그대로 복사하고(번역하지 마), 이름도 쓰인 그대로 둬.',
+  zh: '\n\n[기록 언어] 네가 새로 쓰는 모든 글(제목·요약·사건·사실·이유·메모·생활 기록)은 중국어(간체)로 써. 채팅이 한국어여도 마찬가지야. 인용(q)은 원문에서 그대로 복사하고(번역하지 마), 이름도 쓰인 그대로 둬.',
 };
 
-/** The language this chat's memory is written in: the chat's own, or English when set so for every chat. */
+/** The language this chat's memory is written in: the chat's own, or English / Chinese when set so for every chat. */
 function writeLanguage(chatId) {
-  return settings().writeLanguage === 'en' ? 'en' : chatLangs.get(chatId) || loadLang(chatId)?.lang || 'ko';
+  const set = settings().writeLanguage;
+  return set === 'en' || set === 'zh' ? set : chatLangs.get(chatId) || loadLang(chatId)?.lang || 'ko';
 }
 async function writeLanguageOf(chatId) {
   await chatLanguage(chatId);
@@ -2625,11 +2627,11 @@ function maybePrepareTranslation(chatId) {
 /** What the memory library shows in Korean: memory written in another language, and (when on) quoted lines. */
 function displayTranslationTexts(chatId) {
   const quotes = settings().translateQuotes === true;
-  if (writeLanguage(chatId) !== 'en' && !quotes) return [];
+  if (writeLanguage(chatId) === 'ko' && !quotes) return [];
   const ledger = loadLedger(chatId);
   // Daily life turned off is not translated for the library either (no model calls for it while off).
   const shown = ledger && !routineEnabled(chatId) ? { ...ledger, routine: [] } : ledger;
-  return T.displayTexts(loadScenes(chatId), shown, { quotes }).filter((t) => T.textLanguage(t) === 'en');
+  return T.displayTexts(loadScenes(chatId), shown, { quotes }).filter((t) => { const lang = T.textLanguage(t); return lang && lang !== 'ko'; });
 }
 
 /** Which language the memory goes in for this chat: the setting, or (auto) the language it is written in. */
@@ -2659,6 +2661,9 @@ function renderLedger(chatId) {
       const smaller = renderMemorySource(chatId, Math.floor(fixed + ((MEMORY_MAX_CHARS - fixed) / grows) * 0.97));
       if (smaller) text = T.translateText(smaller, target, lookup).text;
     }
+  }
+  if (target === 'zh') {
+    return text.replace(/\]\n\n/, ' Labels in Chinese: "不知道" = does not know, "仅猜测" = suspects without the details, "记得" = what is still remembered, "当时" = what they did and felt at the time, "※" lines = details that must stay exact.]\n\n');
   }
   if (target !== 'en') return text;
   // The labels the notes use in English, so the reply model reads them the same way.
@@ -3117,12 +3122,12 @@ async function routes(app) {
     const next = settings();
     if (req.body?.memoryLanguage !== undefined) {
       const lang = String(req.body.memoryLanguage || 'auto');
-      if (lang !== 'auto' && !T.LANGS.includes(lang)) throw Error('기억을 넣을 언어는 auto, ko, en 중 하나여야 합니다.');
+      if (lang !== 'auto' && !T.LANGS.includes(lang)) throw Error('기억을 넣을 언어는 auto, ko, en, zh 중 하나여야 합니다.');
       next.memoryLanguage = lang;
     }
     if (req.body?.writeLanguage !== undefined) {
       const lang = String(req.body.writeLanguage || 'auto');
-      if (!['auto', 'en'].includes(lang)) throw Error('기억을 정리할 언어는 auto, en 중 하나여야 합니다.');
+      if (!['auto', 'en', 'zh'].includes(lang)) throw Error('기억을 정리할 언어는 auto, en, zh 중 하나여야 합니다.');
       next.writeLanguage = lang;
     }
     if (req.body?.translateConnection !== undefined) next.translateConnection = String(req.body.translateConnection || '').trim() || null;
@@ -3165,7 +3170,7 @@ async function routes(app) {
     for (const t of loadLedger(chatId)?.threads || []) {
       for (const field of [t.who, t.toward, ...(t.unaware || []), ...(t.guess || [])]) {
         for (const name of String(field || '').split(/\s*[·,、]\s*/)) {
-          if (!name || items[name] || !/[A-Za-z]/.test(name) || /[가-힣]/.test(name)) continue;
+          if (!name || items[name] || !/[A-Za-z\u3400-\u4dbf\u4e00-\u9fff]/.test(name) || /[가-힣]/.test(name)) continue;
           const canon = A.canonOf(name, table);
           const korean = canon && /[가-힣]/.test(canon) ? canon : T.koreanizeNames(name, names, A.replaceName);
           if (korean !== name) items[name] = korean;
@@ -4368,7 +4373,7 @@ async function computeRecall(chatId, store, view, userMessage, { mode, firstInsi
     const ledger = ledgerForReply(chatId);
     // Memory written in English is also searched through its Korean (the library's translation cache, no model call),
     // so a message written in Korean finds it as well as one written or translated into English.
-    const tr = writeLanguage(chatId) === 'en' ? translationLookup(chatId, 'ko') : null;
+    const tr = writeLanguage(chatId) !== 'ko' ? translationLookup(chatId, 'ko') : null;
     // Meaning search first (quick): scenes close in meaning even when the words differ.
     await Promise.race([embeddingSource(), new Promise((r) => setTimeout(r, Math.min(QUERY_TIMEOUT_MS, left())))]);
     const index = loadVectors(chatId);

@@ -372,7 +372,7 @@
   const trEdit = (text) => {
     const k = ko(text);
     if (!k) return '';
-    return `<label class="tr-edit full"><span>한국어 · 고치면 저장할 때 영어 기억도 고쳐집니다</span><textarea class="event-field" data-tr-src="${esc(String(text).trim())}" data-tr-ko="${esc(k)}">${esc(k)}</textarea></label>`;
+    return `<label class="tr-edit full"><span>한국어 · 고치면 저장할 때 원래 언어(영어·중국어) 기억도 고쳐집니다</span><textarea class="event-field" data-tr-src="${esc(String(text).trim())}" data-tr-ko="${esc(k)}">${esc(k)}</textarea></label>`;
   };
   /** The English field a Korean box belongs to: the field right before it (or inside the label right before it). */
   const englishFieldOf = (box) => {
@@ -1512,20 +1512,22 @@
       </div>
       <div class="paper"><h2>기억 언어</h2>
         <p class="hint">언어는 두 가지를 따로 고릅니다. <b>정리할 언어</b>는 기억 서재에 저장되는 언어이고, <b>넣을 언어</b>는 답변을 만들 때 프롬프트에 넣는 언어입니다. 넣을 언어만 바꾸면 저장된 기억은 그대로 두고 넣을 때만 번역하므로 <b>다시 정리할 필요가 없습니다</b>.</p>
-        ${info?.chatLang ? `<p class="hint">이 방은 <b>${info.chatLang === 'en' ? '영어' : '한국어'}</b>로 진행되는 것으로 보입니다(최근 메시지 기준, 자동).</p>` : ''}
+        ${info?.chatLang ? `<p class="hint">이 방은 <b>${({ en: '영어', zh: '중국어' })[info.chatLang] || '한국어'}</b>로 진행되는 것으로 보입니다(최근 메시지 기준, 자동).</p>` : ''}
         ${prepNote()}
         <label>기억을 정리할 언어<select id="setWriteLang">
-          <option value="auto" ${serverSettings?.writeLanguage !== 'en' ? 'selected' : ''}>채팅 언어로 (기본)</option>
-          <option value="en" ${serverSettings?.writeLanguage === 'en' ? 'selected' : ''}>영어로 (한국어 방도 영어로 정리)</option></select></label>
-        <p class="hint">기억 서재에 <b>저장되는</b> 언어입니다. 영어로 바꾸면 <b>새로 정리되는 기억부터</b> 영어로 저장하고, 이 화면에서는 한국어 번역이 함께 보입니다. 이미 정리된 기억은 그대로 두고 넣을 때 영어로 번역하므로 바로 써도 됩니다. 전부 영어로 저장하고 싶으시면 한눈에 → <b>처음부터 다시 정리</b>를 눌러 주세요. 대사 인용과 이름은 늘 원문 그대로입니다. 한국어 방에서 영어로 정리해도 낱말로 찾기는 이 화면의 한국어 번역과 영어 낱말을 함께 봅니다(번역이 아직 없는 기억은 영어 낱말로만 찾습니다).</p>
+          <option value="auto" ${!['en', 'zh'].includes(serverSettings?.writeLanguage) ? 'selected' : ''}>채팅 언어로 (기본)</option>
+          <option value="en" ${serverSettings?.writeLanguage === 'en' ? 'selected' : ''}>영어로 (한국어 방도 영어로 정리)</option>
+          <option value="zh" ${serverSettings?.writeLanguage === 'zh' ? 'selected' : ''}>중국어로 (간체 · 한국어 방도 중국어로 정리)</option></select></label>
+        <p class="hint">기억 서재에 <b>저장되는</b> 언어입니다. 영어나 중국어로 바꾸면 <b>새로 정리되는 기억부터</b> 그 언어로 저장하고, 이 화면에서는 한국어 번역이 함께 보입니다. 이미 정리된 기억은 그대로 두고 넣을 때 번역하므로 바로 써도 됩니다. 전부 그 언어로 저장하고 싶으시면 한눈에 → <b>처음부터 다시 정리</b>를 눌러 주세요. 대사 인용과 이름은 늘 원문 그대로입니다. 한국어 방에서 영어나 중국어로 정리해도 낱말로 찾기는 이 화면의 한국어 번역과 원래 낱말을 함께 봅니다(번역이 아직 없는 기억은 원래 낱말로만 찾습니다).</p>
         <label>기억을 넣을 언어<select id="setMemLang">
           <option value="auto" ${!serverSettings?.memoryLanguage || serverSettings?.memoryLanguage === 'auto' ? 'selected' : ''}>정리한 언어 그대로 (기본 · 번역 없음)</option>
           <option value="ko" ${serverSettings?.memoryLanguage === 'ko' ? 'selected' : ''}>한국어</option>
-          <option value="en" ${serverSettings?.memoryLanguage === 'en' ? 'selected' : ''}>영어 (한국어 채팅이면 영어로 번역해서 넣음)</option></select></label>
+          <option value="en" ${serverSettings?.memoryLanguage === 'en' ? 'selected' : ''}>영어 (한국어 채팅이면 영어로 번역해서 넣음)</option>
+          <option value="zh" ${serverSettings?.memoryLanguage === 'zh' ? 'selected' : ''}>중국어 (간체로 번역해서 넣음)</option></select></label>
         <label>번역에 쓸 연결<select id="setTrConn">
           <option value="" ${!serverSettings?.translateConnection ? 'selected' : ''}>기억 정리 연결 그대로</option>
           ${connections.map((c) => `<option value="${esc(c.id)}" ${c.id === serverSettings?.translateConnection ? 'selected' : ''}>${esc(c.name)}${c.model ? ` · ${esc(c.model)}` : ''}</option>`).join('')}</select></label>
-        <label class="setting-switch"><span>영어 기억을 자동으로 한국어로 번역<small>영어로 정리된 기억을 이 화면에서 볼 때 한국어 번역을 알아서 만듭니다. 끄면 번역이 없는 항목은 영어로 보이고, 위에 뜨는 [지금 번역]을 누를 때만 번역합니다(번역 호출을 아낄 때). 답변에 넣는 기억의 번역(넣을 언어)은 이 설정과 상관없이 그대로입니다.</small></span><input type="checkbox" id="setAutoTr" ${serverSettings?.autoTranslate !== false ? 'checked' : ''}></label>
+        <label class="setting-switch"><span>영어·중국어 기억을 자동으로 한국어로 번역<small>영어로 정리된 기억을 이 화면에서 볼 때 한국어 번역을 알아서 만듭니다. 끄면 번역이 없는 항목은 영어로 보이고, 위에 뜨는 [지금 번역]을 누를 때만 번역합니다(번역 호출을 아낄 때). 답변에 넣는 기억의 번역(넣을 언어)은 이 설정과 상관없이 그대로입니다.</small></span><input type="checkbox" id="setAutoTr" ${serverSettings?.autoTranslate !== false ? 'checked' : ''}></label>
         <label class="setting-switch"><span>영어 대사도 한국어로 보기<small>이 화면에서 영어로 된 대사 아래에 한국어 번역을 함께 보여 줍니다. 번역 호출이 조금 더 듭니다. 기억 칸에 들어가는 대사는 늘 원문 그대로입니다.</small></span><input type="checkbox" id="setTrQuotes" ${serverSettings?.translateQuotes ? 'checked' : ''}></label>
         <p class="hint">넣을 언어를 바꾸면 이 방의 기억을 바로 뒤에서 번역해 둡니다. 번역이 끝나기 전에 답변을 만들면, 아직 번역되지 않은 줄만 원래 언어로 들어갑니다(기억이 빠지지는 않습니다). 새로 정리되는 기억도 정리가 끝날 때마다 이어서 번역합니다. 대사 인용과 이름은 늘 원문 그대로 넣습니다. 영어로 정리된 기억은 이 화면에서 한국어 번역이 함께 보입니다.</p>
         <div class="buttons"><button class="primary" data-act="saveLanguage">저장</button></div>
@@ -2141,7 +2143,7 @@
       case 'saveLanguage': {
         const memoryLanguage = root.querySelector('#setMemLang')?.value || 'auto';
         const writeLanguage = root.querySelector('#setWriteLang')?.value || 'auto';
-        const writeChanged = writeLanguage !== (serverSettings?.writeLanguage === 'en' ? 'en' : 'auto');
+        const writeChanged = writeLanguage !== (['en', 'zh'].includes(serverSettings?.writeLanguage) ? serverSettings.writeLanguage : 'auto');
         const translateConnection = root.querySelector('#setTrConn')?.value || '';
         const translateQuotes = Boolean(root.querySelector('#setTrQuotes')?.checked);
         const autoTranslate = Boolean(root.querySelector('#setAutoTr')?.checked);
@@ -2149,8 +2151,8 @@
           await api('POST', '/settings/language', { memoryLanguage, writeLanguage, translateConnection, translateQuotes, autoTranslate });
           serverSettings = (await api('GET', '/status')).settings;
           if (room) info = await api('GET', `/chats/${encodeURIComponent(room)}`).catch(() => info);
-        }, writeChanged && writeLanguage === 'en'
-          ? '기억 언어를 저장했습니다. 새 기억부터 영어로 정리합니다. 이미 정리된 기억은 넣을 때 영어로 번역합니다(전부 영어로 저장하려면 한눈에 → 처음부터 다시 정리).'
+        }, writeChanged && (writeLanguage === 'en' || writeLanguage === 'zh')
+          ? `기억 언어를 저장했습니다. 새 기억부터 ${writeLanguage === 'zh' ? '중국어' : '영어'}로 정리합니다. 이미 정리된 기억은 넣을 때 번역합니다(전부 그 언어로 저장하려면 한눈에 → 처음부터 다시 정리).`
           : writeChanged
             ? '기억 언어를 저장했습니다. 새 기억부터 채팅 언어로 정리합니다.'
             : memoryLanguage === 'auto' ? '기억 언어를 저장했습니다.' : '기억 언어를 저장했습니다. 다시 정리할 필요 없이, 이 방의 기억을 바로 번역해 둡니다.');
