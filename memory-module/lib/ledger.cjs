@@ -1274,14 +1274,64 @@ function dateInText(content, base = null) {
   for (const hit of text.matchAll(/§\s*RP\s*\|\s*(\d{8})(?=\s*\|)([^§]*)/gi)) {
     take(parseClock(`${hit[1]} ${hit[2]}`, base));
   }
+  // A bracketed header of fields, also inline before prose and whatever the place or weather field says:
+  // "[20201018|19:25] 그녀가…", "[RP|20201018|19:35|"블루문" 바|비]", "[RP|2020년 10월 18일|19:35|…]".
+  // Read field by field: the first field that is a date, then the first field after it that is a time.
+  for (const hit of text.matchAll(/[[【]\s*((?:[A-Za-z가-힣]{1,6}\s*\|\s*)?[^|\]】\n]{4,24}\|[^\]】\n]{1,200})[\]】]/g)) {
+    const fields = hit[1].split('|').map((f) => f.trim());
+    const at = fields.findIndex((f, i) => i < 2 && /\d/.test(f) && parseClock(f, base)?.date);
+    if (at < 0) continue;
+    const c = parseClock(fields[at], base);
+    const time = c.time || fields.slice(at + 1, at + 3).map((f) => parseClock(f)).find((x) => x?.time && !x.date)?.time || null;
+    take({ date: c.date, time });
+  }
   // A numeric date with its weekday in brackets is a header wherever it stands, even inline before a line of
   // dialogue ("§RP | 24-10-18 (금) | 02:32 | 서재§ 하루 | …").
   for (const hit of text.matchAll(/(\d{2,4}-\d{1,2}-\d{1,2})\s*\([월화수목금토일]\)(?:\s*\|?\s*(\d{1,2}:\d{2}))?/g)) {
     const date = isoDate(hit[1]);
     if (date) take({ date, time: hit[2] ? hit[2].padStart(5, '0') : null });
   }
-  for (const line of text.split('\n')) take(dateLine(line, best?.date || base));
+  // A status window drawn with inline tags (<span>) reads as one line: "📅 2020.10.18 (일) 🕐 19:35 👔 니트 📝 …".
+  // Two or more emoji labels on a line make it a row of fields, one field per emoji.
+  const lines = text.split('\n').flatMap((line) => ((line.match(/\p{Extended_Pictographic}/gu) || []).length >= 2 ? line.split(/(?=\p{Extended_Pictographic})/u) : [line]));
+  lines.forEach((line, i) => {
+    const c = dateLine(line, best?.date || base);
+    // A status window often puts the time on its own line, not always right under the date
+    // ("📅 2024년 10월 18일 (금)" / "📍 카페" / "🕐 오후 3:20").
+    if (c && !c.time) c.time = timeNearDate(lines, i);
+    take(c);
+  });
   return best;
+}
+
+/** A line that can be part of a status window: short, not a sentence, not a quote. Blank lines are skipped. */
+function statusLike(line) {
+  const t = String(line || '').trim();
+  return t.length <= 90 && !/[.!?…。]["”’」』)]*$/.test(t) && !/["“”「」『』]/.test(t);
+}
+
+const TIME_LABEL = /(시간|시각|현재\s*시|time|clock|[\u{1F550}-\u{1F567}⏰⌚⏱⏲🕰])/iu;
+// A clock time, not a count or a range: "15:20", "오후 3시 20분", "3:20 PM". "09:00~18:00" is a range.
+const CLOCK_TIME = /(?:(?:오전|오후|새벽|아침|저녁|밤)\s*)?\d{1,2}\s*(?::\s*\d{2}|시(?!\s*(?:간|방향|쯤에|에\s|까지)))/;
+const TIME_RANGE = /\d\s*(?::\s*\d{2}|시)?\s*[~〜\-–]\s*\d{1,2}\s*(?::|시)/;
+
+/**
+ * The time in the same status window as the date line `i`: the block of status-like lines around it, up to the
+ * next date line or a line of prose. A labelled time ("🕐", "시간:") wins over a bare one; none is null.
+ */
+function timeNearDate(lines, i) {
+  const block = [];
+  for (const step of [-1, 1]) {
+    for (let j = i + step, seen = 0; j >= 0 && j < lines.length && seen < 12; j += step) {
+      const t = lines[j].trim();
+      if (!t) continue;
+      if (!statusLike(t) || dateLine(t)) break;
+      block.push(t);
+      seen++;
+    }
+  }
+  const times = block.filter((t) => CLOCK_TIME.test(t) && !TIME_RANGE.test(t)).map((t) => ({ t, c: parseClock(t) })).filter((x) => x.c?.time && !x.c.date);
+  return (times.find((x) => TIME_LABEL.test(x.t)) || (times.length === 1 ? times[0] : null))?.c.time || null;
 }
 
 /**
@@ -1361,8 +1411,10 @@ function storyTime(messages, base = null) {
   for (const m of messages || []) {
     const own = dateInText(m.content, latest?.slice(0, 10) || base);
     const found = !!own;
-    if (own?.time) {
-      const at = `${own.date}T${own.time}`;
+    // A date line without a time takes the tracker's time when the tracker is on the same day.
+    const time = own?.time || (own && m.clock?.date === own.date ? m.clock.time : null);
+    if (time) {
+      const at = `${own.date}T${time}`;
       if (!latest || at > latest) latest = at;
     }
     // No date line in the message: the tracker's date and time for it, when both are known.
