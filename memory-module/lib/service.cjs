@@ -3207,6 +3207,37 @@ async function routes(app) {
       return { count: pairs.length, changed: true, aliases };
     });
   }));
+  // The user corrected the Korean of English memory notes in the library: the translation model brings each English
+  // note in line (only what the correction changes) and the corrected Korean is kept as its translation. Nothing is
+  // saved to the memory here; the library saves the returned English through the usual edit, so it counts as edited.
+  app.post('/chats/:id/translations/back', guard(async (req) => {
+    const chatId = safeChatId(req.params.id);
+    const raw = Array.isArray(req.body?.items) ? req.body.items : null;
+    if (!raw?.length) throw Error('고친 번역이 없습니다.');
+    if (raw.length > 30) throw Error('한 번에 30개까지 고칠 수 있습니다.');
+    const clean = (v) => String(v ?? '').replace(/\r\n/g, '\n').trim();
+    const items = raw.map((x) => ({ en: clean(x?.en), after: clean(x?.ko) }));
+    if (items.some((x) => !x.en || !x.after || x.en.length > 3000 || x.after.length > 3000)) throw Error('고친 번역이 비어 있거나 너무 깁니다.');
+    const cache = loadTranslations(chatId).items;
+    const out = items.map((x) => ({ en: x.en, before: cache[T.key('ko', x.en)] || '' }));
+    // Only the ones whose Korean really changed go to the model.
+    const todo = items.map((x, i) => ({ ...x, before: out[i].before, i })).filter((x) => x.after !== x.before);
+    if (todo.length) {
+      if (!settings().connection && !settings().translateConnection) throw Error('기억 정리 연결을 설정해 주세요.');
+      const model = await translateModel();
+      const parsed = L.parseJsonObject(await askModel(model, T.buildBackPrompt(todo.map(({ en, before, after }) => ({ en, before, after })), { names: roomKoreanNames(chatId) }), { maxTokens: 4000 }));
+      const lines = T.readBack(parsed, todo);
+      if (!lines) throw Error('영어 기억을 고치지 못했습니다. 모델의 답을 읽지 못했어요. 잠시 뒤 다시 저장해 주세요.');
+      const data = loadTranslations(chatId);
+      todo.forEach((x, k) => {
+        out[x.i].en = lines[k];
+        data.items[T.key('ko', lines[k])] = x.after;
+      });
+      saveTranslations(chatId, data);
+      log(`chat ${chatId}: ${todo.length} memory note(s) changed from a Korean correction`);
+    }
+    return { items: out.map((x) => ({ en: x.en })), changed: todo.length };
+  }));
   app.post('/settings/chapter-length', guard(async (req) => {
     const length = String(req.body?.length || '').trim();
     if (!CHAPTER_LENGTHS[length]) throw Error('지난 이야기 흐름 길이는 short, normal, long, full 중 하나여야 합니다.');
