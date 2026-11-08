@@ -235,6 +235,10 @@
     info = i;
     recallReportData = null; recallReportRoom = ''; recallReportError = '';
     if (tab === 'inject') void ensureRecallReport();
+    // The room's glossary from the 번역 프리셋·단어장 extension (when installed) goes to the module first, so names in
+    // the Korean notes follow it.
+    await syncGlossary(id);
+    if (sequence !== roomLoadSequence || room !== id || disposed) return;
     // Korean notes for memory in English are shown on every tab (open items, daily life, home), not only scenes.
     await loadTranslations(id);
     if (sequence !== roomLoadSequence || room !== id || disposed) return;
@@ -326,11 +330,38 @@
     }
   }
 
+  /**
+   * The glossary of the 번역 프리셋·단어장 extension for this room ("Daniel = 다니엘" lines; the room's own, else the
+   * extension's default). Found by the extension's name, since its id differs on every install. Sent once per room and
+   * glossary text; nothing happens when the extension is not installed or cannot be read.
+   */
+  const GLOSSARY_EXTENSION = '번역 프리셋·단어장';
+  const glossarySent = new Map();
+  let glossaryExtensionId;
+  async function syncGlossary(id) {
+    try {
+      if (glossaryExtensionId === undefined) {
+        const list = await api('GET', '/api/personal-extensions/runtime/client');
+        glossaryExtensionId = (Array.isArray(list) ? list : []).find((e) => e?.name === GLOSSARY_EXTENSION)?.id || null;
+      }
+      if (!glossaryExtensionId) return;
+      const stored = await api('GET', `/api/personal-extensions/${encodeURIComponent(glossaryExtensionId)}/storage`);
+      const config = stored?.value?.config;
+      const scope = config?.chats?.[id] || config?.defaults;
+      const text = typeof scope?.glossary === 'string' ? scope.glossary : '';
+      if (glossarySent.get(id) === text) return;
+      await api('POST', `/chats/${encodeURIComponent(id)}/glossary`, { glossary: text, source: GLOSSARY_EXTENSION });
+      glossarySent.set(id, text);
+    } catch {}
+  }
+
   /** The Korean for a memory text, when there is one and it differs. */
   function ko(text) {
     const t = trMap[String(text ?? '').trim()];
     return t && t !== text ? t : null;
   }
+  /** A name field ("Daniel", "A·B") with each name written the Korean way the module gave. */
+  const nameShown = (field) => String(field ?? '').split(/(\s*[·,、]\s*)/).map((part, i) => (i % 2 ? part : trMap[part] || part)).join('');
   const trNote = (text) => (ko(text) ? `<p class="tr-note full"><span>한국어</span>${esc(ko(text))}</p>` : '');
   const shown = (text) => ko(text) || text || '';
 
@@ -851,15 +882,15 @@
   }
 
   function threadRow(t) {
-    const who = [t.who, t.toward].filter(Boolean).join(' → ');
+    const who = [t.who, t.toward].filter(Boolean).map(nameShown).join(' → ');
     const when = t.due ? `약속한 때 ${[t.due.date, t.due.time].filter(Boolean).join(' ')}` : t.period ? `기간 ${day(t.period.from)}~${day(t.period.to)}` : '';
     const closed = t.status !== 'open';
-    return `<details class="event-row" data-tid="${esc(t.id)}"><summary><span class="event-no">${esc(t.id)}</span><span class="event-main"><b title="${esc(t.title)}">${esc(shown(t.title))}</b><small>${esc(who)}${when ? ` · ${esc(when)}` : ''}${t.unaware?.length ? ` · 모름: ${esc(t.unaware.join('·'))}` : ''}${t.guess?.length ? ` · 짐작만: ${esc(t.guess.join('·'))}` : ''}${closed ? ` · 닫힘: ${esc(t.closed?.how || '')}` : ''}</small></span><span class="pill ${closed ? 'neutral' : ''}">${KIND[t.kind] || t.kind}</span></summary>
+    return `<details class="event-row" data-tid="${esc(t.id)}"><summary><span class="event-no">${esc(t.id)}</span><span class="event-main"><b title="${esc(t.title)}">${esc(shown(t.title))}</b><small>${esc(who)}${when ? ` · ${esc(when)}` : ''}${t.unaware?.length ? ` · 모름: ${esc(t.unaware.map(nameShown).join('·'))}` : ''}${t.guess?.length ? ` · 짐작만: ${esc(t.guess.map(nameShown).join('·'))}` : ''}${closed ? ` · 닫힘: ${esc(shown(t.closed?.how))}` : ''}</small></span><span class="pill ${closed ? 'neutral' : ''}">${KIND[t.kind] || t.kind}</span></summary>
       <div class="event-body">
         <div class="form-grid" data-thread="${esc(t.id)}">
           <label class="full">제목<input data-f="title" value="${esc(t.title)}"></label>${trNote(t.title)}
           <label class="full">설명<textarea class="event-field" data-f="detail">${esc(t.detail || '')}</textarea></label>${trNote(t.detail)}
-          ${t.kind === 'emotion' ? `<label class="full">풀리려면<input data-f="need" value="${esc(t.need || '')}"></label>` : ''}
+          ${t.kind === 'emotion' ? `<label class="full">풀리려면<input data-f="need" value="${esc(t.need || '')}"></label>${trNote(t.need)}` : ''}
           ${['promise', 'pending'].includes(t.kind) ? `<label>기한 날짜 (작중)<input data-f="dueDate" value="${esc(t.due?.date || '')}" placeholder="예: 24-10-20 / 비우면 기한 없음"></label><label>기한 시각<input data-f="dueTime" value="${esc(t.due?.time || '')}" placeholder="예: 17:00"></label>` : ''}
           ${group() ? `<label>아직 모르는 인물 (쉼표로 구분)<input data-f="unaware" value="${esc((t.unaware || []).join(', '))}" placeholder="모두 알면 비워 두세요"></label><label>짐작만 하는 인물<input data-f="guess" value="${esc((t.guess || []).join(', '))}" placeholder="없으면 비워 두세요"></label>` : ''}
         </div>
@@ -870,8 +901,8 @@
           const links = [start && sceneLink(start, '에서 시작'), latest && latest !== start && sceneLink(latest, '에서 바뀜'), end && sceneLink(end, '에서 끝남')].filter(Boolean);
           return links.length ? `<p class="record-links">${links.join('')}</p>` : '';
         })()}
-        ${t.cause ? `<p><small>원인</small><br>${esc(t.cause)}</p>` : ''}
-        ${t.latest ? `<p><small>최근</small><br>${esc(t.latest.text)}</p>` : ''}
+        ${t.cause ? `<p><small>원인</small><br>${esc(shown(t.cause))}</p>` : ''}
+        ${t.latest ? `<p><small>최근</small><br>${esc(shown(t.latest.text))}</p>` : ''}
         ${t.evidence?.[0] ? `<div class="quote-card"><small>처음 원문 · #${t.evidence[0].number}</small><blockquote>${esc(quoteLine(t.evidence[0]).text)}</blockquote></div>` : ''}
         <div class="buttons"><button data-act="editThread" data-id="${esc(t.id)}">고친 내용 저장</button>${closed ? `<button data-act="reopen" data-id="${esc(t.id)}">다시 열기</button>` : `<button data-act="closeThread" data-id="${esc(t.id)}">${armed === `close:${t.id}` ? '한 번 더 누르면 닫힙니다' : '끝난 일로 닫기'}</button>`}${closed ? '' : markButtons(t.id, info?.recallPrefs)}</div>
       </div></details>`;

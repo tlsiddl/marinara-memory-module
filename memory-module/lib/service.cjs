@@ -426,6 +426,8 @@ function sceneRecords(chatId) {
   if (featureOn(chatId, 'characterState')) out.characterState = true;
   if (featureOn(chatId, 'places')) out.places = true;
   if (featureOn(chatId, 'keepsakes')) out.keepsakes = true;
+  // With date trackers on, the scene call also notes dates worth a tracker (first meeting, an exam day, a cycle).
+  if (featureOn(chatId, 'trackers')) out.dateHints = true;
   return out;
 }
 /** The scene call's answer limit; a little more room while it also writes the optional records. */
@@ -469,10 +471,13 @@ function refreshWorld(chatId, store) {
       // A cycle's start the story states becomes a suggestion (never recorded by itself; no model call).
       if (featureOn(chatId, 'trackers')) {
         const old = loadTrackers(chatId);
+        let next = old;
         if (old.items.some((t) => t.type === 'cycle')) {
-          const next = Tk.suggest(old, store, (scene) => sceneDate(chatId, scene), undefined, { auto: featureOn(chatId, 'autoApply') });
-          if (next !== old) { saveTrackers(chatId, next); changed = true; }
+          next = Tk.suggest(old, store, (scene) => sceneDate(chatId, scene), undefined, { auto: featureOn(chatId, 'autoApply') });
         }
+        // Trackers the story suggests are added at once and listed under "자동으로 적용함" to check, fix or undo.
+        next = Tk.recommend(next, store, (scene) => sceneDate(chatId, scene));
+        if (next !== old) { saveTrackers(chatId, next); changed = true; }
       }
     });
   } catch (error) {
@@ -2423,9 +2428,51 @@ function saveTranslations(chatId, data) {
   translationCache.set(chatId, data);
 }
 
+/**
+ * The room's glossary pairs ([{ from: Latin, to: Korean }]), imported from the 번역 프리셋·단어장 extension by the
+ * library. Kept in the translations file (it only serves translation), so backups and room deletion cover it.
+ */
+function roomGlossary(chatId) {
+  const g = loadTranslations(chatId).glossary;
+  return Array.isArray(g?.pairs) ? g.pairs : [];
+}
+
+/** How Latin-written names are written in Korean in this room: the glossary first, then the name table. */
+function roomKoreanNames(chatId) {
+  try {
+    return T.koreanNames(roomGlossary(chatId), loadNames(chatId));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * The glossary pairs become other names of the people they name ("Daniel = 다니엘" → Daniel is 다니엘 크로우),
+ * so a Latin name the memory model wrote lands on the same person. Only a Korean side that is a person's name, display
+ * form, alias or the first word of their name counts; an alias that already belongs to someone else stays there.
+ */
+function glossaryAliases(table, pairs) {
+  const added = [];
+  const people = Object.entries(table.people || {});
+  for (const { from, to } of pairs) {
+    if (A.canonOf(from, table)) continue;
+    const hit = people.filter(([canon, e]) => [canon, e?.display, ...(e?.aliases || [])].some((n) => n && (n === to || String(n).split(' ')[0] === to)));
+    if (hit.length !== 1) continue; // nobody, or more than one person: not a name we can place
+    if (A.addPerson(table, hit[0][0], [from])) added.push({ from, to: hit[0][0] });
+  }
+  return added;
+}
+
 function translationLookup(chatId, target) {
   const items = loadTranslations(chatId).items;
-  return (text) => items[T.key(target, text)] ?? null;
+  if (target !== 'ko') return (text) => items[T.key(target, text)] ?? null;
+  // A name the model still left in Latin (or one added to the glossary after the line was translated) is written in
+  // Korean when the line is read, with its particle fitted.
+  const names = roomKoreanNames(chatId);
+  return (text) => {
+    const done = items[T.key(target, text)];
+    return done == null ? null : T.koreanizeNames(done, names, A.replaceName);
+  };
 }
 
 const translating = new Map();
@@ -2453,12 +2500,13 @@ function translateMissing(chatId, target, texts, { max = TRANSLATE_MAX_PER_RUN }
     const todo = [...new Set(texts)].filter((t) => t && lookup(t) == null).slice(0, max);
     if (!todo.length) return 0;
     const model = await translateModel();
+    const names = target === 'ko' ? roomKoreanNames(chatId) : [];
     let done = 0;
     const failed = [];
     async function translatePart(part) {
       let out;
       try {
-        const parsed = L.parseJsonObject(await askModel(model, T.buildTranslatePrompt(part, target), { maxTokens: 6000 }));
+        const parsed = L.parseJsonObject(await askModel(model, T.buildTranslatePrompt(part, target, { names }), { maxTokens: 6000 }));
         out = T.readTranslation(parsed, part);
         if (!out) throw Error('번역 응답의 형식이 올바르지 않습니다.');
       } catch (error) {
@@ -3137,8 +3185,23 @@ async function routes(app) {
       else missing.push(t);
     }
     if (missing.length && settings().connection) startDisplayTranslation(chatId, missing);
+    // Name fields (who, toward, who does not know) are names, not sentences: written in Korean from the name table and
+    // the glossary, with no model call.
+    const names = roomKoreanNames(chatId);
+    const table = loadNames(chatId);
+    for (const t of loadLedger(chatId)?.threads || []) {
+      for (const field of [t.who, t.toward, ...(t.unaware || []), ...(t.guess || [])]) {
+        for (const name of String(field || '').split(/\s*[·,、]\s*/)) {
+          if (!name || items[name] || !/[A-Za-z]/.test(name) || /[가-힣]/.test(name)) continue;
+          const canon = A.canonOf(name, table);
+          const korean = canon && /[가-힣]/.test(canon) ? canon : T.koreanizeNames(name, names, A.replaceName);
+          if (korean !== name) items[name] = korean;
+        }
+      }
+    }
+    const glossary = loadTranslations(chatId).glossary;
     const status = displayTranslationStatus.get(chatId);
-    return { chatLang: chatLangs.get(chatId) || 'ko', items, missing: missing.length, working: translating.has(`${chatId}:ko`), error: missing.length ? (status?.error || (!settings().connection ? '기억 정리 연결을 설정해 주세요.' : null)) : null };
+    return { chatLang: chatLangs.get(chatId) || 'ko', items, glossary: glossary ? { count: glossary.pairs?.length || 0, source: glossary.source || null, at: glossary.at || null, hash: glossary.hash || null } : null, missing: missing.length, working: translating.has(`${chatId}:ko`), error: missing.length ? (status?.error || (!settings().connection ? '기억 정리 연결을 설정해 주세요.' : null)) : null };
   }));
   app.post('/chats/:id/translations/retry', guard(async (req) => {
     const chatId = safeChatId(req.params.id);
@@ -3149,6 +3212,27 @@ async function routes(app) {
     if (!settings().connection) throw Error('기억 정리 연결을 설정해 주세요.');
     startDisplayTranslation(chatId, missing, true);
     return { working: true, missing: missing.length };
+  }));
+  // The library sends the room's glossary from the 번역 프리셋·단어장 extension (when it is installed). Names in it are
+  // written that way in Korean memory text, and become other names of the people they name. Same text again: nothing.
+  app.post('/chats/:id/glossary', guard(async (req) => {
+    const chatId = safeChatId(req.params.id);
+    const raw = req.body?.glossary;
+    if (typeof raw !== 'string' && !Array.isArray(raw)) throw Error('단어장이 비어 있습니다.');
+    if ((typeof raw === 'string' ? raw.length : JSON.stringify(raw).length) > 200_000) throw Error('단어장이 너무 큽니다.');
+    const pairs = T.parseGlossary(raw);
+    const hash = L.hashText(JSON.stringify(pairs));
+    const source = String(req.body?.source || '').slice(0, 60) || null;
+    return enqueue(chatId, async () => {
+      const data = loadTranslations(chatId);
+      if (data.glossary?.hash === hash) return { count: pairs.length, changed: false, aliases: [] };
+      saveTranslations(chatId, { ...data, glossary: { pairs, hash, source, at: new Date().toISOString() } });
+      const table = loadNames(chatId);
+      const aliases = glossaryAliases(table, pairs);
+      if (aliases.length) saveNames(chatId, table);
+      if (pairs.length) log(`chat ${chatId}: glossary ${pairs.length} name(s) from ${source || 'the library'}${aliases.length ? `, ${aliases.length} new other name(s)` : ''}`);
+      return { count: pairs.length, changed: true, aliases };
+    });
   }));
   app.post('/settings/chapter-length', guard(async (req) => {
     const length = String(req.body?.length || '').trim();

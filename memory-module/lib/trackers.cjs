@@ -29,6 +29,8 @@ const MAX_ITEMS = 30;
 const MAX_STARTS = 12;
 const MAX_SUGGESTIONS = 40;
 const MAX_APPLIED = 50;
+const MAX_DECLINED = 200;
+const RECOMMEND_PER_RUN = 3;
 const LABEL_MAX = 30;
 const INJECT_CHARS = 200;
 
@@ -126,7 +128,7 @@ const todayFor = (item, ctx) => (item.clock === 'real' ? ctx.real || localDate()
 
 /* ---------- the items ---------- */
 
-const emptyTrackers = () => ({ version: TRACKERS_VERSION, items: [], suggestions: [], applied: [], updatedAt: null });
+const emptyTrackers = () => ({ version: TRACKERS_VERSION, items: [], suggestions: [], applied: [], declined: [], updatedAt: null });
 const isTrackers = (v) => !!v && typeof v === 'object' && v.version === TRACKERS_VERSION && Array.isArray(v.items);
 
 const need = (cond, message) => { if (!cond) throw Error(message); };
@@ -219,13 +221,19 @@ function addItem(file, raw, now = new Date().toISOString()) {
 function editItem(file, id, raw, now = new Date().toISOString()) {
   const next = structuredClone(file);
   const at = findAt(next, id);
+  const recKey = next.items[at].recKey;
   next.items[at] = stamp(normalizeItem(raw, next.items[at]), now);
+  // A recommended tracker keeps what it was recommended as, so the same recommendation is not made again.
+  if (recKey) next.items[at].recKey = recKey;
   next.updatedAt = now;
   return next;
 }
 function deleteItem(file, id, now = new Date().toISOString()) {
   const next = structuredClone(file);
-  next.items.splice(findAt(next, id), 1);
+  const at = findAt(next, id);
+  // A recommended tracker the user deleted is not recommended again.
+  if (next.items[at].recKey) next.declined = [...new Set([...(next.declined || []), next.items[at].recKey])].slice(-MAX_DECLINED);
+  next.items.splice(at, 1);
   next.suggestions = (next.suggestions || []).filter((s) => s.trackerId !== id);
   next.applied = (next.applied || []).filter((a) => a.trackerId !== id);
   next.updatedAt = now;
@@ -350,11 +358,128 @@ function autoApply(file, sid, now = new Date().toISOString()) {
   return next;
 }
 
+/* ---------- recommended trackers (new trackers from the story; added at once, listed for review) ---------- */
+
+/** The scene call's extra instruction while trackers are on (the same call, no extra model call). */
+const PROMPT = `날짜 트래커 후보 (이 방에서 켠 기능):
+각 장면 객체에 "dates"도 적어. 이 장면에서 앞으로 날짜를 세며 챙길 만한 일만 적어. 없으면 []. 대부분의 장면은 []야.
+- count: 그날부터 며칠째인지 셀 일. 두 사람이 처음 만남, 사귀기 시작함, 함께 살기 시작함, 결혼처럼 관계의 시작.
+- until: 정해진 날까지 남은 날을 셀 일. 시험·마감·출국·결혼식처럼 날짜가 정해진 미래의 일. 날짜가 원문에 없으면 적지 마.
+- cycle: 되풀이되는 주기의 시작. 생리·발정기·정기 검진처럼 주기가 원문에 나오거나 분명한 일. every(주기 일수)와 length(이어지는 일수)를 원문에 맞게 적고, 모르면 적지 마.
+한 번 지나가고 마는 일, 이미 끝난 일, 원문에 없는 날짜는 적지 마.
+- label: 짧은 이름. "~ 만난 지", "~ 사귄 지", "시험", "발정기"처럼. 사람 이름은 넣지 마.
+- people: 관련된 사람(한두 명). 방 전체의 일이면 [].
+- date: count는 시작한 날, until은 그날, cycle은 이번 주기가 시작한 날. 본문 머리말의 작중 날짜 형식(예: "24-10-18")으로. 이 장면의 날짜면 null.
+- evidence: 그렇게 판단한 문장 번호(예: ["23.4"]). 번호가 없으면 적지 마.
+형식: "dates":[{"type":"count","label":"만난 지","people":["인물"],"date":null,"every":null,"length":null,"evidence":["23.4"]}]`;
+
+/** One date hint from the model, cleaned, or null. `person` matches a name to the story's people ('' for a stranger). */
+function cleanHint(raw, { person = (n) => tidy(n) } = {}) {
+  if (!raw || typeof raw !== 'object' || !TYPES.includes(raw.type)) return null;
+  const label = tidy(raw.label).slice(0, LABEL_MAX);
+  if (!label) return null;
+  const people = [];
+  for (const n of Array.isArray(raw.people) ? raw.people : String(raw.people ?? '').split(/[·,]+/)) {
+    const p = person(tidy(n).slice(0, 40));
+    if (p && !people.includes(p)) people.push(p);
+  }
+  const out = { type: raw.type, label, people: people.slice(0, 2) };
+  const date = parseDate(raw.date);
+  if (date) out.date = date;
+  if (raw.type === 'until' && !date) return null; // a countdown needs its day from the story
+  if (raw.type === 'cycle') {
+    const every = Number(raw.every), length = Number(raw.length);
+    if (!(Number.isInteger(every) && every >= 7 && every <= 366)) return null;
+    out.every = every;
+    out.length = Number.isInteger(length) && length >= 1 && length <= 120 ? length : 5;
+  }
+  return out;
+}
+
+/** What makes two recommendations the same one: the kind, the people and the label's words. */
+function recKeyOf(c) {
+  const people = [...(c.people || [])].map((n) => A.canonical(n)).sort().join('·');
+  return `rk_${crypto.createHash('sha1').update(`${c.type}|${people}|${tidy(c.label).replace(/\s/g, '').toLowerCase()}`).digest('hex').slice(0, 10)}`;
+}
+
+/** An existing tracker already counts this: same kind, overlapping people, a word of the label in common. */
+function alreadyTracked(file, c) {
+  const words = keywordsOf({ label: c.label, people: c.people });
+  const mine = new Set(c.people.map((n) => A.canonical(n)));
+  return file.items.some((it) => {
+    if (it.recKey && it.recKey === recKeyOf(c)) return true;
+    if (it.type !== c.type) return false;
+    const theirs = it.people.map((n) => A.canonical(n));
+    const peopleMeet = !mine.size || !theirs.length || theirs.some((n) => mine.has(n));
+    if (!peopleMeet) return false;
+    const other = keywordsOf(it);
+    return !words.length || !other.length || words.some((w) => other.includes(w));
+  });
+}
+
+const TYPE_TEXT = { count: '며칠째', until: 'D-day', cycle: '주기' };
+
+/**
+ * Trackers the story suggests (the scene call's "dates" notes), added at once and listed under "자동으로 적용함" for the
+ * user to check, fix or undo. Never added again once undone or deleted, never a second one for what a tracker already
+ * counts, at most RECOMMEND_PER_RUN per run, and only while there is room. `dateOf(scene)` gives the scene's ISO date.
+ */
+function recommend(file, store, dateOf, now = new Date().toISOString(), { max = RECOMMEND_PER_RUN } = {}) {
+  let next = file;
+  let added = 0;
+  const declined = new Set(file.declined || []);
+  const appliedKeys = new Set((file.applied || []).map((a) => a.recKey).filter(Boolean));
+  for (const scene of store?.scenes || []) {
+    for (const hint of scene.dateHints || []) {
+      if (added >= max || next.items.length >= MAX_ITEMS) break;
+      const c = { ...hint, people: cleanPeople(hint.people) };
+      const key = recKeyOf(c);
+      if (declined.has(key) || appliedKeys.has(key) || alreadyTracked(next, c)) continue;
+      const date = c.date || dateOf(scene);
+      if (!date) continue;
+      const scope = c.people.length === 1 ? 'person' : c.people.length === 2 ? 'pair' : 'room';
+      const raw = { type: c.type, label: c.label, scope, people: c.people, clock: 'story', inject: 'present' };
+      if (c.type === 'count') raw.count = { start: date, firstDay: 1 };
+      else if (c.type === 'until') raw.until = { target: date };
+      else raw.cycle = { every: c.every, unit: 'day', length: c.length, starts: [date], predict: 'fixed' };
+      let made;
+      try {
+        made = addItem(next, raw, now);
+      } catch {
+        continue;
+      }
+      const item = made.items.at(-1);
+      item.recKey = key;
+      const who = c.people.length ? `${c.people.join('·')} ` : '';
+      made.applied = [...(made.applied || []), {
+        id: `ap_${crypto.createHash('sha1').update(`new|${key}`).digest('hex').slice(0, 8)}`, kind: 'newTracker', recKey: key, trackerId: item.id,
+        label: item.label, date, sceneId: scene.id, evidence: hint.evidence || [], text: `${who}${item.label} (${TYPE_TEXT[c.type]}, ${shortDate(date)}) 트래커를 추가함`, appliedAt: now, undone: false,
+      }].slice(-MAX_APPLIED);
+      next = made;
+      appliedKeys.add(key);
+      added++;
+    }
+  }
+  return next;
+}
+
 /** Takes back exactly what autoApply did: the start date goes (and a date it pushed out comes back); the suggestion counts as ignored. */
 function undoApplied(file, id, now = new Date().toISOString()) {
   const rec = (file.applied || []).find((a) => a.id === id);
   need(rec, '해당 자동 적용 기록을 찾지 못했습니다.');
   need(!rec.undone, '이미 되돌렸습니다.');
+  if (rec.kind === 'newTracker') {
+    // A recommended tracker: it goes (with whatever was changed in it since), and is not recommended again.
+    const next = structuredClone(file);
+    next.items = next.items.filter((t) => t.id !== rec.trackerId);
+    next.suggestions = (next.suggestions || []).filter((s) => s.trackerId !== rec.trackerId);
+    next.declined = [...new Set([...(next.declined || []), rec.recKey])].slice(-MAX_DECLINED);
+    const mine = next.applied.find((a) => a.id === id);
+    mine.undone = true;
+    mine.undoneAt = now;
+    next.updatedAt = now;
+    return next;
+  }
   const next = structuredClone(file);
   const it = next.items.find((t) => t.id === rec.trackerId);
   if (it?.type === 'cycle' && it.cycle.starts.includes(rec.date)) {
@@ -371,7 +496,7 @@ function undoApplied(file, id, now = new Date().toISOString()) {
 }
 
 /** What the screen lists under "자동으로 적용함": the ones not undone, newest first. */
-const appliedView = (file) => (file?.applied || []).filter((a) => !a.undone).map((a) => ({ id: a.id, kind: a.kind, label: a.label, date: a.date, sceneId: a.sceneId, appliedAt: a.appliedAt, text: `${a.label} 시작일 ${shortDate(a.date)} 기록` })).reverse();
+const appliedView = (file) => (file?.applied || []).filter((a) => !a.undone).map((a) => ({ id: a.id, kind: a.kind, label: a.label, date: a.date, sceneId: a.sceneId, appliedAt: a.appliedAt, ...(a.kind === 'newTracker' ? { trackerId: a.trackerId } : {}), text: a.kind === 'newTracker' ? a.text : `${a.label} 시작일 ${shortDate(a.date)} 기록` })).reverse();
 
 /** accept: the date becomes a start; ignore: it is marked and never asked again. */
 function answerSuggestion(file, sid, action, now = new Date().toISOString()) {
@@ -443,5 +568,6 @@ function view(file, ctx) {
 module.exports = {
   TRACKERS_VERSION, TYPES, SCOPES, CLOCKS, INJECTS, UNITS, PREDICTS, INJECT_CHARS, MAX_ITEMS, MAX_STARTS,
   parseDate, daysBetween, addDays, addMonths, localDate, shortDate, evaluate, todayFor, emptyTrackers, isTrackers,
+  PROMPT, cleanHint, recKeyOf, recommend, RECOMMEND_PER_RUN,
   normalizeItem, addItem, editItem, deleteItem, addStart, removeStart, editStart, startFromDate, keywordsOf, suggest, autoApply, undoApplied, appliedView, MAX_APPLIED, answerSuggestion, forBranch, entryText, injectionBlock, view,
 };
