@@ -20,9 +20,9 @@ const untagged = '하준이 웃었다.\n\n하준 | "I love you, Ari."\n(사랑�
 
 fs.writeFileSync(replyFile, untagged);
 const connection = await api('POST', '/api/connections', { name: '나노딥식41플1017', provider: 'openai', baseUrl: `${llm}/v1`, apiKey: 'test', model: 'fake-model' });
-const dante = await api('POST', '/api/characters', { data: { name: '하루', description: '.' } });
-const kilian = await api('POST', '/api/characters', { data: { name: '하준', description: '.' } });
-const chat = await api('POST', '/api/chats', { name: '그룹', mode: 'roleplay', characterIds: [dante.id, kilian.id] });
+const haru = await api('POST', '/api/characters', { data: { name: '하루', description: '.' } });
+const hajun = await api('POST', '/api/characters', { data: { name: '하준', description: '.' } });
+const chat = await api('POST', '/api/chats', { name: '그룹', mode: 'roleplay', characterIds: [haru.id, hajun.id] });
 await api('PATCH', `/api/chats/${chat.id}`, { connectionId: connection.id });
 await api('PATCH', `/api/chats/${chat.id}/metadata`, { groupSpeakerColors: true, groupChatMode: 'merged' });
 const lastReply = async () => {

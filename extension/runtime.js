@@ -99,6 +99,7 @@
   let trPending = 0;
   let trError = '';
   let trWorking = false;
+  let trAuto = true;
   let notice = '';
   let lastError = '';
   let busy = false;
@@ -323,6 +324,7 @@
       trPending = t.missing || 0;
       trError = t.error || '';
       trWorking = Boolean(t.working);
+      trAuto = t.auto !== false;
     } catch (error) {
       if (room === id) trError = error?.message || String(error);
     }
@@ -340,7 +342,8 @@
     try {
       if (glossaryExtensionId === undefined) {
         const list = await api('GET', '/api/personal-extensions/runtime/client');
-        glossaryExtensionId = (Array.isArray(list) ? list : []).find((e) => e?.name === GLOSSARY_EXTENSION)?.id || null;
+        // The original and the 기억 서재 호환 edition ("번역 프리셋·단어장 (기억 서재 호환)") both count.
+        glossaryExtensionId = (Array.isArray(list) ? list : []).find((e) => typeof e?.name === 'string' && e.name.startsWith(GLOSSARY_EXTENSION))?.id || null;
       }
       if (!glossaryExtensionId) return;
       const stored = await api('GET', `/api/personal-extensions/${encodeURIComponent(glossaryExtensionId)}/storage`);
@@ -1369,13 +1372,17 @@
   function featuresPaper(list) {
     if (!Array.isArray(list) || !list.length) return '';
     const modes = [['default', '기본값 따름'], ['on', '켜기'], ['off', '끄기']];
-    return `<div class="paper"><h2>추가 기능</h2>
-      <p class="hint">기능마다 모든 방 기본값을 정하고, 방마다 따로 켜고 끌 수 있습니다. 바꾸면 바로 저장됩니다.</p>
-      ${list.map((f) => `<div class="feature-row" data-feature="${esc(f.key)}">
+    // Folded by default: the summary line says whether each one is on in this room; open one to change it.
+    const onHere = (f) => (f.room === 'on' ? true : f.room === 'off' ? false : f.global);
+    const onCount = list.filter(onHere).length;
+    return `<details class="paper" data-list="features" ${openLists.has('features') ? 'open' : ''}><summary>추가 기능 · 이 방에서 ${onCount}/${list.length}개 켜짐</summary>
+      <p class="hint">기능마다 모든 방 기본값을 정하고, 방마다 따로 켜고 끌 수 있습니다. 항목을 누르면 펼쳐집니다. 바꾸면 바로 저장됩니다.</p>
+      ${list.map((f) => `<details class="feature-row" data-feature="${esc(f.key)}" data-list="feature:${esc(f.key)}" ${openLists.has(`feature:${f.key}`) ? 'open' : ''}>
+        <summary><span class="feature-name">${esc(f.label)}</span> <span class="pill ${onHere(f) ? '' : 'neutral'}">${onHere(f) ? '켜짐' : '꺼짐'}</span>${f.room === 'default' ? ' <small>(기본값 따름)</small>' : ''}</summary>
         <label class="setting-switch"><span>${esc(f.label)} (모든 방 기본값)<small>${esc(f.description)}</small></span><input type="checkbox" data-feature-global="${esc(f.key)}" ${f.global ? 'checked' : ''}></label>
         <label>이 방의 ${esc(f.label)}<select data-feature-room="${esc(f.key)}">${modes.map(([value, text]) => `<option value="${value}" ${f.room === value ? 'selected' : ''}>${value === 'default' ? `${text} (지금 모든 방 기본값: ${f.global ? '켜기' : '끄기'})` : text}</option>`).join('')}</select></label>
-      </div>`).join('')}
-    </div>`;
+      </details>`).join('')}
+    </details>`;
   }
 
   /** 설정 → 백업: download this room's memory as one file, restore from one, undo the last restore. */
@@ -1475,7 +1482,7 @@
         <label>기억을 정리할 언어<select id="setWriteLang">
           <option value="auto" ${serverSettings?.writeLanguage !== 'en' ? 'selected' : ''}>채팅 언어로 (기본)</option>
           <option value="en" ${serverSettings?.writeLanguage === 'en' ? 'selected' : ''}>영어로 (한국어 방도 영어로 정리)</option></select></label>
-        <p class="hint">기억 서재에 <b>저장되는</b> 언어입니다. 영어로 바꾸면 <b>새로 정리되는 기억부터</b> 영어로 저장하고, 이 화면에서는 한국어 번역이 함께 보입니다. 이미 정리된 기억은 그대로 두고 넣을 때 영어로 번역하므로 바로 써도 됩니다. 전부 영어로 저장하고 싶으시면 한눈에 → <b>처음부터 다시 정리</b>를 눌러 주세요. 대사 인용과 이름은 늘 원문 그대로입니다. 한국어 방에서 영어로 정리하면 '빠른 방식' 회상(낱말 맞추기)은 덜 걸립니다. 기본 회상(모델이 고르기)과 뜻으로 찾기는 그대로 동작합니다.</p>
+        <p class="hint">기억 서재에 <b>저장되는</b> 언어입니다. 영어로 바꾸면 <b>새로 정리되는 기억부터</b> 영어로 저장하고, 이 화면에서는 한국어 번역이 함께 보입니다. 이미 정리된 기억은 그대로 두고 넣을 때 영어로 번역하므로 바로 써도 됩니다. 전부 영어로 저장하고 싶으시면 한눈에 → <b>처음부터 다시 정리</b>를 눌러 주세요. 대사 인용과 이름은 늘 원문 그대로입니다. 한국어 방에서 영어로 정리해도 낱말로 찾기는 이 화면의 한국어 번역과 영어 낱말을 함께 봅니다(번역이 아직 없는 기억은 영어 낱말로만 찾습니다).</p>
         <label>기억을 넣을 언어<select id="setMemLang">
           <option value="auto" ${!serverSettings?.memoryLanguage || serverSettings?.memoryLanguage === 'auto' ? 'selected' : ''}>정리한 언어 그대로 (기본 · 번역 없음)</option>
           <option value="ko" ${serverSettings?.memoryLanguage === 'ko' ? 'selected' : ''}>한국어</option>
@@ -1483,6 +1490,7 @@
         <label>번역에 쓸 연결<select id="setTrConn">
           <option value="" ${!serverSettings?.translateConnection ? 'selected' : ''}>기억 정리 연결 그대로</option>
           ${connections.map((c) => `<option value="${esc(c.id)}" ${c.id === serverSettings?.translateConnection ? 'selected' : ''}>${esc(c.name)}${c.model ? ` · ${esc(c.model)}` : ''}</option>`).join('')}</select></label>
+        <label class="setting-switch"><span>영어 기억을 자동으로 한국어로 번역<small>영어로 정리된 기억을 이 화면에서 볼 때 한국어 번역을 알아서 만듭니다. 끄면 번역이 없는 항목은 영어로 보이고, 위에 뜨는 [지금 번역]을 누를 때만 번역합니다(번역 호출을 아낄 때). 답변에 넣는 기억의 번역(넣을 언어)은 이 설정과 상관없이 그대로입니다.</small></span><input type="checkbox" id="setAutoTr" ${serverSettings?.autoTranslate !== false ? 'checked' : ''}></label>
         <label class="setting-switch"><span>영어 대사도 한국어로 보기<small>이 화면에서 영어로 된 대사 아래에 한국어 번역을 함께 보여 줍니다. 번역 호출이 조금 더 듭니다. 기억 칸에 들어가는 대사는 늘 원문 그대로입니다.</small></span><input type="checkbox" id="setTrQuotes" ${serverSettings?.translateQuotes ? 'checked' : ''}></label>
         <p class="hint">넣을 언어를 바꾸면 이 방의 기억을 바로 뒤에서 번역해 둡니다. 번역이 끝나기 전에 답변을 만들면, 아직 번역되지 않은 줄만 원래 언어로 들어갑니다(기억이 빠지지는 않습니다). 새로 정리되는 기억도 정리가 끝날 때마다 이어서 번역합니다. 대사 인용과 이름은 늘 원문 그대로 넣습니다. 영어로 정리된 기억은 이 화면에서 한국어 번역이 함께 보입니다.</p>
         <div class="buttons"><button class="primary" data-act="saveLanguage">저장</button></div>
@@ -1617,7 +1625,7 @@
     const scroll = content.scrollTop;
     const jobError = info?.job?.error || info?.sceneJob?.error;
     const warning = jobError ? `<div class="note" role="alert">기억 정리를 마치지 못했습니다. ${esc(jobError)}</div>` : '';
-    const translation = trPending || trError ? `<div class="note" role="status">${trError ? `한국어 번역을 마치지 못했습니다. ${esc(trError)}` : trWorking ? '한국어 번역 중입니다.' : '한국어 번역이 남아 있습니다.'} ${trPending ? `남은 항목: ${trPending}개.` : ''} <button data-act="retryTranslation">남은 항목 다시 번역</button></div>` : '';
+    const translation = trPending || trError ? `<div class="note" role="status">${trError ? `한국어 번역을 마치지 못했습니다. ${esc(trError)}` : trWorking ? '한국어 번역 중입니다.' : trAuto ? '한국어 번역이 남아 있습니다.' : '자동 번역이 꺼져 있어 일부 항목이 영어로 보입니다.'} ${trPending ? `남은 항목: ${trPending}개.` : ''} <button data-act="retryTranslation">${trAuto || trError ? '남은 항목 다시 번역' : '지금 번역'}</button></div>` : '';
     content.innerHTML = warning + translation + VIEWS[tab]();
     content.scrollTop = scroll;
     root.querySelector('#inspector').innerHTML = inspector();
@@ -2089,8 +2097,9 @@
         const writeChanged = writeLanguage !== (serverSettings?.writeLanguage === 'en' ? 'en' : 'auto');
         const translateConnection = root.querySelector('#setTrConn')?.value || '';
         const translateQuotes = Boolean(root.querySelector('#setTrQuotes')?.checked);
+        const autoTranslate = Boolean(root.querySelector('#setAutoTr')?.checked);
         return act(async () => {
-          await api('POST', '/settings/language', { memoryLanguage, writeLanguage, translateConnection, translateQuotes });
+          await api('POST', '/settings/language', { memoryLanguage, writeLanguage, translateConnection, translateQuotes, autoTranslate });
           serverSettings = (await api('GET', '/status')).settings;
           if (room) info = await api('GET', `/chats/${encodeURIComponent(room)}`).catch(() => info);
         }, writeChanged && writeLanguage === 'en'

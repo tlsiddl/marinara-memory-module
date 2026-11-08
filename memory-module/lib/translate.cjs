@@ -71,7 +71,7 @@ function parseGlossary(raw) {
 /**
  * How each Latin-written name is written in Korean, from the room's glossary pairs and its name table (a person
  * whose name is Korean, with a Latin alias). The glossary's own form wins ("Daniel = 다니엘" over the full card
- * name). Longest first, so "Kassian Vale" is replaced before "Kassian".
+ * name). Longest first, so "Daniel Crowe" is replaced before "Daniel".
  */
 function koreanNames(glossary = [], table = null) {
   const map = new Map();

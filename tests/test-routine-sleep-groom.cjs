@@ -2,7 +2,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const L = require('../memory-module/lib/ledger.cjs');
-const r = (what, at, text = '') => ({ who: '이리나', what, at, text, number: 1 });
+const r = (what, at, text = '') => ({ who: '세레나', what, at, text, number: 1 });
 
 test('sleep entry coincident with nap waking is not reused as the next bedtime', () => {
   const routine = [
@@ -24,8 +24,8 @@ test('sleep entry coincident with nap waking is not reused as the next bedtime',
 
 test('new grooming records and completed outing prep remain distinct and editable', () => {
   const ledger = { routine: [] };
-  L.editRoutine(ledger, { action: 'add', item: { who: '이리나', what: 'wash', at: '2025-11-17T08:20', text: '외출 준비' } });
-  L.editRoutine(ledger, { action: 'add', item: { who: '이리나', what: 'groom', at: '2025-11-17T08:40', text: '립스틱' } });
+  L.editRoutine(ledger, { action: 'add', item: { who: '세레나', what: 'wash', at: '2025-11-17T08:20', text: '외출 준비' } });
+  L.editRoutine(ledger, { action: 'add', item: { who: '세레나', what: 'groom', at: '2025-11-17T08:40', text: '립스틱' } });
   const out = L.renderRoutine(ledger, '2025-11-17T10:05');
   assert.match(out, /씻기 마지막 08:20 외출 준비/);
   assert.match(out, /꾸밈 마지막 08:40 립스틱/);

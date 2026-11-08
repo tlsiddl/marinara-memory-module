@@ -65,3 +65,13 @@ test('glossary: a Korean side that names two people is not placed on either', as
   const r = await call('POST /chats/:id/glossary', room, { glossary: 'Mark = 마크' });
   assert.deepEqual(r.result.aliases, []);
 });
+
+test('auto translation can be turned off; the library is told so', async () => {
+  const on = (await call('GET /chats/:id/translations', 'g1')).result;
+  assert.equal(on.auto, true, 'on by default');
+  const saved = await call('POST /settings/language', null, { autoTranslate: false });
+  assert.ifError(saved.error);
+  assert.equal(saved.result.autoTranslate, false);
+  assert.equal((await call('GET /chats/:id/translations', 'g1')).result.auto, false);
+  await call('POST /settings/language', null, { autoTranslate: true });
+});

@@ -102,7 +102,7 @@ function namePairs(names, table = current()) {
 
 /* ---------- editing the table ---------- */
 
-/** "Kassian (카시안)", "카시안 / Kassian": a card or persona name written in two scripts gives both as aliases. */
+/** "Armin (아르민)", "아르민 / Armin": a card or persona name written in two scripts gives both as aliases. */
 function scriptForms(name) {
   const n = tidy(name);
   const out = new Set();
@@ -244,7 +244,7 @@ function rewrites(table = current()) {
     if (!entry?.rewrite) continue;
     for (const a of entry.aliases || []) if (fold(a) !== fold(canon)) out.push({ from: a, to: canon, display: tidy(entry.display) || canon });
   }
-  // Longer names first, so "Kassian Vale" is replaced before "Kassian".
+  // Longer names first, so "Armin Vale" is replaced before "Armin".
   return out.sort((a, b) => b.from.length - a.from.length);
 }
 

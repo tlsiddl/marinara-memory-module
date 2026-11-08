@@ -4,13 +4,13 @@ const assert = require('node:assert/strict');
 const L = require('../memory-module/lib/ledger.cjs');
 const S = require('../memory-module/lib/scenes.cjs');
 
-const english = '"You spent seven years collecting our junk, Lili. About time your husbands started returning the favor."';
-const korean = '(네가 7년 동안 우리 잡동사니를 모아 줬으니, 이제 남편들도 보답을 시작해야지, 리리.)';
+const english = '"You kept every letter we wrote for three winters, Nami. About time we started returning the favor."';
+const korean = '(세 겨울 동안 우리가 쓴 편지를 다 모아 뒀으니, 이제 우리도 보답을 시작해야지, 나미.)';
 const messages = () => L.prepareMessages([{ id: 'one', number: 1, role: 'assistant', content: english + ' ' + korean }]);
 function save(indices) {
   const msgs = messages();
   const store = S.emptyStore();
-  const result = S.applyScenes(store, { scenes: [{ end: 1, title: '선물', summary: '보답을 약속함', events: [{ text: '남편이 리리에게 보답을 약속했다.', quotes: indices.map(n => ({ n: '1.' + n, by: '카시안' })) }] }] }, msgs, 1);
+  const result = S.applyScenes(store, { scenes: [{ end: 1, title: '선물', summary: '보답을 약속함', events: [{ text: '친구가 나미에게 보답을 약속했다.', quotes: indices.map(n => ({ n: '1.' + n, by: '아르민' })) }] }] }, msgs, 1);
   assert.ok(!result.error, result.error);
   S.commitScenes(store, result);
   return { store, msgs };
@@ -26,7 +26,7 @@ test('either side and duplicate selections retain one complete spoken quote', ()
     assert.equal(quotes[0].text, english);
     assert.equal(quotes[0].translation, korean.slice(1, -1));
     assert.equal(S.quoteText(quotes[0]), english + ' ' + korean);
-    assert.equal(quotes[0].by, '카시안');
+    assert.equal(quotes[0].by, '아르민');
     assert.equal(quotes[0].sentence, 1);
     assert.doesNotMatch(S.quoteLine(quotes[0]), /서술/);
   }
