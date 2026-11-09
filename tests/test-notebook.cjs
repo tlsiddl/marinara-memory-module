@@ -38,10 +38,13 @@ test('voice: the Korean in brackets for a line written with its translation, els
   // Viktor speaks only English: his own English lines (the saved translation is not used). Sera's line carries its
   // Korean in brackets: the Korean. Marco speaks Korean: the line itself. The user's own character: none.
   assert.deepEqual(Nb.voiceSamples(messages, ['Viktor', 'Sera', 'Marco', 'Mina'], { personas: ['Mina'] }), { Viktor: ['Come here, you.', 'Sit down.'], Sera: ['나 좀 내버려 둬.'], Marco: ['싫어.'] });
-  assert.match(Nb.voiceBlock({ Viktor: ['Sit down.'] }), /\[말투 참고\][^]*이 말투와 언어로[^]*Viktor: "Sit down\."/);
+  const block = Nb.voiceBlock({ Viktor: ['Sit down.'], Sera: ['나 좀 내버려 둬.'] }, { Viktor: ['She hates the dark.'] });
+  assert.match(block, /\[수첩 언어\] Viktor: English · Sera: 한국어/);
+  assert.match(block, /\[말투 참고\][^]*Viktor: "Sit down\."/);
+  assert.match(block, /\[이미 적은 수첩\][^]*Viktor: She hates the dark\./);
   assert.equal(Nb.voiceBlock({}), '');
   assert.match(Nb.PROMPT, /괄호 안 한국어 말투/);
-  assert.match(Nb.PROMPT, /영어로만 말하면 영어로/);
+  assert.match(Nb.PROMPT, /영어로만 말하는 인물은 영어/);
 });
 
 test('a note: a story person (never the user\'s own), in the character\'s language, a known kind; about oneself is a feeling', () => {
@@ -69,6 +72,39 @@ test('the scene call asks for notes (with the voice lines) only when on, and kee
   const apply = (opts) => S.applyScenes({ ...store }, result, slice, 1, undefined, opts).scenes[0];
   assert.equal(apply({}).charNotes, undefined);
   assert.deepEqual(apply({ notebook: true }).charNotes, [{ who: '빅터', kind: 'about', about: '세라', text: '세라는 단 걸 싫다면서 체리는 잘만 먹는다.', evidence: [{ number: 1, sentence: 1 }] }]);
+});
+
+test('checks in code (from the audit): the language set per character, no near-copies of the story, no repeats, evidence re-pointed', () => {
+  // The room speaks "English line" (Korean): the notes must be Korean.
+  const slice = L.prepareMessages([
+    { id: 'a1', number: 1, role: 'assistant', speaker: 'Narrator', content: 'Deny her an itch, and she would tear the whole port down to scratch it.\n빅터 | "Sit down." (앉아.)\nThe sea went flat under the pier.' },
+  ]);
+  const store = { ...S.emptyStore(), cast: ['빅터', '세라'], scenes: [{ id: 'S1', start: 0, end: 0, title: 'x', summary: 'y', events: [], recollections: [], present: ['빅터'], charNotes: [{ who: '빅터', kind: 'heart', text: '바다가 내 말보다 그녀 기분을 먼저 따른다.', evidence: [] }] }] };
+  const notebook = [
+    { who: '빅터', kind: 'heart', text: 'She would tear the port down for one itch.', evidence: ['1.1'] },
+    { who: '빅터', kind: 'heart', text: '바다가 내 말보다 그녀 기분을 먼저 따르는구나.', evidence: ['1.1'] },
+    { who: '빅터', kind: 'about', about: '세라', text: '세라는 가려운 걸 못 참으면 항구를 통째로 뒤엎을 애다.', evidence: ['1.3'] },
+  ];
+  const result = { scenes: [{ end: 1, time: '25-03-02', place: '부두', title: '부두', summary: '요약', present: ['빅터', '세라'], events: [{ text: '앉혔다', quotes: [] }], recollections: [], facts: [], notebook }] };
+  const notes = S.applyScenes(store, result, slice, 1, undefined, { notebook: true }).scenes[0].charNotes;
+  assert.equal(notes.length, 1, 'English for a Korean-bracketed speaker: dropped; a repeat of an earlier note: dropped');
+  assert.equal(notes[0].text, '세라는 가려운 걸 못 참으면 항구를 통째로 뒤엎을 애다.');
+  // An English speaker: English is right, Korean is not; a near-copy of a narration sentence is dropped.
+  const en = L.prepareMessages([{ id: 'b1', number: 1, role: 'assistant', speaker: 'Narrator', content: 'Deny her an itch, and she would tear the whole port down to scratch it.\nViktor | "Sit down."' }]);
+  const enResult = (items) => ({ scenes: [{ end: 1, time: '25-03-02', place: 'p', title: 't', summary: 's', present: ['Viktor'], events: [{ text: 'e', quotes: [] }], recollections: [], facts: [], notebook: items }] });
+  const enStore = { ...S.emptyStore(), cast: ['Viktor', 'Sera'] };
+  const kept = S.applyScenes(enStore, enResult([
+    { who: 'Viktor', kind: 'heart', text: 'Deny her an itch and she will tear the whole port down to scratch it.', evidence: ['1.1'] },
+    { who: 'Viktor', kind: 'heart', text: '저 여자는 못 말린다.', evidence: ['1.1'] },
+    { who: 'Viktor', kind: 'about', about: 'Sera', text: 'Tell her no once and she takes it as a dare.', evidence: ['1.2'] },
+  ]), en, 1, undefined, { notebook: true }).scenes[0].charNotes;
+  assert.deepEqual(kept.map((n) => n.text), ['Tell her no once and she takes it as a dare.']);
+  // Evidence pointed at an unrelated line is moved to the sentence that fits the note.
+  const moved = S.applyScenes(enStore, enResult([{ who: 'Viktor', kind: 'about', about: 'Sera', text: 'Sera would wreck a whole port over one small itch.', evidence: ['1.2'] }]), en, 1, undefined, { notebook: true }).scenes[0].charNotes;
+  assert.deepEqual(moved[0].evidence, [{ number: 1, sentence: 1 }]);
+  // Repeats in English are caught by words.
+  assert.ok(Nb.sameNote('The sea waits on her mood now, not mine.', 'My sea answers her mood before it answers me.'));
+  assert.ok(!Nb.sameNote('The sea waits on her mood now, not mine.', 'She memorized a dockworker\'s name out of spite.'));
 });
 
 test('fold: the same thought written again replaces the older one; edits, stars and deletions stay', () => {

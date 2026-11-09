@@ -51,8 +51,11 @@ const PROMPT = `인물의 수첩 (이 방에서 켠 기능):
 - kind "heart": 그 인물의 속마음. 다짐, 마음에 걸리는 것, 품은 의문, 바라는 것. about은 null.
 - 그 인물이 그 자리에서 직접 보고 듣고 겪은 것만 적어. 없었던 자리의 일, 모르는 일은 적지 마.
 - 사실이나 약속을 그대로 옮기지 말고, 그 인물이 그걸 어떻게 받아들였는지를 적어.
-- 말투: 그 인물의 대사 말투 그대로, 1인칭이나 혼잣말로 써. 아래 [말투 참고]가 있으면 그 말투를 따라.
-- 언어: 그 인물이 이야기에서 말하는 언어로 써. 대사가 한국어거나 "원어" (한국어)처럼 한국어가 병기돼 있으면 한국어(괄호 안 한국어 말투)로, 영어로만 말하면 영어로. [말투 참고]의 언어를 따르면 돼. 기록 언어 설정은 수첩에는 적용하지 않아.
+- 원문의 서술 문장을 그대로 옮기거나 시제·인칭만 바꿔 쓰지 마. 그 인물이 자기 말로 다시 적은 한두 문장이어야 해. 거의 같은 문장은 버려져.
+- 사용자 캐릭터의 메시지에서 다른 인물이 알 수 있는 건 큰따옴표 대사와 겉으로 보이는 행동뿐이야. 사용자 캐릭터의 속마음·생각 서술은 다른 인물이 모르니 수첩에 쓰지 마.
+- [이미 적은 수첩]에 있는 생각을 다시 적지 마. 새로운 게 없으면 그 인물은 0개로 둬.
+- 말투: 그 인물의 대사 말투 그대로, 1인칭이나 혼잣말로 써. 아래 [말투 참고]가 있으면 그 말투를 따라. "원어" (한국어)처럼 병기된 인물은 괄호 안 한국어 말투를 따라.
+- 언어: 아래 [수첩 언어]에 적힌 언어로 써(대사가 한국어거나 "원어" (한국어)처럼 병기된 인물은 한국어, 영어로만 말하는 인물은 영어). 다른 언어로 쓴 메모는 버려져. 기록 언어 설정은 수첩에는 적용하지 않아.
 - who: 그 인물 이름(등장인물 목록의 표기), evidence: 그렇게 판단한 문장 번호(예: ["23.4"]). 번호가 없으면 적지 마.
 형식: "notebook":[{"who":"인물","kind":"about","about":"대상 인물","text":"수첩에 적을 한두 문장","evidence":["23.4"]}]`;
 
@@ -113,22 +116,65 @@ function voiceSamples(messages, cast, { personas = [], max = VOICE_PER_PERSON } 
   return Object.fromEntries([...found].filter(([, l]) => l.length).map(([p, l]) => [p, l.reverse()]));
 }
 
-/** The [말투 참고] block for the scene call; empty when there is nothing to show. */
-function voiceBlock(samples) {
+/**
+ * The language each character's notes are written in, decided from their lines (not left to the model): Korean when
+ * any of their lines is Korean or carries its Korean in brackets, else English (or Chinese for Chinese lines).
+ */
+function languagesOf(samples) {
+  const out = {};
+  for (const [who, lines] of Object.entries(samples || {})) {
+    if (lines.some(isKorean)) out[who] = 'ko';
+    else if (lines.some((l) => /[\u3400-\u4dbf\u4e00-\u9fff]/.test(l))) out[who] = 'zh';
+    else out[who] = 'en';
+  }
+  return out;
+}
+const LANG_NAME = { ko: '한국어', en: 'English', zh: '中文' };
+
+/** The language a note is written in: 'ko', 'zh' or 'en'. */
+function noteLanguage(text) {
+  if (isKorean(text)) return 'ko';
+  return /[\u3400-\u4dbf\u4e00-\u9fff]/.test(text) && !/[A-Za-z]{3,}/.test(text) ? 'zh' : 'en';
+}
+
+/** The latest notes each character already has in the scenes before (the model is told not to write them again). */
+function priorNotes(store, people, max = 6) {
+  const out = {};
+  for (const scene of [...(store?.scenes || [])].reverse()) {
+    for (const n of Array.isArray(scene.charNotes) ? scene.charNotes : []) {
+      if (!people.includes(n.who)) continue;
+      const list = (out[n.who] ||= []);
+      if (list.length < max) list.push(n.text);
+    }
+  }
+  return out;
+}
+
+/** The blocks that go with the notebook instruction: [수첩 언어], [말투 참고], [이미 적은 수첩]. */
+function voiceBlock(samples, prior = {}) {
+  const langs = languagesOf(samples);
+  const blocks = [];
+  const langRows = Object.entries(langs).map(([who, l]) => `${who}: ${LANG_NAME[l]}`);
+  if (langRows.length) blocks.push(`[수첩 언어] ${langRows.join(' · ')}`);
   const rows = Object.entries(samples || {}).map(([who, lines]) => `- ${who}: ${lines.map((l) => `"${l}"`).join(' / ')}`);
-  return rows.length ? `[말투 참고] 각 인물의 최근 대사 (수첩은 이 말투와 언어로):\n${rows.join('\n')}` : '';
+  if (rows.length) blocks.push(`[말투 참고] 각 인물의 최근 대사 (수첩은 이 말투로):\n${rows.join('\n')}`);
+  const priorRows = Object.entries(prior || {}).filter(([, l]) => l.length).map(([who, l]) => `- ${who}: ${l.join(' / ')}`);
+  if (priorRows.length) blocks.push(`[이미 적은 수첩] (이 생각들은 다시 적지 마)\n${priorRows.join('\n')}`);
+  return blocks.join('\n');
 }
 
 /**
  * One note from the model, cleaned, or null: a character of the story (never the user's own), some text (in the
  * character's language), a known kind, and the person it is about (for "about") from the story's people.
  */
-function cleanNote(raw, { cast = [], personas = [], person = (n) => tidy(n) } = {}) {
+function cleanNote(raw, { cast = [], personas = [], person = (n) => tidy(n), langs = null } = {}) {
   if (!raw || typeof raw !== 'object') return null;
   const who = person(tidy(raw.who));
   if (!who || personas.includes(who) || (cast.length && !cast.includes(who))) return null;
   const text = clip(raw.text, TEXT_MAX);
   if (!text || letters(text) < 2) return null;
+  // A note in another language than the one set for this character (e.g. English for one who speaks Korean) is dropped.
+  if (langs?.[who] && noteLanguage(text) !== langs[who]) return null;
   const kind = KINDS.includes(raw.kind) ? raw.kind : 'heart';
   const about = kind === 'about' ? person(tidy(raw.about)) || null : null;
   if (about === who) return { who, kind: 'heart', text };
@@ -146,14 +192,28 @@ function pairs(text) {
   for (let i = 0; i < flat.length - 1; i++) out.add(flat.slice(i, i + 2));
   return out;
 }
-const alike = (a, b) => {
-  const x = pairs(a), y = pairs(b);
+const overlapOf = (x, y) => {
   if (!x.size || !y.size) return 0;
   let n = 0;
   for (const g of x) if (y.has(g)) n++;
   return n / Math.min(x.size, y.size);
 };
-const SAME_NOTE = 0.6;
+const latin = (s) => (String(s || '').match(/[A-Za-z]/g) || []).length > letters(s) * 0.7;
+/**
+ * How alike two texts are (0–1): English by words (letter pairs of English repeat across any two sentences), Korean and
+ * Chinese by character pairs.
+ */
+const alike = (a, b) => {
+  if (latin(a) && latin(b)) {
+    const { englishWords } = require('./ledger.cjs');
+    return overlapOf(englishWords(a), englishWords(b));
+  }
+  return overlapOf(pairs(a), pairs(b));
+};
+/** The same thought written again (merged into one). English by words is a looser measure, so its bar is lower. */
+const sameNote = (a, b) => alike(a, b) >= (latin(a) && latin(b) ? 0.5 : 0.6);
+/** A note that is a sentence of the story with little changed (tense, person): not the character's own words. */
+const COPIED = 0.75;
 
 /**
  * The notes as they stand: every scene's notes in story order, the same thought written again replacing the older one,
@@ -171,13 +231,13 @@ function fold(store, previous) {
       const id = idOf(scene.id, n.who, n.text);
       if (hidden.has(id)) {
         // A deleted note takes the older wording of the same thought with it (it had replaced that one).
-        const older = notes.findIndex((x) => x.who === n.who && x.kind === n.kind && !x.star && alike(x.text, n.text) >= SAME_NOTE);
+        const older = notes.findIndex((x) => x.who === n.who && !x.star && sameNote(x.text, n.text));
         if (older >= 0) notes.splice(older, 1);
         continue;
       }
       const number = (n.evidence || []).map((e) => e?.number).filter(Number.isFinite)[0] ?? scene.end ?? null;
       const note = { id, who: n.who, kind: n.kind, ...(n.about ? { about: n.about } : {}), text: edits[id] ?? n.text, ...(edits[id] != null ? { edited: true } : {}), ...(stars.has(id) ? { star: true } : {}), sceneId: scene.id, number };
-      const same = notes.findIndex((x) => x.who === n.who && x.kind === n.kind && !x.star && alike(x.text, note.text) >= SAME_NOTE);
+      const same = notes.findIndex((x) => x.who === n.who && !x.star && sameNote(x.text, note.text));
       if (same >= 0) notes.splice(same, 1);
       notes.push(note);
     }
@@ -292,5 +352,6 @@ function view(file) {
 
 module.exports = {
   NOTEBOOK_VERSION, KINDS, KIND_LABEL, TEXT_MAX, PER_PERSON_SCENE, PER_SCENE, PER_PERSON_KEPT, INJECT_CORE, INJECT_RELATED, INJECT_CHARS, PROMPT,
+  COPIED, languagesOf, noteLanguage, priorNotes, sameNote,
   emptyNotebook, isNotebook, voiceSamples, voiceBlock, cleanNote, fold, editNote, starNote, deleteNote, injectionBlock, view, alike,
 };

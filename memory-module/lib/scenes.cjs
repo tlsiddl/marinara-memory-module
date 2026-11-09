@@ -297,7 +297,8 @@ function buildScenePrompt(store, slice, required, problem = null, preferences = 
   if (preferences.dateHints) extras.push(Tk.PROMPT);
   if (preferences.notebook) {
     // How each character talks in Korean (their Korean lines, or the saved Korean translation of English-only lines).
-    const voice = Nb.voiceBlock(Nb.voiceSamples(slice, cast, { personas: [...new Set([...(store.personas || []), ...personas])] }));
+    const speakers = cast.filter((n) => !(store.personas || []).includes(n) && !personas.includes(n));
+    const voice = Nb.voiceBlock(Nb.voiceSamples(slice, cast, { personas: [...new Set([...(store.personas || []), ...personas])] }), Nb.priorNotes(store, speakers));
     extras.push(voice ? `${Nb.PROMPT}
 ${voice}` : Nb.PROMPT);
   }
@@ -703,17 +704,28 @@ function sceneKeepsakesOf(raw, { cast, personas, index, inScene }) {
   return out.slice(0, Ks.PER_SCENE);
 }
 /** What each character of the scene would keep in mind (인물의 수첩): story people only, never the user's own, with evidence from this scene. */
-function sceneCharNotesOf(raw, { cast, personas, index, inScene }) {
+function sceneCharNotesOf(raw, { cast, personas, index, inScene, langs = null, prior = null }) {
   const out = [];
   const people = [...cast, ...personas];
   const person = (n) => (n ? L.matchName(n, people) || '' : '');
+  const sentences = [...index.values()].filter(inScene);
+  // The notes the character already has (earlier scenes): the same thought again is not a new note.
+  const earlier = (who) => (prior?.scenes || []).flatMap((s) => (s.charNotes || []).filter((n) => n.who === who).map((n) => n.text));
   for (const item of Array.isArray(raw) ? raw : []) {
-    const cleaned = Nb.cleanNote(item, { cast, personas, person });
+    const cleaned = Nb.cleanNote(item, { cast, personas, person, langs });
     if (!cleaned) continue;
     if (out.filter((n) => n.who === cleaned.who).length >= Nb.PER_PERSON_SCENE) continue;
-    const evidence = L.resolveEvidence(item.evidence, index).filter(inScene).slice(0, 2).map((p) => ({ number: p.number, sentence: p.sentence }));
+    if ([...earlier(cleaned.who), ...out.filter((n) => n.who === cleaned.who).map((n) => n.text)].some((t) => Nb.sameNote(t, cleaned.text))) continue;
+    // A sentence of the story with little changed is not the character's own note.
+    if (sentences.some((p) => Nb.alike(cleaned.text, p.text) >= Nb.COPIED)) continue;
+    let evidence = L.resolveEvidence(item.evidence, index).filter(inScene).slice(0, 2);
     if (!evidence.length) continue;
-    out.push({ ...cleaned, evidence });
+    // The model's sentence numbers are often one or two off: when another sentence of the scene clearly fits the note
+    // better, that one is the evidence.
+    const best = sentences.map((p) => ({ p, s: Nb.alike(cleaned.text, p.text) })).sort((a, b) => b.s - a.s)[0];
+    const given = Math.max(...evidence.map((p) => Nb.alike(cleaned.text, p.text)));
+    if (best && best.s - given >= 0.2) evidence = [best.p];
+    out.push({ ...cleaned, evidence: evidence.map((p) => ({ number: p.number, sentence: p.sentence })) });
   }
   return out.slice(0, Nb.PER_SCENE);
 }
@@ -752,6 +764,8 @@ function applyScenes(store, result, slice, required, now = new Date().toISOStrin
   const index = L.indexBatch(slice);
   const personas = L.personaNames(slice);
   const cast = castOf(store);
+  // 인물의 수첩: each character's note language, from their lines in this slice (Korean for a Korean-bracketed speaker).
+  const noteLangs = notebook ? Nb.languagesOf(Nb.voiceSamples(slice, cast, { personas: [...new Set([...(store.personas || []), ...personas])] })) : null;
   const learned = [];
   const later = [];
   const byNumber = new Map(slice.map((m, i) => [m.number, i]));
@@ -797,7 +811,7 @@ function applyScenes(store, result, slice, required, now = new Date().toISOStrin
     const placeNotes = places ? sceneNotesOf(item.placeNotes, cleanText(item.place, 60)) : [];
     const keeps = keepsakes ? sceneKeepsakesOf(item.keepsakes, { cast, personas, index, inScene }) : [];
     const hints = dateHints ? sceneDateHintsOf(item.dates, { cast, personas, index, inScene }) : [];
-    const charNotes = notebook ? sceneCharNotesOf(item.notebook, { cast, personas, index, inScene }) : [];
+    const charNotes = notebook ? sceneCharNotesOf(item.notebook, { cast, personas, index, inScene, langs: noteLangs, prior: store }) : [];
     made.push({
       id,
       start: messages[0].number,
