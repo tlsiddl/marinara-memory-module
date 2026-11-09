@@ -2139,6 +2139,7 @@ const notebookNeedsWork = (scene) => !scene.charNotes?.length || scene.charNotes
 const notebookJobs = new Map();
 const NOTEBOOK_REBUILD_CHARS = 16000;
 const NOTEBOOK_REBUILD_SCENES = 8;
+const NOTEBOOK_REBUILD_CONCURRENCY = 3;
 
 function notebookJobStatus(chatId) {
   const { cancel: _c, run: _r, ...job } = notebookJobs.get(chatId) || { state: 'idle' };
@@ -2169,55 +2170,74 @@ function rebuildNotebook(chatId, { all = false } = {}) {
       if (group.length) groups.push(group);
       // No memory-language note here: it told the model to write English, and the notebook has its own language per person.
       const model = groups.length ? await memoryModel() : null;
-      for (const part of groups) {
-        if (job.cancel) break;
-        job.stage = `${job.done + 1}~${job.done + part.length} / ${job.total} 장면`;
+      // Asked NOTEBOOK_REBUILD_CONCURRENCY groups at a time (one call each); the answers are saved in story order, each
+      // checked against the notes of the scenes before it as they are by then.
+      const ask = async (part) => {
         const store = loadScenes(chatId);
-        if (!store) break;
+        if (!store) return null;
         const cast = S.castOf(store);
         const slice = part.flatMap((g) => g.messages);
         const personas = [...new Set([...(store.personas || []), ...L.personaNames(slice)])];
         const samples = Nb.voiceSamples(slice, cast, { personas });
         const speakers = cast.filter((n) => !personas.includes(n));
         const live = part.map((g) => ({ scene: store.scenes.find((sc) => sc.id === g.id), messages: g.messages })).filter((g) => g.scene);
-        let parsed = null;
-        try {
-          parsed = L.parseJsonObject(await askModel(model, Nb.buildRebuildPrompt(live, { cast, personas, voice: Nb.voiceBlock(samples, Nb.priorNotes(store, speakers, undefined, { before: live[0]?.scene.id })) }), { maxTokens: 4000 }));
-          job.calls++;
-        } catch (error) {
-          job.error = String(error?.message || error).slice(0, 300);
-          log(`chat ${chatId}: notebook rebuild call failed (${job.error})`);
-          break;
+        const parsed = L.parseJsonObject(await askModel(model, Nb.buildRebuildPrompt(live, { cast, personas, voice: Nb.voiceBlock(samples, Nb.priorNotes(store, speakers, undefined, { before: live[0]?.scene.id })) }), { maxTokens: 4000 }));
+        job.calls++;
+        return { answers: Array.isArray(parsed?.scenes) ? parsed.scenes : [], samples, personas };
+      };
+      // Saved inside the room's queue, against the scenes as they are then (a reply may have changed them meanwhile).
+      const save = (part, got) => enqueue(`scenes:${chatId}`, async () => {
+        const now = loadScenes(chatId);
+        if (!now) return;
+        const { answers, samples, personas } = got;
+        const langs = Nb.languagesOf(samples);
+        const book = loadNotebook(chatId);
+        let changed = 0;
+        for (const g of part) {
+          const scene = now.scenes.find((sc) => sc.id === g.id);
+          const answer = answers.find((a) => String(a?.id || '').trim() === g.id);
+          if (!scene || !answer || (!all && !notebookNeedsWork(scene))) continue;
+          const index = L.indexBatch(g.messages);
+          const inScene = (p) => p.number >= scene.start && p.number <= scene.end;
+          // Written again (all): the scene's old notes are replaced only now, when its new ones are here, so a stop
+          // halfway leaves the rest as they were; they are not "already written" for the new ones either.
+          // Notes the user starred or reworded stay, and count as already written.
+          const keep = Nb.userKept(book, scene);
+          // Only the scenes before this one count as already written (a later scene's note is not a repeat of this one).
+          const prior = { scenes: [...now.scenes.slice(0, now.scenes.indexOf(scene)), { charNotes: keep }] };
+          const fresh = S.sceneCharNotesOf(answer.notebook, { cast: S.castOf(now), personas, index, inScene, langs, prior, stats: job.stats });
+          const notes = [...keep, ...fresh];
+          if (notes.length) { scene.charNotes = notes; changed++; job.kept += fresh.length; }
+          else if (scene.charNotes) { delete scene.charNotes; changed++; }
         }
-        const answers = Array.isArray(parsed?.scenes) ? parsed.scenes : [];
-        // Saved inside the room's queue, against the scenes as they are then (a reply may have changed them meanwhile).
-        await enqueue(`scenes:${chatId}`, async () => {
-          const now = loadScenes(chatId);
-          if (!now) return;
-          const langs = Nb.languagesOf(samples);
-          const book = loadNotebook(chatId);
-          let changed = 0;
-          for (const g of part) {
-            const scene = now.scenes.find((sc) => sc.id === g.id);
-            const answer = answers.find((a) => String(a?.id || '').trim() === g.id);
-            if (!scene || !answer || (!all && !notebookNeedsWork(scene))) continue;
-            const index = L.indexBatch(g.messages);
-            const inScene = (p) => p.number >= scene.start && p.number <= scene.end;
-            // Written again (all): the scene's old notes are replaced only now, when its new ones are here, so a stop
-            // halfway leaves the rest as they were; they are not "already written" for the new ones either.
-            // Notes the user starred or reworded stay, and count as already written.
-            const keep = Nb.userKept(book, scene);
-            // Only the scenes before this one count as already written (a later scene's note is not a repeat of this one).
-            const prior = { scenes: [...now.scenes.slice(0, now.scenes.indexOf(scene)), { charNotes: keep }] };
-            const fresh = S.sceneCharNotesOf(answer.notebook, { cast: S.castOf(now), personas, index, inScene, langs, prior, stats: job.stats });
-            const notes = [...keep, ...fresh];
-            if (notes.length) { scene.charNotes = notes; changed++; job.kept += fresh.length; }
-            else if (scene.charNotes) { delete scene.charNotes; changed++; }
+        if (changed) saveScenes(chatId, now);
+      });
+      const results = new Array(groups.length);
+      let next = 0, applied = 0, stop = false;
+      const progress = () => { job.stage = `${job.done}/${job.total} 장면 (동시에 ${NOTEBOOK_REBUILD_CONCURRENCY}개씩)`; };
+      progress();
+      const runner = async () => {
+        while (!job.cancel && !stop && next < groups.length) {
+          const i = next++;
+          try {
+            results[i] = (await ask(groups[i])) || { failed: true };
+          } catch (error) {
+            results[i] = { failed: true };
+            if (!job.error) job.error = String(error?.message || error).slice(0, 300);
+            log(`chat ${chatId}: notebook rebuild call failed (${String(error?.message || error).slice(0, 300)})`);
           }
-          if (changed) saveScenes(chatId, now);
-        });
-        job.done += part.length;
-      }
+          if (results[i].failed) stop = true;
+          // In story order: a group waits for the ones before it; nothing after a failed one is saved.
+          while (applied < groups.length && results[applied] && !results[applied].failed && !results[applied].saved) {
+            const k = applied++;
+            results[k].saved = true;
+            await save(groups[k], results[k]);
+            job.done += groups[k].length;
+            progress();
+          }
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(NOTEBOOK_REBUILD_CONCURRENCY, groups.length) }, runner));
       await enqueue(`scenes:${chatId}`, async () => {
         const store = loadScenes(chatId);
         if (!store) return;
