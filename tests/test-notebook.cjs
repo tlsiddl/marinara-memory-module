@@ -196,12 +196,30 @@ test('both installers copy the new file to the server', () => {
   for (const f of ['install.sh', 'install.ps1']) assert.ok(fs.readFileSync(path.join(__dirname, '..', f), 'utf8').includes('memory-module/lib/notebook.cjs'), f);
 });
 
+test('the library: 수첩만 다시 받기 shows the job and its buttons', () => {
+  const source = fs.readFileSync(path.join(__dirname, '../extension/runtime.js'), 'utf8').replace(/\r\n/g, '\n');
+  const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+  const start = source.indexOf('  function notebookRebuildPaper(');
+  const box = (job, armed = '') => vm.runInNewContext(`(${source.slice(start, source.indexOf('\n  }\n', start) + 4).trim()})`, { esc, icon: () => '', info: { notebookJob: job } })(armed);
+  assert.match(box({ state: 'idle' }), /data-act="noteRebuild"[^]*data-act="noteRebuildAll">모든 장면 다시 받기/);
+  assert.match(box({ state: 'idle' }, 'noteRebuildAll'), /한 번 더 누르면 모든 장면을 다시 받습니다/);
+  const running = box({ state: 'running', stage: '1~8 / 20 장면' });
+  assert.match(running, /1~8 \/ 20 장면[^]*채팅은 그대로 계속/);
+  assert.match(running, /data-act="noteRebuildStop"/);
+  assert.doesNotMatch(running, /data-act="noteRebuild"/);
+  assert.match(box({ state: 'done', done: 12, total: 12, kept: 9, stats: { repeat: 2, noEvidence: 1 } }), /장면 12개를 읽고 메모 9개를 적었습니다 \(겹치거나 근거가 없는 3개는 뺐습니다\)/);
+  assert.match(box({ state: 'error', error: 'rate limited', done: 8, total: 20 }), /rate limited[^]*8\/20개까지 저장/);
+  assert.ok(source.includes("'noteDelete', 'noteRebuildAll',"), 'the second click is not lost');
+  assert.ok(source.includes("info?.notebookJob?.state === 'running' ? 3000 : 10000"), 'checked often while it runs');
+});
+
 test('the library: a notebook section per person, and the buttons are wired', () => {
   const source = fs.readFileSync(path.join(__dirname, '../extension/runtime.js'), 'utf8').replace(/\r\n/g, '\n');
   const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
   const start = source.indexOf('  function notebookPaper(');
-  const fn = vm.runInNewContext(`(${source.slice(start, source.indexOf('\n  }\n', start) + 4).trim()})`, { esc, openLists: new Set(), ...require('./ui-shared.cjs')(source, esc) });
+  const fn = vm.runInNewContext(`(${source.slice(start, source.indexOf('\n  }\n', start) + 4).trim()})`, { esc, openLists: new Set(), notebookRebuildPaper: () => 'REBUILD', ...require('./ui-shared.cjs')(source, esc) });
   const html = fn({ notebook: true, notes: { 빅터: [{ id: 'n1', who: '빅터', kind: 'about', about: '세라', text: '체리를 좋아한다.', star: true, sceneId: 'S1' }] }, sceneTitles: { S1: '체리' } }, '');
+  assert.match(html, /^REBUILD/, 'the 수첩만 다시 받기 box comes first');
   assert.match(html, /인물의 수첩 · 1명/);
   assert.match(html, /빅터의 수첩<\/b> · 1개 · ★ 1/);
   assert.match(html, /알게 된 것[^]*세라에 대해/);
@@ -248,5 +266,5 @@ test('a note in the wrong language is rewritten (in the character\'s voice), and
 test('the library reloads the Korean when new lines were made in the background, and looks more often meanwhile', () => {
   const source = fs.readFileSync(path.join(__dirname, '../extension/runtime.js'), 'utf8');
   assert.ok(source.includes('polledInfo.translationStamp !== trStamp'));
-  assert.ok(source.includes("info?.displayTranslating ? 3000 : 10000"));
+  assert.ok(source.includes("info?.displayTranslating || "));
 });

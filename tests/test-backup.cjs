@@ -390,7 +390,7 @@ test('screen: the settings tab shows the backup section, and "처음부터 다�
   assert.match(source, /\$\{backupPaper\(\{/);
   assert.match(source, /armed === 'fresh' \? '<div class="note"[^']*먼저 백업 내려받기/);
   // The backup click keeps the "press once more" state of the dangerous button.
-  assert.match(source, /'backupDownload', 'restoreApply', 'restoreUndo', 'addressDelete', 'stateReset', 'placeDelete', 'keepDelete', 'noteDelete', 'trackerDelete', 'trackerDropStart']\.includes\(actName\)\) armed = ''/);
+  assert.match(source, /'backupDownload', 'restoreApply', 'restoreUndo', 'addressDelete', 'stateReset', 'placeDelete', 'keepDelete', 'noteDelete', 'noteRebuildAll', 'trackerDelete', 'trackerDropStart']\.includes\(actName\)\) armed = ''/);
   assert.match(source, /case 'backupDownload':/);
   assert.match(source, /\/restore\/preview/);
   assert.match(source, /\/restore\/apply/);
