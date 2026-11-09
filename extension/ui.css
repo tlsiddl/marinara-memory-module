@@ -238,3 +238,4 @@ details.paper>summary{font-size:13px;font-weight:600;color:var(--im-ink)}
 }
 .feature-row{border-top:1px solid var(--im-line);padding:8px 0}.feature-row>summary{cursor:pointer;display:flex;align-items:center;gap:6px;list-style-position:inside}.feature-row>summary .feature-name{font-weight:600;color:var(--im-ink)}.feature-row[open]>summary{margin-bottom:6px}
 .tr-edit>span{color:var(--im-muted);font-size:10px}.tr-edit textarea{min-height:60px}
+.tr-inline{display:block;color:var(--im-muted);font-size:10px;margin-top:2px}h3 .tr-inline{display:inline}

@@ -335,13 +335,22 @@ function batches(lines, chars = 5000, max = 40) {
  * The texts the memory library shows for a chat (titles, summaries, events, facts, open items …), so they can be
  * shown in Korean when the memory was written in another language. Quoted lines only when `quotes` is on.
  */
-function displayTexts(store, ledger, { quotes = false } = {}) {
+function displayTexts(store, ledger, { quotes = false, world = null } = {}) {
   const out = new Set();
   const add = (t) => {
     const s = typeof t === 'string' ? t.trim() : '';
     if (s) out.add(s);
   };
-  for (const s of store?.scenes || []) {
+  // What the user looks at first goes first, so a run cut short (400 lines a run) has done that part: the open
+  // items (promises among them), then the newest scenes, then the rest.
+  for (const t of (ledger?.threads || []).filter((x) => x.status === 'open')) {
+    add(t.title);
+    add(t.detail);
+    add(t.cause);
+    add(t.need);
+    add(t.latest?.text);
+  }
+  for (const s of [...(store?.scenes || [])].reverse()) {
     add(s.title);
     add(s.summary);
     for (const e of s.events || []) {
@@ -374,6 +383,24 @@ function displayTexts(store, ledger, { quotes = false } = {}) {
     add(t.closed?.how);
   }
   for (const r of ledger?.routine || []) add(r.text);
+  // The optional records (인물 상태, 장소, 소중한 물건, 트래커), when the room has them on.
+  for (const c of world?.cards || []) {
+    for (const k of ['location', 'outfit', 'mood', 'other']) add(c[k]);
+    for (const x of [...(c.injuries || []), ...(c.carrying || [])]) add(x);
+  }
+  for (const p of world?.places || []) {
+    add(p.name);
+    add(p.description);
+    add(p.layout);
+    for (const x of p.features || []) add(x);
+  }
+  for (const it of world?.keepsakes || []) {
+    add(it.name);
+    add(it.from);
+    add(it.meaning);
+    for (const h of it.history || []) add(h.event);
+  }
+  for (const t of world?.trackers || []) add(t.label);
   return [...out];
 }
 

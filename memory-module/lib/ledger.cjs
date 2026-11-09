@@ -2054,7 +2054,9 @@ function shortQuote(text, max = 140) {
 }
 
 /** What feels most pressing to a character comes first: unresolved feelings, then promises, secrets, open matters. */
-const RENDER_ORDER = ['emotion', 'state', 'promise', 'secret', 'pending'];
+// Promises come first: a promise is a fact the characters must keep, and when they came after feelings and states a
+// busy room ran out of room before reaching them.
+const RENDER_ORDER = ['promise', 'emotion', 'state', 'secret', 'pending'];
 const RENDER_LIMIT = { emotion: 8, state: 6, promise: 10, secret: 6, pending: 6 };
 
 function renderThread(t, maxClues) {

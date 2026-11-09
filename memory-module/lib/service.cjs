@@ -1827,6 +1827,7 @@ function processChat(chatId, { rebuild = false, reason = 'auto' } = {}) {
       job.stage = null;
       job.state = 'done';
       log(`chat ${chatId}: ledger up to date (${reason}, ${job.total} call(s))`);
+      translateDisplayLater(chatId);
     } catch (error) {
       job.state = job.cancel ? 'idle' : 'error';
       job.error = job.cancel ? null : error?.message || String(error);
@@ -2127,6 +2128,7 @@ function processScenes(chatId, { rebuild = false, reason = 'auto' } = {}) {
         await translateAfterRun(chatId, job).catch((error) => log(`chat ${chatId}: translation failed, will try again later (${error?.message || error})`));
       } while (job.again && !job.cancel);
       job.state = 'done';
+      translateDisplayLater(chatId);
     } catch (error) {
       job.state = job.cancel ? 'idle' : 'error';
       job.error = job.cancel ? null : error?.message || String(error);
@@ -2573,6 +2575,22 @@ async function translateBeforeReply(chatId) {
   await Promise.race([run, new Promise((r) => setTimeout(r, TRANSLATE_REPLY_MS))]);
 }
 
+/**
+ * After a memory run: the Korean the library shows is made now, in the background, instead of when the room is next
+ * opened (when several boxes would still be in the other language and fill in one by one). Only with 자동 번역 on.
+ */
+function translateDisplayLater(chatId) {
+  try {
+    if (settings().autoTranslate === false || !settings().connection) return false;
+    const lookup = translationLookup(chatId, 'ko');
+    const missing = displayTranslationTexts(chatId).filter((t) => lookup(t) == null);
+    return missing.length ? startDisplayTranslation(chatId, missing) : false;
+  } catch (error) {
+    log(`chat ${chatId}: display translation not started (${error?.message || error})`);
+    return false;
+  }
+}
+
 /** After a memory run: translate what the memory may need next, in the background. */
 async function translateAfterRun(chatId, job) {
   const target = memoryLanguage(chatId);
@@ -2664,7 +2682,13 @@ function displayTranslationTexts(chatId) {
   const ledger = loadLedger(chatId);
   // Daily life turned off is not translated for the library either (no model calls for it while off).
   const shown = ledger && !routineEnabled(chatId) ? { ...ledger, routine: [] } : ledger;
-  return T.displayTexts(loadScenes(chatId), shown, { quotes }).filter((t) => { const lang = T.textLanguage(t); return lang && lang !== 'ko'; });
+  const world = {
+    cards: featureOn(chatId, 'characterState') ? loadState(chatId)?.cards : null,
+    places: featureOn(chatId, 'places') ? loadPlaces(chatId)?.places : null,
+    keepsakes: featureOn(chatId, 'keepsakes') ? loadKeepsakes(chatId)?.items : null,
+    trackers: featureOn(chatId, 'trackers') ? loadTrackers(chatId)?.items : null,
+  };
+  return T.displayTexts(loadScenes(chatId), shown, { quotes, world }).filter((t) => { const lang = T.textLanguage(t); return lang && lang !== 'ko'; });
 }
 
 /** Which language the memory goes in for this chat: the setting, or (auto) the language it is written in. */
@@ -4516,7 +4540,7 @@ function attach(app) {
   log('admin API ready at /api/memory-module');
 }
 
-module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { loadAddress, saveAddress, refreshAddress, presentPeople, Addr, loadState, saveState, loadPlaces, savePlaces, loadKeepsakes, saveKeepsakes, loadTrackers, saveTrackers, Tk, loadConflicts, saveConflicts, refreshConflicts, refreshWorld, Cf, Ks, organizeFor, sceneTokens, lastScenePeople, St, Pl, listRooms, purgeChatMemory, purgeIfGone, deleteOnSend, deletePrepare, listOrphans, deleteOrphans, goneChats, loadNames, saveNames, enqueue, foldScenes, reviewAttributions, loadAttributionLog, sceneJobs, selectedForView, loadSelected, recalls, windows, loadRecallPrefs, saveRecallPrefs, recallReport, recallCandidates, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, loadTranslations, saveTranslations, chatLangs, langRecords, loadLang, noteLanguage, LANG_REFRESH_EVERY, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, jobs, writeLanguage, roomWriteLanguage, memoryCallOptions, routineSetting, routineEnabled, attributionSetting, featureOn, featureSetting, F, B, clearRoomCaches, promptLanguage, RESTORE_UNDO_DIR } };
+module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { loadAddress, saveAddress, refreshAddress, presentPeople, Addr, loadState, saveState, loadPlaces, savePlaces, loadKeepsakes, saveKeepsakes, loadTrackers, saveTrackers, Tk, loadConflicts, saveConflicts, refreshConflicts, refreshWorld, Cf, Ks, organizeFor, sceneTokens, lastScenePeople, St, Pl, listRooms, purgeChatMemory, purgeIfGone, deleteOnSend, deletePrepare, listOrphans, deleteOrphans, goneChats, loadNames, saveNames, enqueue, foldScenes, reviewAttributions, loadAttributionLog, sceneJobs, selectedForView, loadSelected, recalls, windows, loadRecallPrefs, saveRecallPrefs, recallReport, recallCandidates, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, loadTranslations, saveTranslations, chatLangs, langRecords, loadLang, noteLanguage, LANG_REFRESH_EVERY, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, jobs, writeLanguage, roomWriteLanguage, memoryCallOptions, routineSetting, routineEnabled, attributionSetting, featureOn, featureSetting, F, B, clearRoomCaches, promptLanguage, translateDisplayLater, RESTORE_UNDO_DIR } };
 
 
 
