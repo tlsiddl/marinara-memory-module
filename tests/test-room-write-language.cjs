@@ -44,8 +44,36 @@ test('a room can write its memory in another language than the all-rooms setting
   assert.equal(X.roomWriteLanguage('cn'), 'follow');
   assert.equal(X.writeLanguage('cn'), 'en');
 
-  assert.match((await call('POST /chats/:id/write-language', 'cn', { lang: 'ja' })).error, /follow, chat, en, zh/);
+  assert.match((await call('POST /chats/:id/write-language', 'cn', { lang: 'ja' })).error, /follow, chat, ko, en, zh/);
   assert.match((await call('POST /chats/:id/write-language', '../x', { lang: 'en' })).error, /invalid chat id/);
+});
+
+test('Korean on purpose: a Chinese room writes Korean only, with a note to the memory model; a Korean room needs no note', async () => {
+  const L = require('../memory-module/lib/ledger.cjs');
+  X.saveSettings({ writeLanguage: 'auto', chats: {} });
+  X.chatLangs.set('cn2', 'zh');
+  X.chatLangs.set('kr2', 'ko');
+  assert.equal(X.writeLanguage('cn2'), 'zh', 'by the chat: Chinese');
+  await call('POST /chats/:id/write-language', 'cn2', { lang: 'ko' });
+  assert.equal(X.writeLanguage('cn2'), 'ko');
+  assert.equal(X.promptLanguage('cn2'), 'ko-fixed', 'the model is told to write Korean only');
+  const [, user] = X.withLanguage([{ role: 'system', content: 's' }, { role: 'user', content: 'u' }], X.promptLanguage('cn2'));
+  assert.match(user.content, /한국어로만 써/);
+  assert.equal(X.promptLanguage('kr2'), 'ko', 'a Korean chat gets no extra note');
+  // All rooms in Korean: the same, room by room.
+  const all = await call('POST /settings/language', null, { writeLanguage: 'ko' });
+  assert.ifError(all.error);
+  X.chatLangs.set('en3', 'en');
+  assert.equal(X.writeLanguage('en3'), 'ko');
+  assert.equal(X.promptLanguage('en3'), 'ko-fixed');
+  // A stray Chinese line in Korean memory is still shown in Korean.
+  const ledger = L.emptyLedger();
+  ledger.threads.push({ id: 'T1', kind: 'emotion', status: 'open', title: '被遗忘的屈辱', detail: '린모가 쑤완을 기다림.', who: 'a', toward: 'b', unaware: [], guess: [], evidence: [], clues: [] });
+  X.saveLedger('cn2', ledger);
+  const texts = X.displayTranslationTexts('cn2');
+  assert.ok(texts.includes('被遗忘的屈辱'));
+  assert.ok(!texts.includes('린모가 쑤완을 기다림.'), 'Korean lines are never sent');
+  await call('POST /settings/language', null, { writeLanguage: 'auto' });
 });
 
 test('the library offers the room choice in the language settings and saves it on change', () => {

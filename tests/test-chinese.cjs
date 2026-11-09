@@ -83,7 +83,7 @@ test('service: memory can be set to be written in Chinese, and Chinese notes are
   assert.ifError(saved.error);
   assert.equal(saved.result.writeLanguage, 'zh');
   assert.equal(X.writeLanguage('z1'), 'zh');
-  assert.match((await call('POST /settings/language', null, { writeLanguage: 'ja' })).error, /auto, en, zh/);
+  assert.match((await call('POST /settings/language', null, { writeLanguage: 'ja' })).error, /auto, ko, en, zh/);
   const ledger = L.emptyLedger();
   ledger.threads.push({ id: 'T1', kind: 'emotion', status: 'open', title: '被遗忘的屈辱', who: '林墨', toward: '苏晚', detail: '苏晚当面问他是谁。', unaware: [], guess: [], evidence: [], clues: [] });
   X.saveLedger('z1', ledger);
