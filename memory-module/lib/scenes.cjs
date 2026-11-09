@@ -704,7 +704,8 @@ function sceneKeepsakesOf(raw, { cast, personas, index, inScene }) {
   return out.slice(0, Ks.PER_SCENE);
 }
 /** What each character of the scene would keep in mind (인물의 수첩): story people only, never the user's own, with evidence from this scene. */
-function sceneCharNotesOf(raw, { cast, personas, index, inScene, langs = null, prior = null }) {
+function sceneCharNotesOf(raw, { cast, personas, index, inScene, langs = null, prior = null, stats = null }) {
+  const count = (k) => { if (stats) stats[k] = (stats[k] || 0) + 1; };
   const out = [];
   const people = [...cast, ...personas];
   const person = (n) => (n ? L.matchName(n, people) || '' : '');
@@ -712,14 +713,16 @@ function sceneCharNotesOf(raw, { cast, personas, index, inScene, langs = null, p
   // The notes the character already has (earlier scenes): the same thought again is not a new note.
   const earlier = (who) => (prior?.scenes || []).flatMap((s) => (s.charNotes || []).filter((n) => n.who === who).map((n) => n.text));
   for (const item of Array.isArray(raw) ? raw : []) {
+    count('written');
     const cleaned = Nb.cleanNote(item, { cast, personas, person, langs });
-    if (!cleaned) continue;
-    if (out.filter((n) => n.who === cleaned.who).length >= Nb.PER_PERSON_SCENE) continue;
-    if ([...earlier(cleaned.who), ...out.filter((n) => n.who === cleaned.who).map((n) => n.text)].some((t) => Nb.sameNote(t, cleaned.text))) continue;
+    if (!cleaned) { count('notAllowed'); continue; }
+    if (out.filter((n) => n.who === cleaned.who).length >= Nb.PER_PERSON_SCENE) { count('tooMany'); continue; }
+    if ([...earlier(cleaned.who), ...out.filter((n) => n.who === cleaned.who).map((n) => n.text)].some((t) => Nb.sameNote(t, cleaned.text))) { count('repeat'); continue; }
     // A sentence of the story with little changed is not the character's own note.
-    if (sentences.some((p) => Nb.alike(cleaned.text, p.text) >= Nb.COPIED)) continue;
+    if (sentences.some((p) => Nb.alike(cleaned.text, p.text) >= Nb.COPIED)) { count('copied'); continue; }
     let evidence = L.resolveEvidence(item.evidence, index).filter(inScene).slice(0, 2);
-    if (!evidence.length) continue;
+    if (!evidence.length) { count('noEvidence'); continue; }
+    count(cleaned.wantLang ? 'keptWrongLanguage' : 'kept');
     // The model's sentence numbers are often one or two off: when another sentence of the scene clearly fits the note
     // better, that one is the evidence.
     const best = sentences.map((p) => ({ p, s: Nb.alike(cleaned.text, p.text) })).sort((a, b) => b.s - a.s)[0];
@@ -758,7 +761,7 @@ function sceneNotesOf(raw, scenePlace) {
  * Turn a model result into scenes for this slice. Scenes follow each other with no gap, from the slice start,
  * and the last one must reach `required`. Returns { scenes, facts, covered } or { error }.
  */
-function applyScenes(store, result, slice, required, now = new Date().toISOString(), { partial = false, quoteMode = 'dialogue', verifyAttribution = false, strictCoverage = false, characterState = false, places = false, keepsakes = false, dateHints = false, notebook = false } = {}) {
+function applyScenes(store, result, slice, required, now = new Date().toISOString(), { partial = false, quoteMode = 'dialogue', verifyAttribution = false, strictCoverage = false, characterState = false, places = false, keepsakes = false, dateHints = false, notebook = false, notebookStats = null } = {}) {
   const raw = Array.isArray(result?.scenes) ? result.scenes : null;
   if (!raw || !raw.length) return { error: '장면이 비어 있습니다' };
   const index = L.indexBatch(slice);
@@ -811,7 +814,7 @@ function applyScenes(store, result, slice, required, now = new Date().toISOStrin
     const placeNotes = places ? sceneNotesOf(item.placeNotes, cleanText(item.place, 60)) : [];
     const keeps = keepsakes ? sceneKeepsakesOf(item.keepsakes, { cast, personas, index, inScene }) : [];
     const hints = dateHints ? sceneDateHintsOf(item.dates, { cast, personas, index, inScene }) : [];
-    const charNotes = notebook ? sceneCharNotesOf(item.notebook, { cast, personas, index, inScene, langs: noteLangs, prior: store }) : [];
+    const charNotes = notebook ? sceneCharNotesOf(item.notebook, { cast, personas, index, inScene, langs: noteLangs, prior: store, stats: notebookStats }) : [];
     made.push({
       id,
       start: messages[0].number,

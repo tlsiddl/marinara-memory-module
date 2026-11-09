@@ -87,18 +87,21 @@ test('checks in code (from the audit): the language set per character, no near-c
   ];
   const result = { scenes: [{ end: 1, time: '25-03-02', place: '부두', title: '부두', summary: '요약', present: ['빅터', '세라'], events: [{ text: '앉혔다', quotes: [] }], recollections: [], facts: [], notebook }] };
   const notes = S.applyScenes(store, result, slice, 1, undefined, { notebook: true }).scenes[0].charNotes;
-  assert.equal(notes.length, 1, 'English for a Korean-bracketed speaker: dropped; a repeat of an earlier note: dropped');
+  assert.equal(notes.length, 1, 'a near-copy of the story and a repeat of an earlier note: dropped');
   assert.equal(notes[0].text, '세라는 가려운 걸 못 참으면 항구를 통째로 뒤엎을 애다.');
   // An English speaker: English is right, Korean is not; a near-copy of a narration sentence is dropped.
   const en = L.prepareMessages([{ id: 'b1', number: 1, role: 'assistant', speaker: 'Narrator', content: 'Deny her an itch, and she would tear the whole port down to scratch it.\nViktor | "Sit down."' }]);
   const enResult = (items) => ({ scenes: [{ end: 1, time: '25-03-02', place: 'p', title: 't', summary: 's', present: ['Viktor'], events: [{ text: 'e', quotes: [] }], recollections: [], facts: [], notebook: items }] });
   const enStore = { ...S.emptyStore(), cast: ['Viktor', 'Sera'] };
+  const stats = {};
   const kept = S.applyScenes(enStore, enResult([
     { who: 'Viktor', kind: 'heart', text: 'Deny her an itch and she will tear the whole port down to scratch it.', evidence: ['1.1'] },
     { who: 'Viktor', kind: 'heart', text: '저 여자는 못 말린다.', evidence: ['1.1'] },
     { who: 'Viktor', kind: 'about', about: 'Sera', text: 'Tell her no once and she takes it as a dare.', evidence: ['1.2'] },
-  ]), en, 1, undefined, { notebook: true }).scenes[0].charNotes;
-  assert.deepEqual(kept.map((n) => n.text), ['Tell her no once and she takes it as a dare.']);
+  ]), en, 1, undefined, { notebook: true, notebookStats: stats }).scenes[0].charNotes;
+  // The near-copy is dropped; the Korean note of an English speaker is kept, marked to be rewritten into English.
+  assert.deepEqual(kept.map((n) => [n.text, n.wantLang || null]), [['저 여자는 못 말린다.', 'en'], ['Tell her no once and she takes it as a dare.', null]]);
+  assert.deepEqual(stats, { written: 3, copied: 1, keptWrongLanguage: 1, kept: 1 });
   // Evidence pointed at an unrelated line is moved to the sentence that fits the note.
   const moved = S.applyScenes(enStore, enResult([{ who: 'Viktor', kind: 'about', about: 'Sera', text: 'Sera would wreck a whole port over one small itch.', evidence: ['1.2'] }]), en, 1, undefined, { notebook: true }).scenes[0].charNotes;
   assert.deepEqual(moved[0].evidence, [{ number: 1, sentence: 1 }]);
@@ -220,4 +223,30 @@ test('the notebook has a tab of its own (with the 인물·장소 data), and an o
   const view = (w) => vm.runInNewContext(`(${source.slice(start, source.indexOf('\n  }\n', start) + 4).trim()})`, { esc, info: {}, world: w, worldRoom: 'r', room: 'r', worldError: '', armed: '', icon: () => '', emptyRoom: () => 'EMPTY', notebookPaper: () => 'PAPER' })();
   assert.match(view({ notebook: true, notes: { 빅터: [{}, {}] } }), /NOTEBOOK · 2 NOTES[^]*PAPER/);
   assert.match(view({ notebook: false }), /인물의 수첩<\/b>이 꺼져 있습니다/);
+});
+
+test('a note in the wrong language is rewritten (in the character\'s voice), and kept as it is when that fails', async () => {
+  const notes = [{ who: '빅터', text: 'She hates the dark.', wantLang: 'ko' }, { who: '빅터', text: 'I will not be late again.', wantLang: 'ko' }];
+  const [system, user] = Nb.buildNoteLanguagePrompt(notes, { voice: { 빅터: ['앉아.'], 세라: ['싫어.'] }, names: [{ from: 'Sera', to: '세라' }] });
+  assert.match(system.content, /same character's own words/);
+  assert.deepEqual(JSON.parse(user.content), { voice: { 빅터: ['앉아.'] }, notes: [{ who: '빅터', lang: 'ko', text: 'She hates the dark.' }, { who: '빅터', lang: 'ko', text: 'I will not be late again.' }] });
+  assert.deepEqual(Nb.readNoteLanguage({ lines: ['걔는 어둠을 질색하지.', 'Still English.'] }, notes), ['걔는 어둠을 질색하지.', null], 'a line still in the wrong language is not taken');
+  assert.equal(Nb.readNoteLanguage({ lines: ['하나만'] }, notes), null);
+  const store = { scenes: [{ events: [{ quotes: [{ by: '빅터', text: '"Sit."', translation: '앉아.' }, { by: '세라', text: '"싫어."' }] }] }] };
+  assert.deepEqual(Nb.voiceFromScenes(store, ['빅터', '세라']), { 빅터: ['앉아.'], 세라: ['싫어.'] });
+  // The service: no connection set, so the rewrite fails; the note stays as written and is not asked again.
+  const room = 'nb-lang';
+  const scenes = { ...S.emptyStore(), cast: ['빅터'], scenes: [{ id: 'S1', start: 1, end: 1, title: 't', summary: 's', events: [], recollections: [], present: ['빅터'], charNotes: [{ who: '빅터', kind: 'heart', text: 'She hates the dark.', wantLang: 'ko', evidence: [{ number: 1, sentence: 1 }] }] }] };
+  X.saveSettings({ ...X.settings(), connection: null, translateConnection: null });
+  const job = {};
+  assert.equal(await X.fixNoteLanguages(room, scenes, job), 1);
+  assert.equal(scenes.scenes[0].charNotes[0].text, 'She hates the dark.');
+  assert.equal('wantLang' in scenes.scenes[0].charNotes[0], false);
+  assert.equal(await X.fixNoteLanguages(room, scenes, job), 0, 'nothing left to rewrite');
+});
+
+test('the library reloads the Korean when new lines were made in the background, and looks more often meanwhile', () => {
+  const source = fs.readFileSync(path.join(__dirname, '../extension/runtime.js'), 'utf8');
+  assert.ok(source.includes('polledInfo.translationStamp !== trStamp'));
+  assert.ok(source.includes("info?.displayTranslating ? 3000 : 10000"));
 });
