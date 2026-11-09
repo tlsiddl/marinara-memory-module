@@ -86,7 +86,7 @@ function prune(index, scenes) {
 
 const NOTE_PREFIX = 'nb:';
 /** A note as it is searched: who keeps it, and the note. */
-const noteDocs = (notes) => (notes || []).map((n) => ({ key: NOTE_PREFIX + n.id, text: `${n.who}: ${n.text}`.replace(/\s+/g, ' ').trim().slice(0, DOC_MAX_CHARS) }));
+const noteDocs = (notes) => (notes || []).map((n) => ({ key: NOTE_PREFIX + n.id, text: `${n.who}: ${n.when ? `(${n.when}) ` : ''}${n.text}`.replace(/\s+/g, ' ').trim().slice(0, DOC_MAX_CHARS) }));
 const staleNotes = (index, notes) => noteDocs(notes).filter((d) => index.items[d.key]?.h !== hash(d.text));
 function pruneNotes(index, notes) {
   const keys = new Set(noteDocs(notes).map((d) => d.key));

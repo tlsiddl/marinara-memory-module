@@ -20,6 +20,8 @@ const rows = [
   { id: 'm2', rowid: 2, role: 'assistant', characterId: 'c-viktor', content: '빅터가 웃었다. "기다렸어."' },
   { id: 'm3', rowid: 3, role: 'user', content: '"체리 먹을래?"', extra: JSON.stringify({ personaSnapshot: { name: 'Mina' } }) },
   { id: 'm4', rowid: 4, role: 'assistant', characterId: 'c-viktor', content: '빅터는 체리를 받아 들었다. "단 건 싫은데, 네가 주니까."' },
+  { id: 'm5', rowid: 5, role: 'user', content: '"우산은 두고 갈게."', extra: JSON.stringify({ personaSnapshot: { name: 'Mina' } }) },
+  { id: 'm6', rowid: 6, role: 'assistant', characterId: 'c-viktor', content: '빅터는 문가에 남은 우산을 내려다봤다. "다음엔 내가 챙기지."' },
 ];
 const prompts = [];
 let answer = null;
@@ -39,16 +41,22 @@ function scene(id, start, end, extra = {}) {
 test('only scenes with no notes are read again, and the notes go into the notebook', async () => {
   X.saveSettings({ ...X.settings(), connection: 'conn', autoTranslate: false, chats: { [room]: { enabled: true, features: { notebook: 'on' } } } });
   const store = { ...S.emptyStore(), cast: ['Viktor'], personas: ['Mina'], scenes: [
-    scene('S1', 1, 2, { charNotes: [{ who: 'Viktor', kind: 'heart', text: '오늘도 기다린 보람이 있었다.', evidence: [{ number: 2, sentence: 2 }] }] }),
+    scene('S1', 1, 2, { charNotes: [{ who: 'Viktor', kind: 'heart', when: '미나가 늦게 돌아왔을 때', text: '오늘도 기다린 보람이 있었다.', evidence: [{ number: 2, sentence: 2 }] }] }),
     scene('S2', 3, 4),
+    // A note from before the situation line: this scene is read again too.
+    scene('S3', 5, 6, { charNotes: [{ who: 'Viktor', kind: 'heart', text: '저 애가 또 웃었다.', evidence: [{ number: 6, sentence: 1 }] }] }),
   ] };
   X.saveScenes(room, store);
-  answer = () => ({ scenes: [{ id: 'S2', notebook: [{ who: 'Viktor', kind: 'about', about: 'Mina', text: '미나가 준 거라면 단 것도 먹게 되네.', evidence: ['4.2'] }] }] });
+  answer = () => ({ scenes: [
+    { id: 'S2', notebook: [{ who: 'Viktor', kind: 'about', about: 'Mina', when: '미나가 체리를 건넸을 때', text: '미나가 준 거라면 단 것도 먹게 되네.', evidence: ['4.2'] }] },
+    { id: 'S3', notebook: [{ who: 'Viktor', kind: 'heart', when: '미나가 우산을 두고 갔을 때', text: '미나는 웃으면서 우산을 두고 갔다. 다음엔 내가 챙겨야지.', evidence: ['6.1'] }] },
+  ] });
   const job = X.rebuildNotebook(room);
   await job.run;
   assert.equal(job.state, 'done', job.error || '');
-  assert.equal(job.total, 1, 'S1 already has notes');
-  assert.equal(job.kept, 1);
+  assert.equal(job.total, 2, 'S1 already has notes with their situation');
+  assert.equal(job.kept, 2);
+  assert.equal(X.loadScenes(room).scenes[2].charNotes[0].when, '미나가 우산을 두고 갔을 때', 'the old note without a situation is replaced');
   assert.equal(prompts.length, 1, 'one call for the scenes');
   const asked = prompts[0][1].content;
   assert.match(asked, /## S2/);
@@ -60,7 +68,8 @@ test('only scenes with no notes are read again, and the notes go into the notebo
   assert.deepEqual(saved.scenes[1].charNotes[0].evidence, [{ number: 4, sentence: 2 }]);
   assert.equal(saved.scenes[0].charNotes.length, 1, 'the other scene is untouched');
   const notes = Nb.view(X.loadNotebook(room));
-  assert.equal(notes.Viktor.length, 2);
+  assert.equal(notes.Viktor.length, 3);
+  assert.equal(notes.Viktor.find((n) => n.sceneId === 'S2').when, '미나가 체리를 건넸을 때');
   assert.deepEqual(X.notebookJobStatus(room).state, 'done');
   assert.equal('run' in X.notebookJobStatus(room), false);
 });
@@ -70,15 +79,19 @@ test('all: every scene is written again; a starred note stays; a note with no ev
   // The user starred the first scene's note: it stays when that scene's notes are written again.
   const starred = Nb.view(X.loadNotebook(room)).Viktor.find((n) => n.sceneId === 'S1');
   X.saveNotebook(room, Nb.starNote(X.loadNotebook(room), starred.id, true));
+  X.chatLangs.set(room, 'en'); // memory written in English: the notebook call still gets no language note
   answer = () => ({ scenes: [
-    { id: 'S1', notebook: [{ who: 'Viktor', kind: 'heart', text: '늦게 와도 괜찮다고 말해 줄 걸 그랬다.', evidence: ['2.2'] }] },
-    { id: 'S2', notebook: [{ who: 'Viktor', kind: 'heart', text: '체리 맛이 아직 남아 있다.', evidence: ['1.1'] }] },
+    { id: 'S1', notebook: [{ who: 'Viktor', kind: 'heart', when: '미나가 늦어서 사과했을 때', text: '늦게 와도 괜찮다고 말해 줄 걸 그랬다.', evidence: ['2.2'] }] },
+    { id: 'S2', notebook: [{ who: 'Viktor', kind: 'heart', when: '미나가 체리를 건넸을 때', text: '체리 맛이 아직 남아 있다.', evidence: ['1.1'] }] },
+    { id: 'S3', notebook: [] },
   ] });
   const job = X.rebuildNotebook(room, { all: true });
   await job.run;
   assert.equal(job.state, 'done', job.error || '');
-  assert.equal(job.total, 2);
+  assert.equal(job.total, 3);
   assert.equal(job.kept, 1);
+  // The rebuild call carries no memory-language note (each character's notebook language is in the prompt).
+  assert.ok(!prompts[0][1].content.includes('[기록 언어]'));
   assert.equal(job.stats.noEvidence, 1, '1.1 is not in S2');
   const saved = X.loadScenes(room);
   assert.deepEqual(saved.scenes[0].charNotes.map((n) => n.text), ['오늘도 기다린 보람이 있었다.', '늦게 와도 괜찮다고 말해 줄 걸 그랬다.']);

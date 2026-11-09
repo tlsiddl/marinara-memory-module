@@ -1445,11 +1445,11 @@ function translateModel() {
  * English. Quotes and names stay as written.
  */
 const LANGUAGE_NOTE = {
-  en: '\n\n[기록 언어] 네가 새로 쓰는 모든 글(제목·요약·사건·사실·이유·메모·생활 기록)은 영어로 써. 채팅이 한국어여도 마찬가지야. 인용(q)은 원문에서 그대로 복사하고(번역하지 마), 이름도 쓰인 그대로 둬. 인물의 수첩(notebook)의 text는 이 설정과 상관없이 그 인물이 말하는 언어로 써.',
+  en: '\n\n[기록 언어] 네가 새로 쓰는 모든 글(제목·요약·사건·사실·이유·메모·생활 기록)은 영어로 써. 채팅이 한국어여도 마찬가지야. 인용(q)은 원문에서 그대로 복사하고(번역하지 마), 이름도 쓰인 그대로 둬. 인물의 수첩(notebook)의 when과 text는 이 설정과 상관없이 그 인물이 말하는 언어로 써.',
   // Korean chosen on purpose for a chat that is not Korean (a Chinese or English room): without this the memory model
   // follows the chat and mixes the two languages in one note.
   'ko-fixed': '\n\n[기록 언어] 네가 새로 쓰는 모든 글(제목·요약·사건·사실·이유·메모·생활 기록)은 한국어로만 써. 채팅이 중국어나 영어여도 마찬가지야. 한 글 안에 중국어·영어 낱말을 섞지 마. 인용(q)은 원문에서 그대로 복사하고(번역하지 마), 사람 이름은 등장인물 목록에 적힌 표기를 그대로 써.',
-  zh: '\n\n[기록 언어] 네가 새로 쓰는 모든 글(제목·요약·사건·사실·이유·메모·생활 기록)은 중국어(간체)로 써. 채팅이 한국어여도 마찬가지야. 인용(q)은 원문에서 그대로 복사하고(번역하지 마), 이름도 쓰인 그대로 둬. 인물의 수첩(notebook)의 text는 이 설정과 상관없이 그 인물이 말하는 언어로 써.',
+  zh: '\n\n[기록 언어] 네가 새로 쓰는 모든 글(제목·요약·사건·사실·이유·메모·생활 기록)은 중국어(간체)로 써. 채팅이 한국어여도 마찬가지야. 인용(q)은 원문에서 그대로 복사하고(번역하지 마), 이름도 쓰인 그대로 둬. 인물의 수첩(notebook)의 when과 text는 이 설정과 상관없이 그 인물이 말하는 언어로 써.',
 };
 
 // A room's own choice of the language its memory is written in: 'chat' (the chat's own language), 'en' or 'zh'.
@@ -2103,8 +2103,10 @@ async function reviewAttributions(chatId, store, messages, getModel, job, reason
  * 수첩만 다시 받기: the notebook notes of scenes that are already made, without organizing again. The scenes' own
  * messages are read again, a few scenes per call; the model is asked outside the room's queue and each answer is saved
  * inside it (so a reply's scene job is never held up for long, and both never save the scenes at once).
- * all = false: only scenes with no notes yet; all = true: every scene's notes are written again.
+ * all = false: scenes with no notes yet, or with a note that has no situation line (상황, from before 0.22.6);
+ * all = true: every scene's notes are written again.
  */
+const notebookNeedsWork = (scene) => !scene.charNotes?.length || scene.charNotes.some((n) => !n.when);
 const notebookJobs = new Map();
 const NOTEBOOK_REBUILD_CHARS = 16000;
 const NOTEBOOK_REBUILD_SCENES = 8;
@@ -2123,7 +2125,7 @@ function rebuildNotebook(chatId, { all = false } = {}) {
       checkFiles(chatId);
       const messages = await chatMessages(chatId);
       const ownMessages = (scene) => messages.filter((m) => m.number >= scene.start && m.number <= scene.end);
-      const targets = (loadScenes(chatId)?.scenes || []).filter((sc) => (all || !sc.charNotes?.length) && ownMessages(sc).length);
+      const targets = (loadScenes(chatId)?.scenes || []).filter((sc) => (all || notebookNeedsWork(sc)) && ownMessages(sc).length);
       job.total = targets.length;
       // Groups of scenes in story order, each under the size of one call.
       const groups = [];
@@ -2136,7 +2138,8 @@ function rebuildNotebook(chatId, { all = false } = {}) {
         size += chars;
       }
       if (group.length) groups.push(group);
-      const model = groups.length ? { ...(await memoryModel()), lang: await promptLanguageOf(chatId) } : null;
+      // No memory-language note here: it told the model to write English, and the notebook has its own language per person.
+      const model = groups.length ? await memoryModel() : null;
       for (const part of groups) {
         if (job.cancel) break;
         job.stage = `${job.done + 1}~${job.done + part.length} / ${job.total} 장면`;
@@ -2168,7 +2171,7 @@ function rebuildNotebook(chatId, { all = false } = {}) {
           for (const g of part) {
             const scene = now.scenes.find((sc) => sc.id === g.id);
             const answer = answers.find((a) => String(a?.id || '').trim() === g.id);
-            if (!scene || !answer || (!all && scene.charNotes?.length)) continue;
+            if (!scene || !answer || (!all && !notebookNeedsWork(scene))) continue;
             const index = L.indexBatch(g.messages);
             const inScene = (p) => p.number >= scene.start && p.number <= scene.end;
             // Written again (all): the scene's old notes are replaced only now, when its new ones are here, so a stop
@@ -2738,29 +2741,41 @@ async function fixNoteLanguages(chatId, store, job) {
   const todo = [];
   for (const scene of store?.scenes || []) for (const n of scene.charNotes || []) if (n.wantLang) todo.push(n);
   if (!todo.length) return 0;
-  const part = todo.slice(0, 30);
-  try {
-    if (job) job.stage = `수첩 언어 맞추기 (${part.length}개)`;
-    const model = await translateModel();
-    const voice = Nb.voiceFromScenes(store, [...new Set(part.map((n) => n.who))]);
-    const parsed = L.parseJsonObject(await askModel(model, Nb.buildNoteLanguagePrompt(part, { voice, names: roomKoreanNames(chatId) }), { maxTokens: 3000 }));
-    const lines = Nb.readNoteLanguage(parsed, part);
-    let done = 0;
-    part.forEach((n, i) => {
-      if (lines?.[i]) { n.text = lines[i]; delete n.wantLang; done++; }
-      // A note the rewrite could not do stays in its own language, and is not asked again.
-      else delete n.wantLang;
+  // Groups of a few notes: one answer that does not line up loses only its own group. Each note is asked at most
+  // twice (over runs); after that it stays in the language it was written in.
+  const list = todo.slice(0, NOTE_LANG_PER_RUN);
+  let calls = 0, done = 0, model = null;
+  for (let i = 0; i < list.length; i += NOTE_LANG_GROUP) {
+    const part = list.slice(i, i + NOTE_LANG_GROUP);
+    if (job) job.stage = `수첩 언어 맞추기 (${Math.min(i + part.length, list.length)}/${list.length})`;
+    let lines = null;
+    try {
+      model ||= await translateModel();
+      const voice = Nb.voiceFromScenes(store, [...new Set(part.map((n) => n.who))]);
+      calls++;
+      lines = Nb.readNoteLanguage(L.parseJsonObject(await askModel(model, Nb.buildNoteLanguagePrompt(part, { voice, names: roomKoreanNames(chatId) }), { maxTokens: 3000 })), part);
+      if (!lines) log(`chat ${chatId}: notebook language rewrite answer did not line up (${part.length} note(s))`);
+    } catch (error) {
+      log(`chat ${chatId}: notebook language rewrite failed (${error?.message || error})`);
+    }
+    part.forEach((n, j) => {
+      const got = lines?.[j];
+      if (got) {
+        n.text = got.text;
+        if (got.when) n.when = got.when;
+        delete n.wantLang;
+        delete n.langTries;
+        done++;
+      } else if ((n.langTries = (n.langTries || 0) + 1) >= 2) { delete n.wantLang; delete n.langTries; }
     });
     saveScenes(chatId, store);
-    if (job) job.notebookStats = { ...(job.notebookStats || {}), rewritten: (job.notebookStats?.rewritten || 0) + done };
-    log(`chat ${chatId}: ${done}/${part.length} notebook note(s) rewritten into their character's language`);
-  } catch (error) {
-    for (const n of part) delete n.wantLang;
-    saveScenes(chatId, store);
-    log(`chat ${chatId}: notebook language rewrite failed (${error?.message || error})`);
   }
-  return 1;
+  if (job) job.notebookStats = { ...(job.notebookStats || {}), rewritten: (job.notebookStats?.rewritten || 0) + done };
+  log(`chat ${chatId}: ${done}/${list.length} notebook note(s) rewritten into their character's language`);
+  return calls;
 }
+const NOTE_LANG_GROUP = 8;
+const NOTE_LANG_PER_RUN = 80;
 
 /**
  * After a memory run: the Korean the library shows is made now, in the background, instead of when the room is next
@@ -4358,7 +4373,7 @@ async function routes(app) {
     const id = String(b.id || '');
     if (!['edit', 'star', 'unstar', 'delete'].includes(action)) throw Error('edit, star, unstar, delete 중 하나여야 합니다.');
     changeWorld(chatId, 'notebook', (file) => {
-      if (action === 'edit') return Nb.editNote(file, id, b.text);
+      if (action === 'edit') return Nb.editNote(file, id, b.text, undefined, typeof b.when === 'string' ? b.when : undefined);
       if (action === 'star' || action === 'unstar') return Nb.starNote(file, id, action === 'star');
       return Nb.deleteNote(file, id);
     });

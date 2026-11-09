@@ -1231,14 +1231,14 @@
     const dropped = ['repeat', 'copied', 'noEvidence', 'notAllowed', 'tooMany'].reduce((n, k) => n + (stats[k] || 0), 0);
     let status = '';
     if (job.state === 'running') status = `<p class="note" role="status">${icon('refresh')} 수첩을 받는 중입니다${job.stage ? ` · ${esc(job.stage)}` : ''}. 채팅은 그대로 계속하셔도 됩니다.</p>`;
-    else if (job.state === 'done') status = `<p class="hint">지난번: 장면 ${job.done}개를 읽고 메모 ${job.kept}개를 적었습니다${dropped ? ` (겹치거나 근거가 없는 ${dropped}개는 뺐습니다)` : ''}.${job.total === 0 ? ' 수첩이 빈 장면이 없었습니다.' : ''}</p>`;
+    else if (job.state === 'done') status = `<p class="hint">지난번: 장면 ${job.done}개를 읽고 메모 ${job.kept}개를 적었습니다${dropped ? ` (겹치거나 근거가 없는 ${dropped}개는 뺐습니다)` : ''}.${job.total === 0 ? ' 다시 받을 장면이 없었습니다.' : ''}</p>`;
     else if (job.state === 'stopped') status = `<p class="hint">멈췄습니다. 장면 ${job.done}/${job.total}개까지 읽고 메모 ${job.kept}개를 적었습니다. 나머지 장면의 메모는 그대로입니다.</p>`;
     else if (job.state === 'error') status = `<p class="note" role="alert">수첩 받기가 멈췄습니다. ${esc(job.error || '')}${job.done ? ` (장면 ${job.done}/${job.total}개까지 저장했습니다)` : ''}</p>`;
     const buttons = job.state === 'running'
       ? '<button class="ghost" data-act="noteRebuildStop">멈추기</button>'
-      : `<button data-act="noteRebuild">수첩이 빈 장면만 받기</button><button class="ghost" data-act="noteRebuildAll">${armedNow === 'noteRebuildAll' ? '한 번 더 누르면 모든 장면을 다시 받습니다' : '모든 장면 다시 받기'}</button>`;
+      : `<button data-act="noteRebuild">빈 장면·상황 없는 메모만 받기</button><button class="ghost" data-act="noteRebuildAll">${armedNow === 'noteRebuildAll' ? '한 번 더 누르면 모든 장면을 다시 받습니다' : '모든 장면 다시 받기'}</button>`;
     return `<div class="paper"><h2>수첩만 다시 받기</h2>
-      <p class="hint">이미 정리된 장면의 원문을 다시 읽고 인물의 수첩만 적습니다. 장면 기억은 그대로이고, 몇 장면씩 묶어 뒤에서 처리하니 그동안 채팅을 계속할 수 있습니다. <b>모든 장면 다시 받기</b>는 지금 메모를 장면에서 새로 적은 것으로 바꿉니다(★ 표시·직접 고친 메모·지운 메모는 그대로 지켜집니다).</p>
+      <p class="hint">이미 정리된 장면의 원문을 다시 읽고 인물의 수첩만 적습니다. 장면 기억은 그대로이고, 몇 장면씩 묶어 뒤에서 처리하니 그동안 채팅을 계속할 수 있습니다. <b>빈 장면·상황 없는 메모만 받기</b>는 메모가 없는 장면과, 상황 줄이 생기기 전에 적힌 메모가 있는 장면만 읽습니다. <b>모든 장면 다시 받기</b>는 지금 메모를 장면에서 새로 적은 것으로 바꿉니다(★ 표시·직접 고친 메모·지운 메모는 그대로 지켜집니다).</p>
       ${status}<div class="buttons">${buttons}</div></div>`;
   }
 
@@ -1249,12 +1249,13 @@
     const KIND = { about: '알게 된 것', heart: '속마음' };
     const note = (n) => `<div class="notebook-note" data-note="${esc(n.id)}">
         <div class="notebook-head"><span class="pill ${n.kind === 'heart' ? '' : 'neutral'}">${KIND[n.kind] || n.kind}</span>${n.about ? `<small>${esc(nameShown(n.about))}에 대해</small>` : ''}${n.edited ? '<small>직접 고침</small>' : ''}${sceneRefs(sceneRef(n.sceneId, '', titles))}</div>
+        <label class="world-field"><span>상황</span><input data-note-when="${esc(n.id)}" value="${esc(n.when || '')}" placeholder="그때 무슨 일이 있었는지 (비어 있으면 다시 받기로 채워짐)" aria-label="${esc(n.who)}의 메모 상황"></label>${n.when ? trLine(n.when) : ''}
         <textarea class="event-field" data-note-text="${esc(n.id)}" aria-label="${esc(n.who)}의 메모">${esc(n.text)}</textarea>${trLine(n.text)}
         <div class="buttons"><button data-act="noteSave" data-id="${esc(n.id)}">고친 내용 저장</button><button class="ghost ${n.star ? 'mark-button is-on' : ''}" data-act="${n.star ? 'noteUnstar' : 'noteStar'}" data-id="${esc(n.id)}">${n.star ? '★ 중요' : '☆ 중요로 표시'}</button><button class="ghost" data-act="noteDelete" data-id="${esc(n.id)}">${armedNow === `noteDelete:${n.id}` ? '한 번 더 누르면 지웁니다' : '지우기'}</button></div>
       </div>`;
     const person = ([who, list]) => `<details class="world-card" data-list="notebook:${esc(who)}" ${openLists.has(`notebook:${who}`) ? 'open' : ''}><summary><b>${esc(nameShown(who))}의 수첩</b> · ${list.length}개${list.some((n) => n.star) ? ` · ★ ${list.filter((n) => n.star).length}` : ''}</summary>${list.map(note).join('')}</details>`;
     return `${notebookRebuildPaper(armedNow)}<div class="paper"><h2>인물의 수첩 · ${people.length}명</h2>
-      <p class="hint">인물마다 마음에 담아 둔 것을 그 인물의 말투와 언어로 적어 둡니다(한국어 병기 대사를 하는 인물은 한국어로, 영어로만 말하는 인물은 영어로 적고 아래에 한국어 번역을 보여 줍니다). <b>알게 된 것</b>은 상대에 대해 눈여겨본 작은 것, <b>속마음</b>은 그 인물의 다짐이나 마음에 걸리는 것입니다. 답변에는 지금 장면에 있는 인물의 것만 들어갑니다. 인물마다 핵심 3개(★ 먼저, 그다음 최근 것)는 늘, 지금 대화와 뜻이 가까운 것 3개까지는 더 들어갑니다(임베딩이 없으면 낱말로 찾음). 다른 인물은 이 수첩을 모르는 것으로 다룹니다. 사용자 캐릭터의 수첩은 만들지 않습니다.</p>
+      <p class="hint">인물마다 마음에 담아 둔 것을 그 인물의 말투와 언어로 적어 둡니다. 메모마다 <b>상황</b>(그때 무슨 일이 있었는지)이 함께 적혀 답변에도 같이 들어가서, 메모만 읽어도 무슨 일인지 알 수 있습니다(한국어 병기 대사를 하는 인물은 한국어로, 영어로만 말하는 인물은 영어로 적고 아래에 한국어 번역을 보여 줍니다). <b>알게 된 것</b>은 상대에 대해 눈여겨본 작은 것, <b>속마음</b>은 그 인물의 다짐이나 마음에 걸리는 것입니다. 답변에는 지금 장면에 있는 인물의 것만 들어갑니다. 인물마다 핵심 3개(★ 먼저, 그다음 최근 것)는 늘, 지금 대화와 뜻이 가까운 것 3개까지는 더 들어갑니다(임베딩이 없으면 낱말로 찾음). 다른 인물은 이 수첩을 모르는 것으로 다룹니다. 사용자 캐릭터의 수첩은 만들지 않습니다.</p>
       ${people.length ? people.map(person).join('') : '<p class="hint">아직 없습니다. 켠 뒤에 정리되는 장면부터 채워집니다.</p>'}</div>`;
   }
 
@@ -2128,8 +2129,9 @@
       }
       case 'noteSave': {
         const text = root.querySelector(`[data-note-text="${CSS.escape(id)}"]`)?.value ?? '';
+        const when = root.querySelector(`[data-note-when="${CSS.escape(id)}"]`)?.value;
         return act(async () => {
-          await api('POST', `/chats/${chat}/notebook`, { action: 'edit', id, text });
+          await api('POST', `/chats/${chat}/notebook`, { action: 'edit', id, text, ...(when != null ? { when } : {}) });
           world = null;
         }, '메모를 저장했습니다.');
       }
