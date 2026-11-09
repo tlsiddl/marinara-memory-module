@@ -2128,6 +2128,116 @@ async function reviewAttributions(chatId, store, messages, getModel, job, reason
   return counts.calls;
 }
 
+/**
+ * 수첩만 다시 받기: the notebook notes of scenes that are already made, without organizing again. The scenes' own
+ * messages are read again, a few scenes per call; the model is asked outside the room's queue and each answer is saved
+ * inside it (so a reply's scene job is never held up for long, and both never save the scenes at once).
+ * all = false: only scenes with no notes yet; all = true: every scene's notes are written again.
+ */
+const notebookJobs = new Map();
+const NOTEBOOK_REBUILD_CHARS = 16000;
+const NOTEBOOK_REBUILD_SCENES = 8;
+
+function notebookJobStatus(chatId) {
+  const { cancel: _c, run: _r, ...job } = notebookJobs.get(chatId) || { state: 'idle' };
+  return job;
+}
+
+function rebuildNotebook(chatId, { all = false } = {}) {
+  if (notebookJobs.get(chatId)?.state === 'running') return notebookJobs.get(chatId);
+  const job = { state: 'running', all, done: 0, total: 0, kept: 0, calls: 0, stats: {}, error: null, cancel: false, startedAt: new Date().toISOString() };
+  notebookJobs.set(chatId, job);
+  job.run = (async () => {
+    try {
+      checkFiles(chatId);
+      const messages = await chatMessages(chatId);
+      const ownMessages = (scene) => messages.filter((m) => m.number >= scene.start && m.number <= scene.end);
+      const targets = (loadScenes(chatId)?.scenes || []).filter((sc) => (all || !sc.charNotes?.length) && ownMessages(sc).length);
+      job.total = targets.length;
+      // Groups of scenes in story order, each under the size of one call.
+      const groups = [];
+      let group = [], size = 0;
+      for (const scene of targets) {
+        const own = ownMessages(scene);
+        const chars = own.reduce((n, m) => n + m.content.length, 0);
+        if (group.length && (size + chars > NOTEBOOK_REBUILD_CHARS || group.length >= NOTEBOOK_REBUILD_SCENES)) { groups.push(group); group = []; size = 0; }
+        group.push({ id: scene.id, messages: own });
+        size += chars;
+      }
+      if (group.length) groups.push(group);
+      const model = groups.length ? { ...(await memoryModel()), lang: await promptLanguageOf(chatId) } : null;
+      for (const part of groups) {
+        if (job.cancel) break;
+        job.stage = `${job.done + 1}~${job.done + part.length} / ${job.total} 장면`;
+        const store = loadScenes(chatId);
+        if (!store) break;
+        const cast = S.castOf(store);
+        const slice = part.flatMap((g) => g.messages);
+        const personas = [...new Set([...(store.personas || []), ...L.personaNames(slice)])];
+        const samples = Nb.voiceSamples(slice, cast, { personas });
+        const speakers = cast.filter((n) => !personas.includes(n));
+        const live = part.map((g) => ({ scene: store.scenes.find((sc) => sc.id === g.id), messages: g.messages })).filter((g) => g.scene);
+        let parsed = null;
+        try {
+          parsed = L.parseJsonObject(await askModel(model, Nb.buildRebuildPrompt(live, { cast, personas, voice: Nb.voiceBlock(samples, Nb.priorNotes(store, speakers)) }), { maxTokens: 4000 }));
+          job.calls++;
+        } catch (error) {
+          job.error = String(error?.message || error).slice(0, 300);
+          log(`chat ${chatId}: notebook rebuild call failed (${job.error})`);
+          break;
+        }
+        const answers = Array.isArray(parsed?.scenes) ? parsed.scenes : [];
+        // Saved inside the room's queue, against the scenes as they are then (a reply may have changed them meanwhile).
+        await enqueue(`scenes:${chatId}`, async () => {
+          const now = loadScenes(chatId);
+          if (!now) return;
+          const langs = Nb.languagesOf(samples);
+          const book = loadNotebook(chatId);
+          let changed = 0;
+          for (const g of part) {
+            const scene = now.scenes.find((sc) => sc.id === g.id);
+            const answer = answers.find((a) => String(a?.id || '').trim() === g.id);
+            if (!scene || !answer || (!all && scene.charNotes?.length)) continue;
+            const index = L.indexBatch(g.messages);
+            const inScene = (p) => p.number >= scene.start && p.number <= scene.end;
+            // Written again (all): the scene's old notes are replaced only now, when its new ones are here, so a stop
+            // halfway leaves the rest as they were; they are not "already written" for the new ones either.
+            // Notes the user starred or reworded stay, and count as already written.
+            const keep = Nb.userKept(book, scene);
+            const prior = { scenes: [...now.scenes.filter((sc) => sc !== scene), { charNotes: keep }] };
+            const fresh = S.sceneCharNotesOf(answer.notebook, { cast: S.castOf(now), personas, index, inScene, langs, prior, stats: job.stats });
+            const notes = [...keep, ...fresh];
+            if (notes.length) { scene.charNotes = notes; changed++; job.kept += fresh.length; }
+            else if (scene.charNotes) { delete scene.charNotes; changed++; }
+          }
+          if (changed) saveScenes(chatId, now);
+        });
+        job.done += part.length;
+      }
+      await enqueue(`scenes:${chatId}`, async () => {
+        const store = loadScenes(chatId);
+        if (!store) return;
+        job.calls += await fixNoteLanguages(chatId, store, job);
+        refreshWorld(chatId, store);
+        recalls.delete(chatId);
+      });
+      job.stage = '수첩 색인';
+      await indexScenes(chatId, loadScenes(chatId), null).catch((error) => log(`chat ${chatId}: notebook index skipped (${error?.message || error})`));
+      job.state = job.cancel ? 'stopped' : job.error ? 'error' : 'done';
+      log(`chat ${chatId}: notebook rebuild ${job.state}: ${job.kept} note(s) in ${job.done}/${job.total} scene(s), ${job.calls} call(s)`);
+      if (job.kept) translateDisplayLater(chatId);
+    } catch (error) {
+      job.state = 'error';
+      job.error = String(error?.message || error).slice(0, 300);
+      log(`chat ${chatId}: notebook rebuild failed (${job.error})`);
+    } finally {
+      job.stage = null;
+      job.finishedAt = new Date().toISOString();
+    }
+  })();
+  return job;
+}
+
 function processScenes(chatId, { rebuild = false, reason = 'auto' } = {}) {
   const key = `scenes:${chatId}`;
   // One fold at a time; a reply that arrives meanwhile is picked up by the loop below.
@@ -2715,17 +2825,30 @@ const preparing = new Map();
 const displayTranslationStatus = new Map();
 function startDisplayTranslation(chatId, missing, force = false) {
   const previous = displayTranslationStatus.get(chatId);
-  if (translating.has(`${chatId}:ko`)) return false;
+  const running = translating.get(`${chatId}:ko`);
+  // Another Korean run is going (the memory's own Korean after a run, or an earlier display run): the lines asked for
+  // now would be lost, so they are looked at again when it ends.
+  if (running) {
+    if (!displayWaiting.has(chatId)) {
+      displayWaiting.add(chatId);
+      running.catch(() => {}).finally(() => { displayWaiting.delete(chatId); setImmediate(() => translateDisplayLater(chatId)); });
+    }
+    return false;
+  }
   if (!force && previous?.error && Date.now() - previous.at < PREPARE_RETRY_MS) return false;
   const state = { error: null, at: Date.now() };
   displayTranslationStatus.set(chatId, state);
-  translateMissing(chatId, 'ko', missing).catch((error) => {
+  translateMissing(chatId, 'ko', missing).then((done) => {
+    // Lines that came in while this ran (a new scene, a card) are done right after, not when the room is next opened.
+    if (done > 0) setImmediate(() => translateDisplayLater(chatId));
+  }, (error) => {
     state.error = String(error?.message || error).slice(0, 300);
     state.at = Date.now();
     log(`chat ${chatId}: display translation failed (${state.error})`);
   });
   return true;
 }
+const displayWaiting = new Set();
 const PREPARE_RETRY_MS = 2 * 60_000;
 
 function prepareStatus(chatId) {
@@ -3548,6 +3671,7 @@ async function routes(app) {
       translationPrep: (maybePrepareTranslation(chatId), prepareStatus(chatId)),
       job,
       sceneJob,
+      notebookJob: notebookJobStatus(chatId),
       // The record and the chosen memories are large: they have their own routes, fetched when their screen opens
       // (the stamps tell the screen when what it holds is out of date).
       attributionRuns: loadAttributionLog(chatId).runs.length,
@@ -4246,6 +4370,19 @@ async function routes(app) {
     });
     return worldView(chatId);
   }));
+  // 수첩만 다시 받기: { all: true } writes every scene's notes again; otherwise only scenes with none. { stop: true } stops.
+  app.post('/chats/:id/notebook/rebuild', guard(async (req) => {
+    const chatId = safeChatId(req.params.id);
+    needFeature(chatId, 'notebook');
+    if (req.body?.stop) {
+      const job = notebookJobs.get(chatId);
+      if (job?.state === 'running') job.cancel = true;
+      return { notebookJob: notebookJobStatus(chatId) };
+    }
+    if (!settings().connection) throw Error('기억 정리 연결을 설정해 주세요.');
+    rebuildNotebook(chatId, { all: !!req.body?.all });
+    return { notebookJob: notebookJobStatus(chatId) };
+  }));
   app.post('/chats/:id/notebook', guard(async (req) => {
     const chatId = safeChatId(req.params.id);
     needFeature(chatId, 'notebook');
@@ -4702,7 +4839,7 @@ function attach(app) {
   log('admin API ready at /api/memory-module');
 }
 
-module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { loadAddress, saveAddress, refreshAddress, presentPeople, Addr, loadState, saveState, loadPlaces, savePlaces, loadKeepsakes, saveKeepsakes, loadNotebook, saveNotebook, Nb, loadTrackers, saveTrackers, Tk, loadConflicts, saveConflicts, refreshConflicts, refreshWorld, Cf, Ks, organizeFor, sceneTokens, lastScenePeople, St, Pl, listRooms, purgeChatMemory, purgeIfGone, deleteOnSend, deletePrepare, listOrphans, deleteOrphans, goneChats, loadNames, saveNames, enqueue, foldScenes, reviewAttributions, loadAttributionLog, sceneJobs, selectedForView, loadSelected, recalls, windows, loadRecallPrefs, saveRecallPrefs, recallReport, recallCandidates, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, translateDisplayLater, fixNoteLanguages, loadTranslations, saveTranslations, chatLangs, langRecords, loadLang, noteLanguage, LANG_REFRESH_EVERY, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, jobs, writeLanguage, roomWriteLanguage, promptLanguage, memoryCallOptions, routineSetting, routineEnabled, attributionSetting, featureOn, featureSetting, F, B, clearRoomCaches, RESTORE_UNDO_DIR, connectionWithKey, memoryModel, startTrial, trials } };
+module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { loadAddress, saveAddress, refreshAddress, presentPeople, Addr, loadState, saveState, loadPlaces, savePlaces, loadKeepsakes, saveKeepsakes, loadNotebook, saveNotebook, Nb, loadTrackers, saveTrackers, Tk, loadConflicts, saveConflicts, refreshConflicts, refreshWorld, Cf, Ks, organizeFor, sceneTokens, lastScenePeople, St, Pl, listRooms, purgeChatMemory, purgeIfGone, deleteOnSend, deletePrepare, listOrphans, deleteOrphans, goneChats, loadNames, saveNames, enqueue, foldScenes, reviewAttributions, loadAttributionLog, sceneJobs, selectedForView, loadSelected, recalls, windows, loadRecallPrefs, saveRecallPrefs, recallReport, recallCandidates, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, translateDisplayLater, fixNoteLanguages, rebuildNotebook, notebookJobStatus, loadTranslations, saveTranslations, chatLangs, langRecords, loadLang, noteLanguage, LANG_REFRESH_EVERY, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, jobs, writeLanguage, roomWriteLanguage, promptLanguage, memoryCallOptions, routineSetting, routineEnabled, attributionSetting, featureOn, featureSetting, F, B, clearRoomCaches, RESTORE_UNDO_DIR, connectionWithKey, memoryModel, startTrial, trials } };
 
 
 
