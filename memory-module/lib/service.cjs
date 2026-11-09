@@ -442,7 +442,7 @@ function sceneRecords(chatId) {
   if (featureOn(chatId, 'characterState')) out.characterState = true;
   if (featureOn(chatId, 'places')) out.places = true;
   if (featureOn(chatId, 'keepsakes')) out.keepsakes = true;
-  if (featureOn(chatId, 'notebook')) out.notebook = true;
+  if (featureOn(chatId, 'notebook')) { out.notebook = true; out.notebookLang = notebookLanguageOf(chatId); }
   // With date trackers on, the scene call also notes dates worth a tracker (first meeting, an exam day, a cycle).
   if (featureOn(chatId, 'trackers')) out.dateHints = true;
   return out;
@@ -1445,11 +1445,11 @@ function translateModel() {
  * English. Quotes and names stay as written.
  */
 const LANGUAGE_NOTE = {
-  en: '\n\n[기록 언어] 네가 새로 쓰는 모든 글(제목·요약·사건·사실·이유·메모·생활 기록)은 영어로 써. 채팅이 한국어여도 마찬가지야. 인용(q)은 원문에서 그대로 복사하고(번역하지 마), 이름도 쓰인 그대로 둬. 인물의 수첩(notebook)의 when과 text는 이 설정과 상관없이 그 인물이 말하는 언어로 써.',
+  en: '\n\n[기록 언어] 네가 새로 쓰는 모든 글(제목·요약·사건·사실·이유·메모·생활 기록)은 영어로 써. 채팅이 한국어여도 마찬가지야. 인용(q)은 원문에서 그대로 복사하고(번역하지 마), 이름도 쓰인 그대로 둬. 인물의 수첩(notebook)의 when과 text는 이 설정 대신 [수첩 언어]를 따라.',
   // Korean chosen on purpose for a chat that is not Korean (a Chinese or English room): without this the memory model
   // follows the chat and mixes the two languages in one note.
   'ko-fixed': '\n\n[기록 언어] 네가 새로 쓰는 모든 글(제목·요약·사건·사실·이유·메모·생활 기록)은 한국어로만 써. 채팅이 중국어나 영어여도 마찬가지야. 한 글 안에 중국어·영어 낱말을 섞지 마. 인용(q)은 원문에서 그대로 복사하고(번역하지 마), 사람 이름은 등장인물 목록에 적힌 표기를 그대로 써.',
-  zh: '\n\n[기록 언어] 네가 새로 쓰는 모든 글(제목·요약·사건·사실·이유·메모·생활 기록)은 중국어(간체)로 써. 채팅이 한국어여도 마찬가지야. 인용(q)은 원문에서 그대로 복사하고(번역하지 마), 이름도 쓰인 그대로 둬. 인물의 수첩(notebook)의 when과 text는 이 설정과 상관없이 그 인물이 말하는 언어로 써.',
+  zh: '\n\n[기록 언어] 네가 새로 쓰는 모든 글(제목·요약·사건·사실·이유·메모·생활 기록)은 중국어(간체)로 써. 채팅이 한국어여도 마찬가지야. 인용(q)은 원문에서 그대로 복사하고(번역하지 마), 이름도 쓰인 그대로 둬. 인물의 수첩(notebook)의 when과 text는 이 설정 대신 [수첩 언어]를 따라.',
 };
 
 // A room's own choice of the language its memory is written in: 'chat' (the chat's own language), 'en' or 'zh'.
@@ -1464,6 +1464,21 @@ const roomWriteLanguage = (chatId) => {
  * The language this chat's memory is written in: the room's own choice when it has one, else the all-rooms setting
  * (English or Chinese for every room, or each chat's own language).
  */
+/**
+ * 인물의 수첩 언어 for a room: 'write' (default: the language the room's memory is written in, so a memo-style note
+ * needs no rewrite and the library shows it translated like the rest), 'character' (each one's own spoken language),
+ * or 'ko' | 'en' | 'zh'. notebookLanguageOf gives what the notes are written in: 'ko' | 'en' | 'zh' | 'character'.
+ */
+const NOTEBOOK_LANGS = ['write', 'character', 'ko', 'en', 'zh'];
+function notebookLanguageSetting(chatId) {
+  const set = settings().chats?.[chatId]?.notebookLanguage;
+  return NOTEBOOK_LANGS.includes(set) ? set : 'write';
+}
+function notebookLanguageOf(chatId) {
+  const set = notebookLanguageSetting(chatId);
+  return set === 'write' ? writeLanguage(chatId) : set;
+}
+
 function writeLanguage(chatId) {
   const own = roomWriteLanguage(chatId);
   const set = own === 'follow' ? settings().writeLanguage : own;
@@ -2152,16 +2167,16 @@ function rebuildNotebook(chatId, { all = false } = {}) {
         const samples = Nb.voiceSamples(slice, cast, { personas });
         const speakers = cast.filter((n) => !personas.includes(n));
         const live = part.map((g) => ({ scene: store.scenes.find((sc) => sc.id === g.id), messages: g.messages })).filter((g) => g.scene);
-        const parsed = L.parseJsonObject(await askModel(model, Nb.buildRebuildPrompt(live, { cast, personas, voice: Nb.voiceBlock(samples, Nb.priorNotes(store, speakers, undefined, { before: live[0]?.scene.id })) }), { maxTokens: 4000 }));
+        const parsed = L.parseJsonObject(await askModel(model, Nb.buildRebuildPrompt(live, { cast, personas, voice: Nb.voiceBlock(samples, Nb.priorNotes(store, speakers, undefined, { before: live[0]?.scene.id }), { langs: Nb.langsFor(samples, speakers, notebookLanguageOf(chatId)) }) }), { maxTokens: 4000 }));
         job.calls++;
-        return { answers: Array.isArray(parsed?.scenes) ? parsed.scenes : [], samples, personas };
+        return { answers: Array.isArray(parsed?.scenes) ? parsed.scenes : [], samples, personas, speakers };
       };
       // Saved inside the room's queue, against the scenes as they are then (a reply may have changed them meanwhile).
       const save = (part, got) => enqueue(`scenes:${chatId}`, async () => {
         const now = loadScenes(chatId);
         if (!now) return;
-        const { answers, samples, personas } = got;
-        const langs = Nb.languagesOf(samples);
+        const { answers, samples, personas, speakers } = got;
+        const langs = Nb.langsFor(samples, speakers, notebookLanguageOf(chatId));
         const book = loadNotebook(chatId);
         let changed = 0;
         for (const g of part) {
@@ -2760,7 +2775,9 @@ async function translateBeforeReply(chatId) {
  */
 async function fixNoteLanguages(chatId, store, job) {
   const todo = [];
-  for (const scene of store?.scenes || []) for (const n of scene.charNotes || []) if (n.wantLang) todo.push(n);
+  // A note in the wrong language, or one that points at a person without naming them ("그 애", "저 녀석").
+  for (const scene of store?.scenes || []) for (const n of scene.charNotes || []) if (n.wantLang || n.vague) todo.push(n);
+  const people = [...new Set([...S.castOf(store || {}), ...(store?.personas || [])])];
   if (!todo.length) return 0;
   // Groups of a few notes: one answer that does not line up loses only its own group. Each note is asked at most
   // twice (over runs); after that it stays in the language it was written in.
@@ -2770,10 +2787,12 @@ async function fixNoteLanguages(chatId, store, job) {
     const part = list.slice(i, i + NOTE_LANG_GROUP);
     if (job) job.stage = `수첩 언어 맞추기 (${Math.min(i + part.length, list.length)}/${list.length})`;
     let lines = null;
+    // A note in the right language that only needs names is asked in its own language.
+    const asked = part.map((n) => ({ ...n, wantLang: n.wantLang || Nb.noteLanguage(n.text) }));
     try {
       model ||= await translateModel();
       calls++;
-      lines = Nb.readNoteLanguage(L.parseJsonObject(await askModel(model, Nb.buildNoteLanguagePrompt(part, { names: roomKoreanNames(chatId) }), { maxTokens: 3000 })), part);
+      lines = Nb.readNoteLanguage(L.parseJsonObject(await askModel(model, Nb.buildNoteLanguagePrompt(asked, { names: roomKoreanNames(chatId), people }), { maxTokens: 3000 })), asked);
       if (!lines) log(`chat ${chatId}: notebook language rewrite answer did not line up (${part.length} note(s))`);
     } catch (error) {
       log(`chat ${chatId}: notebook language rewrite failed (${error?.message || error})`);
@@ -2784,9 +2803,10 @@ async function fixNoteLanguages(chatId, store, job) {
         n.text = got.text;
         if (got.when) n.when = got.when;
         delete n.wantLang;
+        delete n.vague;
         delete n.langTries;
         done++;
-      } else if ((n.langTries = (n.langTries || 0) + 1) >= 2) { delete n.wantLang; delete n.langTries; }
+      } else if ((n.langTries = (n.langTries || 0) + 1) >= 2) { delete n.wantLang; delete n.vague; delete n.langTries; }
     });
     saveScenes(chatId, store);
   }
@@ -4308,7 +4328,7 @@ async function routes(app) {
       const ids = new Set([...cards.map((c) => c.asOf?.scene), ...placeList.flatMap((p) => [p.firstSeen?.scene, p.lastSeen?.scene]), ...keepList.flatMap((k) => [k.gotAt?.scene, ...(k.history || []).map((h) => h.scene)])].filter(Boolean));
       const notes = notebook ? Nb.view(loadNotebook(chatId)) : {};
       for (const list of Object.values(notes)) for (const n of list) if (n.sceneId) ids.add(n.sceneId);
-      return { characterState, places, keepsakes, ...(notebook ? { notebook, notes } : {}), ...(featureOn(chatId, 'trackers') ? { trackers: trackersView(chatId) } : {}), cards, placeList, keepList, sceneTitles: Object.fromEntries([...ids].map((id) => [id, titles.get(id) || ''])) };
+      return { characterState, places, keepsakes, ...(notebook ? { notebook, notes, notebookLanguage: notebookLanguageSetting(chatId), notebookWriteLanguage: writeLanguage(chatId) } : {}), ...(featureOn(chatId, 'trackers') ? { trackers: trackersView(chatId) } : {}), cards, placeList, keepList, sceneTitles: Object.fromEntries([...ids].map((id) => [id, titles.get(id) || ''])) };
     });
   };
   /** Edit the file, work the scenes through it again and save, with no await in between (a scan cannot overwrite it). */
@@ -4384,6 +4404,18 @@ async function routes(app) {
     if (!settings().connection) throw Error('기억 정리 연결을 설정해 주세요.');
     rebuildNotebook(chatId, { all: !!req.body?.all });
     return { notebookJob: notebookJobStatus(chatId) };
+  }));
+  // 수첩 언어 for this room: write (the memory's language), character, ko, en, zh. New notes from now on.
+  app.post('/chats/:id/notebook/language', guard(async (req) => {
+    const chatId = safeChatId(req.params.id);
+    needFeature(chatId, 'notebook');
+    const lang = String(req.body?.language || '').trim();
+    if (!NOTEBOOK_LANGS.includes(lang)) throw Error('수첩 언어는 write, character, ko, en, zh 중 하나여야 합니다.');
+    const all = settings();
+    const own = { ...(all.chats?.[chatId] || {}) };
+    if (lang === 'write') delete own.notebookLanguage; else own.notebookLanguage = lang;
+    saveSettings({ ...all, chats: { ...(all.chats || {}), [chatId]: own } });
+    return worldView(chatId);
   }));
   app.post('/chats/:id/notebook', guard(async (req) => {
     const chatId = safeChatId(req.params.id);
@@ -4841,7 +4873,7 @@ function attach(app) {
   log('admin API ready at /api/memory-module');
 }
 
-module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { loadAddress, saveAddress, refreshAddress, presentPeople, Addr, loadState, saveState, loadPlaces, savePlaces, loadKeepsakes, saveKeepsakes, loadTrackers, saveTrackers, Tk, loadConflicts, saveConflicts, refreshConflicts, refreshWorld, Cf, Ks, organizeFor, sceneTokens, lastScenePeople, St, Pl, listRooms, purgeChatMemory, purgeIfGone, deleteOnSend, deletePrepare, listOrphans, deleteOrphans, goneChats, loadNames, saveNames, enqueue, foldScenes, reviewAttributions, loadAttributionLog, sceneJobs, selectedForView, loadSelected, recalls, windows, loadRecallPrefs, saveRecallPrefs, recallReport, recallCandidates, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, loadTranslations, saveTranslations, chatLangs, langRecords, loadLang, noteLanguage, LANG_REFRESH_EVERY, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, jobs, writeLanguage, roomWriteLanguage, memoryCallOptions, routineSetting, routineEnabled, attributionSetting, featureOn, featureSetting, F, B, clearRoomCaches, promptLanguage, translateDisplayLater, loadNotebook, saveNotebook, Nb, fixNoteLanguages, rebuildNotebook, notebookJobStatus, RESTORE_UNDO_DIR } };
+module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { loadAddress, saveAddress, refreshAddress, presentPeople, Addr, loadState, saveState, loadPlaces, savePlaces, loadKeepsakes, saveKeepsakes, loadTrackers, saveTrackers, Tk, loadConflicts, saveConflicts, refreshConflicts, refreshWorld, Cf, Ks, organizeFor, sceneTokens, lastScenePeople, St, Pl, listRooms, purgeChatMemory, purgeIfGone, deleteOnSend, deletePrepare, listOrphans, deleteOrphans, goneChats, loadNames, saveNames, enqueue, foldScenes, reviewAttributions, loadAttributionLog, sceneJobs, selectedForView, loadSelected, recalls, windows, loadRecallPrefs, saveRecallPrefs, recallReport, recallCandidates, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, loadTranslations, saveTranslations, chatLangs, langRecords, loadLang, noteLanguage, LANG_REFRESH_EVERY, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, jobs, writeLanguage, roomWriteLanguage, memoryCallOptions, routineSetting, routineEnabled, attributionSetting, featureOn, featureSetting, F, B, clearRoomCaches, promptLanguage, translateDisplayLater, loadNotebook, saveNotebook, Nb, fixNoteLanguages, rebuildNotebook, notebookJobStatus, notebookLanguageOf, notebookLanguageSetting, RESTORE_UNDO_DIR } };
 
 
 

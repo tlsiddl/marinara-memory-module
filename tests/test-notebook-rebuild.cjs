@@ -232,3 +232,48 @@ test('several calls at a time: at most three in flight, saved in story order, no
   assert.equal(failed.done, 2);
   rows.splice(rows.length - extra.length, extra.length);
 });
+
+test('수첩 언어: one language for everyone, or each one\'s own; the route saves it and the scene call follows it', async () => {
+  // The language map
+  assert.deepEqual(Nb.langsFor({ Viktor: ['Sit.'] }, ['Viktor', 'Sera'], 'en'), { Viktor: 'en', Sera: 'en' });
+  assert.deepEqual(Nb.langsFor({ Viktor: ['Sit.'], Sera: ['싫어.'] }, ['Viktor', 'Sera'], 'character'), { Viktor: 'en', Sera: 'ko' });
+  // The scene prompt and the notes it keeps
+  const slice = require('../memory-module/lib/ledger.cjs').prepareMessages([{ id: 'x1', number: 1, role: 'assistant', speaker: 'Narrator', content: 'Viktor | "앉아." 비가 왔다.' }]);
+  const store = { ...S.emptyStore(), cast: ['Viktor'] };
+  assert.match(S.buildScenePrompt(store, slice, 1, null, { notebook: true, notebookLang: 'en' })[0].content, /\[수첩 언어\] Viktor: English/);
+  assert.match(S.buildScenePrompt(store, slice, 1, null, { notebook: true })[0].content, /\[수첩 언어\] Viktor: 한국어/);
+  const result = { scenes: [{ end: 1, time: 't', place: 'p', title: 't', summary: 's', present: ['Viktor'], events: [{ text: 'e', quotes: [] }], recollections: [], facts: [], notebook: [{ who: 'Viktor', kind: 'heart', when: '비가 올 때', text: '비 오는 날엔 창문을 닫아 두기로 함.', evidence: ['1.2'] }] }] };
+  assert.equal(S.applyScenes(store, result, slice, 1, undefined, { notebook: true, notebookLang: 'en' }).scenes[0].charNotes[0].wantLang, 'en', 'a Korean note in an English notebook is rewritten');
+  // The setting: the memory's language by default
+  const lang = 'nblang1';
+  X.saveSettings({ ...X.settings(), writeLanguage: 'en', chats: { ...X.settings().chats, [lang]: { enabled: true, features: { notebook: 'on' } } } });
+  assert.equal(X.notebookLanguageSetting(lang), 'write');
+  assert.equal(X.notebookLanguageOf(lang), 'en');
+  const handlers = {};
+  const app = { register(fn) { fn(app); }, addHook() {}, get(p, f) { handlers['GET ' + p] = f; }, post(p, f) { handlers['POST ' + p] = f; }, patch(p, f) { handlers['PATCH ' + p] = f; }, delete(p, f) { handlers['DELETE ' + p] = f; } };
+  service.attach(app);
+  const reply = { status() { return { send(x) { return x; } }; } };
+  const view = await handlers['POST /chats/:id/notebook/language']({ params: { id: lang }, body: { language: 'character' } }, reply);
+  assert.equal(view.notebookLanguage, 'character');
+  assert.equal(X.notebookLanguageOf(lang), 'character');
+  await handlers['POST /chats/:id/notebook/language']({ params: { id: lang }, body: { language: 'write' } }, reply);
+  assert.equal(X.settings().chats[lang].notebookLanguage, undefined);
+  X.saveSettings({ ...X.settings(), writeLanguage: undefined });
+});
+
+test('a note that points at someone without a name ("그 애", "저 녀석") is rewritten with the name', async () => {
+  const opts = { cast: ['Viktor', 'Sera'], person: (n) => n };
+  assert.equal(Nb.cleanNote({ who: 'Viktor', kind: 'about', about: 'Sera', when: '부두에서', text: '그 애는 비가 오면 꼭 우산을 잊음.' }, opts).vague, true);
+  assert.equal(Nb.cleanNote({ who: 'Viktor', kind: 'about', about: 'Sera', when: '부두에서', text: '세라는 비가 오면 꼭 우산을 잊음. 애정이 가는 버릇임.' }, opts).vague, undefined);
+  const vroom = 'nbvague1';
+  X.saveSettings({ ...X.settings(), connection: 'conn', chats: { ...X.settings().chats, [vroom]: { enabled: true, features: { notebook: 'on' } } } });
+  const store = { ...S.emptyStore(), cast: ['Viktor', 'Sera'], scenes: [scene('S1', 1, 2, { charNotes: [{ who: 'Viktor', kind: 'about', about: 'Sera', when: '부두에서 비가 올 때', text: '그 애는 비가 오면 꼭 우산을 잊음.', vague: true, evidence: [] }] })] };
+  let asked = null;
+  answer = (messages) => { asked = JSON.parse(messages[1].content); return { lines: [{ when: '부두에서 비가 올 때', text: '세라는 비가 오면 꼭 우산을 잊음.' }] }; };
+  await X.fixNoteLanguages(vroom, store, null);
+  assert.deepEqual(asked.people, ['Viktor', 'Sera']);
+  assert.equal(asked.notes[0].about, 'Sera');
+  assert.equal(asked.notes[0].lang, 'ko', 'asked in its own language');
+  assert.equal(store.scenes[0].charNotes[0].text, '세라는 비가 오면 꼭 우산을 잊음.');
+  assert.equal('vague' in store.scenes[0].charNotes[0], false);
+});

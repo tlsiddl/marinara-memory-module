@@ -47,9 +47,10 @@ test('voice: the Korean in brackets for a line written with its translation, els
   assert.doesNotMatch(Nb.PROMPT, /\[말투 참고\]/);
   assert.match(Nb.PROMPT, /인물마다 0~1개이고, 대부분의 장면은 0개/);
   assert.match(Nb.PROMPT, /적지 마: 외모·옷차림·몸 묘사/);
-  assert.match(Nb.PROMPT, /수첩 주인 자신은 이름으로 부르지 말고/);
+  assert.match(Nb.PROMPT, /수첩 주인 자신만은 이름으로 부르지 말고/);
   assert.equal(Nb.PER_PERSON_SCENE, 1);
-  assert.match(Nb.PROMPT, /영어로만 말하는 인물은 영어/);
+  assert.match(Nb.PROMPT, /가리키기만 하는 말은 쓰지 마/);
+  assert.ok(Nb.PROMPT.includes('언어: 아래 [수첩 언어]'));
 });
 
 test('a note: a story person (never the user\'s own), in the character\'s language, a known kind; about oneself is a feeling', () => {
@@ -81,7 +82,7 @@ test('the scene call asks for notes (with the voice lines) only when on, and kee
   assert.equal(apply({}).charNotes, undefined);
   assert.deepEqual(apply({ notebook: true }).charNotes, [{ who: '빅터', kind: 'about', about: '세라', when: '부엌에서 세라가 체리를 먹을 때', text: '세라는 단 걸 싫다면서 체리는 잘만 먹는다.', evidence: [{ number: 1, sentence: 1 }] }]);
   assert.match(prompt(true), /when\(상황\)[^]*이름을 넣어/);
-  assert.match(prompt(true), /"저 애", "그 여자"/);
+  assert.match(prompt(true), /"그 애", "이 애", "저 녀석"/);
 });
 
 test('checks in code (from the audit): the language set per character, no near-copies of the story, no repeats, evidence re-pointed', () => {
@@ -234,7 +235,7 @@ test('the library: a notebook section per person, and the buttons are wired', ()
   const source = fs.readFileSync(path.join(__dirname, '../extension/runtime.js'), 'utf8').replace(/\r\n/g, '\n');
   const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
   const start = source.indexOf('  function notebookPaper(');
-  const fn = vm.runInNewContext(`(${source.slice(start, source.indexOf('\n  }\n', start) + 4).trim()})`, { esc, openLists: new Set(), notebookRebuildPaper: () => 'REBUILD', ...require('./ui-shared.cjs')(source, esc) });
+  const fn = vm.runInNewContext(`(${source.slice(start, source.indexOf('\n  }\n', start) + 4).trim()})`, { esc, openLists: new Set(), notebookRebuildPaper: () => 'REBUILD', notebookLanguagePaper: () => '', ...require('./ui-shared.cjs')(source, esc) });
   const html = fn({ notebook: true, notes: { 빅터: [{ id: 'n1', who: '빅터', kind: 'about', about: '세라', text: '체리를 좋아한다.', star: true, sceneId: 'S1' }] }, sceneTitles: { S1: '체리' } }, '');
   assert.match(html, /^REBUILD/, 'the 수첩만 다시 받기 box comes first');
   assert.match(html, /인물의 수첩 · 1명/);
@@ -305,4 +306,17 @@ test('the library reloads the Korean when new lines were made in the background,
   const source = fs.readFileSync(path.join(__dirname, '../extension/runtime.js'), 'utf8');
   assert.ok(source.includes('polledInfo.translationStamp !== trStamp'));
   assert.ok(source.includes("info?.displayTranslating || "));
+});
+
+test('the library: 수첩 언어 picker shows the choices and what the default follows now', () => {
+  const source = fs.readFileSync(path.join(__dirname, '../extension/runtime.js'), 'utf8').replace(/\r\n/g, '\n');
+  const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+  const start = source.indexOf('  function notebookLanguagePaper(');
+  const fn = vm.runInNewContext(`(${source.slice(start, source.indexOf('\n  }\n', start) + 4).trim()})`, { esc });
+  const html = fn({ notebookLanguage: 'en', notebookWriteLanguage: 'en' });
+  assert.match(html, /id="setNoteLang"/);
+  assert.match(html, /기억 정리 언어 따라감 \(지금: 영어\)/);
+  assert.match(html, /<option value="en" selected>/);
+  assert.match(html, /인물이 말하는 언어/);
+  assert.ok(source.includes("e.target.id === 'setNoteLang'"));
 });
