@@ -45,6 +45,10 @@ test('voice: the Korean in brackets for a line written with its translation, els
   assert.equal(Nb.voiceBlock({}), '');
   assert.match(Nb.PROMPT, /담담한 메모체[^]*흉내 내지 말고/);
   assert.doesNotMatch(Nb.PROMPT, /\[말투 참고\]/);
+  assert.match(Nb.PROMPT, /인물마다 0~1개이고, 대부분의 장면은 0개/);
+  assert.match(Nb.PROMPT, /적지 마: 외모·옷차림·몸 묘사/);
+  assert.match(Nb.PROMPT, /수첩 주인 자신은 이름으로 부르지 말고/);
+  assert.equal(Nb.PER_PERSON_SCENE, 1);
   assert.match(Nb.PROMPT, /영어로만 말하는 인물은 영어/);
 });
 
@@ -106,9 +110,15 @@ test('checks in code (from the audit): the language set per character, no near-c
     { who: 'Viktor', kind: 'about', about: 'Sera', when: '세라가 부두에서 토라졌을 때', text: 'Tell her no once and she takes it as a dare.', evidence: ['1.2'] },
   ]), en, 1, undefined, { notebook: true, notebookStats: stats }).scenes[0].charNotes;
   // The near-copy is dropped; the Korean note of an English speaker is kept, marked to be rewritten into English.
+  // One note per person per scene: the next one for the same person is not kept.
+  assert.deepEqual(kept.map((n) => [n.text, n.wantLang || null]), [['저 여자는 못 말린다.', 'en']]);
+  assert.deepEqual(stats, { written: 3, copied: 1, keptWrongLanguage: 1, tooMany: 1 });
   // A situation line in the wrong language marks the note too.
-  assert.deepEqual(kept.map((n) => [n.text, n.wantLang || null]), [['저 여자는 못 말린다.', 'en'], ['Tell her no once and she takes it as a dare.', 'en']]);
-  assert.deepEqual(stats, { written: 3, copied: 1, keptWrongLanguage: 2 });
+  assert.equal(Nb.cleanNote({ who: 'Viktor', kind: 'heart', when: '세라가 부두에서 토라졌을 때', text: 'Tell her no once and she takes it as a dare.' }, { cast: ['Viktor', 'Sera'], person: (n) => n, langs: { Viktor: 'en' } }).wantLang, 'en');
+  // What the model writes is kept short: a long note is cut at a sentence end, a long situation line is clipped.
+  const long = Nb.cleanNote({ who: 'Viktor', kind: 'heart', when: 'W'.repeat(90), text: `${'Sera never says sorry, she just brings coffee. '.repeat(2)}And then a third sentence that goes on.` }, { cast: ['Viktor'], person: (n) => n });
+  assert.equal(long.text, 'Sera never says sorry, she just brings coffee. Sera never says sorry, she just brings coffee.');
+  assert.equal(long.when.length, Nb.WHEN_LEN);
   // Evidence pointed at an unrelated line is moved to the sentence that fits the note.
   const moved = S.applyScenes(enStore, enResult([{ who: 'Viktor', kind: 'about', about: 'Sera', when: 'When Sera sulked on the pier', text: 'Sera would wreck a whole port over one small itch.', evidence: ['1.2'] }]), en, 1, undefined, { notebook: true }).scenes[0].charNotes;
   assert.deepEqual(moved[0].evidence, [{ number: 1, sentence: 1 }]);
