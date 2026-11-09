@@ -2780,9 +2780,8 @@ async function fixNoteLanguages(chatId, store, job) {
     let lines = null;
     try {
       model ||= await translateModel();
-      const voice = Nb.voiceFromScenes(store, [...new Set(part.map((n) => n.who))]);
       calls++;
-      lines = Nb.readNoteLanguage(L.parseJsonObject(await askModel(model, Nb.buildNoteLanguagePrompt(part, { voice, names: roomKoreanNames(chatId) }), { maxTokens: 3000 })), part);
+      lines = Nb.readNoteLanguage(L.parseJsonObject(await askModel(model, Nb.buildNoteLanguagePrompt(part, { names: roomKoreanNames(chatId) }), { maxTokens: 3000 })), part);
       if (!lines) log(`chat ${chatId}: notebook language rewrite answer did not line up (${part.length} note(s))`);
     } catch (error) {
       log(`chat ${chatId}: notebook language rewrite failed (${error?.message || error})`);

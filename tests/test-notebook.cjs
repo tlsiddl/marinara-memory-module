@@ -40,10 +40,11 @@ test('voice: the Korean in brackets for a line written with its translation, els
   assert.deepEqual(Nb.voiceSamples(messages, ['Viktor', 'Sera', 'Marco', 'Mina'], { personas: ['Mina'] }), { Viktor: ['Come here, you.', 'Sit down.'], Sera: ['나 좀 내버려 둬.'], Marco: ['싫어.'] });
   const block = Nb.voiceBlock({ Viktor: ['Sit down.'], Sera: ['나 좀 내버려 둬.'] }, { Viktor: ['She hates the dark.'] });
   assert.match(block, /\[수첩 언어\] Viktor: English · Sera: 한국어/);
-  assert.match(block, /\[말투 참고\][^]*Viktor: "Sit down\."/);
+  assert.doesNotMatch(block, /말투 참고|Sit down/, 'the lines decide the language only; the voice is not copied');
   assert.match(block, /\[이미 적은 수첩\][^]*Viktor: She hates the dark\./);
   assert.equal(Nb.voiceBlock({}), '');
-  assert.match(Nb.PROMPT, /괄호 안 한국어 말투/);
+  assert.match(Nb.PROMPT, /담담한 메모체[^]*흉내 내지 말고/);
+  assert.doesNotMatch(Nb.PROMPT, /\[말투 참고\]/);
   assert.match(Nb.PROMPT, /영어로만 말하는 인물은 영어/);
 });
 
@@ -62,7 +63,8 @@ test('the scene call asks for notes (with the voice lines) only when on, and kee
   const store = { ...S.emptyStore(), cast: ['빅터', '세라'] };
   const prompt = (on) => S.buildScenePrompt(store, slice, 1, null, { notebook: on })[0].content;
   assert.match(prompt(true), /인물의 수첩/);
-  assert.match(prompt(true), /\[말투 참고\][^]*빅터: "또 먹어\?"/);
+  assert.match(prompt(true), /\[수첩 언어\] 빅터/);
+  assert.doesNotMatch(prompt(true), /\[말투 참고\]/);
   assert.doesNotMatch(prompt(false), /인물의 수첩/);
   const notebook = [
     { who: '빅터', kind: 'about', about: '세라', when: '부엌에서 세라가 체리를 먹을 때', text: '세라는 단 걸 싫다면서 체리는 잘만 먹는다.', evidence: ['1.1'] },
@@ -265,11 +267,11 @@ test('the situation line (상황): goes into the reply before the note, can be r
   assert.equal(Nb.PER_PERSON_KEPT, 80);
 });
 
-test('a note in the wrong language is rewritten (in the character\'s voice), and kept as it is when that fails', async () => {
+test('a note in the wrong language is rewritten (a plain memo from the character\'s view), and kept as it is when that fails', async () => {
   const notes = [{ who: '빅터', when: 'When the lights went out', text: 'She hates the dark.', wantLang: 'ko' }, { who: '빅터', text: 'I will not be late again.', wantLang: 'ko' }];
-  const [system, user] = Nb.buildNoteLanguagePrompt(notes, { voice: { 빅터: ['앉아.'], 세라: ['싫어.'] }, names: [{ from: 'Sera', to: '세라' }] });
-  assert.match(system.content, /same character's own words/);
-  assert.deepEqual(JSON.parse(user.content), { voice: { 빅터: ['앉아.'] }, notes: [{ who: '빅터', lang: 'ko', when: 'When the lights went out', text: 'She hates the dark.' }, { who: '빅터', lang: 'ko', text: 'I will not be late again.' }] });
+  const [system, user] = Nb.buildNoteLanguagePrompt(notes, { names: [{ from: 'Sera', to: '세라' }] });
+  assert.match(system.content, /point of view[^]*no imitation of their way of talking/);
+  assert.deepEqual(JSON.parse(user.content), { notes: [{ who: '빅터', lang: 'ko', when: 'When the lights went out', text: 'She hates the dark.' }, { who: '빅터', lang: 'ko', text: 'I will not be late again.' }] });
   assert.deepEqual(Nb.readNoteLanguage({ lines: [{ when: '정전으로 불이 꺼졌을 때', text: '걔는 어둠을 질색하지.' }, 'Still English.'] }, notes), [{ when: '정전으로 불이 꺼졌을 때', text: '걔는 어둠을 질색하지.' }, null], 'a line still in the wrong language is not taken');
   assert.deepEqual(Nb.readNoteLanguage({ lines: ['걔는 어둠을 질색하지.', '다시는 안 늦어.'] }, notes), [{ text: '걔는 어둠을 질색하지.' }, { text: '다시는 안 늦어.' }], 'a plain string is the note alone');
   assert.equal(Nb.readNoteLanguage({ lines: ['하나만'] }, notes), null);
