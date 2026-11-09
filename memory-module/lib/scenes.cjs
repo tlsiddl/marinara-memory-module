@@ -716,6 +716,7 @@ function sceneCharNotesOf(raw, { cast, personas, index, inScene, langs = null, p
     count('written');
     const cleaned = Nb.cleanNote(item, { cast, personas, person, langs });
     if (!cleaned) { count('notAllowed'); continue; }
+    if (!cleaned.when) { count('noContext'); continue; }
     if (out.filter((n) => n.who === cleaned.who).length >= Nb.PER_PERSON_SCENE) { count('tooMany'); continue; }
     if ([...earlier(cleaned.who), ...out.filter((n) => n.who === cleaned.who).map((n) => n.text)].some((t) => Nb.sameNote(t, cleaned.text))) { count('repeat'); continue; }
     // A sentence of the story with little changed is not the character's own note.

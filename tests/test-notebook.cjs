@@ -65,13 +65,17 @@ test('the scene call asks for notes (with the voice lines) only when on, and kee
   assert.match(prompt(true), /\[말투 참고\][^]*빅터: "또 먹어\?"/);
   assert.doesNotMatch(prompt(false), /인물의 수첩/);
   const notebook = [
-    { who: '빅터', kind: 'about', about: '세라', text: '세라는 단 걸 싫다면서 체리는 잘만 먹는다.', evidence: ['1.1'] },
-    { who: '빅터', kind: 'heart', text: '근거 없는 메모.', evidence: ['9.9'] },
+    { who: '빅터', kind: 'about', about: '세라', when: '부엌에서 세라가 체리를 먹을 때', text: '세라는 단 걸 싫다면서 체리는 잘만 먹는다.', evidence: ['1.1'] },
+    { who: '빅터', kind: 'heart', when: '부엌에서 세라가 체리를 먹을 때', text: '근거 없는 메모.', evidence: ['9.9'] },
+    // No situation line: it would mean nothing read alone, so it is not kept.
+    { who: '빅터', kind: 'heart', text: '세라는 또 체리를 먹었다.', evidence: ['1.1'] },
   ];
   const result = { scenes: [{ end: 1, time: '25-03-02', place: '부엌', title: '체리', summary: '요약', present: ['빅터', '세라'], events: [{ text: '봤다', quotes: [] }], recollections: [], facts: [], notebook }] };
   const apply = (opts) => S.applyScenes({ ...store }, result, slice, 1, undefined, opts).scenes[0];
   assert.equal(apply({}).charNotes, undefined);
-  assert.deepEqual(apply({ notebook: true }).charNotes, [{ who: '빅터', kind: 'about', about: '세라', text: '세라는 단 걸 싫다면서 체리는 잘만 먹는다.', evidence: [{ number: 1, sentence: 1 }] }]);
+  assert.deepEqual(apply({ notebook: true }).charNotes, [{ who: '빅터', kind: 'about', about: '세라', when: '부엌에서 세라가 체리를 먹을 때', text: '세라는 단 걸 싫다면서 체리는 잘만 먹는다.', evidence: [{ number: 1, sentence: 1 }] }]);
+  assert.match(prompt(true), /when\(상황\)[^]*이름을 넣어/);
+  assert.match(prompt(true), /"저 애", "그 여자"/);
 });
 
 test('checks in code (from the audit): the language set per character, no near-copies of the story, no repeats, evidence re-pointed', () => {
@@ -81,9 +85,9 @@ test('checks in code (from the audit): the language set per character, no near-c
   ]);
   const store = { ...S.emptyStore(), cast: ['빅터', '세라'], scenes: [{ id: 'S1', start: 0, end: 0, title: 'x', summary: 'y', events: [], recollections: [], present: ['빅터'], charNotes: [{ who: '빅터', kind: 'heart', text: '바다가 내 말보다 그녀 기분을 먼저 따른다.', evidence: [] }] }] };
   const notebook = [
-    { who: '빅터', kind: 'heart', text: 'She would tear the port down for one itch.', evidence: ['1.1'] },
-    { who: '빅터', kind: 'heart', text: '바다가 내 말보다 그녀 기분을 먼저 따르는구나.', evidence: ['1.1'] },
-    { who: '빅터', kind: 'about', about: '세라', text: '세라는 가려운 걸 못 참으면 항구를 통째로 뒤엎을 애다.', evidence: ['1.3'] },
+    { who: '빅터', kind: 'heart', when: '부두에서 빅터가 세라를 앉혔을 때', text: 'She would tear the port down for one itch.', evidence: ['1.1'] },
+    { who: '빅터', kind: 'heart', when: '부두에서 빅터가 세라를 앉혔을 때', text: '바다가 내 말보다 그녀 기분을 먼저 따르는구나.', evidence: ['1.1'] },
+    { who: '빅터', kind: 'about', about: '세라', when: '부두에서 빅터가 세라를 앉혔을 때', text: '세라는 가려운 걸 못 참으면 항구를 통째로 뒤엎을 애다.', evidence: ['1.3'] },
   ];
   const result = { scenes: [{ end: 1, time: '25-03-02', place: '부두', title: '부두', summary: '요약', present: ['빅터', '세라'], events: [{ text: '앉혔다', quotes: [] }], recollections: [], facts: [], notebook }] };
   const notes = S.applyScenes(store, result, slice, 1, undefined, { notebook: true }).scenes[0].charNotes;
@@ -95,15 +99,16 @@ test('checks in code (from the audit): the language set per character, no near-c
   const enStore = { ...S.emptyStore(), cast: ['Viktor', 'Sera'] };
   const stats = {};
   const kept = S.applyScenes(enStore, enResult([
-    { who: 'Viktor', kind: 'heart', text: 'Deny her an itch and she will tear the whole port down to scratch it.', evidence: ['1.1'] },
-    { who: 'Viktor', kind: 'heart', text: '저 여자는 못 말린다.', evidence: ['1.1'] },
-    { who: 'Viktor', kind: 'about', about: 'Sera', text: 'Tell her no once and she takes it as a dare.', evidence: ['1.2'] },
+    { who: 'Viktor', kind: 'heart', when: 'When Sera sulked on the pier', text: 'Deny her an itch and she will tear the whole port down to scratch it.', evidence: ['1.1'] },
+    { who: 'Viktor', kind: 'heart', when: 'When Sera sulked on the pier', text: '저 여자는 못 말린다.', evidence: ['1.1'] },
+    { who: 'Viktor', kind: 'about', about: 'Sera', when: '세라가 부두에서 토라졌을 때', text: 'Tell her no once and she takes it as a dare.', evidence: ['1.2'] },
   ]), en, 1, undefined, { notebook: true, notebookStats: stats }).scenes[0].charNotes;
   // The near-copy is dropped; the Korean note of an English speaker is kept, marked to be rewritten into English.
-  assert.deepEqual(kept.map((n) => [n.text, n.wantLang || null]), [['저 여자는 못 말린다.', 'en'], ['Tell her no once and she takes it as a dare.', null]]);
-  assert.deepEqual(stats, { written: 3, copied: 1, keptWrongLanguage: 1, kept: 1 });
+  // A situation line in the wrong language marks the note too.
+  assert.deepEqual(kept.map((n) => [n.text, n.wantLang || null]), [['저 여자는 못 말린다.', 'en'], ['Tell her no once and she takes it as a dare.', 'en']]);
+  assert.deepEqual(stats, { written: 3, copied: 1, keptWrongLanguage: 2 });
   // Evidence pointed at an unrelated line is moved to the sentence that fits the note.
-  const moved = S.applyScenes(enStore, enResult([{ who: 'Viktor', kind: 'about', about: 'Sera', text: 'Sera would wreck a whole port over one small itch.', evidence: ['1.2'] }]), en, 1, undefined, { notebook: true }).scenes[0].charNotes;
+  const moved = S.applyScenes(enStore, enResult([{ who: 'Viktor', kind: 'about', about: 'Sera', when: 'When Sera sulked on the pier', text: 'Sera would wreck a whole port over one small itch.', evidence: ['1.2'] }]), en, 1, undefined, { notebook: true }).scenes[0].charNotes;
   assert.deepEqual(moved[0].evidence, [{ number: 1, sentence: 1 }]);
   // Repeats in English are caught by words.
   assert.ok(Nb.sameNote('The sea waits on her mood now, not mine.', 'My sea answers her mood before it answers me.'));
@@ -243,23 +248,44 @@ test('the notebook has a tab of its own (with the 인물·장소 data), and an o
   assert.match(view({ notebook: false }), /인물의 수첩<\/b>이 꺼져 있습니다/);
 });
 
+test('the situation line (상황): goes into the reply before the note, can be reworded, is searched and translated with it', () => {
+  const store = { scenes: [{ id: 'S1', end: 3, charNotes: [{ who: '빅터', kind: 'heart', when: '세라가 우산을 두고 갔을 때', text: '다음엔 내가 챙겨야지.', evidence: [] }] }] };
+  let file = Nb.fold(store, null);
+  const id = file.notes[0].id;
+  assert.equal(file.notes[0].when, '세라가 우산을 두고 갔을 때');
+  assert.match(Nb.injectionBlock(file, ['빅터']), /빅터: \(세라가 우산을 두고 갔을 때\) 다음엔 내가 챙겨야지\./);
+  file = Nb.fold(store, Nb.editNote(file, id, '', undefined, '비 오는 날 세라가 우산을 두고 갔을 때'));
+  assert.equal(file.notes[0].when, '비 오는 날 세라가 우산을 두고 갔을 때', 'the user\'s wording of it stays');
+  assert.equal(file.notes[0].text, '다음엔 내가 챙겨야지.');
+  file = Nb.fold(store, Nb.editNote(file, id, '', undefined, ''));
+  assert.equal(file.notes[0].when, '세라가 우산을 두고 갔을 때', 'empty puts it back');
+  assert.match(require('../memory-module/lib/vectors.cjs').noteDocs(file.notes)[0].text, /^빅터: \(세라가 우산을 두고 갔을 때\) 다음엔/);
+  const texts = T.displayTexts({ scenes: [] }, { threads: [] }, { world: { notes: [{ when: 'When Sera left her umbrella', text: 'Next time I bring it.' }] } });
+  assert.ok(texts.includes('When Sera left her umbrella') && texts.includes('Next time I bring it.'));
+  assert.equal(Nb.PER_PERSON_KEPT, 80);
+});
+
 test('a note in the wrong language is rewritten (in the character\'s voice), and kept as it is when that fails', async () => {
-  const notes = [{ who: '빅터', text: 'She hates the dark.', wantLang: 'ko' }, { who: '빅터', text: 'I will not be late again.', wantLang: 'ko' }];
+  const notes = [{ who: '빅터', when: 'When the lights went out', text: 'She hates the dark.', wantLang: 'ko' }, { who: '빅터', text: 'I will not be late again.', wantLang: 'ko' }];
   const [system, user] = Nb.buildNoteLanguagePrompt(notes, { voice: { 빅터: ['앉아.'], 세라: ['싫어.'] }, names: [{ from: 'Sera', to: '세라' }] });
   assert.match(system.content, /same character's own words/);
-  assert.deepEqual(JSON.parse(user.content), { voice: { 빅터: ['앉아.'] }, notes: [{ who: '빅터', lang: 'ko', text: 'She hates the dark.' }, { who: '빅터', lang: 'ko', text: 'I will not be late again.' }] });
-  assert.deepEqual(Nb.readNoteLanguage({ lines: ['걔는 어둠을 질색하지.', 'Still English.'] }, notes), ['걔는 어둠을 질색하지.', null], 'a line still in the wrong language is not taken');
+  assert.deepEqual(JSON.parse(user.content), { voice: { 빅터: ['앉아.'] }, notes: [{ who: '빅터', lang: 'ko', when: 'When the lights went out', text: 'She hates the dark.' }, { who: '빅터', lang: 'ko', text: 'I will not be late again.' }] });
+  assert.deepEqual(Nb.readNoteLanguage({ lines: [{ when: '정전으로 불이 꺼졌을 때', text: '걔는 어둠을 질색하지.' }, 'Still English.'] }, notes), [{ when: '정전으로 불이 꺼졌을 때', text: '걔는 어둠을 질색하지.' }, null], 'a line still in the wrong language is not taken');
+  assert.deepEqual(Nb.readNoteLanguage({ lines: ['걔는 어둠을 질색하지.', '다시는 안 늦어.'] }, notes), [{ text: '걔는 어둠을 질색하지.' }, { text: '다시는 안 늦어.' }], 'a plain string is the note alone');
   assert.equal(Nb.readNoteLanguage({ lines: ['하나만'] }, notes), null);
   const store = { scenes: [{ events: [{ quotes: [{ by: '빅터', text: '"Sit."', translation: '앉아.' }, { by: '세라', text: '"싫어."' }] }] }] };
   assert.deepEqual(Nb.voiceFromScenes(store, ['빅터', '세라']), { 빅터: ['앉아.'], 세라: ['싫어.'] });
-  // The service: no connection set, so the rewrite fails; the note stays as written and is not asked again.
+  // The service: no connection set, so the rewrite fails; asked once more on the next run, then left as written.
   const room = 'nb-lang';
   const scenes = { ...S.emptyStore(), cast: ['빅터'], scenes: [{ id: 'S1', start: 1, end: 1, title: 't', summary: 's', events: [], recollections: [], present: ['빅터'], charNotes: [{ who: '빅터', kind: 'heart', text: 'She hates the dark.', wantLang: 'ko', evidence: [{ number: 1, sentence: 1 }] }] }] };
   X.saveSettings({ ...X.settings(), connection: null, translateConnection: null });
   const job = {};
-  assert.equal(await X.fixNoteLanguages(room, scenes, job), 1);
+  assert.equal(await X.fixNoteLanguages(room, scenes, job), 0, 'no model: no call made');
+  assert.equal(scenes.scenes[0].charNotes[0].wantLang, 'ko', 'tried again next time');
+  await X.fixNoteLanguages(room, scenes, job);
   assert.equal(scenes.scenes[0].charNotes[0].text, 'She hates the dark.');
   assert.equal('wantLang' in scenes.scenes[0].charNotes[0], false);
+  assert.equal('langTries' in scenes.scenes[0].charNotes[0], false);
   assert.equal(await X.fixNoteLanguages(room, scenes, job), 0, 'nothing left to rewrite');
 });
 
