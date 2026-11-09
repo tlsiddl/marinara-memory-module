@@ -13,6 +13,7 @@
     ['search', '검색', 'search'],
     ['facts', '알게 된 사실', 'person'],
     ['ledger', '아직 끝나지 않은 일', 'note'],
+    ['promises', '약속', 'clock'],
     ['life', '최근 생활', 'clock'],
     ['world', '인물·장소', 'folder'],
     ['names', '이름 정리', 'person'],
@@ -36,9 +37,9 @@
   let storeRoom = '';
   let roomLoadSequence = 0;
   // Tabs that show scenes, facts or links into them (the open-items tab links each item to its scenes).
-  const needsScenes = () => ['scenes', 'search', 'facts', 'ledger'].includes(tab);
+  const needsScenes = () => ['scenes', 'search', 'facts', 'ledger', 'promises'].includes(tab);
   // The open items carry their evidence quotes (most of the room data): fetched with the scenes, only for the tabs that list them.
-  const needsThreads = () => ['scenes', 'search', 'ledger'].includes(tab);
+  const needsThreads = () => ['scenes', 'search', 'ledger', 'promises'].includes(tab);
   let threadsData = null;
   let threadsRoom = '';
   let threadsKey = '';
@@ -989,6 +990,37 @@
       ${closed.length ? `<details class="paper"><summary>닫힌 항목 ${closed.length}개</summary>${closed.map(threadRow).join('')}</details>` : ''}`;
   }
 
+  /**
+   * 약속: every promise of the room in one place, apart from the other open items. Kept ones and broken or called-off
+   * ones stay listed under "끝난 약속" with how they ended, so a promise is not lost once it leaves the memory.
+   * Rows are the usual item rows (edit, 중요/빼기, close, reopen).
+   */
+  function viewPromises() {
+    if (!info) return emptyRoom();
+    const promises = threadList().filter((t) => t.kind === 'promise' && !t.mergedInto);
+    const state = new Map((info.deadlines || []).map((d) => [d.id, d]));
+    const dueOf = (t) => t.due?.date || t.period?.to || '';
+    const open = promises.filter((t) => t.status === 'open');
+    const overdue = open.filter((t) => state.get(t.id)?.state === 'overdue').sort((a, b) => dueOf(a).localeCompare(dueOf(b)));
+    const ahead = open.filter((t) => !overdue.includes(t)).sort((a, b) => (dueOf(a) ? 0 : 1) - (dueOf(b) ? 0 : 1) || dueOf(a).localeCompare(dueOf(b)) || (b.latest?.number ?? b.openedAt?.number ?? 0) - (a.latest?.number ?? a.openedAt?.number ?? 0));
+    const ended = promises.filter((t) => t.status !== 'open').sort((a, b) => (b.closed?.at?.number ?? 0) - (a.closed?.at?.number ?? 0));
+    const pinned = new Set(info.recallPrefs?.pinned || []);
+    const badge = (t) => {
+      const d = state.get(t.id);
+      if (!d) return '';
+      const text = d.state === 'overdue' ? `${Math.abs(d.days)}일 지남` : d.state === 'today' ? '오늘' : d.state === 'ahead' ? `D-${d.days}` : d.state === 'shelved' ? '기한 지나고 한동안 말 없음' : '';
+      return text ? `<span class="pill ${d.state === 'overdue' ? '' : 'neutral'}">${esc(text)}</span>` : '';
+    };
+    const row = (t) => `<div class="promise-row">${badge(t)}${pinned.has(t.id) ? '<span class="pill">중요</span>' : ''}${threadRow(t)}</div>`;
+    const section = (title, list, hint = '') => (list.length ? `<div class="paper"><h2>${title} · ${list.length}</h2>${hint ? `<p class="hint">${hint}</p>` : ''}${list.map(row).join('')}</div>` : '');
+    return `<div class="eyebrow">PROMISES · ${open.length} OPEN</div><h1>약속</h1>
+      <p class="intro">이 방의 약속만 모아 봅니다. 지켜야 할 약속은 기한이 가까운 것부터, 끝난 약속은 어떻게 끝났는지와 함께 남습니다. 항목을 누르면 고치거나 닫고 다시 열 수 있고, <b>중요</b>를 눌러 두면 기억 칸이 모자라도 늘 먼저 들어갑니다. 답변에 넣는 기억 칸에서도 약속은 감정·상태보다 먼저 들어갑니다.</p>
+      ${open.length || ended.length ? '' : '<div class="empty">아직 약속이 없습니다. 정리가 끝나면 이야기 속 약속이 여기에 모입니다.</div>'}
+      ${section('기한 지난 약속', overdue, '작중 날짜로 기한이 지났지만 아직 지켰다는 말이 없는 약속입니다. 지켰거나 깨졌으면 닫아 주세요.')}
+      ${section('지켜야 할 약속', ahead)}
+      ${ended.length ? `<details class="paper" data-list="promises-ended" ${openLists.has('promises-ended') ? 'open' : ''}><summary>끝난 약속 ${ended.length}개 (지킨 것·깨진 것·취소된 것)</summary>${ended.map(row).join('')}</details>` : ''}`;
+  }
+
   function viewLife() {
     if (!info) return emptyRoom();
     return `<div class="eyebrow">DAILY LIFE</div><h1>최근 생활</h1>
@@ -1682,7 +1714,7 @@
     return `<details data-list="attrlog"${attributionFilter || openLists.has('attrlog') ? ' open' : ''}><summary>대사 확인 기록 (${count}회${live ? ' · 진행 중' : ''}) · 확인 방식: ${esc(attributionModeLabel(info.attributionCheck?.mode))}</summary><p class="hint">화자·상대 판단과 저장 결과입니다. 서버에 방마다 최근 5회까지 남고, 정리가 끝나거나 서버를 다시 켜도 유지됩니다. 바뀌었거나 다시 물었거나 받아들이지 않은 대사는 모두 남고, 문제없이 그대로인 대사는 장면별 개수로만 보입니다. 대사 원문과 근거 문구는 기록하지 않습니다.</p>${wait}<label>대사 번호로 찾기<input id="attributionFilter" value="${esc(attributionFilter)}" placeholder="예: #1.24" autocomplete="off"></label>${live ? `<details open><summary>진행 중 (${live.length}${esc(tally(sj.attributionProgress))})</summary>${live.map(attributionEntryHtml).join('')}</details>` : ''}${runs.map(run).join('')}</details>`;
   }
 
-  const VIEWS = { home: viewHome, scenes: viewScenes, search: viewSearch, facts: viewFacts, ledger: viewLedger, life: viewLife, world: viewWorld, names: viewNames, inject: viewInject, settings: viewSettings };
+  const VIEWS = { home: viewHome, scenes: viewScenes, search: viewSearch, facts: viewFacts, ledger: viewLedger, promises: viewPromises, life: viewLife, world: viewWorld, names: viewNames, inject: viewInject, settings: viewSettings };
 
   function render() {
     if (!root) return;
