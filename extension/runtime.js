@@ -16,6 +16,7 @@
     ['promises', '약속', 'clock'],
     ['life', '최근 생활', 'clock'],
     ['world', '인물·장소', 'folder'],
+    ['notebook', '수첩', 'note'],
     ['names', '이름 정리', 'person'],
     ['inject', '주입 확인', 'search'],
     ['settings', '설정', 'settings'],
@@ -265,7 +266,7 @@
   }
 
   const needsNames = () => ['names', 'life'].includes(tab);
-  const needsWorld = () => tab === 'world';
+  const needsWorld = () => tab === 'world' || tab === 'notebook';
   async function loadWorld(id) {
     try {
       const w = await api('GET', `/chats/${encodeURIComponent(id)}/world`);
@@ -1124,14 +1125,13 @@
   function viewWorld() {
     if (!info) return emptyRoom();
     if (!world || worldRoom !== room) return worldError ? `<div class="note" role="alert">인물·장소를 불러오지 못했습니다. ${esc(worldError)} 서버의 기억 모듈도 함께 업데이트했는지 확인해 주세요.</div>` : `<div class="empty">${icon('refresh')}불러오는 중입니다…</div>`;
-    const off = !world.characterState && !world.places && !world.keepsakes && !world.trackers && !world.notebook;
+    const off = !world.characterState && !world.places && !world.keepsakes && !world.trackers;
     return `<div class="eyebrow">STORY NOW</div><h1>인물·장소</h1>
       <p class="intro">장면을 정리할 때 같은 모델 호출에서 함께 읽어 둔 인물의 현재 상태, 장소의 모습, 소중한 물건입니다. 켠 뒤에 새로 정리하는 장면부터 채워지고, 원문에 보인 것만 적습니다. 고친 칸은 잠겨서 자동 기록이 덮어쓰지 않습니다.</p>
       ${off ? '<div class="note" role="status">이 방에서는 <b>인물 현재 상태</b>·<b>장소 기억</b>·<b>소중한 물건</b>·<b>날짜·주기 트래커</b>가 모두 꺼져 있습니다. <button data-tab="settings">설정 → 추가 기능에서 켜기</button></div>' : ''}
       ${statePaper(world, worldForm, armed)}
       ${placesPaper(world, worldForm, armed)}
       ${keepsakesPaper(world, worldForm, armed)}
-      ${notebookPaper(world, armed)}
       ${trackersPaper(world, armed)}`;
   }
 
@@ -1184,6 +1184,15 @@
       ${list.length ? list.map(place).join('') : '<p class="hint">아직 없습니다. 켠 뒤에 정리되는 장면부터 채워집니다.</p>'}
       <h3>장소 직접 추가</h3>
       <div class="routine-row"><input id="placeNewName" value="${esc(form?.place || '')}" placeholder="장소 이름" aria-label="장소 이름"><button class="primary" data-act="placeAdd">추가</button></div></div>`;
+  }
+
+  /** 수첩 tab: 인물의 수첩 on a page of its own (it comes with the 인물·장소 data). */
+  function viewNotebook() {
+    if (!info) return emptyRoom();
+    if (!world || worldRoom !== room) return worldError ? `<div class="note" role="alert">수첩을 불러오지 못했습니다. ${esc(worldError)} 서버의 기억 모듈도 함께 업데이트했는지 확인해 주세요.</div>` : `<div class="empty">${icon('refresh')}불러오는 중입니다…</div>`;
+    const count = Object.values(world.notes || {}).reduce((n, l) => n + l.length, 0);
+    return `<div class="eyebrow">NOTEBOOK · ${count} NOTES</div><h1>인물의 수첩</h1>
+      ${world.notebook ? notebookPaper(world, armed) : '<div class="note" role="status">이 방에서는 <b>인물의 수첩</b>이 꺼져 있습니다. <button data-tab="settings">설정 → 추가 기능에서 켜기</button></div>'}`;
   }
 
   /**
@@ -1736,7 +1745,7 @@
     return `<details data-list="attrlog"${attributionFilter || openLists.has('attrlog') ? ' open' : ''}><summary>대사 확인 기록 (${count}회${live ? ' · 진행 중' : ''}) · 확인 방식: ${esc(attributionModeLabel(info.attributionCheck?.mode))}</summary><p class="hint">화자·상대 판단과 저장 결과입니다. 서버에 방마다 최근 5회까지 남고, 정리가 끝나거나 서버를 다시 켜도 유지됩니다. 바뀌었거나 다시 물었거나 받아들이지 않은 대사는 모두 남고, 문제없이 그대로인 대사는 장면별 개수로만 보입니다. 대사 원문과 근거 문구는 기록하지 않습니다.</p>${wait}<label>대사 번호로 찾기<input id="attributionFilter" value="${esc(attributionFilter)}" placeholder="예: #1.24" autocomplete="off"></label>${live ? `<details open><summary>진행 중 (${live.length}${esc(tally(sj.attributionProgress))})</summary>${live.map(attributionEntryHtml).join('')}</details>` : ''}${runs.map(run).join('')}</details>`;
   }
 
-  const VIEWS = { home: viewHome, scenes: viewScenes, search: viewSearch, facts: viewFacts, ledger: viewLedger, promises: viewPromises, life: viewLife, world: viewWorld, names: viewNames, inject: viewInject, settings: viewSettings };
+  const VIEWS = { notebook: viewNotebook, home: viewHome, scenes: viewScenes, search: viewSearch, facts: viewFacts, ledger: viewLedger, promises: viewPromises, life: viewLife, world: viewWorld, names: viewNames, inject: viewInject, settings: viewSettings };
 
   function render() {
     if (!root) return;
