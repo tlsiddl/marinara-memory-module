@@ -76,10 +76,43 @@ function putVectors(index, docs, vectors) {
   });
 }
 
-/** Drop pieces of scenes (or events) that no longer exist. */
+/** Drop pieces of scenes (or events) that no longer exist. The notebook's pieces ("nb:…") are kept apart (pruneNotes). */
 function prune(index, scenes) {
   const keys = new Set(scenes.flatMap(sceneDocs).map((d) => d.key));
-  for (const key of Object.keys(index.items)) if (!keys.has(key)) delete index.items[key];
+  for (const key of Object.keys(index.items)) if (!key.startsWith(NOTE_PREFIX) && !keys.has(key)) delete index.items[key];
+}
+
+/* ---------- 인물의 수첩: each note is a piece of its own, "nb:<note id>" ---------- */
+
+const NOTE_PREFIX = 'nb:';
+/** A note as it is searched: who keeps it, and the note. */
+const noteDocs = (notes) => (notes || []).map((n) => ({ key: NOTE_PREFIX + n.id, text: `${n.who}: ${n.text}`.replace(/\s+/g, ' ').trim().slice(0, DOC_MAX_CHARS) }));
+const staleNotes = (index, notes) => noteDocs(notes).filter((d) => index.items[d.key]?.h !== hash(d.text));
+function pruneNotes(index, notes) {
+  const keys = new Set(noteDocs(notes).map((d) => d.key));
+  for (const key of Object.keys(index.items)) if (key.startsWith(NOTE_PREFIX) && !keys.has(key)) delete index.items[key];
+}
+/**
+ * The notes closest in meaning to the questions, best first: [{ id, score, z }]. Only vectors of the note as it reads
+ * now. z is the note's distance above the average of this question's scores (the scale differs by model).
+ */
+function nearestNotes(index, queries, notes, k = 12) {
+  const qs = Array.isArray(queries[0]) || queries[0] instanceof Float32Array ? queries : [queries];
+  const current = new Map(noteDocs(notes).map((d) => [d.key, hash(d.text)]));
+  const scored = [];
+  for (const [key, h] of current) {
+    const item = index.items[key];
+    if (!item || item.h !== h) continue;
+    const v = unpack(item.v);
+    let score = -1;
+    for (const q of qs) score = Math.max(score, cosine(q, v));
+    scored.push({ id: key.slice(NOTE_PREFIX.length), score });
+  }
+  if (!scored.length) return [];
+  scored.sort((a, b) => b.score - a.score);
+  const mean = scored.reduce((n, x) => n + x.score, 0) / scored.length;
+  const sd = Math.sqrt(scored.reduce((n, x) => n + (x.score - mean) ** 2, 0) / scored.length) || 1e-6;
+  return scored.slice(0, k).map((x) => ({ ...x, z: (x.score - mean) / sd }));
 }
 
 /** How many scenes have every piece indexed. */
@@ -162,4 +195,4 @@ function nearest(index, queries, list, k = 5) {
 /** Words that point back at something said or done before. */
 const POINTS_BACK = /(했듯|말했듯|얘기했듯|말했잖|얘기했잖|그랬잖|했잖아|했었|했던\s*거|그때|그 때|예전에|저번에|지난번|옛날에|기억나|기억 안 나|기억해\?|라고\s*했|다고\s*했)/;
 
-module.exports = { POINTS_BACK, INDEX_VERSION, sceneDocs, sceneDoc, lineText, prefixes, pack, unpack, emptyIndex, usable, staleDocs, putVectors, prune, indexedScenes, cosine, queryText, queryTexts, nearest, hash };
+module.exports = { NOTE_PREFIX, noteDocs, staleNotes, pruneNotes, nearestNotes, POINTS_BACK, INDEX_VERSION, sceneDocs, sceneDoc, lineText, prefixes, pack, unpack, emptyIndex, usable, staleDocs, putVectors, prune, indexedScenes, cosine, queryText, queryTexts, nearest, hash };

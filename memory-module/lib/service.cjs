@@ -1062,6 +1062,24 @@ async function indexScenes(chatId, store, job) {
       break;
     }
   }
+  // 인물의 수첩: each note is searched by meaning too (the notes that fit the talk now go into the reply).
+  if (featureOn(chatId, 'notebook') && !job?.cancel) {
+    const notes = loadNotebook(chatId).notes || [];
+    V.pruneNotes(index, notes);
+    const staleNotes = V.staleNotes(index, notes).slice(0, EMBED_MAX_PER_RUN);
+    for (let i = 0; i < staleNotes.length && !job?.cancel; i += EMBED_BATCH) {
+      const part = staleNotes.slice(i, i + EMBED_BATCH);
+      if (job) job.stage = `수첩 색인 (${i + part.length}/${staleNotes.length})`;
+      try {
+        V.putVectors(index, part, await embedTexts(part.map((d) => d.text), 'doc', job?.abort?.signal));
+        done += part.length;
+        saveVectors(chatId, index);
+      } catch (error) {
+        log(`chat ${chatId}: notebook embedding failed, will try again later (${error?.message || error})`);
+        break;
+      }
+    }
+  }
   if (done) log(`chat ${chatId}: indexed ${done} piece(s) for meaning search`);
   return done;
 }
@@ -1445,11 +1463,11 @@ function translateModel() {
  * English. Quotes and names stay as written.
  */
 const LANGUAGE_NOTE = {
-  en: '\n\n[기록 언어] 네가 새로 쓰는 모든 글(제목·요약·사건·사실·이유·메모·생활 기록)은 영어로 써. 채팅이 한국어여도 마찬가지야. 인용(q)은 원문에서 그대로 복사하고(번역하지 마), 이름도 쓰인 그대로 둬. 인물의 수첩(notebook)의 text만은 예외로 한국어로 써.',
+  en: '\n\n[기록 언어] 네가 새로 쓰는 모든 글(제목·요약·사건·사실·이유·메모·생활 기록)은 영어로 써. 채팅이 한국어여도 마찬가지야. 인용(q)은 원문에서 그대로 복사하고(번역하지 마), 이름도 쓰인 그대로 둬. 인물의 수첩(notebook)의 text는 이 설정과 상관없이 그 인물이 말하는 언어로 써.',
   // Korean chosen on purpose for a chat that is not Korean (a Chinese or English room): without this the memory model
   // follows the chat and mixes the two languages in one note.
   'ko-fixed': '\n\n[기록 언어] 네가 새로 쓰는 모든 글(제목·요약·사건·사실·이유·메모·생활 기록)은 한국어로만 써. 채팅이 중국어나 영어여도 마찬가지야. 한 글 안에 중국어·영어 낱말을 섞지 마. 인용(q)은 원문에서 그대로 복사하고(번역하지 마), 사람 이름은 등장인물 목록에 적힌 표기를 그대로 써.',
-  zh: '\n\n[기록 언어] 네가 새로 쓰는 모든 글(제목·요약·사건·사실·이유·메모·생활 기록)은 중국어(간체)로 써. 채팅이 한국어여도 마찬가지야. 인용(q)은 원문에서 그대로 복사하고(번역하지 마), 이름도 쓰인 그대로 둬. 인물의 수첩(notebook)의 text만은 예외로 한국어로 써.',
+  zh: '\n\n[기록 언어] 네가 새로 쓰는 모든 글(제목·요약·사건·사실·이유·메모·생활 기록)은 중국어(간체)로 써. 채팅이 한국어여도 마찬가지야. 인용(q)은 원문에서 그대로 복사하고(번역하지 마), 이름도 쓰인 그대로 둬. 인물의 수첩(notebook)의 text는 이 설정과 상관없이 그 인물이 말하는 언어로 써.',
 };
 
 // A room's own choice of the language its memory is written in: 'chat' (the chat's own language), 'en' or 'zh'.
@@ -2740,6 +2758,7 @@ function displayTranslationTexts(chatId) {
     places: featureOn(chatId, 'places') ? loadPlaces(chatId)?.places : null,
     keepsakes: featureOn(chatId, 'keepsakes') ? loadKeepsakes(chatId)?.items : null,
     trackers: featureOn(chatId, 'trackers') ? loadTrackers(chatId)?.items : null,
+    notes: featureOn(chatId, 'notebook') ? loadNotebook(chatId)?.notes : null,
   };
   return T.displayTexts(loadScenes(chatId), shown, { quotes, world }).filter((t) => { const lang = T.textLanguage(t); return lang && lang !== 'ko'; });
 }
@@ -2872,7 +2891,9 @@ function renderMemorySource(chatId, maxChars = MEMORY_MAX_CHARS, trace = null) {
     }
     // What the people here keep in mind, in their own words (★ first, then what is close to the talk now).
     if (featureOn(chatId, 'notebook')) {
-      try { now.push(A.using(chatId, () => Nb.injectionBlock(loadNotebook(chatId), lastScenePeople(scenes), { query: turnQuery.get(chatId) || '' }))); } catch {}
+      // The notes that fit the talk now: by meaning when the turn's recall found some, else by shared words.
+      const related = recalls.get(chatId)?.notes;
+      try { now.push(A.using(chatId, () => Nb.injectionBlock(loadNotebook(chatId), lastScenePeople(scenes), { query: turnQuery.get(chatId) || '', related: Array.isArray(related) && related.length ? related : null }))); } catch {}
     }
   }
   // The user's date and cycle trackers (one short line; nothing while the feature is off).
@@ -4519,6 +4540,7 @@ async function computeRecall(chatId, store, view, userMessage, { mode, firstInsi
   const entry = { mode, picks: [], ms: 0, at: new Date().toISOString(), error: null, used: mode };
   const started = Date.now();
   const left = () => RECALL_TIMEOUT_MS - (Date.now() - started);
+  let queries = null;
   if (list.length) {
     const ledger = ledgerForReply(chatId);
     // Memory written in English is also searched through its Korean (the library's translation cache, no model call),
@@ -4530,7 +4552,7 @@ async function computeRecall(chatId, store, view, userMessage, { mode, firstInsi
     if (index && Object.keys(index.items).length && left() > 1000) {
       try {
         const texts = V.queryTexts(recent, userMessage);
-        const queries = await embedTexts(texts, 'query', AbortSignal.timeout(Math.min(QUERY_TIMEOUT_MS, left())));
+        queries = await embedTexts(texts, 'query', AbortSignal.timeout(Math.min(QUERY_TIMEOUT_MS, left())));
         entry.semantic = V.nearest(index, queries, list, 6);
         // A sentence that points back ("하준이 얘기했듯…", "그때 말했잖아") gets the scene closest to it on its own.
         entry.pointed = [];
@@ -4577,6 +4599,23 @@ async function computeRecall(chatId, store, view, userMessage, { mode, firstInsi
     if (wordHit) entry.direct = { id: wordHit.id, hits: wordHit.hits.slice(0, 5) };
     // What came of a recalled scene later (its real reason, who heard of it) comes along with it.
     entry.picks = R.withFollowUps(store, entry.picks, list);
+  }
+  // 인물의 수첩: the notes closest in meaning to the talk now (the same question vectors; asked here when the scene search
+  // did not run, as in a young room with nothing outside the window yet).
+  if (featureOn(chatId, 'notebook')) {
+    try {
+      const notes = loadNotebook(chatId).notes || [];
+      const index = loadVectors(chatId);
+      if (notes.length && index && Object.keys(index.items).some((k) => k.startsWith(V.NOTE_PREFIX)) && left() > 800) {
+        if (!queries) {
+          await Promise.race([embeddingSource(), new Promise((r) => setTimeout(r, Math.min(QUERY_TIMEOUT_MS, left())))]);
+          queries = await embedTexts(V.queryTexts(recent, userMessage), 'query', AbortSignal.timeout(Math.min(QUERY_TIMEOUT_MS, left())));
+        }
+        entry.notes = V.nearestNotes(index, queries, notes, 12).map(({ id, score, z }) => ({ id, score, z }));
+      }
+    } catch (error) {
+      entry.notesError = String(error?.message || error);
+    }
   }
   entry.ms = Date.now() - started;
   return entry;
