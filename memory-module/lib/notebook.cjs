@@ -24,7 +24,10 @@ const NOTEBOOK_VERSION = 1;
 const KINDS = ['about', 'heart'];
 const KIND_LABEL = { about: '알게 된 것', heart: '속마음' };
 const TEXT_MAX = 240;
-const PER_PERSON_SCENE = 2;
+const PER_PERSON_SCENE = 1;
+// What the model writes is kept short (a long note crowds the others out of the reply); the user's own edits may be longer.
+const NOTE_LEN = 120;
+const WHEN_LEN = 60;
 const PER_SCENE = 6;
 const PER_PERSON_KEPT = 80;
 const WHEN_MAX = 100;
@@ -40,6 +43,14 @@ const clip = (s, n) => {
   const t = tidy(s);
   return t.length > n ? `${t.slice(0, n - 1)}…` : t;
 };
+/** A long note cut at the end of a sentence within n characters when there is one, else clipped. */
+const shorten = (s, n) => {
+  const t = tidy(s);
+  if (t.length <= n) return t;
+  const head = t.slice(0, n);
+  const end = Math.max(...['. ', '! ', '? ', '。', '다. ', '음. ', '함. '].map((p) => head.lastIndexOf(p)));
+  return end >= n * 0.4 ? head.slice(0, end + 1).trim() : clip(t, n);
+};
 const hangul = (s) => (String(s || '').match(/[가-힣]/g) || []).length;
 const letters = (s) => (String(s || '').match(/[A-Za-z가-힣㐀-䶿一-鿿]/g) || []).length;
 const isKorean = (s) => letters(s) > 0 && hangul(s) / letters(s) >= 0.5;
@@ -50,17 +61,18 @@ const isNotebook = (v) => !!v && typeof v === 'object' && v.version === NOTEBOOK
 /* ---------- the scene call ---------- */
 
 const PROMPT = `인물의 수첩 (이 방에서 켠 기능):
-각 장면 객체에 "notebook"도 적어. 이 장면에 있던 인물(사용자 캐릭터는 빼고)이 나중에도 마음에 담아 둘 만한 것을, 그 인물 시점의 짧은 메모로 써. 인물마다 0~2개. 대부분의 장면은 0~1개이고, 없으면 [].
-- kind "about": 다른 사람에 대해 알게 된 작은 것. 취향, 버릇, 인상 깊었던 말, 몸의 특징, 약한 곳. about에 그 사람 이름.
+각 장면 객체에 "notebook"도 적어. 이 장면에 있던 인물(사용자 캐릭터는 빼고)이 나중에도 마음에 담아 둘 만한 것을, 그 인물 시점의 짧은 메모로 써. 인물마다 0~1개이고, 대부분의 장면은 0개야(없으면 []). 처음 알게 된 것, 마음이 바뀐 순간, 새로 정한 것만 적어.
+- kind "about": 다른 사람에 대해 알게 된 작은 것. 취향, 버릇, 인상 깊었던 말, 약한 곳. about에 그 사람 이름.
+- 적지 마: 외모·옷차림·몸 묘사(눈 색, 문신, 피어싱 같은 것), 그 장면에서만 의미 있는 사소한 동작, 장면 줄거리 요약.
 - kind "heart": 그 인물의 속마음. 다짐, 마음에 걸리는 것, 품은 의문, 바라는 것. about은 null.
 - 그 인물이 그 자리에서 직접 보고 듣고 겪은 것만 적어. 없었던 자리의 일, 모르는 일은 적지 마.
 - 사실이나 약속을 그대로 옮기지 말고, 그 인물이 그걸 어떻게 받아들였는지를 적어.
 - 원문의 서술 문장을 그대로 옮기거나 시제·인칭만 바꿔 쓰지 마. 그 인물이 무엇을 알게 됐고 어떻게 받아들였는지를 새로 정리한 메모여야 해. 거의 같은 문장은 버려져.
 - 사용자 캐릭터의 메시지에서 다른 인물이 알 수 있는 건 큰따옴표 대사와 겉으로 보이는 행동뿐이야. 사용자 캐릭터의 속마음·생각 서술은 다른 인물이 모르니 수첩에 쓰지 마.
-- [이미 적은 수첩]에 있는 생각을 다시 적지 마. 새로운 게 없으면 그 인물은 0개로 둬.
-- when(상황): 그때 무슨 일이 있었는지 한 줄. 누가 어디서 무엇을 했는지 이름을 넣어 담담하게(말투 없이). 이 장면을 모르는 사람이 읽어도 알 수 있게 써(예: "식당에서 세라가 빅터의 접시에 체리를 덜어 줬을 때"). 수첩과 같은 언어로.
-- text: 메모만 따로 읽어도 누구의 무슨 일인지 알 수 있게 써. "저 애", "그 여자", "그 거품", "제 말"처럼 이 장면을 봐야 알 수 있는 말 대신 이름과 구체적인 것을 써.
-- 문체: 그 인물 시점의 담담한 메모체. 그 인물이 알게 된 것, 느낀 것, 정한 것을 "~함", "~라고 느낌", "~하기로 함"처럼 짧게 적어(예: "세라는 단 걸 싫다면서 체리는 네 개째 먹음. 거짓말할 때 귀를 만지는 버릇이 있는 듯."). 대사 말투·어미·감탄·별명을 흉내 내지 말고, 독백이나 대사처럼 쓰지 마. 영어로 적는 인물은 "Learned that …", "Felt …"처럼 짧은 메모체로.
+- [이미 적은 수첩]에 있는 생각은 표현을 바꿔도 다시 적지 마. 같은 주제(숨는 버릇, 잊어버리는 버릇 같은 것)는 새로 알게 된 게 있을 때만 적어. 새로운 게 없으면 그 인물은 0개로 둬.
+- when(상황): 그때 무슨 일이 있었는지 짧게, 40자 안팎. 누가 무엇을 했는지 이름을 넣어 담담하게(예: "식당에서 세라가 체리를 덜어 줬을 때"). 수첩과 같은 언어로.
+- text: 한 문장, 80자 안팎. 메모만 따로 읽어도 누구의 무슨 일인지 알 수 있게 "저 애", "그 여자", "그 거품"처럼 장면을 봐야 알 수 있는 말 대신 이름과 구체적인 것을 써. 수첩 주인 자신은 이름으로 부르지 말고 주어를 빼(예: 빅터의 수첩에 "빅터는…"이라고 쓰지 마).
+- 문체: 그 인물 시점의 담담한 메모체. 그 인물이 알게 된 것, 느낀 것, 정한 것을 "~함", "~라고 느낌", "~하기로 함"처럼 짧게 적어(예: "세라는 단 걸 싫다면서 체리는 네 개째 먹음."). 대사 말투·어미·감탄·별명을 흉내 내지 말고, 독백이나 대사처럼 쓰지 마. 영어로 적는 인물은 "Learned that …", "Felt …"처럼 짧은 메모체로.
 - 언어: 아래 [수첩 언어]에 적힌 언어로 써(대사가 한국어거나 "원어" (한국어)처럼 병기된 인물은 한국어, 영어로만 말하는 인물은 영어). 다른 언어로 쓴 메모는 버려져. 기록 언어 설정은 수첩에는 적용하지 않아.
 - who: 그 인물 이름(등장인물 목록의 표기), evidence: 그렇게 판단한 문장 번호(예: ["23.4"]). 번호가 없으면 적지 마.
 형식: "notebook":[{"who":"인물","kind":"about","about":"대상 인물","when":"그때 무슨 일이 있었는지 한 줄","text":"수첩에 적을 한두 문장","evidence":["23.4"]}]`;
@@ -144,7 +156,7 @@ function noteLanguage(text) {
 }
 
 /** The latest notes each character already has in the scenes before (the model is told not to write them again). */
-function priorNotes(store, people, max = 6) {
+function priorNotes(store, people, max = 12) {
   const out = {};
   for (const scene of [...(store?.scenes || [])].reverse()) {
     for (const n of Array.isArray(scene.charNotes) ? scene.charNotes : []) {
@@ -179,12 +191,12 @@ function cleanNote(raw, { cast = [], personas = [], person = (n) => tidy(n), lan
   if (!raw || typeof raw !== 'object') return null;
   const who = person(tidy(raw.who));
   if (!who || personas.includes(who) || (cast.length && !cast.includes(who))) return null;
-  const text = clip(raw.text, TEXT_MAX);
+  const text = shorten(raw.text, NOTE_LEN);
   if (!text || letters(text) < 2) return null;
   // A note in another language than the one set for this character (e.g. English for one who speaks Korean) is kept and
   // marked: the service turns it into the right language after the scene call (it used to be dropped, and models that
   // keep writing the memory's language lost every note).
-  const when = clip(raw.when, WHEN_MAX);
+  const when = clip(raw.when, WHEN_LEN);
   const ctx = when && letters(when) >= 4 ? { when } : {};
   const wrong = (t) => t && noteLanguage(t) !== langs[who];
   const want = langs?.[who] && (wrong(text) || wrong(ctx.when)) ? { wantLang: langs[who] } : {};
@@ -254,7 +266,7 @@ function readNoteLanguage(parsed, notes) {
     const want = notes[i].wantLang;
     const text = tidy(typeof t === 'string' ? t : t?.text);
     if (!text || text.length > TEXT_MAX || noteLanguage(text) !== want) return null;
-    const when = typeof t === 'object' ? clip(t?.when, WHEN_MAX) : '';
+    const when = typeof t === 'object' ? clip(t?.when, WHEN_LEN) : '';
     return { text, ...(when && noteLanguage(when) === want ? { when } : {}) };
   });
 }
@@ -466,7 +478,7 @@ function view(file) {
 }
 
 module.exports = {
-  NOTEBOOK_VERSION, KINDS, KIND_LABEL, TEXT_MAX, PER_PERSON_SCENE, PER_SCENE, PER_PERSON_KEPT, INJECT_CORE, INJECT_RELATED, INJECT_CHARS, PROMPT, WHEN_MAX, noteLine,
+  NOTEBOOK_VERSION, KINDS, KIND_LABEL, TEXT_MAX, PER_PERSON_SCENE, PER_SCENE, PER_PERSON_KEPT, INJECT_CORE, INJECT_RELATED, INJECT_CHARS, PROMPT, WHEN_MAX, NOTE_LEN, WHEN_LEN, noteLine, shorten,
   COPIED, languagesOf, noteLanguage, priorNotes, sameNote, NOTE_LANG_PROMPT, buildNoteLanguagePrompt, readNoteLanguage, voiceFromScenes, buildRebuildPrompt, userKept,
   emptyNotebook, isNotebook, voiceSamples, voiceBlock, cleanNote, fold, editNote, starNote, deleteNote, injectionBlock, view, alike,
 };
