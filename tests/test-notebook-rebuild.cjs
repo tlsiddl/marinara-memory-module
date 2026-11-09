@@ -99,6 +99,31 @@ test('all: every scene is written again; a starred note stays; a note with no ev
   assert.ok(Nb.view(X.loadNotebook(room)).Viktor.find((n) => n.id === starred.id)?.star);
 });
 
+test('the notes already written that the model sees are those of earlier scenes only', () => {
+  const store = { scenes: [
+    { id: 'S1', charNotes: [{ who: 'Viktor', text: 'early' }] },
+    { id: 'S2', charNotes: [{ who: 'Viktor', text: 'middle' }] },
+    { id: 'S3', charNotes: [{ who: 'Viktor', text: 'late' }] },
+  ] };
+  assert.deepEqual(Nb.priorNotes(store, ['Viktor']), { Viktor: ['late', 'middle', 'early'] });
+  assert.deepEqual(Nb.priorNotes(store, ['Viktor'], undefined, { before: 'S2' }), { Viktor: ['early'] });
+  assert.deepEqual(Nb.priorNotes(store, ['Viktor'], undefined, { before: 'S1' }), {});
+});
+
+test('a rebuild of a middle scene: no later note in the prompt, and a later scene\'s note does not block it', async () => {
+  prompts.length = 0;
+  const store = X.loadScenes(room);
+  store.scenes[2].charNotes = [{ who: 'Viktor', kind: 'heart', when: '나중 장면', text: '아주 나중에야 알게 되는 비밀.', evidence: [{ number: 6, sentence: 1 }] }];
+  delete store.scenes[1].charNotes;
+  X.saveScenes(room, store);
+  answer = () => ({ scenes: [{ id: 'S2', notebook: [{ who: 'Viktor', kind: 'heart', when: '미나가 체리를 건넸을 때', text: '아주 나중에야 알게 되는 비밀.', evidence: ['4.2'] }] }] });
+  const job = X.rebuildNotebook(room);
+  await job.run;
+  assert.equal(job.state, 'done', job.error || '');
+  assert.ok(!prompts[0][0].content.includes('아주 나중에야'), 'a later scene\'s note is not shown');
+  assert.equal(X.loadScenes(room).scenes[1].charNotes?.[0]?.text, '아주 나중에야 알게 되는 비밀.', 'not taken for a repeat');
+});
+
 test('a failed call stops the job with the reason; the notes stay as they were', async () => {
   const before = JSON.stringify(X.loadScenes(room).scenes.map((sc) => sc.charNotes));
   answer = () => { throw Error('rate limited'); };
