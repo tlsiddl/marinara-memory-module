@@ -401,6 +401,7 @@ function displayTexts(store, ledger, { quotes = false, world = null } = {}) {
     for (const h of it.history || []) add(h.event);
   }
   for (const t of world?.trackers || []) add(t.label);
+  for (const n of world?.notes || []) add(n.text);
   return [...out];
 }
 

@@ -15,7 +15,7 @@ const { fileURLToPath } = require('node:url');
 const TAG = '[memory-module]';
 /** The Marinara version these patches were made and tested against. */
 const TESTED_MARINARA = '2.4.6';
-const VERSION = '0.21.0-marinara.2.4.6.91';
+const VERSION = '0.22.0-marinara.2.4.6.92';
 const NOTES_DIR = process.env.MEMORY_MODULE_NOTES_DIR || path.join(__dirname, 'notes');
 const DEFAULT_NOTE = '_default.txt';
 /** Last safety net only: the service already keeps the memory within its own limit (40,000 by default). */

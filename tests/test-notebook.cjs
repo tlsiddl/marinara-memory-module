@@ -28,22 +28,28 @@ const call = async (key, id, body) => {
   return { result, error };
 };
 
-test('voice: a Korean line, the Korean in brackets, or the saved translation of an English-only line', () => {
+test('voice: the Korean in brackets for a line written with its translation, else the line as the story has it', () => {
   const messages = [
-    { role: 'assistant', content: 'Viktor smiled.\nViktor | "Come here, you."\nSera | "Leave me alone." (나 좀 내버려 둬.)', tr: '빅터가 웃었다.\n빅터 | "이리 와, 너."\n세라 | "나 좀 내버려 둬."' },
-    { role: 'assistant', content: '<speaker="Viktor">Viktor | "Sit down."</speaker>', tr: '<speaker="Viktor">빅터 | "앉아."</speaker>' },
+    { role: 'assistant', content: 'Viktor smiled.\nViktor | "Come here, you."\nSera | "Laisse-moi tranquille." (나 좀 내버려 둬.)', tr: '빅터 | "이리 와, 너."' },
+    { role: 'assistant', content: '<speaker="Viktor">Viktor | "Sit down."</speaker>' },
+    { role: 'assistant', content: 'Marco | "싫어."' },
     { role: 'user', content: 'Mina | "싫은데?"' },
   ];
-  assert.deepEqual(Nb.voiceSamples(messages, ['Viktor', 'Sera', 'Mina'], { personas: ['Mina'] }), { Viktor: ['이리 와, 너.', '앉아.'], Sera: ['나 좀 내버려 둬.'] });
-  assert.match(Nb.voiceBlock({ Viktor: ['앉아.'] }), /\[말투 참고\][^]*Viktor: "앉아\."/);
+  // Viktor speaks only English: his own English lines (the saved translation is not used). Sera's line carries its
+  // Korean in brackets: the Korean. Marco speaks Korean: the line itself. The user's own character: none.
+  assert.deepEqual(Nb.voiceSamples(messages, ['Viktor', 'Sera', 'Marco', 'Mina'], { personas: ['Mina'] }), { Viktor: ['Come here, you.', 'Sit down.'], Sera: ['나 좀 내버려 둬.'], Marco: ['싫어.'] });
+  assert.match(Nb.voiceBlock({ Viktor: ['Sit down.'] }), /\[말투 참고\][^]*이 말투와 언어로[^]*Viktor: "Sit down\."/);
   assert.equal(Nb.voiceBlock({}), '');
+  assert.match(Nb.PROMPT, /괄호 안 한국어 말투/);
+  assert.match(Nb.PROMPT, /영어로만 말하면 영어로/);
 });
 
-test('a note: a story person (never the user\'s own), Korean, a known kind; about oneself is a feeling', () => {
+test('a note: a story person (never the user\'s own), in the character\'s language, a known kind; about oneself is a feeling', () => {
   const opts = { cast: ['Viktor', 'Sera'], personas: ['Mina'], person: (n) => n };
   assert.deepEqual(Nb.cleanNote({ who: 'Viktor', kind: 'about', about: 'Sera', text: '세라는 단 걸 싫다면서 체리는 네 개째 먹었다.' }, opts), { who: 'Viktor', kind: 'about', about: 'Sera', text: '세라는 단 걸 싫다면서 체리는 네 개째 먹었다.' });
   assert.equal(Nb.cleanNote({ who: 'Mina', kind: 'heart', text: '나는 사실 무서웠다.' }, opts), null, 'the user\'s own character');
-  assert.equal(Nb.cleanNote({ who: 'Viktor', kind: 'heart', text: 'I must keep her safe.' }, opts), null, 'not Korean');
+  assert.deepEqual(Nb.cleanNote({ who: 'Viktor', kind: 'heart', text: 'I must keep her safe.' }, opts), { who: 'Viktor', kind: 'heart', text: 'I must keep her safe.' }, 'an English speaker writes English');
+  assert.equal(Nb.cleanNote({ who: 'Viktor', kind: 'heart', text: '…' }, opts), null, 'no words');
   assert.equal(Nb.cleanNote({ who: 'Stranger', kind: 'heart', text: '이상한 날이다.' }, opts), null, 'not a story person');
   assert.deepEqual(Nb.cleanNote({ who: 'Viktor', kind: 'about', about: 'Viktor', text: '내가 왜 그랬을까.' }, opts), { who: 'Viktor', kind: 'heart', text: '내가 왜 그랬을까.' });
 });
@@ -82,17 +88,24 @@ test('fold: the same thought written again replaces the older one; edits, stars 
   assert.equal(file.notes.length, 1, 'a deleted note is not written back');
 });
 
-test('reply: the people in the scene only, ★ first, three each, with a note that the others do not know', () => {
+test('reply: the people in the scene only; three core notes (★ first, then the newest) and up to three that fit the talk', () => {
   const notes = [
-    ...Array.from({ length: 5 }, (_, i) => ({ id: `n${i}`, who: '빅터', kind: 'heart', text: `빅터 메모 ${i}.` })),
+    ...Array.from({ length: 6 }, (_, i) => ({ id: `n${i}`, who: '빅터', kind: 'heart', text: `빅터 메모 ${i}.` })),
     { id: 'star', who: '빅터', kind: 'heart', text: '세라를 지킨다.', star: true },
     { id: 's1', who: '세라', kind: 'about', text: '빅터는 거짓말할 때 귀를 만진다.' },
     { id: 'm1', who: '마르코', kind: 'heart', text: '자리에 없음.' },
   ];
-  const line = Nb.injectionBlock({ ...Nb.emptyNotebook(), notes }, ['빅터', '세라']);
+  // By meaning: the matches above this question's average go in, closest first; a weak one does not.
+  const related = [{ id: 'n1', z: 2.1 }, { id: 'n0', z: 1.3 }, { id: 'n2', z: 0.2 }, { id: 'n5', z: 3 }];
+  const line = Nb.injectionBlock({ ...Nb.emptyNotebook(), notes }, ['빅터', '세라'], { related });
   assert.match(line, /^\[수첩\] \(각 인물만 아는/);
-  assert.match(line, /빅터: 세라를 지킨다\./, '★ first');
-  assert.equal((line.match(/빅터 메모/g) || []).length, 2, 'three in all for one person');
+  assert.match(line, /빅터: 세라를 지킨다\. \/ 빅터 메모 5\. \/ 빅터 메모 4\. \(지금 떠오르는 것: 빅터 메모 1\. \/ 빅터 메모 0\.\)/, 'core: ★ then newest; then the matches not already in');
+  assert.doesNotMatch(line, /빅터 메모 2/);
+  // Without meaning search: the notes that share words with the talk now.
+  const byWords = Nb.injectionBlock({ ...Nb.emptyNotebook(), notes: [...notes, { id: 'w', who: '빅터', kind: 'about', text: '세라는 체리를 좋아한다.' }, { id: 'x', who: '빅터', kind: 'heart', text: '아무 상관 없는 메모.' }, { id: 'y', who: '빅터', kind: 'heart', text: '최근 메모 하나.' }, { id: 'z', who: '빅터', kind: 'heart', text: '최근 메모 둘.' }] }, ['빅터'], { query: '체리 좋아해?' });
+  assert.match(byWords, /지금 떠오르는 것: 세라는 체리를 좋아한다\./);
+  const line2 = Nb.injectionBlock({ ...Nb.emptyNotebook(), notes }, ['빅터', '세라']);
+  assert.equal((line2.match(/빅터 메모/g) || []).length, 2, 'no matches: the three core notes only');
   assert.match(line, /세라: 빅터는 거짓말할 때 귀를 만진다\./);
   assert.doesNotMatch(line, /마르코/);
   assert.equal(Nb.injectionBlock({ ...Nb.emptyNotebook(), notes }, ['미나']), '');
@@ -115,6 +128,29 @@ test('service: the route edits, stars and deletes; refused while the feature is 
   assert.deepEqual((await call('POST /chats/:id/notebook', room, { action: 'delete', id })).result.notes, {});
   const doc = B.build({ chatId: room, chatName: 'x', moduleVersion: 'x', files: { notebook: X.loadNotebook(room) }, settingsEntry: null });
   assert.doesNotThrow(() => B.validate(doc));
+});
+
+test('meaning search: notes are pieces of their own, kept when scenes are pruned, matched only as they read now', () => {
+  const V = require('../memory-module/lib/vectors.cjs');
+  const index = V.emptyIndex('m');
+  const notes = [{ id: 'a', who: '빅터', text: '세라는 어둠을 싫어한다.' }, { id: 'b', who: '빅터', text: '총은 늘 왼쪽 서랍에.' }];
+  const docs = V.staleNotes(index, notes);
+  assert.deepEqual(docs.map((d) => d.key), ['nb:a', 'nb:b']);
+  V.putVectors(index, docs, [[1, 0], [0, 1]]);
+  index.items.S1 = { h: 'x', v: V.pack([1, 1]) };
+  V.prune(index, []);
+  assert.ok(index.items['nb:a'] && !index.items.S1, 'scene pruning leaves the notes');
+  assert.deepEqual(V.nearestNotes(index, [[1, 0.1]], notes).map((x) => x.id), ['a', 'b']);
+  assert.deepEqual(V.nearestNotes(index, [[1, 0.1]], [{ ...notes[0], text: '고쳐진 메모.' }, notes[1]]).map((x) => x.id), ['b'], 'an edited note waits for its new vector');
+  V.pruneNotes(index, [notes[1]]);
+  assert.ok(!index.items['nb:a'] && index.items['nb:b']);
+});
+
+test('the library shows a note in another language with its Korean', () => {
+  const texts = T.displayTexts({ scenes: [] }, { threads: [] }, { world: { notes: [{ text: 'She hates the dark.' }] } });
+  assert.ok(texts.includes('She hates the dark.'));
+  const source = fs.readFileSync(path.join(__dirname, '../extension/runtime.js'), 'utf8');
+  assert.ok(source.includes('aria-label="${esc(n.who)}의 메모">${esc(n.text)}</textarea>${trLine(n.text)}'));
 });
 
 test('both installers copy the new file to the server', () => {
