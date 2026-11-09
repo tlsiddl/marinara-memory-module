@@ -103,6 +103,7 @@
   let trError = '';
   let trWorking = false;
   let trAuto = true;
+  let trStamp = null;
   let notice = '';
   let lastError = '';
   let busy = false;
@@ -328,6 +329,7 @@
       trError = t.error || '';
       trWorking = Boolean(t.working);
       trAuto = t.auto !== false;
+      if (info?.translationStamp != null) trStamp = info.translationStamp;
     } catch (error) {
       if (room === id) trError = error?.message || String(error);
     }
@@ -534,10 +536,13 @@
             if (polledRoom !== room || disposed) { schedulePoll(); return; }
             info = polledInfo;
             if ((wasPreparing || info?.translationPrep?.working) && tab === 'settings' && !editing()) render();
-            if (trPending) {
-              const before = `${trPending}:${trError}:${trWorking}`;
+            // New Korean was made in the background (after a run, while the library stayed open): load it.
+            const stampChanged = polledInfo.translationStamp != null && polledInfo.translationStamp !== trStamp;
+            if (trPending || stampChanged) {
+              const before = `${trPending}:${trError}:${trWorking}:${trStamp}`;
               await loadTranslations(room);
-              if (`${trPending}:${trError}:${trWorking}` !== before && !editing()) render();
+              trStamp = polledInfo.translationStamp ?? trStamp;
+              if (`${trPending}:${trError}:${trWorking}:${trStamp}` !== before && !editing()) render();
             }
           }
           if (was && !running()) notice = [info?.job?.state, info?.sceneJob?.state].includes('error') ? '정리가 멈췄습니다. 아래 오류를 확인해 주세요.' : '정리가 끝났습니다.';
@@ -545,7 +550,7 @@
         }
       } catch {}
       schedulePoll();
-    }, was || info?.translationPrep?.working ? 3000 : 10000);
+    }, was || info?.translationPrep?.working || info?.displayTranslating ? 3000 : 10000);
   }
 
   /** Someone is typing in the library: a background check must not redraw the form under them. */
