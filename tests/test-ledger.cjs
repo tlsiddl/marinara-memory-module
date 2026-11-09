@@ -132,15 +132,18 @@ test('tidy closes finished threads and merges duplicates of the same kind only',
   assert.equal(ledger.threads[0].evidence.length, 2, 'the merged line moved into the kept thread');
 });
 
-test('render puts feelings first, quotes the line where it began, caps each kind, never cuts mid-item', () => {
+test('render puts promises first, quotes the line where it began, caps each kind, never cuts mid-item', () => {
   const ledger = L.emptyLedger();
   const many = L.prepareMessages(Array.from({ length: 14 }, (_, i) => ({ id: `p${i}`, number: i + 1, speaker: '하루', content: `약속 ${i}번이야. 나중 이야기 ${i}.` })));
   L.applyResult(ledger, { open: many.map((m) => ({ kind: 'promise', title: `약속 ${m.number}`, evidence: [`${m.number}.1`] })) }, many);
   L.applyResult(ledger, { open: [{ kind: 'emotion', need: '사과', title: '서운함', evidence: ['1.1'] }] }, many);
   L.applyResult(ledger, { update: [{ id: 'T1', detail: '나중에 바뀜', evidence: ['14.2'] }] }, many, '2099-01-01T00:00:00.000Z');
   const text = L.render(ledger);
-  assert.ok(text.indexOf('풀리지 않은 감정') < text.indexOf('■ 약속'));
+  // Promises first: in a busy room feelings and states used to take the room before promises were reached.
+  assert.ok(text.indexOf('■ 약속') < text.indexOf('풀리지 않은 감정'));
   assert.equal((text.match(/^- /gm) || []).length, 11, '1 feeling + 10 promises');
+  const compact = L.renderCompact(ledger, { maxChars: 120 });
+  assert.match(compact.split('\n')[0], /약속/, 'with little room, a promise is what stays');
   assert.match(text, /약속 1 — 나중에 바뀜\n  원문: "약속 0번이야\."/);
   const small = L.render(ledger, { maxChars: 400 });
   assert.ok(small.length <= 400 && !small.endsWith('…'));

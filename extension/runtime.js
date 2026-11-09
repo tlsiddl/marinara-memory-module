@@ -20,7 +20,8 @@
     ['settings', '설정', 'settings'],
   ];
   const KIND = { emotion: '감정', state: '상태', promise: '약속', secret: '비밀', pending: '미해결' };
-  const KIND_ORDER = ['emotion', 'state', 'promise', 'secret', 'pending'];
+  // Promises first, as in the memory that goes into replies: they were easy to lose under many feelings.
+  const KIND_ORDER = ['promise', 'emotion', 'state', 'secret', 'pending'];
   const REMEMBERS = { full: '온전히 기억', partial: '흐릿하게만 기억', none: '기억 못 함' };
   const IMPORTANCE = { critical: '★ 결정적', major: '중요', minor: '작음' };
   const STATE = { idle: '쉬는 중', running: '정리 중', done: '완료', error: '오류' };
@@ -363,6 +364,17 @@
     const t = trMap[String(text ?? '').trim()];
     return t && t !== text ? t : null;
   }
+  /**
+   * The Korean of a value in the optional records (인물 상태·장소·소중한 물건), shown under its box: one text, or a
+   * list whose items are each looked up. Nothing when there is no translation (Korean already, or not made yet).
+   */
+  const trLine = (value) => {
+    const list = Array.isArray(value) ? value : [value];
+    const korean = list.map((x) => ko(x) || x);
+    return korean.some((x, i) => x !== list[i]) ? `<small class="tr-inline">한국어: ${esc(korean.join(' · '))}</small>` : '';
+  };
+  /** A name or label with its Korean after it in brackets, when there is one. */
+  const withKo = (text) => (ko(text) ? `${esc(text)} <small class="tr-inline">(${esc(ko(text))})</small>` : esc(text));
   /** A name field ("Daniel", "A·B") with each name written the Korean way the module gave. */
   const nameShown = (field) => String(field ?? '').split(/(\s*[·,、]\s*)/).map((part, i) => (i % 2 ? part : trMap[part] || part)).join('');
   const trNote = (text) => (ko(text) ? `<p class="tr-note full"><span>한국어</span>${esc(ko(text))}</p>` : '');
@@ -967,7 +979,10 @@
     const threads = threadList();
     const open = threads.filter((t) => t.status === 'open');
     const closed = threads.filter((t) => t.status !== 'open');
-    const groups = KIND_ORDER.map((k) => [k, open.filter((t) => t.kind === k)]).filter(([, l]) => l.length);
+    // Promises with a set day come first, the nearest day first; the rest keep their order.
+    const dueOf = (t) => t.due?.date || t.period?.to || '';
+    const byDue = (a, b) => (dueOf(a) ? 0 : 1) - (dueOf(b) ? 0 : 1) || dueOf(a).localeCompare(dueOf(b));
+    const groups = KIND_ORDER.map((k) => [k, open.filter((t) => t.kind === k).sort(k === 'promise' ? byDue : () => 0)]).filter(([, l]) => l.length);
     return `<div class="eyebrow">LEDGER · ${open.length} OPEN</div><h1>아직 끝나지 않은 일</h1>
       <p class="intro">약속·감정·상태·비밀·미해결 일입니다. 항목을 누르면 제목과 설명을 고치실 수 있고, 잘못 닫힌 항목은 다시 열고 끝난 일은 닫으실 수 있습니다. 직접 고친 내용은 리롤해도 유지됩니다.</p>
       ${groups.length ? groups.map(([k, l]) => `<div class="paper"><h2>${KIND[k]} · ${l.length}</h2>${l.map(threadRow).join('')}</div>`).join('') : '<div class="empty">열린 항목이 없습니다.</div>'}
@@ -1097,12 +1112,12 @@
       const raw = c[key];
       const value = kind === 'list' ? (raw || []).join(' · ') : raw || '';
       const locked = c.sources?.[key] === 'user';
-      return `<div class="world-field"><span>${label}</span><input data-state-name="${esc(c.name)}" data-state-field="${key}" value="${esc(value)}" placeholder="${kind === 'list' ? '· 로 나눠 적기' : '없음'}" aria-label="${esc(c.name)} ${label}">${locked ? `<button class="ghost lock" data-act="stateUnlock" data-name="${esc(c.name)}" data-field="${key}">자동으로 되돌리기</button><small>직접 고침</small>` : ''}</div>`;
+      return `<div class="world-field"><span>${label}</span><input data-state-name="${esc(c.name)}" data-state-field="${key}" value="${esc(value)}" placeholder="${kind === 'list' ? '· 로 나눠 적기' : '없음'}" aria-label="${esc(c.name)} ${label}">${locked ? `<button class="ghost lock" data-act="stateUnlock" data-name="${esc(c.name)}" data-field="${key}">자동으로 되돌리기</button><small>직접 고침</small>` : ''}${trLine(kind === 'list' ? raw || [] : raw || '')}</div>`;
     };
     const card = (c) => {
       const marks = (c.evidence || []).map((e) => `#${esc(e.number)}.${esc(e.sentence)}`).join(' ');
       const scene = c.asOf?.scene;
-      return `<div class="world-card" data-card="${esc(c.name)}"><h3>${esc(c.name)}</h3>
+      return `<div class="world-card" data-card="${esc(c.name)}"><h3>${esc(nameShown(c.name))}</h3>
         ${fields.map((f) => field(c, f)).join('')}
         ${sceneRefs(sceneRef(scene, '기준 장면', titles))}<p class="hint">${scene ? `${esc(c.asOf?.number ?? '')}번 메시지까지` : '자동 기록 없음(직접 적은 카드)'}${marks ? ` · 근거 ${marks}` : ''}</p>
         <div class="buttons"><button class="ghost" data-act="stateReset" data-name="${esc(c.name)}">${armedNow === `stateReset:${c.name}` ? '한 번 더 누르면 지웁니다' : '카드의 직접 고침 모두 지우기'}</button></div></div>`;
@@ -1121,12 +1136,12 @@
     const titles = w.sceneTitles || {};
     const place = (p) => {
       const locked = (k) => p.sources?.[k] === 'user';
-      const input = (key, label, value, hint) => `<div class="world-field"><span>${label}</span><input data-place-id="${esc(p.id)}" data-place-field="${key}" value="${esc(value)}" placeholder="${hint}" aria-label="${esc(p.name)} ${label}">${key !== 'aliases' && locked(key) ? `<button class="ghost lock" data-act="placeUnlock" data-id="${esc(p.id)}" data-field="${key}">자동으로 되돌리기</button><small>직접 고침</small>` : ''}</div>`;
+      const input = (key, label, value, hint, raw = value) => `<div class="world-field"><span>${label}</span><input data-place-id="${esc(p.id)}" data-place-field="${key}" value="${esc(value)}" placeholder="${hint}" aria-label="${esc(p.name)} ${label}">${key !== 'aliases' && locked(key) ? `<button class="ghost lock" data-act="placeUnlock" data-id="${esc(p.id)}" data-field="${key}">자동으로 되돌리기</button><small>직접 고침</small>` : ''}${key === 'aliases' ? '' : trLine(raw)}</div>`;
       const others = list.filter((x) => x.id !== p.id);
-      return `<div class="world-card" data-place="${esc(p.id)}"><h3>${esc(p.name)}</h3>
+      return `<div class="world-card" data-place="${esc(p.id)}"><h3>${withKo(p.name)}</h3>
         ${input('description', '모습', p.description || '', '한 구절')}
         ${input('layout', '배치', p.layout || '', '한 구절')}
-        ${input('features', '특징', (p.features || []).join(' · '), '· 로 나눠 적기 (자동으로는 최근 12개까지)')}
+        ${input('features', '특징', (p.features || []).join(' · '), '· 로 나눠 적기 (자동으로는 최근 12개까지)', p.features || [])}
         ${input('aliases', '다른 이름', (p.aliases || []).join(' · '), '같은 곳의 다른 이름, · 로 나눠 적기')}
         <p class="hint">${(p.scenes || []).length ? `${esc(p.scenes.length)}개 장면` : '장면에 연결되지 않은 장소'}</p>${(p.scenes || []).length ? sceneRefs(sceneRef(p.firstSeen?.scene, '처음', titles), sceneRef(p.lastSeen?.scene, '마지막', titles)) : ''}
         <div class="routine-row">${others.length ? `<select data-place-merge="${esc(p.id)}" aria-label="합칠 장소"><option value="">다른 장소에 합치기…</option>${others.map((o) => `<option value="${esc(o.id)}">${esc(o.name)}</option>`).join('')}</select>` : ''}<button class="ghost" data-act="placeDelete" data-id="${esc(p.id)}">${armedNow === `placeDelete:${p.id}` ? '한 번 더 누르면 지웁니다' : '이 장소 지우기'}</button></div></div>`;
@@ -1147,10 +1162,10 @@
     const item = (it) => {
       const locked = (k) => it.sources?.[k] === 'user';
       const unlock = (k) => (locked(k) ? `<button class="ghost lock" data-act="keepUnlock" data-id="${esc(it.id)}" data-field="${k}">자동으로 되돌리기</button><small>직접 고침</small>` : '');
-      const input = (key, label, value, hint) => `<div class="world-field"><span>${label}</span><input data-keep-id="${esc(it.id)}" data-keep-field="${key}" value="${esc(value)}" placeholder="${hint}" aria-label="${esc(it.name)} ${label}">${key === 'aliases' ? '' : unlock(key)}</div>`;
+      const input = (key, label, value, hint) => `<div class="world-field"><span>${label}</span><input data-keep-id="${esc(it.id)}" data-keep-field="${key}" value="${esc(value)}" placeholder="${hint}" aria-label="${esc(it.name)} ${label}">${key === 'aliases' ? '' : unlock(key)}${key === 'aliases' ? '' : key === 'owner' ? (nameShown(value) !== value ? `<small class="tr-inline">한국어: ${esc(nameShown(value))}</small>` : '') : trLine(value)}</div>`;
       const others = list.filter((x) => x.id !== it.id);
-      const history = (it.history || []).map((h) => `<li>${esc(h.event)}${sceneRefs(sceneRef(h.scene, '', titles))}</li>`).join('');
-      return `<div class="world-card" data-keep="${esc(it.id)}"><h3>${esc(it.name)}</h3>
+      const history = (it.history || []).map((h) => `<li>${esc(shown(h.event))}${sceneRefs(sceneRef(h.scene, '', titles))}</li>`).join('');
+      return `<div class="world-card" data-keep="${esc(it.id)}"><h3>${withKo(it.name)}</h3>
         ${input('owner', '가진 사람', it.owner || '', '지금 가진 사람')}
         ${input('from', '준 사람·유래', it.from || '', '준 사람이나 유래')}
         ${input('meaning', '담긴 뜻', it.meaning || '', '한 구절')}
@@ -1222,7 +1237,7 @@
         ? `<div class="world-field"><span>시작일</span>${(it.cycle.starts || []).length ? it.cycle.starts.map((s) => `<input data-tk-start="${esc(it.id)}" data-from="${esc(s)}" value="${esc(s)}" aria-label="${esc(it.label)} 시작일 ${esc(s)}"><button class="ghost" data-act="trackerDropStart" data-id="${esc(it.id)}" data-date="${esc(s)}">${armedNow === `trackerDropStart:${it.id}:${s}` ? '한 번 더 누르면 지웁니다' : '지우기'}</button>`).join('') : '<small>아직 기록이 없습니다</small>'}</div>
           <div class="routine-row"><input data-tk-new="${esc(it.id)}" placeholder="시작일 직접 추가 (예: 24-07-16)" aria-label="${esc(it.label)} 시작일 추가"><button data-act="trackerAddStart" data-id="${esc(it.id)}">시작일 추가</button><button class="primary" data-act="trackerStart" data-id="${esc(it.id)}">오늘 시작</button></div>`
         : '';
-      return `<div class="world-card" data-tracker="${esc(it.id)}"><h3>${esc(it.label)} <span class="pill ${it.status.ok ? '' : 'neutral'}">${esc(it.status.text)}</span></h3>
+      return `<div class="world-card" data-tracker="${esc(it.id)}"><h3>${withKo(it.label)} <span class="pill ${it.status.ok ? '' : 'neutral'}">${esc(it.status.text)}</span></h3>
         <p class="hint">${esc(meta)}${it.status.today ? ` · 기준일 ${esc(it.status.today)}` : ''}</p>${cycle}
         <div class="buttons"><button class="ghost" data-act="trackerEdit" data-id="${esc(it.id)}">고치기</button><button class="ghost" data-act="trackerDelete" data-id="${esc(it.id)}">${armedNow === `trackerDelete:${it.id}` ? '한 번 더 누르면 지웁니다' : '지우기'}</button></div></div>`;
     };
