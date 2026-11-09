@@ -56,8 +56,32 @@ test('the library: memory notes get an editable Korean box, story quotes keep th
   const src = fs.readFileSync(path.join(__dirname, '../extension/runtime.js'), 'utf8');
   for (const x of ['a.title', 'a.summary', 'c.title', 'c.summary', 'e.text', 'e.why', 'r.text', 's.title', 's.summary', 'f.text', 't.title', 't.detail', 't.need']) assert.ok(src.includes('${trEdit(' + x + ')}'), x);
   assert.ok(src.includes('trNote(q.text)') && !src.includes('trEdit(q.text)'), 'quotes stay read-only');
+  // act() draws the screen again before it runs: a save must read its form (and the Korean boxes) before act(), or it
+  // saves what was on screen before the edit (the 0.15.0 bug).
   for (const act of ['saveArc', 'saveChapter', 'saveScene', 'saveFact', 'editThread']) {
     const at = src.indexOf(`case '${act}'`);
-    assert.ok(at > 0 && src.slice(at, at + 700).includes('await applyKoreanEdits('), act);
+    const block = src.slice(at, src.indexOf("        return act(", at) + 400);
+    const actAt = block.indexOf('return act(');
+    assert.ok(at > 0 && actAt > 0, act);
+    assert.ok(block.indexOf('koreanEditsIn(') > 0 && block.indexOf('koreanEditsIn(') < actAt, `${act}: Korean boxes read before act()`);
+    assert.ok(/const (body|\{ id: sid, body \}) = /.test(block.slice(0, actAt)), `${act}: form read before act()`);
+    assert.ok(block.slice(actAt).includes('await applyKoreanEdits(fixes, body)'), `${act}: corrections applied to what was read`);
   }
+});
+
+test('the library: corrections replace the note in what was read, story quotes stay, and nothing is asked without one', async () => {
+  const src = fs.readFileSync(path.join(__dirname, '../extension/runtime.js'), 'utf8').replace(/\r\n/g, '\n');
+  const start = src.indexOf('  async function applyKoreanEdits(');
+  const fnSrc = src.slice(start, src.indexOf('\n  }\n', start) + 4);
+  const calls = [];
+  const api = async (method, url, body) => { calls.push(body); return { items: body.items.map((x) => ({ en: `${x.en} (fixed)` })) }; };
+  const applyKoreanEdits = require('node:vm').runInNewContext(`(${fnSrc.trim()})`, { api, room: 'r1', Map, Object, Array, encodeURIComponent });
+  const body = { title: 'Old title', summary: 'Keep me', events: [{ text: 'Old title', quotes: [{ text: 'Old title' }] }] };
+  const out = await applyKoreanEdits([{ en: 'Old title', ko: '새 제목' }], body);
+  assert.equal(out.title, 'Old title (fixed)');
+  assert.equal(out.summary, 'Keep me');
+  assert.equal(out.events[0].text, 'Old title (fixed)');
+  assert.equal(out.events[0].quotes[0].text, 'Old title', 'a quote from the story is never changed');
+  assert.equal(await applyKoreanEdits([], body), body);
+  assert.equal(calls.length, 1);
 });

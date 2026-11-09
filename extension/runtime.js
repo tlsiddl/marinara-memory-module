@@ -381,24 +381,40 @@
     return prev.matches('input, textarea') ? prev : prev.querySelector('input, textarea');
   };
   /**
-   * Korean corrections in `scope` become English before the form is read: the translation model changes each English
-   * note only where the corrected Korean differs, and the English field gets the result. A field whose English was
-   * edited by hand too keeps the hand edit (the Korean correction is left out). Throws when the model cannot do it,
-   * so nothing is saved half-way.
+   * The Korean corrections in `scope`, read right away (before act() draws the screen again and the form is gone):
+   * [{ en, ko }] for each Korean box that was changed while its own English field was not. A field whose English was
+   * edited by hand keeps the hand edit (its Korean correction is left out).
    */
-  async function applyKoreanEdits(scope) {
+  function koreanEditsIn(scope) {
     const pending = [];
     for (const box of scope?.querySelectorAll('textarea[data-tr-src]') || []) {
       const after = box.value.trim();
       if (!after || after === box.dataset.trKo.trim()) continue;
       const field = englishFieldOf(box);
       if (!field || field.value.trim() !== box.dataset.trSrc) continue;
-      pending.push({ field, en: box.dataset.trSrc, ko: after });
+      pending.push({ en: box.dataset.trSrc, ko: after });
     }
-    if (!pending.length) return 0;
+    return pending;
+  }
+  /**
+   * The corrections become the memory's own language in `body` (already read from the form): the translation model
+   * changes each note only where the corrected Korean differs, and every field of the body that still holds that note
+   * gets the result. Lines quoted from the story are never touched. Throws when the model cannot do it, so nothing is
+   * saved half-way.
+   */
+  async function applyKoreanEdits(pending, body) {
+    if (!pending.length) return body;
     const result = await api('POST', `/chats/${encodeURIComponent(room)}/translations/back`, { items: pending.map(({ en, ko }) => ({ en, ko })) });
-    (result?.items || []).forEach((x, i) => { if (pending[i] && x?.en) pending[i].field.value = x.en; });
-    return pending.length;
+    const next = new Map();
+    (result?.items || []).forEach((x, i) => { if (pending[i] && x?.en) next.set(pending[i].en, x.en); });
+    const swap = (v, key) => {
+      if (key === 'quotes' || key === 'loose') return v;
+      if (typeof v === 'string') return next.get(v.trim()) ?? v;
+      if (Array.isArray(v)) return v.map((x) => swap(x));
+      if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, swap(x, k)]));
+      return v;
+    };
+    return swap(body);
   }
 
   /**
@@ -1406,10 +1422,10 @@
   /** 설정 → 언어: this room's own memory language, apart from the all-rooms setting. Saved as soon as it changes. */
   function roomWriteLanguagePicker() {
     if (!room || !info) return '';
-    const LABEL = { chat: '채팅 언어로', en: '영어로', zh: '중국어로 (간체)' };
-    const all = ['en', 'zh'].includes(serverSettings?.writeLanguage) ? LABEL[serverSettings.writeLanguage] : LABEL.chat;
+    const LABEL = { chat: '채팅 언어로', ko: '한국어로 (중국어·영어 방도 한국어로만)', en: '영어로', zh: '중국어로 (간체)' };
+    const all = ['ko', 'en', 'zh'].includes(serverSettings?.writeLanguage) ? LABEL[serverSettings.writeLanguage] : LABEL.chat;
     const own = info.roomWriteLanguage || 'follow';
-    const options = [['follow', `모든 방 설정 따름 (지금: ${all})`], ['chat', LABEL.chat], ['en', LABEL.en], ['zh', LABEL.zh]];
+    const options = [['follow', `모든 방 설정 따름 (지금: ${all})`], ['chat', LABEL.chat], ['ko', LABEL.ko], ['en', LABEL.en], ['zh', LABEL.zh]];
     return `<label>이 방의 기억 정리 언어<select id="setRoomWriteLang">${options.map(([v, t]) => `<option value="${v}" ${own === v ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></label>
         <p class="hint">이 방만 따로 정합니다. 영어 방은 영어로, 중국어 방은 중국어로 두고 나머지는 채팅 언어로 두는 식입니다. 바꾸면 바로 저장되고, <b>새로 정리되는 기억부터</b> 그 언어로 저장합니다. 이미 정리된 기억은 그대로이고 넣을 때 번역합니다.</p>`;
   }
@@ -1526,7 +1542,8 @@
         ${info?.chatLang ? `<p class="hint">이 방은 <b>${({ en: '영어', zh: '중국어' })[info.chatLang] || '한국어'}</b>로 진행되는 것으로 보입니다(최근 메시지 기준, 자동).</p>` : ''}
         ${prepNote()}
         <label>기억을 정리할 언어 (모든 방 기본값)<select id="setWriteLang">
-          <option value="auto" ${!['en', 'zh'].includes(serverSettings?.writeLanguage) ? 'selected' : ''}>채팅 언어로 (기본)</option>
+          <option value="auto" ${!['ko', 'en', 'zh'].includes(serverSettings?.writeLanguage) ? 'selected' : ''}>채팅 언어로 (기본)</option>
+          <option value="ko" ${serverSettings?.writeLanguage === 'ko' ? 'selected' : ''}>한국어로 (중국어·영어 방도 한국어로만 정리)</option>
           <option value="en" ${serverSettings?.writeLanguage === 'en' ? 'selected' : ''}>영어로 (한국어 방도 영어로 정리)</option>
           <option value="zh" ${serverSettings?.writeLanguage === 'zh' ? 'selected' : ''}>중국어로 (간체 · 한국어 방도 중국어로 정리)</option></select></label>
         <p class="hint">기억 서재에 <b>저장되는</b> 언어입니다. 영어나 중국어로 바꾸면 <b>새로 정리되는 기억부터</b> 그 언어로 저장하고, 이 화면에서는 한국어 번역이 함께 보입니다. 이미 정리된 기억은 그대로 두고 넣을 때 번역하므로 바로 써도 됩니다. 전부 그 언어로 저장하고 싶으시면 한눈에 → <b>처음부터 다시 정리</b>를 눌러 주세요. 대사 인용과 이름은 늘 원문 그대로입니다. 한국어 방에서 영어나 중국어로 정리해도 낱말로 찾기는 이 화면의 한국어 번역과 원래 낱말을 함께 봅니다(번역이 아직 없는 기억은 원래 낱말로만 찾습니다).</p>
@@ -2082,35 +2099,34 @@
           recallTest = await api('POST', `/chats/${chat}/recall-test`, { text: recallTestText });
         }, '회상 시험을 마쳤습니다.');
       }
+      // Every save reads its form first: act() draws the screen again before it runs, and the form goes with it.
       case 'saveArc': {
         const ed = root.querySelector('#arcEditor');
-        return act(async () => {
-          await applyKoreanEdits(ed);
-          const body = { title: ed.querySelector('#aTitle').value, summary: ed.querySelector('#aSummary').value, turns: ed.querySelector('#aTurns').value.split('\n'), keep: ed.querySelector('#aKeep').value.split('\n') };
-          await api('PATCH', `/chats/${chat}/arcs/${encodeURIComponent(ed.dataset.id)}`, body);
-        }, '큰 흐름을 저장했습니다.');
+        const fixes = koreanEditsIn(ed);
+        const body = { title: ed.querySelector('#aTitle').value, summary: ed.querySelector('#aSummary').value, turns: ed.querySelector('#aTurns').value.split('\n'), keep: ed.querySelector('#aKeep').value.split('\n') };
+        const aid = ed.dataset.id;
+        return act(async () => api('PATCH', `/chats/${chat}/arcs/${encodeURIComponent(aid)}`, await applyKoreanEdits(fixes, body)), '큰 흐름을 저장했습니다.');
       }
       case 'saveChapter': {
         const ed = root.querySelector('#chapterEditor');
-        return act(async () => {
-          await applyKoreanEdits(ed);
-          const body = { title: ed.querySelector('#cTitle').value, summary: ed.querySelector('#cSummary').value, turns: ed.querySelector('#cTurns').value.split('\n'), keep: ed.querySelector('#cKeep').value.split('\n') };
-          await api('PATCH', `/chats/${chat}/chapters/${encodeURIComponent(ed.dataset.id)}`, body);
-        }, '챕터를 저장했습니다.');
+        const fixes = koreanEditsIn(ed);
+        const body = { title: ed.querySelector('#cTitle').value, summary: ed.querySelector('#cSummary').value, turns: ed.querySelector('#cTurns').value.split('\n'), keep: ed.querySelector('#cKeep').value.split('\n') };
+        const cid = ed.dataset.id;
+        return act(async () => api('PATCH', `/chats/${chat}/chapters/${encodeURIComponent(cid)}`, await applyKoreanEdits(fixes, body)), '챕터를 저장했습니다.');
       }
       case 'saveScene': {
-        return act(async () => {
-          await applyKoreanEdits(root.querySelector('#sceneEditor'));
-          const { id: sid, body } = readScene();
-          await api('PATCH', `/chats/${chat}/scenes/${encodeURIComponent(sid)}`, body);
-        }, '장면을 저장했습니다.');
+        const fixes = koreanEditsIn(root.querySelector('#sceneEditor'));
+        const { id: sid, body } = readScene();
+        return act(async () => api('PATCH', `/chats/${chat}/scenes/${encodeURIComponent(sid)}`, await applyKoreanEdits(fixes, body)), '장면을 저장했습니다.');
       }
       case 'saveFact': {
         const row = root.querySelector(`[data-fact="${CSS.escape(id)}"]`);
         const unaware = row.querySelector('[data-f="unaware"]');
         const guess = row.querySelector('[data-f="guess"]');
         const knownBy = row.querySelector('[data-f="knownBy"]');
-        return act(async () => { await applyKoreanEdits(row); await api('PATCH', `/chats/${chat}/facts/${encodeURIComponent(id)}`, { text: row.querySelector('textarea').value, ...(unaware ? { unaware: unaware.value, guess: guess.value } : {}), ...(knownBy ? { knownBy: knownBy.value } : {}) }); }, '사실을 저장했습니다.');
+        const fixes = koreanEditsIn(row);
+        const body = { text: row.querySelector('textarea').value, ...(unaware ? { unaware: unaware.value, guess: guess.value } : {}), ...(knownBy ? { knownBy: knownBy.value } : {}) };
+        return act(async () => api('PATCH', `/chats/${chat}/facts/${encodeURIComponent(id)}`, await applyKoreanEdits(fixes, body)), '사실을 저장했습니다.');
       }
       case 'deleteFact':
         if (armed !== `fact:${id}`) {
@@ -2121,15 +2137,13 @@
         return act(() => api('DELETE', `/chats/${chat}/facts/${encodeURIComponent(id)}`), '사실을 삭제했습니다.');
       case 'editThread': {
         const box = root.querySelector(`[data-thread="${CSS.escape(id)}"]`);
-        return act(async () => {
-          await applyKoreanEdits(box);
-          const body = {};
-          for (const f of ['title', 'detail', 'need', 'unaware', 'guess', 'dueDate', 'dueTime']) {
-            const el = box?.querySelector(`[data-f="${f}"]`);
-            if (el) body[f] = el.value;
-          }
-          await api('POST', `/chats/${chat}/threads/${encodeURIComponent(id)}/edit`, body);
-        }, `${id} 항목을 저장했습니다.`);
+        const fixes = koreanEditsIn(box);
+        const body = {};
+        for (const f of ['title', 'detail', 'need', 'unaware', 'guess', 'dueDate', 'dueTime']) {
+          const el = box?.querySelector(`[data-f="${f}"]`);
+          if (el) body[f] = el.value;
+        }
+        return act(async () => api('POST', `/chats/${chat}/threads/${encodeURIComponent(id)}/edit`, await applyKoreanEdits(fixes, body)), `${id} 항목을 저장했습니다.`);
       }
       case 'reopen':
         return act(() => api('POST', `/chats/${chat}/threads/${encodeURIComponent(id)}/reopen`), `${id} 항목을 다시 열었습니다.`);
@@ -2155,7 +2169,7 @@
       case 'saveLanguage': {
         const memoryLanguage = root.querySelector('#setMemLang')?.value || 'auto';
         const writeLanguage = root.querySelector('#setWriteLang')?.value || 'auto';
-        const writeChanged = writeLanguage !== (['en', 'zh'].includes(serverSettings?.writeLanguage) ? serverSettings.writeLanguage : 'auto');
+        const writeChanged = writeLanguage !== (['ko', 'en', 'zh'].includes(serverSettings?.writeLanguage) ? serverSettings.writeLanguage : 'auto');
         const translateConnection = root.querySelector('#setTrConn')?.value || '';
         const translateQuotes = Boolean(root.querySelector('#setTrQuotes')?.checked);
         const autoTranslate = Boolean(root.querySelector('#setAutoTr')?.checked);
@@ -2163,8 +2177,8 @@
           await api('POST', '/settings/language', { memoryLanguage, writeLanguage, translateConnection, translateQuotes, autoTranslate });
           serverSettings = (await api('GET', '/status')).settings;
           if (room) info = await api('GET', `/chats/${encodeURIComponent(room)}`).catch(() => info);
-        }, writeChanged && (writeLanguage === 'en' || writeLanguage === 'zh')
-          ? `기억 언어를 저장했습니다. 새 기억부터 ${writeLanguage === 'zh' ? '중국어' : '영어'}로 정리합니다. 이미 정리된 기억은 넣을 때 번역합니다(전부 그 언어로 저장하려면 한눈에 → 처음부터 다시 정리).`
+        }, writeChanged && (writeLanguage === 'en' || writeLanguage === 'zh' || writeLanguage === 'ko')
+          ? `기억 언어를 저장했습니다. 새 기억부터 ${({ zh: '중국어', en: '영어', ko: '한국어' })[writeLanguage]}로 정리합니다. 이미 정리된 기억은 넣을 때 번역합니다(전부 그 언어로 저장하려면 한눈에 → 처음부터 다시 정리).`
           : writeChanged
             ? '기억 언어를 저장했습니다. 새 기억부터 채팅 언어로 정리합니다.'
             : memoryLanguage === 'auto' ? '기억 언어를 저장했습니다.' : '기억 언어를 저장했습니다. 다시 정리할 필요 없이, 이 방의 기억을 바로 번역해 둡니다.');
