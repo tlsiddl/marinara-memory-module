@@ -1121,13 +1121,14 @@
   function viewWorld() {
     if (!info) return emptyRoom();
     if (!world || worldRoom !== room) return worldError ? `<div class="note" role="alert">인물·장소를 불러오지 못했습니다. ${esc(worldError)} 서버의 기억 모듈도 함께 업데이트했는지 확인해 주세요.</div>` : `<div class="empty">${icon('refresh')}불러오는 중입니다…</div>`;
-    const off = !world.characterState && !world.places && !world.keepsakes && !world.trackers;
+    const off = !world.characterState && !world.places && !world.keepsakes && !world.trackers && !world.notebook;
     return `<div class="eyebrow">STORY NOW</div><h1>인물·장소</h1>
       <p class="intro">장면을 정리할 때 같은 모델 호출에서 함께 읽어 둔 인물의 현재 상태, 장소의 모습, 소중한 물건입니다. 켠 뒤에 새로 정리하는 장면부터 채워지고, 원문에 보인 것만 적습니다. 고친 칸은 잠겨서 자동 기록이 덮어쓰지 않습니다.</p>
       ${off ? '<div class="note" role="status">이 방에서는 <b>인물 현재 상태</b>·<b>장소 기억</b>·<b>소중한 물건</b>·<b>날짜·주기 트래커</b>가 모두 꺼져 있습니다. <button data-tab="settings">설정 → 추가 기능에서 켜기</button></div>' : ''}
       ${statePaper(world, worldForm, armed)}
       ${placesPaper(world, worldForm, armed)}
       ${keepsakesPaper(world, worldForm, armed)}
+      ${notebookPaper(world, armed)}
       ${trackersPaper(world, armed)}`;
   }
 
@@ -1180,6 +1181,27 @@
       ${list.length ? list.map(place).join('') : '<p class="hint">아직 없습니다. 켠 뒤에 정리되는 장면부터 채워집니다.</p>'}
       <h3>장소 직접 추가</h3>
       <div class="routine-row"><input id="placeNewName" value="${esc(form?.place || '')}" placeholder="장소 이름" aria-label="장소 이름"><button class="primary" data-act="placeAdd">추가</button></div></div>`;
+  }
+
+  /**
+   * 인물의 수첩: each character's notes in their own Korean voice (알게 된 것 / 속마음), newest last, each with the
+   * scene it came from. A note can be reworded (kept when the scenes are read again), marked ★ (always kept, always
+   * goes in first), or deleted (not written back). No hand-made notes: the scenes write them.
+   */
+  function notebookPaper(w, armedNow) {
+    if (!w || !w.notebook) return '';
+    const people = Object.entries(w.notes || {});
+    const titles = w.sceneTitles || {};
+    const KIND = { about: '알게 된 것', heart: '속마음' };
+    const note = (n) => `<div class="notebook-note" data-note="${esc(n.id)}">
+        <div class="notebook-head"><span class="pill ${n.kind === 'heart' ? '' : 'neutral'}">${KIND[n.kind] || n.kind}</span>${n.about ? `<small>${esc(nameShown(n.about))}에 대해</small>` : ''}${n.edited ? '<small>직접 고침</small>' : ''}${sceneRefs(sceneRef(n.sceneId, '', titles))}</div>
+        <textarea class="event-field" data-note-text="${esc(n.id)}" aria-label="${esc(n.who)}의 메모">${esc(n.text)}</textarea>
+        <div class="buttons"><button data-act="noteSave" data-id="${esc(n.id)}">고친 내용 저장</button><button class="ghost ${n.star ? 'mark-button is-on' : ''}" data-act="${n.star ? 'noteUnstar' : 'noteStar'}" data-id="${esc(n.id)}">${n.star ? '★ 중요' : '☆ 중요로 표시'}</button><button class="ghost" data-act="noteDelete" data-id="${esc(n.id)}">${armedNow === `noteDelete:${n.id}` ? '한 번 더 누르면 지웁니다' : '지우기'}</button></div>
+      </div>`;
+    const person = ([who, list]) => `<details class="world-card" data-list="notebook:${esc(who)}" ${openLists.has(`notebook:${who}`) ? 'open' : ''}><summary><b>${esc(nameShown(who))}의 수첩</b> · ${list.length}개${list.some((n) => n.star) ? ` · ★ ${list.filter((n) => n.star).length}` : ''}</summary>${list.map(note).join('')}</details>`;
+    return `<div class="paper"><h2>인물의 수첩 · ${people.length}명</h2>
+      <p class="hint">인물마다 마음에 담아 둔 것을 그 인물의 말투로 적어 둡니다. <b>알게 된 것</b>은 상대에 대해 눈여겨본 작은 것, <b>속마음</b>은 그 인물의 다짐이나 마음에 걸리는 것입니다. 답변에는 지금 장면에 있는 인물의 것만, ★부터 인물마다 3개까지 들어갑니다. 다른 인물은 이 수첩을 모르는 것으로 다룹니다. 사용자 캐릭터의 수첩은 만들지 않습니다.</p>
+      ${people.length ? people.map(person).join('') : '<p class="hint">아직 없습니다. 켠 뒤에 정리되는 장면부터 채워집니다.</p>'}</div>`;
   }
 
   /** 소중한 물건: owner, from, meaning and status of each item, editable (editing locks it); other names, merge and delete. */
@@ -1769,7 +1791,7 @@
   async function handle(actName, el) {
     const id = el?.dataset?.id;
     const chat = encodeURIComponent(room);
-    if (actName !== 'fresh' && !actName.startsWith('deleteFact') && actName !== 'closeThread' && actName !== 'rebuildChapters' && actName !== 'deleteRoutine' && !['nameApply', 'mergeApply', 'aliasApply', 'nameUndo', 'backupDownload', 'restoreApply', 'restoreUndo', 'addressDelete', 'stateReset', 'placeDelete', 'keepDelete', 'trackerDelete', 'trackerDropStart'].includes(actName)) armed = '';
+    if (actName !== 'fresh' && !actName.startsWith('deleteFact') && actName !== 'closeThread' && actName !== 'rebuildChapters' && actName !== 'deleteRoutine' && !['nameApply', 'mergeApply', 'aliasApply', 'nameUndo', 'backupDownload', 'restoreApply', 'restoreUndo', 'addressDelete', 'stateReset', 'placeDelete', 'keepDelete', 'noteDelete', 'trackerDelete', 'trackerDropStart'].includes(actName)) armed = '';
     switch (actName) {
       case 'retryTranslation':
         return act(async () => {
@@ -2050,6 +2072,26 @@
           world = null;
         }, '소중한 물건을 추가했습니다.');
       }
+      case 'noteSave': {
+        const text = root.querySelector(`[data-note-text="${CSS.escape(id)}"]`)?.value ?? '';
+        return act(async () => {
+          await api('POST', `/chats/${chat}/notebook`, { action: 'edit', id, text });
+          world = null;
+        }, '메모를 저장했습니다.');
+      }
+      case 'noteStar':
+      case 'noteUnstar':
+        return act(async () => {
+          await api('POST', `/chats/${chat}/notebook`, { action: actName === 'noteStar' ? 'star' : 'unstar', id });
+          world = null;
+        }, actName === 'noteStar' ? '중요로 표시했습니다. 이 인물이 장면에 있으면 늘 먼저 들어갑니다.' : '중요 표시를 뺐습니다.');
+      case 'noteDelete':
+        if (armed !== `noteDelete:${id}`) { armed = `noteDelete:${id}`; return render(); }
+        armed = '';
+        return act(async () => {
+          await api('POST', `/chats/${chat}/notebook`, { action: 'delete', id });
+          world = null;
+        }, '메모를 지웠습니다. 다시 정리해도 되살아나지 않습니다.');
       case 'keepDelete':
         if (armed !== `keepDelete:${id}`) { armed = `keepDelete:${id}`; return render(); }
         armed = '';

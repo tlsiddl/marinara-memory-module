@@ -11,6 +11,7 @@ const Pl = require('./places.cjs');
 const K = require('./knowledge.cjs');
 const Ks = require('./keepsakes.cjs');
 const Tk = require('./trackers.cjs');
+const Nb = require('./notebook.cjs');
 
 const SCENES_VERSION = 1;
 const REMEMBERS = ['full', 'partial', 'none'];
@@ -294,6 +295,12 @@ function buildScenePrompt(store, slice, required, problem = null, preferences = 
   if (preferences.places) extras.push(Pl.PROMPT);
   if (preferences.keepsakes) extras.push(Ks.PROMPT);
   if (preferences.dateHints) extras.push(Tk.PROMPT);
+  if (preferences.notebook) {
+    // How each character talks in Korean (their Korean lines, or the saved Korean translation of English-only lines).
+    const voice = Nb.voiceBlock(Nb.voiceSamples(slice, cast, { personas: [...new Set([...(store.personas || []), ...personas])] }));
+    extras.push(voice ? `${Nb.PROMPT}
+${voice}` : Nb.PROMPT);
+  }
   return [
     { role: 'system', content: base + (guidance.length ? '\n\n사용자가 선택한 정리 우선순위 (위의 대사 우선 규칙보다 우선):\n' + guidance.join('\n') : '') + (extras.length ? '\n\n' + extras.join('\n\n') : '') },
     { role: 'user', content: parts.join('\n') },
@@ -695,6 +702,21 @@ function sceneKeepsakesOf(raw, { cast, personas, index, inScene }) {
   }
   return out.slice(0, Ks.PER_SCENE);
 }
+/** What each character of the scene would keep in mind (인물의 수첩): story people only, never the user's own, with evidence from this scene. */
+function sceneCharNotesOf(raw, { cast, personas, index, inScene }) {
+  const out = [];
+  const people = [...cast, ...personas];
+  const person = (n) => (n ? L.matchName(n, people) || '' : '');
+  for (const item of Array.isArray(raw) ? raw : []) {
+    const cleaned = Nb.cleanNote(item, { cast, personas, person });
+    if (!cleaned) continue;
+    if (out.filter((n) => n.who === cleaned.who).length >= Nb.PER_PERSON_SCENE) continue;
+    const evidence = L.resolveEvidence(item.evidence, index).filter(inScene).slice(0, 2).map((p) => ({ number: p.number, sentence: p.sentence }));
+    if (!evidence.length) continue;
+    out.push({ ...cleaned, evidence });
+  }
+  return out.slice(0, Nb.PER_SCENE);
+}
 /** Dates worth a tracker in a scene (trackers on): only people of the story, only with evidence from this scene's own sentences. */
 function sceneDateHintsOf(raw, { cast, personas, index, inScene }) {
   const out = [];
@@ -724,7 +746,7 @@ function sceneNotesOf(raw, scenePlace) {
  * Turn a model result into scenes for this slice. Scenes follow each other with no gap, from the slice start,
  * and the last one must reach `required`. Returns { scenes, facts, covered } or { error }.
  */
-function applyScenes(store, result, slice, required, now = new Date().toISOString(), { partial = false, quoteMode = 'dialogue', verifyAttribution = false, strictCoverage = false, characterState = false, places = false, keepsakes = false, dateHints = false } = {}) {
+function applyScenes(store, result, slice, required, now = new Date().toISOString(), { partial = false, quoteMode = 'dialogue', verifyAttribution = false, strictCoverage = false, characterState = false, places = false, keepsakes = false, dateHints = false, notebook = false } = {}) {
   const raw = Array.isArray(result?.scenes) ? result.scenes : null;
   if (!raw || !raw.length) return { error: '장면이 비어 있습니다' };
   const index = L.indexBatch(slice);
@@ -775,6 +797,7 @@ function applyScenes(store, result, slice, required, now = new Date().toISOStrin
     const placeNotes = places ? sceneNotesOf(item.placeNotes, cleanText(item.place, 60)) : [];
     const keeps = keepsakes ? sceneKeepsakesOf(item.keepsakes, { cast, personas, index, inScene }) : [];
     const hints = dateHints ? sceneDateHintsOf(item.dates, { cast, personas, index, inScene }) : [];
+    const charNotes = notebook ? sceneCharNotesOf(item.notebook, { cast, personas, index, inScene }) : [];
     made.push({
       id,
       start: messages[0].number,
@@ -793,6 +816,7 @@ function applyScenes(store, result, slice, required, now = new Date().toISOStrin
       ...(placeNotes.length ? { placeNotes } : {}),
       ...(keeps.length ? { keepsakes: keeps } : {}),
       ...(hints.length ? { dateHints: hints } : {}),
+      ...(charNotes.length ? { charNotes } : {}),
       heardLater: [],
       edited: false,
       createdAt: now,
@@ -3428,6 +3452,7 @@ module.exports = {
   sceneNotesOf,
   sceneKeepsakesOf,
   sceneDateHintsOf,
+  sceneCharNotesOf,
   sceneNames,
   isDialogue,
   quoteText,
