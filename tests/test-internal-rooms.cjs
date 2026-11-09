@@ -37,7 +37,7 @@ test('the room list leaves helper chats out and keeps everything else', async ()
   const call = endpoints();
   const list = await call('GET', '/chats');
   assert.deepEqual(list.map((c) => c.id), ['room-1', 'room-2', 'helper-off', 'odd-1', 'odd-2']);
-  assert.deepEqual(Object.keys(list[0]).sort(), ['enabled', 'id', 'ledger', 'mode', 'name', 'updatedAt']);
+  assert.deepEqual(Object.keys(list[0]).sort(), ['enabled', 'id', 'lastMessageAt', 'ledger', 'mode', 'name', 'updatedAt']);
   assert.deepEqual((await T.listRooms()).map((c) => c.id), list.map((c) => c.id));
 });
 
@@ -59,4 +59,34 @@ test('helper chats are never taken for deleted rooms', async () => {
   assert.deepEqual(orphans, ['gone-1']);
   const result = await T.deleteOrphans(['helper-1', 'helper-2', 'room-1']);
   assert.deepEqual(result, { deleted: [], refused: ['helper-1', 'helper-2', 'room-1'] });
+});
+
+test('a branch is marked in the room list, with its own name and, when names are shared, the last-used time', async () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const vm = require('node:vm');
+  const source = fs.readFileSync(path.join(__dirname, '../extension/runtime.js'), 'utf8').replace(/\r\n/g, '\n');
+  const start = source.indexOf('  function roomLabel(');
+  const rooms = [
+    { id: 'a', name: '세라', lastMessageAt: '2026-11-08T09:05:00' },
+    { id: 'b', name: '세라', lastMessageAt: '2026-11-09T21:30:00', branch: { name: 'New Branch', parentId: 'a' } },
+    { id: 'c', name: '세라', updatedAt: '2026-11-09T10:00:00', branch: { name: '바다 엔딩', parentId: 'a' } },
+    { id: 'd', name: '빅터' },
+  ];
+  const label = vm.runInNewContext(`(${source.slice(start, source.indexOf('\n  }\n', start) + 4).trim()})`, { rooms, Date, String, Number });
+  assert.equal(label(rooms[0]), '세라 · 11.8 09:05');
+  assert.equal(label(rooms[1]), '세라 ↳ 분기 · 11.9 21:30', 'Marinara\'s default branch name is not shown');
+  assert.equal(label(rooms[2]), '세라 ↳ 분기: 바다 엔딩 · 11.9 10:00');
+  assert.equal(label(rooms[3]), '빅터', 'a name of its own needs nothing more');
+  assert.ok(source.includes('${esc(roomLabel(r))}</option>'));
+});
+
+test('the room list says which rooms are branches (and of which room)', async () => {
+  const withBranch = [...rows, { id: 'branch-1', name: 'Story one', mode: 'roleplay', updatedAt: '2026-01-08', lastMessageAt: '2026-01-08T10:00:00', metadata: { branchParentChatId: 'room-1', branchName: 'Beach ending' } }];
+  T.setEngine({ chats: { list: async () => withBranch.map((r) => ({ ...r })), getById: async (id) => withBranch.find((r) => r.id === id) || null } });
+  const list = await endpoints()('GET', '/chats');
+  assert.deepEqual(list.find((c) => c.id === 'branch-1').branch, { name: 'Beach ending', parentId: 'room-1' });
+  assert.equal(list.find((c) => c.id === 'branch-1').lastMessageAt, '2026-01-08T10:00:00');
+  assert.equal('branch' in list.find((c) => c.id === 'room-1'), false);
+  T.setEngine(engine);
 });

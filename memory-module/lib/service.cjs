@@ -3465,14 +3465,21 @@ async function routes(app) {
   }));
   app.get('/chats', guard(async () => {
     const list = await listRooms();
-    return list.map((chat) => ({
-      id: chat.id,
-      name: chat.name,
-      mode: chat.mode,
-      updatedAt: chat.updatedAt,
-      enabled: chatEnabled(chat.id),
-      ledger: summary(loadLedger(chat.id)),
-    }));
+    return list.map((chat) => {
+      // A branch has the same name as the room it came from: say it is a branch (and its own name, when it has one).
+      const meta = parseExtra(chat.metadata);
+      const branch = meta.branchParentChatId ? { name: typeof meta.branchName === 'string' ? meta.branchName.slice(0, 60) : null, parentId: String(meta.branchParentChatId) } : null;
+      return {
+        id: chat.id,
+        name: chat.name,
+        mode: chat.mode,
+        updatedAt: chat.updatedAt,
+        lastMessageAt: chat.lastMessageAt || null,
+        ...(branch ? { branch } : {}),
+        enabled: chatEnabled(chat.id),
+        ledger: summary(loadLedger(chat.id)),
+      };
+    });
   }));
   // Memory left behind by rooms Marinara no longer has. Listing deletes nothing; deleting asks per room or all.
   app.get('/orphans', guard(async () => ({ orphans: await listOrphans() })));

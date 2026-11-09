@@ -588,7 +588,19 @@
 
   /* ---------- views ---------- */
 
-  const roomName = () => rooms.find((r) => r.id === room)?.name || '채팅방을 선택해 주세요';
+  const roomName = () => { const r = rooms.find((x) => x.id === room); return r ? roomLabel(r) : '채팅방을 선택해 주세요'; };
+  /**
+   * A room's name in the room list: a branch says so ("↳ 분기", with its own name unless it is Marinara's default
+   * "New Branch"), and rooms that share a name (a branch and the room it came from) get their last-used time, so they
+   * can be told apart when picked from the list.
+   */
+  function roomLabel(r) {
+    const same = rooms.filter((x) => x.name === r.name).length > 1;
+    const own = r.branch?.name && !/^new branch$/i.test(r.branch.name.trim()) ? `: ${r.branch.name}` : '';
+    const when = (iso) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? '' : `${d.getMonth() + 1}.${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
+    const time = same ? when(r.lastMessageAt || r.updatedAt) : '';
+    return `${r.name}${r.branch ? ` ↳ 분기${own}` : ''}${time ? ` · ${time}` : ''}`;
+  }
   const tokens = (text) => Math.round(String(text || '').length / 1.5).toLocaleString();
   const day = (iso) => (iso ? String(iso).slice(2, 10) : '');
 
@@ -1758,7 +1770,7 @@
     if (!open) return;
     for (const b of root.querySelectorAll('nav button')) b.classList.toggle('selected', b.dataset.tab === tab);
     root.querySelector('#roomSelect').innerHTML = rooms.length
-      ? rooms.map((r) => `<option value="${esc(r.id)}" ${r.id === room ? 'selected' : ''}>${r.enabled ? '● ' : ''}${esc(r.name)}</option>`).join('')
+      ? rooms.map((r) => `<option value="${esc(r.id)}" ${r.id === room ? 'selected' : ''}>${r.enabled ? '● ' : ''}${esc(roomLabel(r))}</option>`).join('')
       : '<option>채팅방 없음</option>';
     const toggle = root.querySelector('#roomEnabled');
     toggle.checked = Boolean(info?.enabled);
