@@ -26,10 +26,10 @@ const call = async (key, id, body) => {
 const settingsFile = path.join(dir, 'memory-module/settings.json');
 const onDisk = () => JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
 
-const READY = ['recentLife', 'characterState', 'places', 'keepsakes', 'trackers', 'autoApply'];
+const READY = ['recentLife', 'characterState', 'places', 'keepsakes', 'notebook', 'trackers', 'autoApply'];
 const BUILTIN = ['addressBook', 'learnFromEdits', 'knowledge', 'conflicts', 'recallReasons'];
 test('registry: Korean labels, recentLife on by default, every other feature off; only the implemented ones are ready; built-in ones are not in it', () => {
-  const keys = ['recentLife', 'characterState', 'places', 'keepsakes', 'trackers', 'autoApply'];
+  const keys = ['recentLife', 'characterState', 'places', 'keepsakes', 'notebook', 'trackers', 'autoApply'];
   assert.deepEqual(Object.keys(F.FEATURES), keys);
   for (const [key, f] of Object.entries(F.FEATURES)) {
     assert.match(f.label, /[가-힣]/, key);

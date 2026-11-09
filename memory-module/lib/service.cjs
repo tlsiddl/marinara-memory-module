@@ -21,6 +21,7 @@ const St = require('./state.cjs');
 const Pl = require('./places.cjs');
 const Cf = require('./conflicts.cjs');
 const Ks = require('./keepsakes.cjs');
+const Nb = require('./notebook.cjs');
 const Tk = require('./trackers.cjs');
 const Rp = require('./reasons.cjs');
 
@@ -309,6 +310,9 @@ const stateCache = new Map();
 const placesCache = new Map();
 const conflictsCache = new Map();
 const keepsakesCache = new Map();
+// 인물의 수첩: worked out again from the scenes; the file keeps the user's edits, stars and deletions.
+const notebookFile = (chatId) => path.join(CHAT_DIR, `${safeChatId(chatId)}.notebook.json`);
+const notebookCache = new Map();
 // Date and cycle trackers (날짜·주기 트래커): the user's own records, with suggestions found in the scenes.
 const trackersFile = (chatId) => path.join(CHAT_DIR, `${safeChatId(chatId)}.trackers.json`);
 const trackersCache = new Map();
@@ -359,6 +363,18 @@ function loadKeepsakes(chatId) {
   const value = stored && Array.isArray(stored.items) ? stored : Ks.emptyKeepsakes();
   keepsakesCache.set(chatId, value);
   return value;
+}
+function loadNotebook(chatId) {
+  if (notebookCache.has(chatId)) return notebookCache.get(chatId);
+  const file = notebookFile(chatId);
+  const stored = supported(file, readJson(file, null), Nb.NOTEBOOK_VERSION);
+  const value = Nb.isNotebook(stored) ? stored : Nb.emptyNotebook();
+  notebookCache.set(chatId, value);
+  return value;
+}
+function saveNotebook(chatId, value) {
+  writeJson(notebookFile(chatId), value);
+  notebookCache.set(chatId, value);
 }
 function saveKeepsakes(chatId, value) {
   writeJson(keepsakesFile(chatId), value);
@@ -426,6 +442,7 @@ function sceneRecords(chatId) {
   if (featureOn(chatId, 'characterState')) out.characterState = true;
   if (featureOn(chatId, 'places')) out.places = true;
   if (featureOn(chatId, 'keepsakes')) out.keepsakes = true;
+  if (featureOn(chatId, 'notebook')) out.notebook = true;
   // With date trackers on, the scene call also notes dates worth a tracker (first meeting, an exam day, a cycle).
   if (featureOn(chatId, 'trackers')) out.dateHints = true;
   return out;
@@ -467,6 +484,11 @@ function refreshWorld(chatId, store) {
         const old = loadKeepsakes(chatId);
         const next = Ks.fold(store, old);
         if (JSON.stringify(next) !== JSON.stringify(old)) { saveKeepsakes(chatId, next); changed = true; }
+      }
+      if (featureOn(chatId, 'notebook')) {
+        const old = loadNotebook(chatId);
+        const next = Nb.fold(store, old);
+        if (JSON.stringify(next) !== JSON.stringify(old)) { saveNotebook(chatId, next); changed = true; }
       }
       // A cycle's start the story states becomes a suggestion (never recorded by itself; no model call).
       if (featureOn(chatId, 'trackers')) {
@@ -603,6 +625,7 @@ async function inheritBranch(sourceId, targetId) {
     const sourceState = fs.existsSync(stateFile(sourceId)) ? loadState(sourceId) : null;
     const sourcePlaces = fs.existsSync(placesFile(sourceId)) ? loadPlaces(sourceId) : null;
     const sourceKeeps = fs.existsSync(keepsakesFile(sourceId)) ? loadKeepsakes(sourceId) : null;
+    const sourceNotebook = fs.existsSync(notebookFile(sourceId)) ? loadNotebook(sourceId) : null;
     const sourceTrackers = fs.existsSync(trackersFile(sourceId)) ? loadTrackers(sourceId) : null;
     const sourceConflicts = fs.existsSync(conflictsFile(sourceId)) ? loadConflicts(sourceId) : null;
     const sourceMarks = fs.existsSync(recallPrefsFile(sourceId)) ? loadRecallPrefs(sourceId) : null;
@@ -645,6 +668,7 @@ async function inheritBranch(sourceId, targetId) {
       if (sourceState && !fs.existsSync(stateFile(targetId))) { saveState(targetId, A.using(sourceId, () => St.fold(result.scenes || S.emptyStore(), structuredClone(sourceState)))); written.push(stateFile(targetId)); }
       if (sourcePlaces && !fs.existsSync(placesFile(targetId))) { savePlaces(targetId, A.using(sourceId, () => Pl.fold(result.scenes || S.emptyStore(), structuredClone(sourcePlaces)))); written.push(placesFile(targetId)); }
       if (sourceKeeps && !fs.existsSync(keepsakesFile(targetId))) { saveKeepsakes(targetId, A.using(sourceId, () => Ks.fold(result.scenes || S.emptyStore(), structuredClone(sourceKeeps)))); written.push(keepsakesFile(targetId)); }
+      if (sourceNotebook && !fs.existsSync(notebookFile(targetId))) { saveNotebook(targetId, Nb.fold(result.scenes || S.emptyStore(), structuredClone(sourceNotebook))); written.push(notebookFile(targetId)); }
       // The user's date and cycle trackers come along as they are (suggestions for scenes this branch lacks drop out).
       if (sourceTrackers && !fs.existsSync(trackersFile(targetId))) { saveTrackers(targetId, Tk.forBranch(sourceTrackers, result.scenes || S.emptyStore())); written.push(trackersFile(targetId)); }
       // Answers to record conflicts stay for the facts this branch really has.
@@ -657,7 +681,7 @@ async function inheritBranch(sourceId, targetId) {
       }
     } catch (error) {
       for (const file of written) fs.rmSync(file, { force: true });
-      cache.delete(targetId); sceneCache.delete(targetId); touchScenes(targetId); vectorCache.delete(targetId); addressCache.delete(targetId); stateCache.delete(targetId); placesCache.delete(targetId); conflictsCache.delete(targetId); keepsakesCache.delete(targetId); trackersCache.delete(targetId); recallPrefsCache.delete(targetId); langRecords.delete(targetId); chatLangs.delete(targetId);
+      cache.delete(targetId); sceneCache.delete(targetId); touchScenes(targetId); vectorCache.delete(targetId); addressCache.delete(targetId); stateCache.delete(targetId); placesCache.delete(targetId); conflictsCache.delete(targetId); keepsakesCache.delete(targetId); notebookCache.delete(targetId); trackersCache.delete(targetId); recallPrefsCache.delete(targetId); langRecords.delete(targetId); chatLangs.delete(targetId);
       throw error;
     }
     log(`branch ${sourceId} -> ${targetId}: inherited ${result.matched} message(s), ${result.scenes?.scenes.length || 0} scene(s)${result.ledgerReset ? '; old fork: ledger will be read again' : ''}`);
@@ -737,7 +761,7 @@ function removeRoomFiles(chatId) {
 
 /** Everything held in memory for one room (not the files). The next read loads from disk again. */
 function clearRoomCaches(chatId) {
-  for (const map of [cache, windows, sceneCache, namesCache, addressCache, stateCache, placesCache, conflictsCache, keepsakesCache, trackersCache, recallPrefsCache, selectedViews, vectorCache, chatLangs, langRecords, replyLedgers, translationCache, displayTranslationStatus, preparing, replyViews, speakerColors, recalls, turnQuery, storyDays, storyNow]) map.delete(chatId);
+  for (const map of [cache, windows, sceneCache, namesCache, addressCache, stateCache, placesCache, conflictsCache, keepsakesCache, notebookCache, trackersCache, recallPrefsCache, selectedViews, vectorCache, chatLangs, langRecords, replyLedgers, translationCache, displayTranslationStatus, preparing, replyViews, speakerColors, recalls, turnQuery, storyDays, storyNow]) map.delete(chatId);
   touchScenes(chatId);
   langRefreshed.delete(chatId);
   for (const key of [...translating.keys()]) if (String(key).startsWith(`${chatId}:`)) translating.delete(key);
@@ -1421,11 +1445,11 @@ function translateModel() {
  * English. Quotes and names stay as written.
  */
 const LANGUAGE_NOTE = {
-  en: '\n\n[기록 언어] 네가 새로 쓰는 모든 글(제목·요약·사건·사실·이유·메모·생활 기록)은 영어로 써. 채팅이 한국어여도 마찬가지야. 인용(q)은 원문에서 그대로 복사하고(번역하지 마), 이름도 쓰인 그대로 둬.',
+  en: '\n\n[기록 언어] 네가 새로 쓰는 모든 글(제목·요약·사건·사실·이유·메모·생활 기록)은 영어로 써. 채팅이 한국어여도 마찬가지야. 인용(q)은 원문에서 그대로 복사하고(번역하지 마), 이름도 쓰인 그대로 둬. 인물의 수첩(notebook)의 text만은 예외로 한국어로 써.',
   // Korean chosen on purpose for a chat that is not Korean (a Chinese or English room): without this the memory model
   // follows the chat and mixes the two languages in one note.
   'ko-fixed': '\n\n[기록 언어] 네가 새로 쓰는 모든 글(제목·요약·사건·사실·이유·메모·생활 기록)은 한국어로만 써. 채팅이 중국어나 영어여도 마찬가지야. 한 글 안에 중국어·영어 낱말을 섞지 마. 인용(q)은 원문에서 그대로 복사하고(번역하지 마), 사람 이름은 등장인물 목록에 적힌 표기를 그대로 써.',
-  zh: '\n\n[기록 언어] 네가 새로 쓰는 모든 글(제목·요약·사건·사실·이유·메모·생활 기록)은 중국어(간체)로 써. 채팅이 한국어여도 마찬가지야. 인용(q)은 원문에서 그대로 복사하고(번역하지 마), 이름도 쓰인 그대로 둬.',
+  zh: '\n\n[기록 언어] 네가 새로 쓰는 모든 글(제목·요약·사건·사실·이유·메모·생활 기록)은 중국어(간체)로 써. 채팅이 한국어여도 마찬가지야. 인용(q)은 원문에서 그대로 복사하고(번역하지 마), 이름도 쓰인 그대로 둬. 인물의 수첩(notebook)의 text만은 예외로 한국어로 써.',
 };
 
 // A room's own choice of the language its memory is written in: 'chat' (the chat's own language), 'en' or 'zh'.
@@ -2846,6 +2870,10 @@ function renderMemorySource(chatId, maxChars = MEMORY_MAX_CHARS, trace = null) {
     if (featureOn(chatId, 'keepsakes')) {
       try { now.push(A.using(chatId, () => Ks.injectionBlock(loadKeepsakes(chatId), lastScenePeople(scenes)))); } catch {}
     }
+    // What the people here keep in mind, in their own words (★ first, then what is close to the talk now).
+    if (featureOn(chatId, 'notebook')) {
+      try { now.push(A.using(chatId, () => Nb.injectionBlock(loadNotebook(chatId), lastScenePeople(scenes), { query: turnQuery.get(chatId) || '' }))); } catch {}
+    }
   }
   // The user's date and cycle trackers (one short line; nothing while the feature is off).
   if (featureOn(chatId, 'trackers')) {
@@ -4079,14 +4107,16 @@ async function routes(app) {
   }));
   /* ---------- 인물 상태 and 장소 ---------- */
   const worldView = (chatId) => {
-    const characterState = featureOn(chatId, 'characterState'), places = featureOn(chatId, 'places'), keepsakes = featureOn(chatId, 'keepsakes');
+    const characterState = featureOn(chatId, 'characterState'), places = featureOn(chatId, 'places'), keepsakes = featureOn(chatId, 'keepsakes'), notebook = featureOn(chatId, 'notebook');
     return A.using(chatId, () => {
       const cards = characterState ? St.view(loadState(chatId)) : [];
       const placeList = places ? Pl.view(loadPlaces(chatId)) : [];
       const keepList = keepsakes ? Ks.view(loadKeepsakes(chatId)) : [];
       const titles = new Map((loadScenes(chatId)?.scenes || []).map((s) => [s.id, s.title]));
       const ids = new Set([...cards.map((c) => c.asOf?.scene), ...placeList.flatMap((p) => [p.firstSeen?.scene, p.lastSeen?.scene]), ...keepList.flatMap((k) => [k.gotAt?.scene, ...(k.history || []).map((h) => h.scene)])].filter(Boolean));
-      return { characterState, places, keepsakes, ...(featureOn(chatId, 'trackers') ? { trackers: trackersView(chatId) } : {}), cards, placeList, keepList, sceneTitles: Object.fromEntries([...ids].map((id) => [id, titles.get(id) || ''])) };
+      const notes = notebook ? Nb.view(loadNotebook(chatId)) : {};
+      for (const list of Object.values(notes)) for (const n of list) if (n.sceneId) ids.add(n.sceneId);
+      return { characterState, places, keepsakes, ...(notebook ? { notebook, notes } : {}), ...(featureOn(chatId, 'trackers') ? { trackers: trackersView(chatId) } : {}), cards, placeList, keepList, sceneTitles: Object.fromEntries([...ids].map((id) => [id, titles.get(id) || ''])) };
     });
   };
   /** Edit the file, work the scenes through it again and save, with no await in between (a scan cannot overwrite it). */
@@ -4095,6 +4125,7 @@ async function routes(app) {
     A.using(chatId, () => {
       if (key === 'state') saveState(chatId, St.fold(store, fn(structuredClone(loadState(chatId)))));
       else if (key === 'keeps') saveKeepsakes(chatId, Ks.fold(store, fn(structuredClone(loadKeepsakes(chatId)))));
+      else if (key === 'notebook') saveNotebook(chatId, Nb.fold(store, fn(structuredClone(loadNotebook(chatId)))));
       else savePlaces(chatId, Pl.fold(store, fn(structuredClone(loadPlaces(chatId)))));
     });
     recalls.delete(chatId);
@@ -4146,6 +4177,20 @@ async function routes(app) {
       if (action === 'add') return Ks.addItem(file, b.name, b.owner);
       if (action === 'merge') return Ks.mergeItems(file, id, String(b.into || ''));
       return Ks.deleteItem(file, id);
+    });
+    return worldView(chatId);
+  }));
+  app.post('/chats/:id/notebook', guard(async (req) => {
+    const chatId = safeChatId(req.params.id);
+    needFeature(chatId, 'notebook');
+    const b = req.body || {};
+    const action = String(b.action || '');
+    const id = String(b.id || '');
+    if (!['edit', 'star', 'unstar', 'delete'].includes(action)) throw Error('edit, star, unstar, delete 중 하나여야 합니다.');
+    changeWorld(chatId, 'notebook', (file) => {
+      if (action === 'edit') return Nb.editNote(file, id, b.text);
+      if (action === 'star' || action === 'unstar') return Nb.starNote(file, id, action === 'star');
+      return Nb.deleteNote(file, id);
     });
     return worldView(chatId);
   }));
@@ -4573,7 +4618,7 @@ function attach(app) {
   log('admin API ready at /api/memory-module');
 }
 
-module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { loadAddress, saveAddress, refreshAddress, presentPeople, Addr, loadState, saveState, loadPlaces, savePlaces, loadKeepsakes, saveKeepsakes, loadTrackers, saveTrackers, Tk, loadConflicts, saveConflicts, refreshConflicts, refreshWorld, Cf, Ks, organizeFor, sceneTokens, lastScenePeople, St, Pl, listRooms, purgeChatMemory, purgeIfGone, deleteOnSend, deletePrepare, listOrphans, deleteOrphans, goneChats, loadNames, saveNames, enqueue, foldScenes, reviewAttributions, loadAttributionLog, sceneJobs, selectedForView, loadSelected, recalls, windows, loadRecallPrefs, saveRecallPrefs, recallReport, recallCandidates, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, translateDisplayLater, loadTranslations, saveTranslations, chatLangs, langRecords, loadLang, noteLanguage, LANG_REFRESH_EVERY, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, jobs, writeLanguage, roomWriteLanguage, promptLanguage, memoryCallOptions, routineSetting, routineEnabled, attributionSetting, featureOn, featureSetting, F, B, clearRoomCaches, RESTORE_UNDO_DIR, connectionWithKey, memoryModel, startTrial, trials } };
+module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { loadAddress, saveAddress, refreshAddress, presentPeople, Addr, loadState, saveState, loadPlaces, savePlaces, loadKeepsakes, saveKeepsakes, loadNotebook, saveNotebook, Nb, loadTrackers, saveTrackers, Tk, loadConflicts, saveConflicts, refreshConflicts, refreshWorld, Cf, Ks, organizeFor, sceneTokens, lastScenePeople, St, Pl, listRooms, purgeChatMemory, purgeIfGone, deleteOnSend, deletePrepare, listOrphans, deleteOrphans, goneChats, loadNames, saveNames, enqueue, foldScenes, reviewAttributions, loadAttributionLog, sceneJobs, selectedForView, loadSelected, recalls, windows, loadRecallPrefs, saveRecallPrefs, recallReport, recallCandidates, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, translateDisplayLater, loadTranslations, saveTranslations, chatLangs, langRecords, loadLang, noteLanguage, LANG_REFRESH_EVERY, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, jobs, writeLanguage, roomWriteLanguage, promptLanguage, memoryCallOptions, routineSetting, routineEnabled, attributionSetting, featureOn, featureSetting, F, B, clearRoomCaches, RESTORE_UNDO_DIR, connectionWithKey, memoryModel, startTrial, trials } };
 
 
 
