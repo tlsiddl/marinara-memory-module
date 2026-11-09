@@ -2182,7 +2182,7 @@ function rebuildNotebook(chatId, { all = false } = {}) {
         const live = part.map((g) => ({ scene: store.scenes.find((sc) => sc.id === g.id), messages: g.messages })).filter((g) => g.scene);
         let parsed = null;
         try {
-          parsed = L.parseJsonObject(await askModel(model, Nb.buildRebuildPrompt(live, { cast, personas, voice: Nb.voiceBlock(samples, Nb.priorNotes(store, speakers)) }), { maxTokens: 4000 }));
+          parsed = L.parseJsonObject(await askModel(model, Nb.buildRebuildPrompt(live, { cast, personas, voice: Nb.voiceBlock(samples, Nb.priorNotes(store, speakers, undefined, { before: live[0]?.scene.id })) }), { maxTokens: 4000 }));
           job.calls++;
         } catch (error) {
           job.error = String(error?.message || error).slice(0, 300);
@@ -2207,7 +2207,8 @@ function rebuildNotebook(chatId, { all = false } = {}) {
             // halfway leaves the rest as they were; they are not "already written" for the new ones either.
             // Notes the user starred or reworded stay, and count as already written.
             const keep = Nb.userKept(book, scene);
-            const prior = { scenes: [...now.scenes.filter((sc) => sc !== scene), { charNotes: keep }] };
+            // Only the scenes before this one count as already written (a later scene's note is not a repeat of this one).
+            const prior = { scenes: [...now.scenes.slice(0, now.scenes.indexOf(scene)), { charNotes: keep }] };
             const fresh = S.sceneCharNotesOf(answer.notebook, { cast: S.castOf(now), personas, index, inScene, langs, prior, stats: job.stats });
             const notes = [...keep, ...fresh];
             if (notes.length) { scene.charNotes = notes; changed++; job.kept += fresh.length; }

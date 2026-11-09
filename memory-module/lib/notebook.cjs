@@ -155,10 +155,16 @@ function noteLanguage(text) {
   return /[\u3400-\u4dbf\u4e00-\u9fff]/.test(text) && !/[A-Za-z]{3,}/.test(text) ? 'zh' : 'en';
 }
 
-/** The latest notes each character already has in the scenes before (the model is told not to write them again). */
-function priorNotes(store, people, max = 12) {
+/**
+ * The latest notes each character already has in the scenes before (the model is told not to write them again).
+ * `before`: a scene id; only scenes before it count (when scenes in the middle of the story are read again, the notes
+ * of later scenes would be repeats the model cannot see coming, and things the character does not know yet).
+ */
+function priorNotes(store, people, max = 12, { before = null } = {}) {
   const out = {};
-  for (const scene of [...(store?.scenes || [])].reverse()) {
+  const all = store?.scenes || [];
+  const end = before ? all.findIndex((sc) => sc.id === before) : -1;
+  for (const scene of [...(end >= 0 ? all.slice(0, end) : all)].reverse()) {
     for (const n of Array.isArray(scene.charNotes) ? scene.charNotes : []) {
       if (!people.includes(n.who)) continue;
       const list = (out[n.who] ||= []);
