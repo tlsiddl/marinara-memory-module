@@ -298,7 +298,8 @@ function buildScenePrompt(store, slice, required, problem = null, preferences = 
   if (preferences.notebook) {
     // How each character talks in Korean (their Korean lines, or the saved Korean translation of English-only lines).
     const speakers = cast.filter((n) => !(store.personas || []).includes(n) && !personas.includes(n));
-    const voice = Nb.voiceBlock(Nb.voiceSamples(slice, cast, { personas: [...new Set([...(store.personas || []), ...personas])] }), Nb.priorNotes(store, speakers));
+    const samples = Nb.voiceSamples(slice, cast, { personas: [...new Set([...(store.personas || []), ...personas])] });
+    const voice = Nb.voiceBlock(samples, Nb.priorNotes(store, speakers), { langs: Nb.langsFor(samples, speakers, preferences.notebookLang) });
     extras.push(voice ? `${Nb.PROMPT}
 ${voice}` : Nb.PROMPT);
   }
@@ -762,14 +763,15 @@ function sceneNotesOf(raw, scenePlace) {
  * Turn a model result into scenes for this slice. Scenes follow each other with no gap, from the slice start,
  * and the last one must reach `required`. Returns { scenes, facts, covered } or { error }.
  */
-function applyScenes(store, result, slice, required, now = new Date().toISOString(), { partial = false, quoteMode = 'dialogue', verifyAttribution = false, strictCoverage = false, characterState = false, places = false, keepsakes = false, dateHints = false, notebook = false, notebookStats = null } = {}) {
+function applyScenes(store, result, slice, required, now = new Date().toISOString(), { partial = false, quoteMode = 'dialogue', verifyAttribution = false, strictCoverage = false, characterState = false, places = false, keepsakes = false, dateHints = false, notebook = false, notebookStats = null, notebookLang = 'character' } = {}) {
   const raw = Array.isArray(result?.scenes) ? result.scenes : null;
   if (!raw || !raw.length) return { error: '장면이 비어 있습니다' };
   const index = L.indexBatch(slice);
   const personas = L.personaNames(slice);
   const cast = castOf(store);
   // 인물의 수첩: each character's note language, from their lines in this slice (Korean for a Korean-bracketed speaker).
-  const noteLangs = notebook ? Nb.languagesOf(Nb.voiceSamples(slice, cast, { personas: [...new Set([...(store.personas || []), ...personas])] })) : null;
+  const noteWriters = [...new Set([...(store.personas || []), ...personas])];
+  const noteLangs = notebook ? Nb.langsFor(Nb.voiceSamples(slice, cast, { personas: noteWriters }), cast.filter((n) => !noteWriters.includes(n)), notebookLang) : null;
   const learned = [];
   const later = [];
   const byNumber = new Map(slice.map((m, i) => [m.number, i]));

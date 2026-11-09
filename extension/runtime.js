@@ -1245,6 +1245,16 @@
       ${status}<div class="buttons">${buttons}</div></div>`;
   }
 
+  /** 수첩 언어: the language new notes are written in (this room). */
+  function notebookLanguagePaper(w) {
+    const NAME = { ko: '한국어', en: '영어', zh: '중국어' };
+    const now = NAME[w.notebookWriteLanguage] || '';
+    const set = w.notebookLanguage || 'write';
+    const options = [['write', `기억 정리 언어 따라감 (지금: ${now})`], ['character', '인물이 말하는 언어 (병기하는 인물은 한국어)'], ['ko', '한국어'], ['en', '영어'], ['zh', '중국어 (간체)']];
+    return `<div class="paper"><h2>수첩 언어</h2><label>새 메모를 적을 언어<select id="setNoteLang">${options.map(([v, t]) => `<option value="${v}" ${set === v ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></label>
+      <p class="hint">메모는 말투 없는 메모체라 어느 언어로 적어도 됩니다. 기억을 영어로 정리하는 방은 영어로 두면 답변에 넣을 때 번역이 필요 없고, 서재에는 한국어 번역이 함께 보입니다. 바꾸면 <b>새로 적는 메모부터</b> 그 언어로 적습니다. 지금 메모까지 바꾸려면 아래 <b>모든 장면 다시 받기</b>를 눌러 주세요.</p></div>`;
+  }
+
   function notebookPaper(w, armedNow) {
     if (!w || !w.notebook) return '';
     const people = Object.entries(w.notes || {});
@@ -1257,7 +1267,7 @@
         <div class="buttons"><button data-act="noteSave" data-id="${esc(n.id)}">고친 내용 저장</button><button class="ghost ${n.star ? 'mark-button is-on' : ''}" data-act="${n.star ? 'noteUnstar' : 'noteStar'}" data-id="${esc(n.id)}">${n.star ? '★ 중요' : '☆ 중요로 표시'}</button><button class="ghost" data-act="noteDelete" data-id="${esc(n.id)}">${armedNow === `noteDelete:${n.id}` ? '한 번 더 누르면 지웁니다' : '지우기'}</button></div>
       </div>`;
     const person = ([who, list]) => `<details class="world-card" data-list="notebook:${esc(who)}" ${openLists.has(`notebook:${who}`) ? 'open' : ''}><summary><b>${esc(nameShown(who))}의 수첩</b> · ${list.length}개${list.some((n) => n.star) ? ` · ★ ${list.filter((n) => n.star).length}` : ''}</summary>${list.map(note).join('')}</details>`;
-    return `${notebookRebuildPaper(armedNow)}<div class="paper"><h2>인물의 수첩 · ${people.length}명</h2>
+    return `${notebookLanguagePaper(w)}${notebookRebuildPaper(armedNow)}<div class="paper"><h2>인물의 수첩 · ${people.length}명</h2>
       <p class="hint">인물마다 마음에 담아 둔 것을 그 인물 시점의 짧은 메모로 적어 둡니다(말투는 흉내 내지 않고, 답변을 쓰는 모델이 캐릭터 말투로 풀어냄). 메모마다 <b>상황</b>(그때 무슨 일이 있었는지)이 함께 적혀 답변에도 같이 들어가서, 메모만 읽어도 무슨 일인지 알 수 있습니다(한국어 병기 대사를 하는 인물은 한국어로, 영어로만 말하는 인물은 영어로 적고 아래에 한국어 번역을 보여 줍니다). <b>알게 된 것</b>은 상대에 대해 눈여겨본 작은 것, <b>속마음</b>은 그 인물의 다짐이나 마음에 걸리는 것입니다. 답변에는 지금 장면에 있는 인물의 것만 들어갑니다. 인물마다 핵심 3개(★ 먼저, 그다음 최근 것)는 늘, 지금 대화와 뜻이 가까운 것 3개까지는 더 들어갑니다(임베딩이 없으면 낱말로 찾음). 다른 인물은 이 수첩을 모르는 것으로 다룹니다. 사용자 캐릭터의 수첩은 만들지 않습니다.</p>
       ${people.length ? people.map(person).join('') : '<p class="hint">아직 없습니다. 켠 뒤에 정리되는 장면부터 채워집니다.</p>'}</div>`;
   }
@@ -2819,6 +2829,14 @@
       void act(() => api('POST', `/chats/${encodeURIComponent(room)}/${on ? 'enable' : 'disable'}`), on ? '이 방에서 기억을 켰습니다. 처음 켜셨다면 ‘이어서 정리’를 눌러 주세요.' : '이 방의 기억 갱신을 껐습니다.');
     };
     root.addEventListener('change', (e) => {
+      if (e.target.id === 'setNoteLang') {
+        const language = e.target.value;
+        const chat = room;
+        return act(async () => {
+          world = await api('POST', `/chats/${encodeURIComponent(chat)}/notebook/language`, { language });
+          worldRoom = chat;
+        }, '수첩 언어를 저장했습니다. 새로 적는 메모부터 적용됩니다.', { reload: false });
+      }
       if (e.target.id === 'setRoomWriteLang') {
         const lang = e.target.value;
         const chat = room;
