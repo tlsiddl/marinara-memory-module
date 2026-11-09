@@ -183,3 +183,52 @@ test('display translation: lines asked for while another Korean run is going are
   assert.equal(lookup()('They shared bread at dawn.'), '[ko] They shared bread at dawn.');
   assert.equal(lookup()('The lantern fell into the river.'), '[ko] The lantern fell into the river.');
 });
+
+test('several calls at a time: at most three in flight, saved in story order, nothing after a failed one', async () => {
+  const par = 'nbpar1';
+  X.saveSettings({ ...X.settings(), connection: 'conn', autoTranslate: false, chats: { ...X.settings().chats, [par]: { enabled: true, features: { notebook: 'on' } } } });
+  // Long messages: each scene is a call of its own.
+  const long = (n) => `빅터는 창가에 서서 비 오는 거리를 오래 내려다봤다. `.repeat(n);
+  const extra = [];
+  for (let i = 0; i < 10; i++) extra.push({ id: `p${i}`, rowid: 100 + i, role: 'assistant', characterId: 'c-viktor', content: `${long(300)}"우산은 내가 챙기지."` });
+  rows.push(...extra);
+  const ids = ['S1', 'S2', 'S3', 'S4', 'S5'];
+  const TEXTS = { S1: '미나는 비 오는 날 늘 우산을 잊음.', S2: '창가에 서 있으면 마음이 가라앉는다고 느낌.', S3: '다음 주 생일에는 꽃을 사 가기로 함.', S4: '거리의 가로등이 고장 난 걸 신고하기로 함.', S5: '오래된 시계를 고쳐 두기로 마음먹음.' };
+  X.saveScenes(par, { ...S.emptyStore(), cast: ['Viktor'], personas: ['Mina'], scenes: ids.map((id, i) => scene(id, 100 + i * 2, 101 + i * 2)) });
+  let inFlight = 0, most = 0;
+  // 80 ms in: S2~S4 answered, S1 not yet.
+  const saveOrder = [];
+  const run = async (failOn) => {
+    answer = async (messages) => {
+      const id = /## (S\d)/.exec(messages[1].content)[1];
+      inFlight++; most = Math.max(most, inFlight);
+      // The first scene answers last.
+      await new Promise((r) => setTimeout(r, id === 'S1' ? 200 : 10));
+      inFlight--;
+      if (id === failOn) throw Error('rate limited');
+      return { scenes: [{ id, notebook: [{ who: 'Viktor', kind: 'heart', when: `${id}에서 비가 올 때`, text: TEXTS[id], evidence: [`${100 + ids.indexOf(id) * 2 + 1}.1`] }] }] };
+    };
+    const job = X.rebuildNotebook(par, { all: true });
+    // While the first scene is still being answered, the later ones (answered already) are not saved yet.
+    await new Promise((r) => setTimeout(r, 80));
+    saveOrder.push(X.loadScenes(par).scenes.filter((sc) => sc.charNotes?.length).length);
+    await job.run;
+    return job;
+  };
+  const job = await run(null);
+  assert.equal(job.state, 'done', job.error || '');
+  assert.equal(job.calls >= 5, true);
+  assert.equal(most, 3, 'three at a time');
+  assert.equal(saveOrder[0], 0, 'nothing saved before the first scene is in');
+  // A failure in the middle: the ones before it are saved, nothing after it.
+  for (const sc of X.loadScenes(par).scenes) assert.ok(sc.charNotes?.length);
+  const st = X.loadScenes(par);
+  for (const sc of st.scenes) delete sc.charNotes;
+  X.saveScenes(par, st);
+  const failed = await run('S3');
+  assert.equal(failed.state, 'error');
+  assert.match(failed.error, /rate limited/);
+  assert.deepEqual(X.loadScenes(par).scenes.map((sc) => !!sc.charNotes?.length), [true, true, false, false, false]);
+  assert.equal(failed.done, 2);
+  rows.splice(rows.length - extra.length, extra.length);
+});
