@@ -277,7 +277,7 @@ test('the notebook has a tab of its own (with the 인물·장소 data), and an o
   const source = fs.readFileSync(path.join(__dirname, '../extension/runtime.js'), 'utf8').replace(/\r\n/g, '\n');
   assert.ok(source.includes("['notebook', '수첩', 'note']"));
   assert.ok(source.includes('notebook: viewNotebook'));
-  assert.ok(source.includes("const needsWorld = () => tab === 'world' || tab === 'notebook';"));
+  assert.ok(source.includes("const needsWorld = () => ['world', 'notebook', 'person', 'home'].includes(tab);"));
   const world = source.slice(source.indexOf('  function viewWorld() {'), source.indexOf('\n  }\n', source.indexOf('  function viewWorld() {')));
   assert.ok(!world.includes('notebookPaper('), 'not on the 인물·장소 tab any more');
   const esc = (v) => String(v ?? '');

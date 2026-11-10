@@ -127,7 +127,7 @@ test('screen: each large part has one fetch site, used only by its own screen', 
   assert.match(source, /openLists\.has\('attrlog'\)\)\) void ensureLazy\('attribution', 'attribution-log'/);
   // the open items: with the scenes, for the tabs that list them (not the overview, the side rail or the injection tab)
   // (약속 lists them too)
-  assert.match(source, /const needsThreads = \(\) => \['scenes', 'search', 'ledger', 'promises'\]\.includes\(tab\);/);
+  assert.match(source, /const needsThreads = \(\) => \['scenes', 'search', 'ledger', 'promises', 'timeline', 'person', 'home'\]\.includes\(tab\);/);
   assert.match(source, /if \(needsThreads\(\)\) await loadThreads\(id\);/);
 });
 
