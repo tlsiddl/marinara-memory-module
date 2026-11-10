@@ -78,14 +78,64 @@ restore_prev() { # restore_prev <marinara folder>
 
 docker_ok() { command -v docker >/dev/null 2>&1 && docker ps >/dev/null 2>&1; }
 
-find_container() {
-  if [ -n "$MARINARA_CONTAINER" ]; then printf '%s' "$MARINARA_CONTAINER"; return; fi
-  docker ps --format '{{.Names}}	{{.Image}}' 2>/dev/null | awk -F '	' 'tolower($1) ~ /marinara/ || tolower($2) ~ /marinara/ { print $1; exit }'
-}
-
 label() { docker inspect -f "{{index .Config.Labels \"$2\"}}" "$1" 2>/dev/null; }
 
 container_env() { docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$1" 2>/dev/null | sed -n "s/^$2=//p" | head -n 1; }
+
+# The Marinara server's own entry file: the one file the memory module hooks into. A container that is only named
+# after Marinara (a proxy, a bot, a helper) does not have it.
+SERVER_ENTRY="packages/server/dist/index.js"
+
+# is_marinara <container>: the container runs the Marinara server — it already has the memory module, its command
+# starts the server entry, or the entry is there in /app (where the module is mounted).
+is_marinara() {
+  case "$(container_env "$1" NODE_OPTIONS)" in *marinara-memory-runtime*) return 0 ;; esac
+  case "$(docker inspect -f '{{.Path}} {{range .Args}}{{.}} {{end}}{{range .Config.Cmd}}{{.}} {{end}}{{range .Config.Entrypoint}}{{.}} {{end}}' "$1" 2>/dev/null)" in
+    *"$SERVER_ENTRY"*) return 0 ;;
+  esac
+  docker exec "$1" sh -c "test -f /app/$SERVER_ENTRY" >/dev/null 2>&1
+}
+
+# find_container: prints the one running Marinara container. Exit 0 found; 1 none (no container to do with Marinara);
+# 2 unsure (several, or one named after Marinara that is not the server) — the messages say what to do, and nothing is
+# touched. MARINARA_CONTAINER=<name> picks it by hand and always wins.
+find_container() {
+  if [ -n "$MARINARA_CONTAINER" ]; then
+    if ! docker inspect "$MARINARA_CONTAINER" >/dev/null 2>&1; then
+      say "MARINARA_CONTAINER=$MARINARA_CONTAINER 컨테이너를 찾지 못했습니다. docker ps 로 이름을 확인해 주세요." >&2
+      return 2
+    fi
+    is_marinara "$MARINARA_CONTAINER" || say "참고: $MARINARA_CONTAINER 안에서 마리나라 서버 파일을 확인하지 못했지만, 직접 지정하셨으니 이 컨테이너에 설치합니다." >&2
+    printf '%s' "$MARINARA_CONTAINER"
+    return 0
+  fi
+  # First the containers whose name, image or compose service/project mentions Marinara; if none of those runs the
+  # server, every running container is checked (a Marinara started under a name of its own).
+  NAMED="$(docker ps --format '{{.Names}}	{{.Image}}	{{.Label "com.docker.compose.service"}}	{{.Label "com.docker.compose.project"}}' 2>/dev/null | awk -F '	' 'tolower($0) ~ /marinara/ { print $1 }')"
+  FOUND=""
+  for c in $NAMED; do is_marinara "$c" && FOUND="$FOUND $c"; done
+  if [ -z "$FOUND" ]; then
+    for c in $(docker ps --format '{{.Names}}' 2>/dev/null); do
+      case " $(printf '%s ' $NAMED)" in *" $c "*) continue ;; esac
+      is_marinara "$c" && FOUND="$FOUND $c"
+    done
+  fi
+  set -- $FOUND
+  if [ $# -eq 1 ]; then printf '%s' "$1"; return 0; fi
+  if [ $# -gt 1 ]; then
+    say "마리나라 서버로 보이는 컨테이너가 여러 개라 어느 것인지 정하지 못했습니다: $*" >&2
+    say "설치할 컨테이너 이름을 지정해서 다시 실행해 주세요. 예:" >&2
+    say "  curl -fsSL https://raw.githubusercontent.com/$REPO/marinara-2.4.6/install.sh | MARINARA_CONTAINER=$1 sh" >&2
+    return 2
+  fi
+  if [ -n "$NAMED" ]; then
+    say "이름에 marinara가 들어간 컨테이너는 있지만, 그 안에서 마리나라 서버를 찾지 못했습니다: $(printf '%s ' $NAMED)" >&2
+    say "마리나라가 켜져 있는지 확인하고, 그래도 안 되면 마리나라 컨테이너 이름을 지정해서 다시 실행해 주세요. 예:" >&2
+    say "  curl -fsSL https://raw.githubusercontent.com/$REPO/marinara-2.4.6/install.sh | MARINARA_CONTAINER=<컨테이너 이름> sh" >&2
+    return 2
+  fi
+  return 1
+}
 
 install_mm() { # install_mm <folder> <container>
   fetch "$BASE/memory-module/mm" "$1/memory-module/mm.download" || { rm -f "$1/memory-module/mm.download"; return 0; }
@@ -207,13 +257,17 @@ rollback_local() {
   say "[2/2] 마리나라를 끄고 bash start-memory.sh 로 다시 켜 주세요."
 }
 
+# Tests: load the functions only.
+if [ "${MEMORY_MODULE_FUNCTIONS_ONLY:-}" = 1 ]; then return 0 2>/dev/null || exit 0; fi
+
 case "$ACTION" in
   install|update) ;;
   rollback)
     say ""
     say "== 기억 서재 이전 버전으로 되돌리기 =="
     if [ "$MEMORY_MODULE_MODE" != local ] && docker_ok; then
-      C="$(find_container)"
+      RC=0; C="$(find_container)" || RC=$?
+      [ "$RC" = 2 ] && fail "어느 컨테이너인지 확실하지 않아 아무것도 바꾸지 않았습니다."
       if [ -n "$C" ]; then rollback_docker "$C"; exit 0; fi
     fi
     rollback_local
@@ -225,7 +279,8 @@ say ""
 say "== 기억 서재 설치·업데이트 =="
 resolve_base
 if [ "$MEMORY_MODULE_MODE" != local ] && docker_ok; then
-  C="$(find_container)"
+  RC=0; C="$(find_container)" || RC=$?
+  [ "$RC" = 2 ] && fail "어느 컨테이너인지 확실하지 않아 아무것도 바꾸지 않았습니다."
   if [ -n "$C" ]; then install_docker "$C"; exit 0; fi
   say "도커는 있지만 켜져 있는 마리나라 컨테이너를 찾지 못했습니다. 마리나라를 먼저 켜고 다시 실행해 주세요."
   say "(도커 없이 실행 중이라면 무시하고 이어서 진행합니다.)"
