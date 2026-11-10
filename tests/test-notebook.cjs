@@ -299,7 +299,10 @@ test('a note in the wrong language is rewritten (a plain memo from the character
   assert.match(system.content, /point of view[^]*no imitation of their way of talking/);
   assert.deepEqual(JSON.parse(user.content), { notes: [{ who: '빅터', lang: 'ko', when: 'When the lights went out', text: 'She hates the dark.' }, { who: '빅터', lang: 'ko', text: 'I will not be late again.' }] });
   assert.deepEqual(Nb.readNoteLanguage({ lines: [{ when: '정전으로 불이 꺼졌을 때', text: '걔는 어둠을 질색하지.' }, 'Still English.'] }, notes), [{ when: '정전으로 불이 꺼졌을 때', text: '걔는 어둠을 질색하지.' }, null], 'a line still in the wrong language is not taken');
-  assert.deepEqual(Nb.readNoteLanguage({ lines: ['걔는 어둠을 질색하지.', '다시는 안 늦어.'] }, notes), [{ text: '걔는 어둠을 질색하지.' }, { text: '다시는 안 늦어.' }], 'a plain string is the note alone');
+  // A plain string is the note alone: fine for a note with no situation line, but a note whose English situation line
+  // needed rewriting is asked again (it used to be taken, leaving the situation line in the wrong language).
+  assert.deepEqual(Nb.readNoteLanguage({ lines: ['걔는 어둠을 질색하지.', '다시는 안 늦어.'] }, notes), [null, { text: '다시는 안 늦어.' }], 'a plain string is the note alone');
+  assert.deepEqual(Nb.readNoteLanguage({ lines: [{ when: 'When the lights went out', text: '걔는 어둠을 질색하지.' }, '다시는 안 늦어.'] }, notes)[0], null, 'the situation line came back still in English');
   assert.equal(Nb.readNoteLanguage({ lines: ['하나만'] }, notes), null);
   const store = { scenes: [{ events: [{ quotes: [{ by: '빅터', text: '"Sit."', translation: '앉아.' }, { by: '세라', text: '"싫어."' }] }] }] };
   assert.deepEqual(Nb.voiceFromScenes(store, ['빅터', '세라']), { 빅터: ['앉아.'], 세라: ['싫어.'] });
@@ -366,5 +369,22 @@ test('a note that names its own owner, or one name in every clause, goes to the 
   const table = { version: 1, people: { 빅터: { aliases: ['Viktor'] }, 세라: { aliases: ['Sera'] } } };
   const [system, user] = A.using(table, () => Nb.buildNoteLanguagePrompt([{ who: '빅터', text: 'So Viktor should wait.', wantLang: 'en' }]));
   assert.deepEqual(JSON.parse(user.content).notes[0].aka, ['Viktor']);
-  assert.match(system.content, /never named in their own note, not even in the third person/);
+  assert.match(system.content, /never named or called he\/she\/him\/her\/his\/himself\/herself in their own note/);
+  assert.match(system.content, /"when" is a plain line of what happened \(no voice\), always in the note's "lang"/);
+  // The owner in the third person: "for himself" in their own note goes to the fix pass too.
+  assert.equal(note('Sera bolts when pressed, so decided to see for himself.').vague, true, 'himself');
+  assert.equal(Nb.needsNames('Sera bolts when pressed, so I will wait.', 'Viktor', ['Viktor', 'Sera']), false);
+  assert.match(Nb.PROMPT, /수첩 주인은 I\/me\/my로 써\. 이름이나 he\/him\/his\/himself로 부르지 마/);
+  assert.match(Nb.voiceBlock({}, {}, { langs: { 빅터: 'en' } }), /when과 text를 둘 다 처음부터 English로 써\(상황 줄 when도\)/);
+});
+
+test('the fix pass checks its own rewrite: still naming the owner is asked once more, then left', async () => {
+  const S = require('../memory-module/lib/scenes.cjs');
+  const store = { ...S.emptyStore(), cast: ['Viktor', 'Sera'], scenes: [{ id: 'S1', start: 1, end: 1, title: 't', summary: 's', events: [], recollections: [], present: ['Viktor'], charNotes: [{ who: 'Viktor', kind: 'heart', when: 'At the pier', text: 'Sera bolts, so Viktor should wait.', vague: true, evidence: [] }] }] };
+  // No model connection here: every rewrite fails, so the flag goes after two runs (as before).
+  X.saveSettings({ ...X.settings(), connection: null, translateConnection: null });
+  await X.fixNoteLanguages('nb-self', store, {});
+  assert.equal(store.scenes[0].charNotes[0].vague, true, 'asked again next time');
+  await X.fixNoteLanguages('nb-self', store, {});
+  assert.equal('vague' in store.scenes[0].charNotes[0], false);
 });
