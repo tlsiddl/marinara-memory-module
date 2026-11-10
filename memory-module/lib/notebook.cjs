@@ -28,6 +28,8 @@ const PER_PERSON_SCENE = 1;
 // What the model writes is kept short (a long note crowds the others out of the reply); the user's own edits may be longer.
 const NOTE_LEN = 120;
 const WHEN_LEN = 60;
+const WHEN_LEN_LATIN = 110;
+const whenLen = (t) => (isKorean(t) ? WHEN_LEN : WHEN_LEN_LATIN);
 const PER_SCENE = 6;
 const PER_PERSON_KEPT = 80;
 const WHEN_MAX = 100;
@@ -80,7 +82,7 @@ const PROMPT = `인물의 수첩 (이 방에서 켠 기능):
 - [이미 적은 수첩]에 있는 생각은 표현을 바꿔도 다시 적지 마. 같은 주제(숨는 버릇, 잊어버리는 버릇 같은 것)는 새로 알게 된 게 있을 때만 적어. 새로운 게 없으면 그 인물은 0개로 둬.
 - when(상황): 그때 무슨 일이 있었는지 짧게, 40자 안팎. 누가 무엇을 했는지 이름을 넣어 담담하게(예: "식당에서 세라가 체리를 덜어 줬을 때"). 수첩과 같은 언어로.
 - text: 한 문장, 80자 안팎. 메모만 따로 읽어도 누구의 무슨 일인지 알 수 있게 써.
-- 사람은 늘 이름으로 써. "그 애", "이 애", "저 녀석", "그 자식", "그녀", "그 여자"처럼 가리키기만 하는 말은 쓰지 마(같은 사람이 두 번 나와도 이름으로). "그 거품"처럼 장면을 봐야 알 수 있는 말 대신 구체적인 것을 써. 수첩 주인 자신만은 이름으로 부르지 말고 주어를 빼(예: 빅터의 수첩에 "빅터는…"이라고 쓰지 마).
+- 사람은 이름으로 써. "그 애", "이 애", "저 녀석", "그 자식", "그녀", "그 여자"처럼 가리키기만 하는 말은 쓰지 마. 한 메모에서 이름을 한 번 쓴 사람은 그다음엔 주어를 빼도 돼(영어는 she/he). 문장마다 이름을 되풀이하지 마. "그 거품"처럼 장면을 봐야 알 수 있는 말 대신 구체적인 것을 써. 수첩 주인 자신만은 이름으로 부르지 말고 주어를 빼(예: 빅터의 수첩에 "빅터는…"이라고 쓰지 마).
 - 문체: 그 인물 시점의 담담한 메모체. 그 인물이 알게 된 것, 느낀 것, 정한 것을 "~함", "~라고 느낌", "~하기로 함"처럼 짧게 적어(예: "세라는 단 걸 싫다면서 체리는 네 개째 먹음."). 대사 말투·어미·감탄·별명을 흉내 내지 말고, 독백이나 대사처럼 쓰지 마. 영어로 적을 때는 "Learned that …", "Felt …", 중국어로 적을 때는 "发现……", "觉得……"처럼 짧은 메모체로.
 - 언어: 아래 [수첩 언어]에 적힌 언어로 써(when과 text 모두). 기록 언어 설정 대신 이걸 따라.
 - who: 그 인물 이름(등장인물 목록의 표기), evidence: 그렇게 판단한 문장 번호(예: ["23.4"]). 번호가 없으면 적지 마.
@@ -200,7 +202,11 @@ function voiceBlock(samples, prior = {}, { langs = null } = {}) {
   langs ||= languagesOf(samples);
   const blocks = [];
   const langRows = Object.entries(langs).map(([who, l]) => `${who}: ${LANG_NAME[l]}`);
-  if (langRows.length) blocks.push(`[수첩 언어] ${langRows.join(' · ')}`);
+  const one = [...new Set(Object.values(langs))];
+  if (langRows.length && one.length === 1 && one[0] !== 'ko') {
+    const name = LANG_NAME[one[0]];
+    blocks.push(`[수첩 언어] 모두 ${name}. when과 text를 처음부터 ${name}로 써. 이 지시문이 한국어여도 수첩은 한국어로 쓰지 마.${one[0] === 'en' ? ' (예: "when":"When Sera handed over the cherries","text":"Learned that Sera eats sweets while saying she hates them.")' : ''}`);
+  } else if (langRows.length) blocks.push(`[수첩 언어] ${langRows.join(' · ')}`);
   const priorRows = Object.entries(prior || {}).filter(([, l]) => l.length).map(([who, l]) => `- ${who}: ${l.join(' / ')}`);
   if (priorRows.length) blocks.push(`[이미 적은 수첩] (이 생각들은 다시 적지 마)\n${priorRows.join('\n')}`);
   return blocks.join('\n');
@@ -219,11 +225,12 @@ function cleanNote(raw, { cast = [], personas = [], person = (n) => tidy(n), lan
   // A note in another language than the one set for this character (e.g. English for one who speaks Korean) is kept and
   // marked: the service turns it into the right language after the scene call (it used to be dropped, and models that
   // keep writing the memory's language lost every note).
-  const when = clip(raw.when, WHEN_LEN);
+  const when = clip(raw.when, whenLen(raw.when));
   const ctx = when && letters(when) >= 4 ? { when } : {};
   const wrong = (t) => t && noteLanguage(t) !== langs[who];
   const want = langs?.[who] && (wrong(text) || wrong(ctx.when)) ? { wantLang: langs[who] } : {};
-  if (vague(text)) want.vague = true;
+  const named = [...cast, ...personas].some((p) => p !== who && p && text.includes(String(p).split(/\s+/)[0]));
+  if (vague(text) && !named) want.vague = true;
   const kind = KINDS.includes(raw.kind) ? raw.kind : 'heart';
   const about = kind === 'about' ? person(tidy(raw.about)) || null : null;
   if (about === who) return { who, kind: 'heart', ...ctx, text, ...want };
@@ -266,7 +273,7 @@ Input: a JSON object {"names":{...},"people":["the story's people"],"notes":[{"w
 Output: a JSON object {"lines":[{"when":"…","text":"…"}, …]} with exactly one rewritten note per input note, in the same order. "when" is a plain line of what happened (no voice), in the same language as the note; leave it out when the input has none.
 - Keep the meaning and whose view it is. Write a plain short memo, not the character's speech: no imitation of their way of talking.
 - Write people's names the way "names" gives them; else as the note has them.
-- Name people: a word that only points at someone (그 애, 이 애, 저 녀석, 그 자식, 그녀, that girl, …) becomes that person's name; "about", "when" and "people" tell who it is. The owner ("who") is never named: leave the subject out (Korean) or write "I".
+- Name people: a word that only points at someone (그 애, 이 애, 저 녀석, 그 자식, 그녀, that girl, …) becomes that person's name; "about", "when" and "people" tell who it is. Name each person once per note; after that leave the subject out (Korean) or use she/he (English) — do not repeat the name in every clause. The owner ("who") is never named: leave the subject out (Korean) or write "I".
 - Korean ("ko"): a natural Korean memo, ending like "~함", "~라고 느낌", "~하기로 함"; not a word-for-word translation.
 - Same length or shorter. Add nothing.`;
 
@@ -292,7 +299,7 @@ function readNoteLanguage(parsed, notes) {
     const want = notes[i].wantLang;
     const text = tidy(typeof t === 'string' ? t : t?.text);
     if (!text || text.length > TEXT_MAX || noteLanguage(text) !== want) return null;
-    const when = typeof t === 'object' ? clip(t?.when, WHEN_LEN) : '';
+    const when = typeof t === 'object' ? clip(t?.when, whenLen(t?.when)) : '';
     return { text, ...(when && noteLanguage(when) === want ? { when } : {}) };
   });
 }
@@ -504,7 +511,7 @@ function view(file) {
 }
 
 module.exports = {
-  NOTEBOOK_VERSION, KINDS, KIND_LABEL, TEXT_MAX, PER_PERSON_SCENE, PER_SCENE, PER_PERSON_KEPT, INJECT_CORE, INJECT_RELATED, INJECT_CHARS, PROMPT, WHEN_MAX, NOTE_LEN, WHEN_LEN, noteLine, shorten,
+  NOTEBOOK_VERSION, KINDS, KIND_LABEL, TEXT_MAX, PER_PERSON_SCENE, PER_SCENE, PER_PERSON_KEPT, INJECT_CORE, INJECT_RELATED, INJECT_CHARS, PROMPT, WHEN_MAX, NOTE_LEN, WHEN_LEN, WHEN_LEN_LATIN, noteLine, shorten,
   COPIED, languagesOf, langsFor, vague, noteLanguage, priorNotes, sameNote, NOTE_LANG_PROMPT, buildNoteLanguagePrompt, readNoteLanguage, voiceFromScenes, buildRebuildPrompt, userKept,
   emptyNotebook, isNotebook, voiceSamples, voiceBlock, cleanNote, fold, editNote, starNote, deleteNote, injectionBlock, view, alike,
 };

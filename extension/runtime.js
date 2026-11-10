@@ -1259,8 +1259,8 @@
     const KIND = { about: '알게 된 것', heart: '속마음' };
     const note = (n) => `<div class="notebook-note" data-note="${esc(n.id)}">
         <div class="notebook-head"><span class="pill ${n.kind === 'heart' ? '' : 'neutral'}">${KIND[n.kind] || n.kind}</span>${n.about ? `<small>${esc(nameShown(n.about))}에 대해</small>` : ''}${n.edited ? '<small>직접 고침</small>' : ''}${sceneRefs(sceneRef(n.sceneId, '', titles))}</div>
-        <label class="world-field"><span>상황</span><input data-note-when="${esc(n.id)}" value="${esc(n.when || '')}" placeholder="그때 무슨 일이 있었는지 (비어 있으면 다시 받기로 채워짐)" aria-label="${esc(n.who)}의 메모 상황"></label>${n.when ? trLine(n.when) : ''}
-        <textarea class="event-field" data-note-text="${esc(n.id)}" aria-label="${esc(n.who)}의 메모">${esc(n.text)}</textarea>${trLine(n.text)}
+        <label class="world-field"><span>상황</span><input data-note-when="${esc(n.id)}" value="${esc(n.when || '')}" placeholder="그때 무슨 일이 있었는지 (비어 있으면 다시 받기로 채워짐)" aria-label="${esc(n.who)}의 메모 상황"></label>${n.when ? trEdit(n.when) : ''}
+        <textarea class="event-field" data-note-text="${esc(n.id)}" aria-label="${esc(n.who)}의 메모">${esc(n.text)}</textarea>${trEdit(n.text)}
         <div class="buttons"><button data-act="noteSave" data-id="${esc(n.id)}">고친 내용 저장</button><button class="ghost ${n.star ? 'mark-button is-on' : ''}" data-act="${n.star ? 'noteUnstar' : 'noteStar'}" data-id="${esc(n.id)}">${n.star ? '★ 중요' : '☆ 중요로 표시'}</button><button class="ghost" data-act="noteDelete" data-id="${esc(n.id)}">${armedNow === `noteDelete:${n.id}` ? '한 번 더 누르면 지웁니다' : '지우기'}</button></div>
       </div>`;
     const person = ([who, list]) => `<details class="world-card" data-list="notebook:${esc(who)}" ${openLists.has(`notebook:${who}`) ? 'open' : ''}><summary><b>${esc(nameShown(who))}의 수첩</b> · ${list.length}개${list.some((n) => n.star) ? ` · ★ ${list.filter((n) => n.star).length}` : ''}</summary>${list.map(note).join('')}</details>`;
@@ -2140,8 +2140,11 @@
       case 'noteSave': {
         const text = root.querySelector(`[data-note-text="${CSS.escape(id)}"]`)?.value ?? '';
         const when = root.querySelector(`[data-note-when="${CSS.escape(id)}"]`)?.value;
+        // A corrected Korean line becomes the note's own language (read now, before act() draws the screen again).
+        const fixes = koreanEditsIn(root.querySelector(`[data-note="${CSS.escape(id)}"]`));
         return act(async () => {
-          await api('POST', `/chats/${chat}/notebook`, { action: 'edit', id, text, ...(when != null ? { when } : {}) });
+          const body = await applyKoreanEdits(fixes, { text, ...(when != null ? { when } : {}) });
+          await api('POST', `/chats/${chat}/notebook`, { action: 'edit', id, ...body });
           world = null;
         }, '메모를 저장했습니다.');
       }

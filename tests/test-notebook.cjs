@@ -117,9 +117,20 @@ test('checks in code (from the audit): the language set per character, no near-c
   // A situation line in the wrong language marks the note too.
   assert.equal(Nb.cleanNote({ who: 'Viktor', kind: 'heart', when: '세라가 부두에서 토라졌을 때', text: 'Tell her no once and she takes it as a dare.' }, { cast: ['Viktor', 'Sera'], person: (n) => n, langs: { Viktor: 'en' } }).wantLang, 'en');
   // What the model writes is kept short: a long note is cut at a sentence end, a long situation line is clipped.
-  const long = Nb.cleanNote({ who: 'Viktor', kind: 'heart', when: 'W'.repeat(90), text: `${'Sera never says sorry, she just brings coffee. '.repeat(2)}And then a third sentence that goes on.` }, { cast: ['Viktor'], person: (n) => n });
+  const long = Nb.cleanNote({ who: 'Viktor', kind: 'heart', when: '가'.repeat(90), text: `${'Sera never says sorry, she just brings coffee. '.repeat(2)}And then a third sentence that goes on.` }, { cast: ['Viktor'], person: (n) => n });
   assert.equal(long.text, 'Sera never says sorry, she just brings coffee. Sera never says sorry, she just brings coffee.');
   assert.equal(long.when.length, Nb.WHEN_LEN);
+  // English needs more letters for the same line: a longer limit, so a line like this one is not cut.
+  const enWhen = 'When Sera said at the harbour cafe that she could not read French at all, then hid'.padEnd(150, ' x');
+  assert.equal(Nb.cleanNote({ who: 'Viktor', kind: 'heart', when: enWhen.slice(0, 100), text: 'Learned that.' }, { cast: ['Viktor'], person: (n) => n }).when, enWhen.slice(0, 100).trim());
+  assert.equal(Nb.cleanNote({ who: 'Viktor', kind: 'heart', when: enWhen, text: 'Learned that.' }, { cast: ['Viktor'], person: (n) => n }).when.length, Nb.WHEN_LEN_LATIN);
+  // A pointing word in a note that already names the person is clear enough.
+  const people = { cast: ['빅터', '세라'], person: (n) => n };
+  assert.equal(Nb.cleanNote({ who: '빅터', kind: 'about', about: '세라', when: '부두에서', text: '세라는 우산을 잊음. 그녀는 늘 그럼.' }, people).vague, undefined);
+  assert.equal(Nb.cleanNote({ who: '빅터', kind: 'about', about: '세라', when: '부두에서', text: '그녀는 늘 우산을 잊음.' }, people).vague, true);
+  // One language for everyone that is not Korean: said plainly, with an English example.
+  assert.match(Nb.voiceBlock({}, {}, { langs: { 빅터: 'en', 세라: 'en' } }), /\[수첩 언어\] 모두 English[^]*한국어로 쓰지 마[^]*Learned that/);
+  assert.match(Nb.PROMPT, /이름을 한 번 쓴 사람은 그다음엔 주어를 빼도 돼/);
   // Evidence pointed at an unrelated line is moved to the sentence that fits the note.
   const moved = S.applyScenes(enStore, enResult([{ who: 'Viktor', kind: 'about', about: 'Sera', when: 'When Sera sulked on the pier', text: 'Sera would wreck a whole port over one small itch.', evidence: ['1.2'] }]), en, 1, undefined, { notebook: true }).scenes[0].charNotes;
   assert.deepEqual(moved[0].evidence, [{ number: 1, sentence: 1 }]);
@@ -207,7 +218,11 @@ test('the library shows a note in another language with its Korean', () => {
   const texts = T.displayTexts({ scenes: [] }, { threads: [] }, { world: { notes: [{ text: 'She hates the dark.' }] } });
   assert.ok(texts.includes('She hates the dark.'));
   const source = fs.readFileSync(path.join(__dirname, '../extension/runtime.js'), 'utf8');
-  assert.ok(source.includes('aria-label="${esc(n.who)}의 메모">${esc(n.text)}</textarea>${trLine(n.text)}'));
+  // The Korean is editable: a correction becomes the note's own language when the note is saved (as elsewhere).
+  assert.ok(source.includes('aria-label="${esc(n.who)}의 메모">${esc(n.text)}</textarea>${trEdit(n.text)}'));
+  assert.ok(source.includes("${n.when ? trEdit(n.when) : ''}"));
+  assert.ok(source.includes('const fixes = koreanEditsIn(root.querySelector(`[data-note="${CSS.escape(id)}"]`));'));
+  assert.ok(source.includes('const body = await applyKoreanEdits(fixes, { text, ...(when != null ? { when } : {}) });'));
 });
 
 test('both installers copy the new file to the server', () => {

@@ -240,7 +240,7 @@ test('수첩 언어: one language for everyone, or each one\'s own; the route sa
   // The scene prompt and the notes it keeps
   const slice = require('../memory-module/lib/ledger.cjs').prepareMessages([{ id: 'x1', number: 1, role: 'assistant', speaker: 'Narrator', content: 'Viktor | "앉아." 비가 왔다.' }]);
   const store = { ...S.emptyStore(), cast: ['Viktor'] };
-  assert.match(S.buildScenePrompt(store, slice, 1, null, { notebook: true, notebookLang: 'en' })[0].content, /\[수첩 언어\] Viktor: English/);
+  assert.match(S.buildScenePrompt(store, slice, 1, null, { notebook: true, notebookLang: 'en' })[0].content, /\[수첩 언어\] 모두 English/);
   assert.match(S.buildScenePrompt(store, slice, 1, null, { notebook: true })[0].content, /\[수첩 언어\] Viktor: 한국어/);
   const result = { scenes: [{ end: 1, time: 't', place: 'p', title: 't', summary: 's', present: ['Viktor'], events: [{ text: 'e', quotes: [] }], recollections: [], facts: [], notebook: [{ who: 'Viktor', kind: 'heart', when: '비가 올 때', text: '비 오는 날엔 창문을 닫아 두기로 함.', evidence: ['1.2'] }] }] };
   assert.equal(S.applyScenes(store, result, slice, 1, undefined, { notebook: true, notebookLang: 'en' }).scenes[0].charNotes[0].wantLang, 'en', 'a Korean note in an English notebook is rewritten');
