@@ -364,6 +364,8 @@ function longStore(n) {
 
 test('long story: old scenes become a chapter, cut where the model says one stretch of the story ends', () => {
   const store = longStore(49);
+  // The recent messages start at S41: the 40 scenes before them all fit the memory's scene list.
+  store.window = { firstInside: 121 };
   assert.equal(S.nextChapter(store), null, '49 scenes: 30 kept as they are + up to 20 offered');
   store.scenes.push({ ...store.scenes[0], id: 'S50', start: 148, end: 150, title: '장면 50' });
   const offered = S.nextChapter(store);

@@ -1574,21 +1574,54 @@ async function reconcileMealDisplays(chatId, ledger, model, job) {
   return saved;
 }
 
-/** Close finished threads and fold duplicates. Open threads are checked in chunks of TIDY_CHUNK. */
-async function tidyLedger(model, ledger, messages) {
+const TIDY_STEP_CHARS = 320;
+
+/**
+ * How the story went on, for the ledger check: one line per chapter (for the scenes it holds) and per later scene,
+ * oldest first; OOC stretches left out. Only what lies within `upTo` (a message number), so a check partway through
+ * a first read never sees ahead.
+ */
+function tidySteps(store, upTo = Infinity) {
+  if (!store?.scenes?.length) return [];
+  const byId = new Map(store.scenes.map((s) => [s.id, s]));
+  const chaptered = new Set();
+  const out = [];
+  const clip = (s) => (s.length > TIDY_STEP_CHARS ? `${s.slice(0, TIDY_STEP_CHARS - 1)}…` : s);
+  for (const c of (store.chapters || []).filter((x) => !x.stale)) {
+    const held = c.scenes.map((id) => byId.get(id)).filter(Boolean);
+    if (!held.length) continue;
+    for (const s of held) chaptered.add(s.id);
+    out.push({ id: c.id, start: held[0].start, end: held.at(-1).end, time: held.at(-1).time || null, line: clip(`${c.title}: ${c.summary}`) });
+  }
+  for (const s of store.scenes) {
+    if (chaptered.has(s.id) || !S.isStoryScene(s)) continue;
+    out.push({ id: s.id, start: s.start, end: s.end, time: s.time || null, line: clip(`${[s.time, s.place].filter(Boolean).join(' · ')} | ${s.title}: ${s.summary}`) });
+  }
+  return out.filter((x) => typeof x.end === 'number' && x.end <= upTo).sort((a, b) => a.end - b.end);
+}
+
+/**
+ * Close finished threads and fold duplicates. Open threads are checked in chunks of TIDY_CHUNK. With `scenes` (the
+ * room's scene store), each check also sees how the story went on after the items' last mention: items that ended
+ * there are closed, and those that changed get a new "최근" line. Feelings have their own review below.
+ */
+async function tidyLedger(model, ledger, messages, { scenes = null } = {}) {
   const recent = messages.slice(-4);
-  const total = { closed: 0, merged: 0, calls: 0 };
+  const total = { closed: 0, merged: 0, updated: 0, calls: 0 };
   const open = ledger.threads.filter((t) => t.status === 'open');
+  const steps = tidySteps(scenes, messages.at(-1)?.number ?? Infinity);
   for (const kind of L.KINDS) {
     const ofKind = open.filter((t) => t.kind === kind);
+    const after = kind === 'emotion' ? [] : steps;
     for (let i = 0; i < ofKind.length; i += TIDY_CHUNK) {
       const view = { threads: ofKind.slice(i, i + TIDY_CHUNK) };
-      const parsed = L.parseJsonObject(await askModel(model, L.buildTidyPrompt(view, recent)));
+      const parsed = L.parseJsonObject(await askModel(model, L.buildTidyPrompt(view, recent, { after })));
       total.calls++;
       if (!parsed) continue;
-      const stats = L.applyTidy(ledger, parsed, undefined, { strictCloseEvidence: true });
+      const stats = L.applyTidy(ledger, parsed, undefined, { strictCloseEvidence: true, after });
       total.closed += stats.closed;
       total.merged += stats.merged;
+      total.updated += stats.updated;
     }
   }
   // Feelings are never closed by the tidy pass above; here each needs the line that resolved it.
@@ -1888,7 +1921,7 @@ function processChat(chatId, { rebuild = false, reason = 'auto' } = {}) {
         // A long first pass is tidied along the way so the open list each batch sees stays short.
         if (batches.length > 1 && job.done % 20 === 0 && job.done < batches.length) {
           job.stage = '장부 점검';
-          await tidyLedger(model, ledger, messages.slice(0, messages.indexOf(batch.at(-1)) + 1));
+          await tidyLedger(model, ledger, messages.slice(0, messages.indexOf(batch.at(-1)) + 1), { scenes: loadScenes(chatId) });
           job.stage = null;
         }
         saveLedger(chatId, ledger);
@@ -1897,8 +1930,8 @@ function processChat(chatId, { rebuild = false, reason = 'auto' } = {}) {
         ledger.repliesSinceTidy = (ledger.repliesSinceTidy || 0) + (reason === 'reply' ? 1 : 0);
         if (batches.length > 1 || ledger.repliesSinceTidy >= TIDY_EVERY_REPLIES) {
           job.stage = '장부 점검';
-          const tidy = await tidyLedger(model, ledger, messages);
-          log(`chat ${chatId}: tidy closed ${tidy.closed}, merged ${tidy.merged} (${tidy.calls} call(s))`);
+          const tidy = await tidyLedger(model, ledger, messages, { scenes: loadScenes(chatId) });
+          log(`chat ${chatId}: tidy closed ${tidy.closed}, merged ${tidy.merged}, updated ${tidy.updated} (${tidy.calls} call(s))`);
         }
         saveLedger(chatId, ledger);
       }
@@ -2347,6 +2380,9 @@ function processScenes(chatId, { rebuild = false, reason = 'auto' } = {}) {
         if (featureOn(chatId, 'notebook')) job.calls += await fixNoteLanguages(chatId, store, job);
         // Cards and places from what the scenes say now (no model call; nothing while the switches are off).
         refreshWorld(chatId, store);
+        // Merged facts cut off mid-sentence (saved before merges were length-checked) are undone, to be merged again.
+        const uncut = S.undoCutMerges(store);
+        if (uncut) { saveScenes(chatId, store); log(`chat ${chatId}: undid ${uncut} merged fact(s) that were cut off, to merge again`); }
         // A long story: old scenes become chapters, and facts that piled up about one person are merged.
         if (S.nextRedo(store) || S.nextChapter(store) || S.nextArc(store) || S.nextFactMerge(store)) job.calls += await condense(chatId, store, await getModel(), job);
         await indexScenes(chatId, store, job);
@@ -2410,7 +2446,7 @@ function tidyChat(chatId) {
       if (!cached) throw Error('아직 장부가 없습니다. 먼저 정리를 시작해 주세요.');
       const ledger = structuredClone(cached);
       const before = ledger.threads.filter((t) => t.status === 'open').length;
-      const tidy = await tidyLedger({ ...(await memoryModel()), lang: await promptLanguageOf(chatId) }, ledger, await chatMessages(chatId));
+      const tidy = await tidyLedger({ ...(await memoryModel()), lang: await promptLanguageOf(chatId) }, ledger, await chatMessages(chatId), { scenes: loadScenes(chatId) });
       saveLedger(chatId, ledger);
       job.result = { before, after: ledger.threads.filter((t) => t.status === 'open').length, ...tidy };
       job.done = 1;
@@ -2827,7 +2863,10 @@ async function translateBeforeReply(chatId) {
 async function fixNoteLanguages(chatId, store, job) {
   const todo = [];
   // A note in the wrong language, or one that points at a person without naming them ("그 애", "저 녀석").
-  for (const scene of store?.scenes || []) for (const n of scene.charNotes || []) if (n.wantLang || n.vague) todo.push(n);
+  // Notes saved before situation lines were checked can still have one in another language than the note itself
+  // ("세라가 … 때" on an English note): rewritten the same way (the text's language wins), until it fails twice.
+  const whenOff = (n) => n.when && !n.langGaveUp && Nb.noteLanguage(n.when) !== Nb.noteLanguage(n.text);
+  for (const scene of store?.scenes || []) for (const n of scene.charNotes || []) if (n.wantLang || n.vague || whenOff(n)) todo.push(n);
   const people = [...new Set([...S.castOf(store || {}), ...(store?.personas || [])])];
   // Names left in another script in notes already saved ("세라" in an English note): written the note's way, no call.
   let renamed = 0;
@@ -2869,7 +2908,7 @@ async function fixNoteLanguages(chatId, store, job) {
         // Checked again: a rewrite that still names its owner (or points without a name) is asked once more.
         if (Nb.needsNames(n.text, n.who, people) && (n.langTries = (n.langTries || 0) + 1) < 2) n.vague = true;
         else { delete n.vague; delete n.langTries; }
-      } else if ((n.langTries = (n.langTries || 0) + 1) >= 2) { delete n.wantLang; delete n.vague; delete n.langTries; }
+      } else if ((n.langTries = (n.langTries || 0) + 1) >= 2) { delete n.wantLang; delete n.vague; delete n.langTries; n.langGaveUp = true; }
     });
     saveScenes(chatId, store);
   }
@@ -4989,7 +5028,7 @@ function attach(app) {
   log('admin API ready at /api/memory-module');
 }
 
-module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { loadAddress, saveAddress, refreshAddress, presentPeople, Addr, loadState, saveState, loadPlaces, savePlaces, loadKeepsakes, saveKeepsakes, loadTrackers, saveTrackers, Tk, loadConflicts, saveConflicts, refreshConflicts, refreshWorld, Cf, Ks, organizeFor, sceneTokens, lastScenePeople, St, Pl, listRooms, purgeChatMemory, purgeIfGone, deleteOnSend, deletePrepare, listOrphans, deleteOrphans, goneChats, loadNames, saveNames, enqueue, foldScenes, reviewAttributions, loadAttributionLog, sceneJobs, selectedForView, loadSelected, recalls, windows, loadRecallPrefs, saveRecallPrefs, recallReport, recallCandidates, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, loadTranslations, saveTranslations, chatLangs, langRecords, loadLang, noteLanguage, LANG_REFRESH_EVERY, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, jobs, writeLanguage, roomWriteLanguage, memoryCallOptions, routineSetting, routineEnabled, attributionSetting, featureOn, featureSetting, F, B, clearRoomCaches, promptLanguage, translateDisplayLater, loadNotebook, saveNotebook, Nb, fixNoteLanguages, rebuildNotebook, notebookJobStatus, notebookLanguageOf, notebookLanguageSetting, planAnswersOn, RESTORE_UNDO_DIR } };
+module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { loadAddress, saveAddress, refreshAddress, presentPeople, Addr, loadState, saveState, loadPlaces, savePlaces, loadKeepsakes, saveKeepsakes, loadTrackers, saveTrackers, Tk, loadConflicts, saveConflicts, refreshConflicts, refreshWorld, Cf, Ks, organizeFor, sceneTokens, lastScenePeople, St, Pl, listRooms, purgeChatMemory, purgeIfGone, deleteOnSend, deletePrepare, listOrphans, deleteOrphans, goneChats, loadNames, saveNames, enqueue, foldScenes, reviewAttributions, loadAttributionLog, sceneJobs, selectedForView, loadSelected, recalls, windows, loadRecallPrefs, saveRecallPrefs, recallReport, recallCandidates, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, loadTranslations, saveTranslations, chatLangs, langRecords, loadLang, noteLanguage, LANG_REFRESH_EVERY, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, jobs, writeLanguage, roomWriteLanguage, memoryCallOptions, routineSetting, routineEnabled, attributionSetting, featureOn, featureSetting, F, B, clearRoomCaches, promptLanguage, translateDisplayLater, loadNotebook, saveNotebook, Nb, fixNoteLanguages, rebuildNotebook, notebookJobStatus, notebookLanguageOf, notebookLanguageSetting, planAnswersOn, tidySteps, tidyLedger, RESTORE_UNDO_DIR } };
 
 
 

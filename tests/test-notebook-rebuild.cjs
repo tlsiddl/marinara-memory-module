@@ -327,3 +327,27 @@ test('names left in another script in saved notes are fixed with no model call',
   assert.equal(store.scenes[0].charNotes[0].when, 'When Sera sat down');
   assert.equal(prompts.length, 0, 'no model call');
 });
+
+test('a saved note whose situation line is in another language is rewritten too, and given up on after two tries', async () => {
+  const room = 'nbwhen1';
+  X.saveSettings({ ...X.settings(), connection: 'conn', chats: { ...X.settings().chats, [room]: { enabled: true, features: { notebook: 'on' } } } });
+  const note = () => ({ who: 'Viktor', kind: 'about', about: 'Sera', when: '세라가 부두에서 도망쳤을 때', text: 'Sera bolts when pressed, so I will wait.', evidence: [] });
+  let store = { ...S.emptyStore(), cast: ['Viktor', 'Sera'], scenes: [scene('S1', 1, 2, { charNotes: [note()] })] };
+  prompts.length = 0;
+  answer = () => ({ lines: [{ when: 'When Sera ran from the pier', text: 'Sera bolts when pressed, so I will wait.' }] });
+  await X.fixNoteLanguages(room, store, null);
+  assert.equal(prompts.length, 1, 'no wantLang mark, still asked');
+  assert.equal(store.scenes[0].charNotes[0].when, 'When Sera ran from the pier');
+  prompts.length = 0;
+  await X.fixNoteLanguages(room, store, null);
+  assert.equal(prompts.length, 0, 'fixed: not asked again');
+  // An answer that keeps the Korean line twice: left as it is, and not asked every run after that.
+  store = { ...S.emptyStore(), cast: ['Viktor', 'Sera'], scenes: [scene('S1', 1, 2, { charNotes: [note()] })] };
+  answer = () => ({ lines: [{ when: '세라가 부두에서 도망쳤을 때', text: 'Sera bolts when pressed, so I will wait.' }] });
+  await X.fixNoteLanguages(room, store, null);
+  await X.fixNoteLanguages(room, store, null);
+  prompts.length = 0;
+  await X.fixNoteLanguages(room, store, null);
+  assert.equal(prompts.length, 0);
+  assert.equal(store.scenes[0].charNotes[0].langGaveUp, true);
+});
