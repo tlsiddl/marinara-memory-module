@@ -43,7 +43,7 @@ test('fast pick finds the scene that shares rare words with the talk now', () =>
 
 test('a recalled scene is shown in full, with who said what to whom', () => {
   const text = R.renderRecalled(store, [{ id: 'S2' }]);
-  assert.match(text, /^\[지금 떠오르는 지난 장면\]\n② 금주 약속\n/);
+  assert.match(text, /^\[지금 떠오르는 지난 장면\]\nS2 금주 약속\n/);
   assert.match(text, /- ★ 하루가 약속서에 직접 서명함\n  하루 → 서아: "I swear\." \(맹세해\.\)/);
 });
 

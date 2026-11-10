@@ -2635,24 +2635,26 @@ const ROUTINE_HEADER_NOTE = SECTION_NOTES.find(([k]) => k === '[최근 생활]')
 /** The note for "[작가 계획]" when the room gives the reply model the answers too. */
 const PLAN_ANSWERS_NOTE = '"[작가 계획]" is where the author means the story to go (the answers). No character knows any of it: never let anyone say, think, work out or suspect it — not in speech, thoughts or narration — until the story shows it to them. Do not hurry it; only when a scene already moves that way may a small detail point toward it. ';
 function memoryHeader(style, body = null, { planAnswers = false } = {}) {
-  const notes = SECTION_NOTES.filter(([key]) => body == null || body.includes(key)).map(([key, note]) => (key === '[작가 계획]' && planAnswers ? PLAN_ANSWERS_NOTE : note)).join('');
-  return (
-    '[Memory: what the characters remember from earlier in this story, beyond the recent messages. ' +
+  const notes = SECTION_NOTES.filter(([key]) => body == null || body.includes(key)).map(([key, note]) => (key === '[작가 계획]' && planAnswers ? PLAN_ANSWERS_NOTE : note).trim());
+  // One point per line (grouped), easier for the reply model to take in than one long paragraph.
+  const lines = [
+    '[Memory: what the characters remember from earlier in this story, beyond the recent messages.',
     'This is background the characters already carry, not material to retell: the reader has already read all of it. ' +
-    'Let it shape what they know, feel, assume and react to. Do not summarize, explain or narrate past events or backstory from it, ' +
-    'and do not copy its numbers, dates or details into the prose just because they are listed here. ' +
-    (RECALL_STYLES[style] || RECALL_STYLES.natural).voice +
+      'Let it shape what they know, feel, assume and react to. Do not summarize, explain or narrate past events or backstory from it, ' +
+      'and do not copy its numbers, dates or details into the prose just because they are listed here.',
+    (RECALL_STYLES[style] || RECALL_STYLES.natural).voice.trim(),
     'Remembering is not a requirement to mention a memory in every reply. Treat facts and anecdotes already expressed in the recent conversation as shared context: do not retell, paraphrase or re-explain them in narration, inner thoughts or dialogue merely because they remain relevant. ' +
-    'Mention them again only to answer an explicit question or requested correction, address a new development that changes their meaning, or support a decision that directly needs that detail now; use only the necessary part. ' +
+      'Mention them again only to answer an explicit question or requested correction, address a new development that changes their meaning, or support a decision that directly needs that detail now; use only the necessary part.',
     'Scope a request to repeat or correct something to the specific answer the user asked to hear again. Correct or restate that answer only; do not replay its already explained background, origin story or supporting anecdote in narration, inner thoughts or dialogue. ' +
-    'Unless the user explicitly asks to revisit that past event itself, respond to the present request without reconstructing the event to justify the answer. A connection to the past can remain implicit in tone, familiarity, choices and reactions. ' +
-    'Do not repeatedly use the same remembered fact as the same rationale for similar advice or care. ' +
+      'Unless the user explicitly asks to revisit that past event itself, respond to the present request without reconstructing the event to justify the answer. A connection to the past can remain implicit in tone, familiarity, choices and reactions. ' +
+      'Do not repeatedly use the same remembered fact as the same rationale for similar advice or care.',
     'When recalling an established event, preserve its dates, elapsed time, counts and circumstances; do not reconstruct or embellish them. ' +
-    'Quoted lines are verbatim from the story, shortened for memory; keep writing the story in its own usual format. ' +
-    'Each character knows only what they saw, heard or were told: "모름: X" or "자리에 없어 모름" means X does not know it — X must not mention it, hint at it or act on it until X learns it in the story, even while others who know it are in the same scene. "짐작만: X" means X suspects it without the details. ' +
-    notes +
-    'The weather by a scene is how that day was; do not bring weather up for its own sake.]'
-  );
+      'Quoted lines are verbatim from the story, shortened for memory; keep writing the story in its own usual format.',
+    'Each character knows only what they saw, heard or were told: "모름: X" or "자리에 없어 모름" means X does not know it — X must not mention it, hint at it or act on it until X learns it in the story, even while others who know it are in the same scene. "짐작만: X" means X suspects it without the details.',
+    ...notes,
+    'The weather by a scene is how that day was; do not bring weather up for its own sake.]',
+  ];
+  return lines.join('\n- ');
 }
 
 /** How long "[지난 이야기 흐름]" (chapters and their exact details) may be, in characters. */
@@ -3119,7 +3121,10 @@ function renderLedger(chatId) {
   if (!source) return '';
   const target = memoryLanguage(chatId);
   const lookup = translationLookup(chatId, target);
-  let { text } = T.translateText(source, target, lookup);
+  // People named as the memory's lines name them (Latin names in an English memory).
+  let names = [];
+  try { names = target === 'ko' ? [] : T.latinNames(loadNames(chatId)); } catch {}
+  let { text } = T.translateText(source, target, lookup, { names });
   // Translated text can come out longer than the original (English takes more letters than Korean): the memory is
   // chosen again with less room so the translation still fits the same limit, instead of being cut at the end.
   if (text.length > MEMORY_MAX_CHARS) {
@@ -3129,7 +3134,7 @@ function renderLedger(chatId) {
     const grows = (text.length - fixed) / Math.max(1, source.length - fixed);
     if (grows > 1) {
       const smaller = renderMemorySource(chatId, Math.floor(fixed + ((MEMORY_MAX_CHARS - fixed) / grows) * 0.97));
-      if (smaller) text = T.translateText(smaller, target, lookup).text;
+      if (smaller) text = T.translateText(smaller, target, lookup, { names }).text;
     }
   }
   // The section headings the header names, in the memory's language like the sections themselves.

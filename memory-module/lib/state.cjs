@@ -251,7 +251,15 @@ function deleteCard(file, name) {
 
 /* ---------- uses ---------- */
 
-const segments = (c) => [c.location, c.outfit, ...(c.injuries || []), ...(c.carrying || []), c.mood, c.other].filter(Boolean);
+// Values saved under the older, shorter limits (30, 40, 60) were cut at that exact length, often in the middle of a word
+// ("the back room, c"): shown up to the last whole word instead.
+const OLD_CUTS = new Set([30, 40, 60]);
+const healed = (v) => {
+  const t = tidy(v);
+  if (!OLD_CUTS.has(t.length) || /[.!?)]"'”’]$/.test(t) || !/[A-Za-z]$/.test(t)) return t;
+  return clip(t, t.length - 1) || t;
+};
+const segments = (c) => [c.location, c.outfit, ...(c.injuries || []), ...(c.carrying || []), c.mood, c.other].filter(Boolean).map(healed);
 
 /**
  * "[지금 상태] A: 집무실 · 젖은 셔츠 · 왼팔 붕대 · 휴대폰 / B: …": only the people in `present`, within `max`

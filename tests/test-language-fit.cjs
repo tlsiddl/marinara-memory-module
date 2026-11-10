@@ -33,6 +33,8 @@ test('English that comes out much longer still fits the limit and keeps its endi
   const out = X.renderLedger('big');
   assert.ok(out.length <= 12000 + 300, `fits the limit (${out.length})`);
   assert.match(out, /\[End of memory/, 'the closing instruction is still there');
-  const korean = out.split('\n').filter((l) => /[가-힣]{2}/.test(l) && !/^\[(Memory:|End of memory)/.test(l));
+  // The opening instructions (one point per line, up to the first blank line) quote a few Korean labels on purpose.
+  const body = out.slice(out.indexOf('\n\n'));
+  const korean = body.split('\n').filter((l) => /[가-힣]{2}/.test(l) && !/^\[(Memory:|End of memory)/.test(l));
   assert.deepEqual(korean, [], 'every line chosen has its translation');
 });

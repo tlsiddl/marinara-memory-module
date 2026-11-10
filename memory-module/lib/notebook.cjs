@@ -590,9 +590,10 @@ function injectionBlock(file, present, { query = '', related = null, max = null,
   }
   if (!parts.length) return '';
   const head = '[수첩] (각 인물이 혼자 정해 둔 대하는 법과 속마음·다짐. 그 인물만 알고 다른 인물은 모름. 말로 꺼내지 말고 그 인물의 선택과 행동에 묻어나게.)';
+  // One line per person under the heading, and what comes to mind now on its own line below theirs.
   let line = head;
   for (const p of parts) {
-    let piece = ` ${p.who}:`;
+    let piece = `\n- ${p.who}:`;
     let n = 0;
     for (const t of p.core) {
       const add = `${n ? ' /' : ''} ${t}`;
@@ -602,13 +603,12 @@ function injectionBlock(file, present, { query = '', related = null, max = null,
     }
     let m = 0;
     for (const t of p.now) {
-      const add = `${m ? ' /' : ' (지금 떠오르는 것:'} ${t}`;
-      if (line.length + piece.length + add.length + 1 > max) break;
+      const add = `${m ? ' /' : '\n  지금 떠오르는 것:'} ${t}`;
+      if (line.length + piece.length + add.length > max) break;
       piece += add;
       m++;
     }
-    if (m) piece += ')';
-    if ((n || m) && line.length + piece.length + 2 <= max) line += (line === head ? '' : ' ·') + piece;
+    if ((n || m) && line.length + piece.length <= max) line += piece;
   }
   return line === head ? '' : line;
 }

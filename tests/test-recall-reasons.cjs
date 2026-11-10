@@ -288,12 +288,12 @@ test('pin: a pinned scene is recalled first, in full, even when the recall did n
   X.recalls.set('rg', { mode: 'model', used: 'model', picks: [{ id: 'S2', why: 'a' }, { id: 'S3', why: 'b' }, { id: 'S4', why: 'c' }, { id: 'S5', why: 'd' }], semantic: [], raw: [], at: 'x' });
   const before = X.renderMemorySource('rg');
   const first = (t) => t.split('[지금 떠오르는 지난 장면]\n')[1]?.split('\n')[0];
-  assert.match(first(before), /② .* — 시장 소동$/);
+  assert.match(first(before), /S2 .* — 시장 소동$/);
   assert.deepEqual(section(X.recallReport('rg'), 'recalled').map((i) => i.id), ['S2', 'S3', 'S4', 'S5']);
   // the scenes shown: four (the usual number); a pinned one takes the first place and pushes the last one out
   await mark('rg', 'S1', 'pin');
   const text = X.renderMemorySource('rg');
-  assert.match(first(text), /① .* — 부두의 열쇠$/, 'pinned first');
+  assert.match(first(text), /S1 .* — 부두의 열쇠$/, 'pinned first');
   const report = X.recallReport('rg');
   const rec = section(report, 'recalled');
   assert.equal(rec[0].pinned, true);
@@ -304,8 +304,8 @@ test('pin: a pinned scene is recalled first, in full, even when the recall did n
   X.recalls.set('rg2', { mode: 'model', used: 'model', picks: [{ id: 'S2', why: 'a' }], semantic: [], raw: [], at: 'x' });
   await mark('rg2', 'S4', 'pin');
   const text2 = X.renderMemorySource('rg2');
-  assert.match(first(text2), /④ .* — 비 오는 날$/);
-  assert.match(text2, /② .* — 시장 소동\n/);
+  assert.match(first(text2), /S4 .* — 비 오는 날$/);
+  assert.match(text2, /S2 .* — 시장 소동\n/);
   // pinned scenes are not offered to the recall again (they come anyway)
   assert.ok(!X.recallCandidates('rg2', X.loadScenes('rg2'), 19).some((s) => s.id === 'S4'));
   // a pinned scene inside a left-out chapter still comes

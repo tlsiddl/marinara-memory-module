@@ -386,7 +386,7 @@ function renderNearEvents(store, semantic, picks, { max = 6, maxChars = 5000, tr
     const where = [scene.time, scene.place].filter(Boolean).join(' · ');
     const e = x.piece != null ? scene.events[x.piece] : null;
     const lines = [`- ${where ? `${where} — ` : ''}${scene.title}: ${e ? e.text : scene.summary}`];
-    if (e) for (const q of e.quotes) lines.push(`  ${S.quoteLine(q)}`);
+    if (e) for (const q of S.pickQuotes(e.quotes)) lines.push(`  ${S.quoteLine(q)}`);
     const block = lines.join('\n');
     if (used + block.length > maxChars) break;
     blocks.push(block);

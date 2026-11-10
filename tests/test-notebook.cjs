@@ -167,13 +167,13 @@ test('reply: the people in the scene only; three core notes (★ first, then the
   const related = [{ id: 'n1', z: 2.1 }, { id: 'n0', z: 1.3 }, { id: 'n2', z: 0.2 }, { id: 'n5', z: 3 }];
   const line = Nb.injectionBlock({ ...Nb.emptyNotebook(), notes }, ['빅터', '세라'], { related });
   assert.match(line, /^\[수첩\] \(각 인물이 혼자 정해 둔 대하는 법과 속마음·다짐/);
-  assert.match(line, /빅터: 세라를 지킨다\. \/ 총은 늘 왼쪽 서랍에\. \/ 비 오는 날엔 일찍 들어가기로 함\. \(지금 떠오르는 것: 선장을 믿지 않기로 함\. \/ 바다 냄새가 싫음\.\)/, 'core: ★ then newest; then the matches not already in');
+  assert.match(line, /\n- 빅터: 세라를 지킨다\. \/ 총은 늘 왼쪽 서랍에\. \/ 비 오는 날엔 일찍 들어가기로 함\.\n  지금 떠오르는 것: 선장을 믿지 않기로 함\. \/ 바다 냄새가 싫음\.\n- 세라: /, 'one line per person; core: ★ then newest; then the matches not already in');
   assert.doesNotMatch(line, /창고 열쇠/);
   // Without meaning search: the notes that share words with the talk now.
   const byWords = Nb.injectionBlock({ ...Nb.emptyNotebook(), notes: [...notes, { id: 'w', who: '빅터', kind: 'about', text: '세라는 체리를 좋아한다.' }, { id: 'x', who: '빅터', kind: 'heart', text: '아무 상관 없는 메모.' }, { id: 'y', who: '빅터', kind: 'heart', text: '최근 메모 하나.' }, { id: 'z', who: '빅터', kind: 'heart', text: '최근 메모 둘.' }] }, ['빅터'], { query: '체리 좋아해?' });
   assert.match(byWords, /지금 떠오르는 것: 세라는 체리를 좋아한다\./);
   const line2 = Nb.injectionBlock({ ...Nb.emptyNotebook(), notes }, ['빅터', '세라']);
-  assert.match(line2, /빅터: 세라를 지킨다\. \/ 총은 늘 왼쪽 서랍에\. \/ 비 오는 날엔 일찍 들어가기로 함\. ·/, 'no matches: the three core notes only');
+  assert.match(line2, /빅터: 세라를 지킨다\. \/ 총은 늘 왼쪽 서랍에\. \/ 비 오는 날엔 일찍 들어가기로 함\.\n- 세라:/, 'no matches: the three core notes only');
   // Core notes from scenes before the recent messages first (the model reads the recent ones itself), and a note
   // close to one already taken is skipped.
   const dated = [
