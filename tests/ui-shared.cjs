@@ -12,8 +12,9 @@ module.exports = function sceneGlobals(source, esc, trMap = {}) {
     body(source, '  function ko(', '\n  }\n'),
     body(source, '  const shown = ', '\n'),
     body(source, '  const trLine = ', '\n  };\n'),
+    body(source, '  const trEdit = ', '\n  };\n'),
     body(source, '  const withKo = ', '\n'),
     body(source, '  const nameShown = ', '\n'),
   ].join('\n');
-  return vm.runInNewContext(`(() => { const store = null; ${code}; return { sceneLink, sceneRef, sceneRefs, ko, shown, trLine, withKo, nameShown }; })()`, { esc, trMap });
+  return vm.runInNewContext(`(() => { const store = null; ${code}; return { sceneLink, sceneRef, sceneRefs, ko, shown, trLine, trEdit, withKo, nameShown }; })()`, { esc, trMap });
 };
