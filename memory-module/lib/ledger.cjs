@@ -2172,12 +2172,14 @@ function parseDue(raw, base = null) {
   return date || time ? { date, time } : null;
 }
 
-function formatDue(due, today = null) {
+/** `now`: the story's time ("2025-07-19 12:30"); a deadline earlier today that has passed says so. */
+function formatDue(due, today = null, now = null) {
   if (!due) return '';
   const when = [due.date ? dayLabel(due.date) : null, due.time].filter(Boolean).join(' ');
   if (!due.date || !today) return when;
   const days = Math.round((Date.parse(due.date) - Date.parse(today)) / 86400000);
-  const rel = days === 0 ? '오늘' : days === 1 ? '내일' : days > 1 ? `${days}일 뒤` : `${-days}일 지남`;
+  const passed = days === 0 && due.time && typeof now === 'string' && now.slice(0, 10) === due.date && now.slice(11, 16) > due.time;
+  const rel = passed ? '오늘, 지남' : days === 0 ? '오늘' : days === 1 ? '내일' : days > 1 ? `${days}일 뒤` : `${-days}일 지남`;
   return `${when}, ${rel}`;
 }
 
@@ -2468,7 +2470,7 @@ function compactLine(ledger, t, kind, today = ledger.storyDate) {
         : '';
   // A promise reads as what was said, and when.
   const said = t.kind === 'promise' && t.detail ? ` — ${shortQuote(t.detail, 100)}` : '';
-  const when = t.kind === 'emotion' ? '' : t.due ? ` [${t.kind === 'pending' ? '기한' : '약속한 때'}: ${formatDue(t.due, today)}]` : t.period ? ` [${formatPeriod(t.period, today)}]` : t.kind === 'promise' && t.since ? ` [${t.since}]` : '';
+  const when = t.kind === 'emotion' ? '' : t.due ? ` [${t.kind === 'pending' ? '기한' : '약속한 때'}: ${formatDue(t.due, today, ledger?.storyTime)}]` : t.period ? ` [${formatPeriod(t.period, today)}]` : t.kind === 'promise' && t.since ? ` [${t.since}]` : '';
   const said2 = t.kind === 'state' && t.detail ? ` — ${shortQuote(t.detail, 100)}` : '';
   const marks = groupCast(ledger).length ? [t.unaware?.length ? `모름: ${t.unaware.join('·')}` : null, t.guess?.length ? `짐작만: ${t.guess.join('·')}` : null].filter(Boolean) : [];
   const unaware = marks.length ? ` [${marks.join(' / ')}]` : '';

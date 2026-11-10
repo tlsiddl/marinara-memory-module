@@ -97,7 +97,7 @@ test('a scene keeps the weather the text or the tracker gives, and shows it in i
   const r = S.applyScenes(S.emptyStore(), { scenes: [{ end: 2, title: '우산', summary: '같이 씀.', events: [{ text: '도윤이 우산을 펼침', quotes: [{ n: '2.1' }] }] }] }, msgs, 2);
   assert.ok(!r.error, r.error);
   assert.equal(r.scenes[0].weather, '비');
-  assert.match(S.renderExpanded(r.scenes[0], 0), /^① 비 — 우산/);
+  assert.match(S.renderExpanded(r.scenes[0], 0), /^S1 비 — 우산/);
   const told = S.applyScenes(S.emptyStore(), { scenes: [{ end: 2, weather: '첫눈', title: '우산', summary: '같이 씀.', events: [{ text: '도윤이 우산을 펼침', quotes: [{ n: '2.1' }] }] }] }, msgs, 2);
   assert.equal(told.scenes[0].weather, '첫눈', 'what the text says comes first');
   assert.match(S.buildScenePrompt ? JSON.stringify(S.buildScenePrompt(S.emptyStore(), msgs, 2)) : '날씨: 비', /날씨: 비/);

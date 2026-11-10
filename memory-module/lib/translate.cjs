@@ -143,6 +143,84 @@ const STATIC = {
 };
 for (const lang of ['en', 'zh']) for (const [ko, other] of Object.entries(STATIC[lang])) STATIC.ko[other] = ko;
 
+/** Headings of the short lines about the scene now (address book, state, place…), kept as written under them. */
+const WORLD_HEADS = ['[호칭]', '[지금 상태]', '[장소]', '[소중한 물건]', '[기록]', '[수첩]'];
+/** Those headings, and the fixed words of the notebook block, in the memory's language. */
+const WORLD_WORDS = {
+  en: {
+    '[호칭]': '[Address]', '[지금 상태]': '[Right now]', '[장소]': '[Place]', '[소중한 물건]': '[Keepsakes]', '[기록]': '[Day counts]', '[수첩]': '[Notebook]',
+    '(각 인물이 혼자 정해 둔 대하는 법과 속마음·다짐. 그 인물만 알고 다른 인물은 모름. 말로 꺼내지 말고 그 인물의 선택과 행동에 묻어나게.)': '(What each character privately decided or feels. Only that character knows it. Never as a speech: let it show in what they choose and do.)',
+    '지금 떠오르는 것:': 'coming to mind now:',
+    // Labels the instructions quote, as the English lines write them.
+    '모름: X': 'unaware: X', '자리에 없어 모름': 'unaware (not there)', '짐작만: X': 'suspects only: X',
+  },
+  zh: {
+    '[호칭]': '[称呼]', '[지금 상태]': '[此刻状态]', '[장소]': '[地点]', '[소중한 물건]': '[珍视之物]', '[기록]': '[纪念天数]', '[수첩]': '[手账]',
+    '(각 인물이 혼자 정해 둔 대하는 법과 속마음·다짐. 그 인물만 알고 다른 인물은 모름. 말로 꺼내지 말고 그 인물의 선택과 행동에 묻어나게.)': '(每个角色私下决定的事与心意，只有本人知道。不要说出口，让它体现在本人的选择和行动里。)',
+    '지금 떠오르는 것:': '此刻想起：',
+    '모름: X': '不知道: X', '자리에 없어 모름': '不在场，不知道', '짐작만: X': '仅猜测: X',
+  },
+};
+/** The fixed words of one kept line in the memory's language (the rest of the line as written). */
+function worldWords(line, target, frame = false) {
+  const words = WORLD_WORDS[target];
+  if (!words) return line;
+  let out = line;
+  for (const [ko, other] of Object.entries(words)) {
+    // The instructions name sections in quotes ("[수첩]"); the lines start with them.
+    out = frame ? out.split(`"${ko}"`).join(`"${other}"`) : out.split(ko).join(other);
+  }
+  return out;
+}
+
+/**
+ * Labels of a line still waiting for its translation, so the frame of the line is in the memory's language even
+ * before the rest is: the kind of an open item, its "최근:", "원인:", deadlines and weekdays.
+ */
+const LABELS = {
+  en: [
+    [/^(\s*- )약속 /, '$1Promise '], [/^(\s*- )미해결 /, '$1Pending '], [/^(\s*- )감정 /, '$1Feeling '], [/^(\s*- )상태 /, '$1State '], [/^(\s*- )비밀 /, '$1Secret '],
+    [/\(최근: /g, '(latest: '], [/원인: /g, 'cause: '], [/풀리려면: /g, 'resolves if: '], [/약속한 때: /g, 'due: '], [/기한: /g, 'deadline: '],
+    [/, 오늘, 지남\]/g, ', today, overdue]'], [/, 오늘\]/g, ', today]'], [/, 내일\]/g, ', tomorrow]'], [/, (\d+)일 뒤\]/g, ', in $1 days]'], [/, (\d+)일 지남\]/g, ', $1 days overdue]'],
+    [/모름: /g, 'unaware: '], [/짐작만: /g, 'suspects only: '], [/있던 사람: /g, 'present: '], [/ · 같은 곳/g, ' · same place'],
+    [/\(월\)/g, '(Mon)'], [/\(화\)/g, '(Tue)'], [/\(수\)/g, '(Wed)'], [/\(목\)/g, '(Thu)'], [/\(금\)/g, '(Fri)'], [/\(토\)/g, '(Sat)'], [/\(일\)/g, '(Sun)'],
+  ],
+};
+function fallbackLabels(line, target) {
+  let out = line;
+  for (const [re, to] of LABELS[target] || []) out = out.replace(re, to);
+  return out;
+}
+
+/**
+ * The people's names as written in an English or Chinese memory: each Korean form of a person's name becomes their
+ * Latin name (a full name for a full name, the short one for a short one), from the room's name table.
+ * Returns [{ from: Korean, to: Latin }], longest first.
+ */
+function latinNames(table = null) {
+  const out = new Map();
+  for (const [canon, entry] of Object.entries(table?.people || {})) {
+    const forms = [canon, tidyName(entry?.display), ...(entry?.aliases || []).map(tidyName)].filter(Boolean);
+    const latin = forms.filter(foreignOnly).filter((f) => /[A-Za-z]/.test(f)).sort((a, b) => b.length - a.length);
+    if (!latin.length) continue;
+    const full = latin[0];
+    const short = latin.at(-1);
+    for (const ko of forms.filter(hangulOnly)) if (!out.has(ko)) out.set(ko, { from: ko, to: /\s/.test(ko) ? full : short });
+  }
+  return [...out.values()].sort((a, b) => b.from.length - a.from.length);
+}
+/** A line with the people's Korean names in their Latin form, outside quoted words (a story line keeps its words). */
+function latinizeNames(line, names, quotedLine = false) {
+  if (!names?.length || !/[가-힣]/.test(line)) return line;
+  const swap = (s) => names.reduce((t, n) => t.split(n.from).join(n.to), s);
+  if (quotedLine) {
+    // Only the speaker and listener before the quote.
+    const at = line.search(/: ["“「『]|\) /);
+    return at > 0 ? swap(line.slice(0, at)) + line.slice(at) : line;
+  }
+  return line.split(/("[^"]*"|“[^”]*”)/).map((part, i) => (i % 2 ? part : swap(part))).join('');
+}
+
 /** A heading line that opens a block of lines quoted from the story, kept as written. */
 const QUOTED_BLOCKS = ['[원문에서 떠오른 대목]', '[Passages from the story]', '[原文片段]'];
 
@@ -153,24 +231,38 @@ const QUOTED_BLOCKS = ['[원문에서 떠오른 대목]', '[Passages from the st
 function planLines(text, target) {
   const out = [];
   let inQuoted = false;
+  let inNotebook = false;
+  let inFrame = false;
   for (const line of String(text || '').split('\n')) {
     const trimmed = line.trim();
     if (!trimmed) {
       inQuoted = false;
+      inNotebook = false;
       out.push({ line, kind: 'keep' });
       continue;
     }
-    // The module's own instructions to the reply model are written once, in English, for every language.
-    if (/^\[(?:Memory:|End of memory)/.test(trimmed)) {
-      out.push({ line, kind: 'keep' });
+    // The module's own instructions to the reply model are written once, in English, for every language (only the
+    // names of the sections they mention follow the memory's language).
+    if (inFrame || /^\[(?:Memory:|End of memory)/.test(trimmed)) {
+      // The instructions may run over several lines ("- …"), up to the one that closes them.
+      inFrame = !trimmed.endsWith(']');
+      out.push({ line, kind: 'keep', frame: true });
       continue;
     }
     // The address-book line is names and the words the story uses for them; the state and place lines are names and short
-    // notes taken from the text: kept as written.
-    if (trimmed.startsWith('[호칭] ') || trimmed.startsWith('[지금 상태] ') || trimmed.startsWith('[장소] ') || trimmed.startsWith('[소중한 물건] ') || trimmed.startsWith('[기록] ') || trimmed.startsWith('[수첩] ')) {
-      out.push({ line, kind: 'keep' });
+    // notes taken from the text: kept as written, under a heading in the memory's language.
+    const world = WORLD_HEADS.find((h) => trimmed.startsWith(`${h} `));
+    if (world) {
+      inNotebook = world === '[수첩]';
+      out.push({ line, kind: 'keep', world });
       continue;
     }
+    // The notebook's lines, one per person, under its heading.
+    if (inNotebook && /^(?:- |\s{2,})/.test(line)) {
+      out.push({ line, kind: 'keep', world: '[수첩]' });
+      continue;
+    }
+    inNotebook = false;
     if (STATIC[target][trimmed]) {
       out.push({ line, kind: 'static', text: line.replace(trimmed, STATIC[target][trimmed]) });
       inQuoted = QUOTED_BLOCKS.includes(trimmed);
@@ -194,27 +286,45 @@ function planLines(text, target) {
 }
 
 /**
+ * A quoted line already in the memory's language does not need its Korean translation after it:
+ * 'Viktor: "Stay." (있어.)' → 'Viktor: "Stay."'. A Korean line, or one whose gloss is not Korean, stays as it is.
+ */
+function dropGloss(line) {
+  const m = line.match(/^(.*?["“「『].*["”」』])\s+\(([^()]+)\)\s*$/);
+  if (!m || !/[가-힣]/.test(m[2])) return line;
+  const quote = m[1].slice(m[1].search(/["“「『]/));
+  return /[가-힣]/.test(quote) ? line : m[1];
+}
+
+/**
  * The memory text in `target`, line by line from `lookup(line) → translation | null`. A line not translated yet
  * stays as it is (the memory never loses a line for want of a translation). Returns { text, missing }.
  */
-function translateText(text, target, lookup) {
+function translateText(text, target, lookup, { names = [] } = {}) {
   const missing = [];
+  // An English or Chinese memory names people the way its lines do (Latin names), not by their Korean form.
+  const latin = target === 'ko' ? [] : names;
   const lines = planLines(text, target).map((p) => {
     if (p.kind === 'static') return p.text;
     if (p.kind === 'keep') {
+      if (p.frame) return worldWords(p.line, target, true);
+      if (p.world) return latinizeNames(worldWords(p.line, target), latin);
       // Labels inside kept story lines, in the language the memory goes in.
       const [narration, guess] = { en: ['(narration) ', '(guess)'], zh: ['(叙述) ', '(推测)'] }[target] || [];
       if (!narration) return p.line;
-      return p.narration ? p.line.replace('(서술) ', narration) : p.line.replace(/\(추정\)(?=: ["“「『])/, guess);
+      const story = /^\s{2,}/.test(p.line);
+      const line = p.narration ? p.line.replace('(서술) ', narration) : dropGloss(p.line.replace(/\(추정\)(?=: ["“「『])/, guess));
+      return latinizeNames(line, latin, story);
     }
     const indent = p.line.match(/^\s*/)[0];
     const body = p.line.slice(indent.length);
     const done = lookup(body);
     if (done == null) {
       missing.push(body);
-      return p.line;
+      // Not translated yet: its frame (labels, weekdays, names) is, at least.
+      return latinizeNames(fallbackLabels(p.line, target), latin);
     }
-    return indent + done;
+    return latinizeNames(indent + done, latin);
   });
   return { text: lines.join('\n'), missing: [...new Set(missing)] };
 }
@@ -407,4 +517,4 @@ function displayTexts(store, ledger, { quotes = false, world = null } = {}) {
   return [...out];
 }
 
-module.exports = { BACK_PROMPT, buildBackPrompt, readBack, REVISION, parseGlossary, koreanNames, koreanizeNames, LANGS, NAMES, hangulShare, textLanguage, chatLanguage, key, planLines, translateText, buildTranslatePrompt, readTranslation, batches, displayTexts, STATIC, TRANSLATE_PROMPT };
+module.exports = { BACK_PROMPT, buildBackPrompt, readBack, REVISION, parseGlossary, koreanNames, koreanizeNames, latinNames, latinizeNames, dropGloss, WORLD_HEADS, LANGS, NAMES, hangulShare, textLanguage, chatLanguage, key, planLines, translateText, buildTranslatePrompt, readTranslation, batches, displayTexts, STATIC, TRANSLATE_PROMPT };

@@ -144,8 +144,8 @@ test('a hand-edited line is never touched, and the guessed listener it holds is 
   assert.deepEqual(ask(edited), [], 'a hand-edited scene is not asked');
   const e = ask(build({ quote: { to: C, toGuess: true, manual: true } }));
   assert.deepEqual(e, []);
-  // A guessed listener is not a certain one for the rules that read the stored listeners.
-  assert.equal(S.quoteLine({ text: LINE, by: A, to: C, toGuess: true }), `${A} → ${C}(추정): "이쪽으로 와."`);
+  // A guessed listener is not a certain one: the memory leaves it out rather than state it.
+  assert.equal(S.quoteLine({ text: LINE, by: A, to: C, toGuess: true }), `${A}: "이쪽으로 와."`);
   assert.equal(S.quoteLine({ text: LINE, by: A, to: C }), `${A} → ${C}: "이쪽으로 와."`);
 });
 
@@ -252,12 +252,13 @@ test('the scene card and the editor show a guessed listener as a guess, and savi
   }
 });
 
-test('memory injection marks a guessed listener', () => {
+test('memory injection leaves out a guessed listener (not told as certain)', () => {
   const store = { ...S.emptyStore(), scenes: [] };
   const scene = { id: 'S1', title: '부름', summary: '요약', events: [{ text: '부름', importance: 'major', quotes: [{ number: 1, sentence: 1, text: LINE, by: A, to: B, toGuess: true }, { number: 1, sentence: 2, text: `${B} | "응."`, by: B, to: A }] }], present: [A, B] };
   store.scenes.push(scene);
   const text = JSON.stringify(S.quoteLine(scene.events[0].quotes[0])) + S.quoteLine(scene.events[0].quotes[1]);
-  assert.match(text, new RegExp(`${A} → ${B}\\(추정\\)`));
+  assert.doesNotMatch(S.quoteLine(scene.events[0].quotes[0]), new RegExp(`→ ${B}`));
+  assert.match(text, new RegExp(`${B} → ${A}`));
   assert.doesNotMatch(S.quoteLine(scene.events[0].quotes[1]), /추정/);
 });
 

@@ -65,9 +65,9 @@ test('[지난 장면들]: a line after one of the same day and place says only w
   const sc = (id, time, place, title) => ({ id, start: Number(id.slice(1)) * 2 - 1, end: Number(id.slice(1)) * 2, messages: [], time, place, weather: '맑음', title, summary: `${title} 요약`, events: [], recollections: [] });
   store.scenes = [sc('S1', '25-03-01 (토) 21:45~21:55', '북쪽 부두에 묶인 요트의 아래층 선실', '하나'), sc('S2', '25-03-01 (토) 22:00', '북쪽 부두에 묶인 요트의 아래층 선실', '둘'), sc('S3', '25-03-02 (일) 08:00', '부두 카페', '셋')];
   const text = S.renderScenes(store, 100, { expand: 0 });
-  assert.match(text, /① 25-03-01 \(토\) 21:45~21:55 · 북쪽 부두에 묶인 요트의 아래층 선실 · 맑음 — 하나/);
-  assert.match(text, /② 22:00 · 같은 곳 — 둘/);
-  assert.match(text, /③ 25-03-02 \(일\) 08:00 · 부두 카페 · 맑음 — 셋/);
+  assert.match(text, /S1 25-03-01 \(토\) 21:45~21:55 · 북쪽 부두에 묶인 요트의 아래층 선실 · 맑음 — 하나/);
+  assert.match(text, /S2 22:00 · 같은 곳 — 둘/);
+  assert.match(text, /S3 25-03-02 \(일\) 08:00 · 부두 카페 · 맑음 — 셋/);
 });
 
 test('[알게 된 사실]: what a ※ line says is not said again; a fact cut when merged ends at a whole sentence', () => {

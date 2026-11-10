@@ -2834,7 +2834,10 @@ function sceneHead(scene, n, prev = null) {
   const place = prev && scene.place && scene.place === prev.place ? '같은 곳' : scene.place;
   const weather = prev && scene.weather && scene.weather === prev.weather && day(scene.time) === day(prev.time) ? null : scene.weather;
   const where = [time, place, weather].filter(Boolean).join(' · ');
-  return `${CIRCLED[n] || `(${n + 1})`} ${where ? `${where} — ` : ''}${scene.title}`;
+  // Its own id (S12), the same one chapters, turning points and recalled scenes use, so the reply model can tell
+  // one scene from another across the memory's sections.
+  const label = scene.id || CIRCLED[n] || `(${n + 1})`;
+  return `${label} ${where ? `${where} — ` : ''}${scene.title}`;
 }
 
 /** 하준 → 서아: "I love you, Seoa." (사랑해, 서아야.) — narration stays as it is. */
@@ -2843,8 +2846,22 @@ function quoteLine(q) {
   const by = q.by || parseLine(q.text).by;
   const spoken = q.kind ? q.kind === 'dialogue' : isSpoken(text);
   if (!by) return spoken ? text : `(서술) ${text}`;
-  // A listener that was only guessed is marked, so the story model is not told it is certain.
-  return `${by}${q.to ? ` → ${q.to}${q.toGuess ? '(추정)' : ''}` : ''}: ${spoken ? text : `"${text}"`}`;
+  // A listener that was only guessed is left out: the story model is not told something uncertain as certain.
+  return `${by}${q.to && !q.toGuess ? ` → ${q.to}` : ''}: ${spoken ? text : `"${text}"`}`;
+}
+
+// Lines quoted under one event: the spoken ones first, then a narration line if there is room. A scrap of narration
+// ("Wait.") says nothing on its own, and one already quoted in the scene is not repeated.
+const QUOTES_PER_EVENT = 2;
+const NARRATION_MIN = 30;
+/** The quotes worth showing for one event; `seen` (a Set of texts) carries what the scene already showed. */
+function pickQuotes(quotes, seen = new Set()) {
+  const list = (quotes || []).map((q) => ({ q, text: cleanQuote(quoteText(q)) })).filter(({ text }) => text && !seen.has(text));
+  const spoken = (x) => (x.q.kind ? x.q.kind === 'dialogue' : isSpoken(x.text));
+  const chosen = list.filter(spoken).slice(0, QUOTES_PER_EVENT);
+  for (const x of list) if (chosen.length < QUOTES_PER_EVENT && !spoken(x) && x.text.length >= NARRATION_MIN) chosen.push(x);
+  for (const x of chosen) seen.add(x.text);
+  return list.filter((x) => chosen.includes(x)).map((x) => x.q);
 }
 
 function renderExpanded(scene, n, personas = [], cast = [], { npc = false } = {}) {
@@ -2855,9 +2872,10 @@ function renderExpanded(scene, n, personas = [], cast = [], { npc = false } = {}
   if (npc && scene.extras?.length) lines.push(`주변 인물: ${scene.extras.join('·').slice(0, 60)}`);
   if (scene.events.length) {
     lines.push('사건:');
+    const seen = new Set();
     for (const e of scene.events) {
       lines.push(`- ${e.importance === 'critical' ? '★ ' : ''}${e.time ? `[${e.time}] ` : ''}${e.text}${e.why ? ` (계기: ${e.why})` : ''}`);
-      for (const q of e.quotes) lines.push(`  ${quoteLine(q)}`);
+      for (const q of pickQuotes(e.quotes, seen)) lines.push(`  ${quoteLine(q)}`);
     }
   }
   if (scene.loose?.length) {
@@ -2963,6 +2981,7 @@ const CHAPTER_PROMPT = `너는 장기 롤플레이의 기억 관리자야. 이�
 - 원문에 나타난 관계와 감정의 변화는 계기와 그 결과를 함께 보존해. 현재 관계가 과거의 초기 상태로 되돌아간 것처럼 쓰지 마. 근거 없는 성격이나 감정을 만들지 마.
 - turns: 이야기가 바뀐 결정적인 일 최대 5개. 각각 장면 번호로 시작하는 한 문장(누가 누구에게 무엇을). 예) "S14 도윤이 서아에게 진통제를 끊겠다고 약속함".
 - keep: 이 시기의 세부 사항 가운데 나중에도 정확히 맞아야 하는 것 최대 8개. 날짜·기한·접수 기간·시각·금액·주소·약속의 조건("~하면 ~하기로")·규칙 같은 것. 각각 한 문장, 숫자와 조건은 원문 그대로. 없으면 [].
+  그 시기에만 맞던 상태(배고픔, 몇 시간째 안 먹음, 방 온도, 누가 어디에 서 있음, 누가 무엇을 들고 있음)는 넣지 마. 나중에 읽으면 지금 일처럼 보여.
 - 장면에 없는 내용은 지어내지 마. [사용자 캐릭터]의 속마음은 원문에 드러난 것만 쓰고, 아니면 "~로 보인다(추정)".
 출력 형식: {"end":"S12","title":"…","summary":"…","turns":["S4 …"],"keep":["…"]}`;
 
@@ -3671,6 +3690,7 @@ module.exports = {
   applyRecipientResults,
   uncited,
   quoteLine,
+  pickQuotes,
   parseLine,
   SCENES_VERSION,
   emptyStore,
