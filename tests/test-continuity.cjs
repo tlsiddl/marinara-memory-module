@@ -67,8 +67,13 @@ test('what changed after the last mention becomes the item\'s "최근" line, sho
   assert.deepEqual(ledger.threads[0].latest, { text: 'Mina knows now; Sera still does not.', at: '24-10-03 12:00', number: 40, scene: 'S9' });
   assert.equal(ledger.threads[1].latest, undefined, 'feelings are reviewed on their own');
   assert.match(L.render(ledger), /최근: Mina knows now; Sera still does not\. \(24-10-03 12:00\)/);
-  // Now last seen at 40: S9 no longer counts as "after".
-  assert.equal(L.applyTidy(ledger, { update: [{ id: 'T2', now: 'Other', scene: 'S9' }] }, 'now', { after: steps }).updated, 0);
+  // A line the check wrote does not move the item's last mention: the next check still sees S8 and S9 and can
+  // correct it (the same line again is not counted), or close it from them.
+  assert.equal(L.lastSeen(ledger.threads[0]), 40, 'for fading and order');
+  assert.equal(L.applyTidy(ledger, { update: [{ id: 'T2', now: 'Mina knows now; Sera still does not.', scene: 'S9' }] }, 'now', { after: steps }).updated, 0);
+  assert.match(L.buildTidyPrompt(ledger, [], { after: steps })[1].content, /T2 .*| 마지막 언급: 12번[^]*S8 (21~30번)/);
+  assert.equal(L.applyTidy(ledger, { update: [{ id: 'T2', now: 'Mina and Sera both know now.', scene: 'S9' }] }, 'now', { after: steps }).updated, 1);
+  assert.equal(ledger.threads[0].latest.text, 'Mina and Sera both know now.');
 });
 
 test('the steps: chapters for their scenes, later scenes one by one, no OOC, nothing past the messages read', () => {
@@ -121,4 +126,17 @@ test('scenes that no longer fit the memory\'s scene list become a chapter before
   // Short summaries all fit: nothing yet.
   for (const s of store.scenes) s.summary = 'short';
   assert.equal(S.nextChapter(store), null);
+});
+
+test('a chapter is shown whole with its turning points; the rules for secrets and "still does not know"', () => {
+  const sc = (id, start, end) => ({ id, start, end, time: null, place: null, title: id, summary: `summary ${id}` });
+  const summary = 'Sera arrives and Viktor finds her at the harbor. '.repeat(14).trim();
+  const store = { ...S.emptyStore(), scenes: [sc('S1', 1, 4), sc('S2', 5, 8)], chapters: [{ id: 'C1', scenes: ['S1', 'S2'], title: 'Start', summary, turns: ['S2 Viktor calls Sera by name on the pier'] }] };
+  const [c1] = X.tidySteps(store);
+  assert.ok(c1.line.length > 600, 'not cut to a scene\'s length');
+  assert.match(c1.line, /\| 결정적인 일: S2 Viktor calls Sera by name on the pier$/);
+  const system = L.buildTidyPrompt({ threads: [] }, [], { after: [] })[0].content;
+  assert.match(system, /'모름'에 적힌 사람이 그 뒤 장면에서 그걸 알고 쓰는 모습\(그 이름으로 부름/);
+  assert.match(system, /비밀로 적혔어도 실제로는 찾기·확인·쫓기 같은 일이면/);
+  assert.match(system, /"아직 모른다·아직 안 했다"는 그 뒤 장면에서도 그렇다고 드러날 때만 써/);
 });
