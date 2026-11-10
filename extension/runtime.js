@@ -1000,6 +1000,7 @@
         <div class="form-grid" data-thread="${esc(t.id)}">
           <label class="full">제목<input data-f="title" value="${esc(t.title)}"></label>${trEdit(t.title)}
           <label class="full">설명<textarea class="event-field" data-f="detail">${esc(t.detail || '')}</textarea></label>${trEdit(t.detail)}
+          ${t.plan ? `<label class="full">감추는 것 (답 없이 · 답변에 기본으로 들어가는 줄)<input data-f="mystery" value="${esc(t.mystery || '')}" placeholder="다음 장부 정리 때 저절로 적힙니다"></label>` : ''}
           ${t.kind === 'emotion' ? `<label class="full">풀리려면<input data-f="need" value="${esc(t.need || '')}"></label>${trEdit(t.need)}` : ''}
           ${['promise', 'pending'].includes(t.kind) ? `<label>기한 날짜 (작중)<input data-f="dueDate" value="${esc(t.due?.date || '')}" placeholder="예: 24-10-20 / 비우면 기한 없음"></label><label>기한 시각<input data-f="dueTime" value="${esc(t.due?.time || '')}" placeholder="예: 17:00"></label>` : ''}
           ${group() ? `<label>아직 모르는 인물 (쉼표로 구분)<input data-f="unaware" value="${esc((t.unaware || []).join(', '))}" placeholder="모두 알면 비워 두세요"></label><label>짐작만 하는 인물<input data-f="guess" value="${esc((t.guess || []).join(', '))}" placeholder="없으면 비워 두세요"></label>` : ''}
@@ -1030,7 +1031,7 @@
     const groups = KIND_ORDER.map((k) => [k, open.filter((t) => t.kind === k && !t.plan).sort(k === 'promise' ? byDue : () => 0)]).filter(([, l]) => l.length);
     return `<div class="eyebrow">LEDGER · ${open.length} OPEN</div><h1>아직 끝나지 않은 일</h1>
       <p class="intro">약속·감정·상태·비밀·미해결 일입니다. 항목을 누르면 제목과 설명을 고치실 수 있고, 잘못 닫힌 항목은 다시 열고 끝난 일은 닫으실 수 있습니다. 직접 고친 내용은 리롤해도 유지됩니다.</p>
-      ${plans.length ? `<div class="paper"><h2>작가 계획 · ${plans.length}</h2><p class="hint">OOC(이야기 밖 대화)에서 정한 앞으로의 전개입니다. 답변에는 "인물들은 아직 모름, 서서히 드러낼 것"으로 들어가고, 이야기에서 다 드러나면 닫힙니다.</p>${plans.map(threadRow).join('')}</div>` : ''}
+      ${plans.length ? `<div class="paper"><h2>작가 계획 · ${plans.length}</h2><p class="hint">OOC(이야기 밖 대화)에서 정한 앞으로의 전개입니다. 답변에는 기본으로 <b>감추는 것</b>(답 없는 한 줄, 예: "손목 흉터가 생긴 진짜 이유")만 "아직 밝히지 말 것"으로 들어갑니다. 롤플 모델이 답을 모르면 인물이 미리 알아채는 일이 없습니다. 이야기에서 다 드러나면 닫힙니다.</p><div class="buttons"><button class="ghost ${info.planAnswers ? 'mark-button is-on' : ''}" data-act="planAnswers">${info.planAnswers ? '답까지 넣는 중 · 끄기' : '답은 넣지 않는 중 · 답까지 넣기'}</button></div>${info.planAnswers ? '<p class="hint">답까지 넣으면 복선을 맞춰 깔기는 쉬워지지만, 롤플 모델이 인물 생각이나 서술에 답을 흘릴 수 있습니다.</p>' : ''}${plans.map(threadRow).join('')}</div>` : ''}
       ${groups.length ? groups.map(([k, l]) => `<div class="paper"><h2>${KIND[k]} · ${l.length}</h2>${l.map(threadRow).join('')}</div>`).join('') : (plans.length ? '' : '<div class="empty">열린 항목이 없습니다.</div>')}
       ${closed.length ? `<details class="paper"><summary>닫힌 항목 ${closed.length}개</summary>${closed.map(threadRow).join('')}</details>` : ''}
       ${oocPaper()}`;
@@ -2186,6 +2187,13 @@
           const r = await api('POST', `/chats/${chat}/notebook/rebuild`, { all: actName === 'noteRebuildAll' });
           if (info) info.notebookJob = r.notebookJob;
         }, '수첩 받기를 시작했습니다. 채팅은 계속하셔도 됩니다.', { reload: false });
+      case 'planAnswers': {
+        const on = !info?.planAnswers;
+        return act(async () => {
+          const r = await api('POST', `/chats/${chat}/plan-answers`, { on });
+          if (info) info.planAnswers = r.planAnswers;
+        }, on ? '작가 계획의 답까지 답변에 넣습니다.' : '작가 계획은 감추는 것만 답변에 넣습니다.', { reload: false });
+      }
       case 'oocLoad':
         return act(async () => {
           oocList = await api('GET', `/chats/${chat}/ooc`);
@@ -2352,7 +2360,7 @@
         const box = root.querySelector(`[data-thread="${CSS.escape(id)}"]`);
         const fixes = koreanEditsIn(box);
         const body = {};
-        for (const f of ['title', 'detail', 'need', 'unaware', 'guess', 'dueDate', 'dueTime']) {
+        for (const f of ['title', 'detail', 'need', 'mystery', 'unaware', 'guess', 'dueDate', 'dueTime']) {
           const el = box?.querySelector(`[data-f="${f}"]`);
           if (el) body[f] = el.value;
         }

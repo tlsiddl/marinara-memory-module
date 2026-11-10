@@ -37,17 +37,26 @@ test('the header names only the sections that are in the memory; plans have thei
   store.window = { size: 4, firstInside: 50 };
   X.saveScenes(room, store);
   const ledger = L.emptyLedger();
-  ledger.threads.push({ id: 'T1', kind: 'secret', plan: true, status: 'open', title: '빅터는 등대지기의 딸에게 빚이 있음', detail: '아직 이야기에 안 나옴', who: null, toward: null, evidence: [], clues: [], unaware: [], guess: [], updatedAt: 'x' });
+  ledger.threads.push({ id: 'T1', kind: 'secret', plan: true, status: 'open', title: '빅터는 등대지기의 딸에게 빚이 있음', detail: '아직 이야기에 안 나옴', mystery: '빅터가 등대에 자꾸 가는 이유', who: null, toward: null, evidence: [], clues: [], unaware: [], guess: [], updatedAt: 'x' });
+  // A plan made before plans had a hidden line: left out of the reply until it gets one (its title is the answer).
+  ledger.threads.push({ id: 'T2', kind: 'secret', plan: true, status: 'open', title: '세라의 흉터는 화재 때 생김', detail: '', who: null, toward: null, evidence: [], clues: [], unaware: [], guess: [], updatedAt: 'x' });
   X.saveLedger(room, ledger);
   const text = X.renderMemorySource(room);
-  assert.match(text, /\n\[작가 계획\]\n- 빅터는 등대지기의 딸에게 빚이 있음 — /);
-  assert.ok(text.includes('"[작가 계획]" is where the author means the story to go. No character knows it'));
+  // By default only what stays hidden goes in: the reply model is never told the answer.
+  assert.match(text, /\n\[작가 계획\]\n- 빅터가 등대에 자꾸 가는 이유(\n|$)/);
+  assert.ok(!text.includes('등대지기의 딸') && !text.includes('화재'), 'no answer in the reply');
+  assert.ok(text.includes('"[작가 계획]" lists what the story keeps unexplained for now'));
   assert.ok(!text.includes('[아직 끝나지 않은 일]'), 'a plan is not among what the characters remember');
   assert.ok(!text.includes('"[수첩]"') && !text.includes('"[장소]"') && !text.includes('"[최근 생활]"'), 'no rule about a section that is not there');
+  // The room may give the answers too.
+  X.saveSettings({ connection: null, chats: { [room]: { enabled: true, planAnswers: true } } });
+  const withAnswers = X.renderMemorySource(room);
+  assert.match(withAnswers, /- 빅터는 등대지기의 딸에게 빚이 있음 — 아직 이야기에 안 나옴/);
+  assert.ok(withAnswers.includes('is where the author means the story to go (the answers)'));
   // In English, the headings the header names are the English ones too.
   X.saveSettings({ connection: null, memoryLanguage: 'en', chats: { [room]: { enabled: true } } });
   const en = service.renderLedger(room);
-  assert.ok(en.includes('"[Author\'s plan]" is where the author means'), en.slice(0, 200));
+  assert.ok(en.includes('"[Author\'s plan]" lists what the story keeps unexplained'), en.slice(0, 200));
   assert.ok(en.includes("\n[Author's plan]\n"));
 });
 
@@ -124,4 +133,18 @@ test('[최근 생활] is a heading of its own line, so it reads the same as the 
   assert.match(text, /^\[최근 생활\]\n지금: /);
   const T = require('../memory-module/lib/translate.cjs');
   assert.equal(T.planLines(text, 'en')[0].text, '[Recent daily life]');
+});
+
+test('a pending task that was carried out (answered, found, explained) is closed; a promise or a secret is not by those words', () => {
+  const t = (id, kind, latest) => ({ id, kind, status: 'open', title: id, detail: '', latest: { text: latest }, evidence: [], clues: [], updatedAt: 'x' });
+  const ledger = { ...L.emptyLedger(), threads: [
+    t('T1', 'pending', 'Sera answered the harbour question: she ran from a dinner.'),
+    t('T2', 'pending', 'Viktor opened the box and found the letter.'),
+    t('T3', 'pending', 'Sera repeated she remembers neither the face nor the shop.'),
+    t('T4', 'pending', 'He has not answered yet.'),
+    t('T5', 'secret', 'Sera answered both questions.'),
+    t('T6', 'pending', '세라가 항구 일을 설명했다.'),
+  ] };
+  assert.equal(L.closeDoneThreads(ledger), 3);
+  assert.deepEqual(ledger.threads.map((x) => x.status), ['closed', 'closed', 'open', 'open', 'open', 'closed']);
 });

@@ -80,7 +80,8 @@ test('ledger: OOC talk is marked; a plan from it is an author\'s plan; nothing e
   // Plans have their own block, never among what the characters remember.
   assert.ok(!L.renderCompact({ ...ledger, lastNumber: 9999 }).includes('등대지기의 딸'));
   assert.doesNotMatch(L.render({ ...ledger, lastNumber: 9999 }), /등대지기의 딸/);
-  assert.match(L.renderPlans({ ...ledger, lastNumber: 9999 }), /^- 빅터는 등대지기의 딸에게 빚이 있음 — /);
+  assert.match(L.renderPlans({ ...ledger, lastNumber: 9999 }, { answers: true }), /^- 빅터는 등대지기의 딸에게 빚이 있음 — /);
+  assert.equal(L.renderPlans({ ...ledger, lastNumber: 9999 }), '', 'no hidden line yet: not in the reply');
   assert.equal(plan.toward, null);
 });
 
@@ -141,4 +142,34 @@ test('threads opened from OOC talk alone (before OOC was marked): a secret becom
   assert.match(pending.closed.how, /OOC/);
   assert.equal(story.status, 'open', 'a thread from the story stays');
   assert.deepEqual(L.tidyOocThreads(ledger, batch), { planned: 0, closed: 0 }, 'nothing twice');
+});
+
+test('a plan keeps a hidden line with no answer; old plans get one from one call; the room may turn answers on', async () => {
+  // The ledger call is asked for it, and it is kept.
+  assert.match(L.buildPrompt(L.emptyLedger(), prepared())[0].content, /"mystery"[^]*답 없이 한 줄로/);
+  const ledger = L.emptyLedger();
+  L.applyResult(ledger, { open: [{ kind: 'secret', plan: true, title: '빅터는 등대지기의 딸에게 빚이 있음', mystery: '빅터가 등대에 자꾸 가는 이유', evidence: [{ n: '7.1', q: '빚이 있다는' }] }] }, prepared());
+  assert.equal(ledger.threads[0].mystery, '빅터가 등대에 자꾸 가는 이유');
+  assert.equal(L.renderPlans(ledger), '- 빅터가 등대에 자꾸 가는 이유');
+  // An old plan: the call writes its hidden line; a line for another thread or an empty one is not taken.
+  const old = L.emptyLedger();
+  old.threads.push({ id: 'T9', kind: 'secret', plan: true, status: 'open', title: '세라의 흉터는 화재 때 생김', detail: '', evidence: [], clues: [] });
+  const [system, user] = L.buildPlanMysteryPrompt(old.threads);
+  assert.match(system.content, /Never put the answer in it/);
+  assert.equal(JSON.parse(user.content).plans[0].id, 'T9');
+  assert.equal(L.applyPlanMysteries(old, { items: [{ id: 'T9', mystery: '세라의 손목 흉터가 생긴 진짜 이유' }, { id: 'T1', mystery: 'x' }, { id: 'T9', mystery: '' }] }), 1);
+  assert.equal(old.threads[0].mystery, '세라의 손목 흉터가 생긴 진짜 이유');
+  // The switch.
+  const handlers = {};
+  const app = { register(fn) { fn(app); }, addHook() {}, get(p, f) { handlers['GET ' + p] = f; }, post(p, f) { handlers['POST ' + p] = f; }, patch(p, f) { handlers['PATCH ' + p] = f; }, delete(p, f) { handlers['DELETE ' + p] = f; } };
+  service.attach(app);
+  const reply = { status() { return { send(x) { return x; } }; } };
+  assert.deepEqual(await handlers['POST /chats/:id/plan-answers']({ params: { id: 'pa1' }, body: { on: true } }, reply), { planAnswers: true });
+  assert.equal(X.planAnswersOn('pa1'), true);
+  assert.deepEqual(await handlers['POST /chats/:id/plan-answers']({ params: { id: 'pa1' }, body: { on: false } }, reply), { planAnswers: false });
+  // The library: the switch and the hidden line in the plan's edit form.
+  const source = fs.readFileSync(path.join(__dirname, '../extension/runtime.js'), 'utf8');
+  assert.ok(source.includes('data-act=\\"planAnswers\\"') || source.includes('data-act="planAnswers"'));
+  assert.ok(source.includes("data-f=\\\"mystery\\\"") || source.includes('data-f="mystery"') || source.includes('data-f=\\"mystery\\"'));
+  assert.ok(source.includes("for (const f of ['title', 'detail', 'need', 'mystery',"));
 });
