@@ -255,7 +255,7 @@ test('the library: a notebook section per person, and the buttons are wired', ()
   assert.match(html, /^REBUILD/, 'the 수첩만 다시 받기 box comes first');
   assert.match(html, /인물의 수첩 · 1명/);
   assert.match(html, /빅터의 수첩<\/b> · 1개 · ★ 1/);
-  assert.match(html, /알게 된 것[^]*세라에 대해/);
+  assert.match(html, /대하는 법[^]*세라에 대해/);
   assert.match(html, /data-act="noteUnstar"/);
   assert.equal(fn({ notebook: false }, ''), '');
   assert.ok(source.includes("'keepDelete', 'noteDelete',"), 'the delete confirmation survives the second click');

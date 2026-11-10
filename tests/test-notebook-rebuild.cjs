@@ -277,3 +277,27 @@ test('a note that points at someone without a name ("그 애", "저 녀석") is 
   assert.equal(store.scenes[0].charNotes[0].text, '세라는 비가 오면 꼭 우산을 잊음.');
   assert.equal('vague' in store.scenes[0].charNotes[0], false);
 });
+
+test('the notebook is not the facts: a note that only says a fact is dropped; the rebuild shows the scene\'s facts', () => {
+  // The check
+  assert.ok(Nb.isFact('Sera only remembers the people who turn her down.', ['Remembers only the people who turn her down; forgets the rest after a kiss.']));
+  assert.ok(!Nb.isFact('So I will not say yes to Sera right away.', ['Remembers only the people who turn her down; forgets the rest after a kiss.']));
+  // In a scene call: a fact written in the same answer, or one known before, is not a note too.
+  const slice = require('../memory-module/lib/ledger.cjs').prepareMessages([{ id: 'f1', number: 1, role: 'assistant', speaker: 'Narrator', content: 'Sera laughed at the bar and ordered another round. Viktor said nothing.' }]);
+  const store = { ...S.emptyStore(), cast: ['Viktor', 'Sera'], facts: [{ id: 'F1', about: 'Sera', text: 'Sera hates the rain and stays in when it pours.', sceneId: 'S0' }] };
+  const result = { scenes: [{ end: 1, time: 't', place: 'p', title: 't', summary: 's', present: ['Viktor', 'Sera'], events: [{ text: 'e', quotes: [] }], recollections: [],
+    facts: [{ about: 'Sera', text: 'Sera remembers only the people who turn her down.', evidence: ['1.1'] }],
+    notebook: [
+      { who: 'Viktor', kind: 'about', about: 'Sera', when: 'When Sera laughed at the bar', text: 'Sera remembers only the people who turn her down.', evidence: ['1.1'] },
+      { who: 'Sera', kind: 'heart', when: 'When it rained at the bar', text: 'Sera hates the rain and stays in when it pours.', evidence: ['1.1'] },
+    ] }] };
+  const stats = {};
+  const notes = S.applyScenes(store, result, slice, 1, undefined, { notebook: true, notebookLang: 'en', notebookStats: stats }).scenes[0].charNotes;
+  assert.equal(notes, undefined, 'both only say a fact');
+  assert.equal(stats.isFact, 2);
+  // The rebuild prompt lists each scene's facts.
+  const [system, user] = Nb.buildRebuildPrompt([{ scene: { id: 'S1', title: 't' }, messages: slice }], { facts: { S1: ['Sera hates the rain.'] } });
+  assert.match(user.content, /## S1[^]*\[이 장면의 알게 된 사실\] \(수첩에 다시 적지 마\)\n- Sera hates the rain\./);
+  assert.match(system.content, /수첩은 사실을 적는 곳이 아니야/);
+  assert.equal(Nb.KIND_LABEL.about, '대하는 법');
+});

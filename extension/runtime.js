@@ -1217,7 +1217,7 @@
   }
 
   /**
-   * 인물의 수첩: each character's notes in their own Korean voice (알게 된 것 / 속마음), newest last, each with the
+   * 인물의 수첩: each character's notes (대하는 법 / 속마음·다짐), newest last, each with the
    * scene it came from. A note can be reworded (kept when the scenes are read again), marked ★ (always kept, always
    * goes in first), or deleted (not written back). No hand-made notes: the scenes write them.
    */
@@ -1256,7 +1256,7 @@
     if (!w || !w.notebook) return '';
     const people = Object.entries(w.notes || {});
     const titles = w.sceneTitles || {};
-    const KIND = { about: '알게 된 것', heart: '속마음' };
+    const KIND = { about: '대하는 법', heart: '속마음·다짐' };
     const note = (n) => `<div class="notebook-note" data-note="${esc(n.id)}">
         <div class="notebook-head"><span class="pill ${n.kind === 'heart' ? '' : 'neutral'}">${KIND[n.kind] || n.kind}</span>${n.about ? `<small>${esc(nameShown(n.about))}에 대해</small>` : ''}${n.edited ? '<small>직접 고침</small>' : ''}${sceneRefs(sceneRef(n.sceneId, '', titles))}</div>
         <label class="world-field"><span>상황</span><input data-note-when="${esc(n.id)}" value="${esc(n.when || '')}" placeholder="그때 무슨 일이 있었는지 (비어 있으면 다시 받기로 채워짐)" aria-label="${esc(n.who)}의 메모 상황"></label>${n.when ? trEdit(n.when) : ''}
@@ -1265,7 +1265,7 @@
       </div>`;
     const person = ([who, list]) => `<details class="world-card" data-list="notebook:${esc(who)}" ${openLists.has(`notebook:${who}`) ? 'open' : ''}><summary><b>${esc(nameShown(who))}의 수첩</b> · ${list.length}개${list.some((n) => n.star) ? ` · ★ ${list.filter((n) => n.star).length}` : ''}</summary>${list.map(note).join('')}</details>`;
     return `${notebookLanguagePaper(w)}${notebookRebuildPaper(armedNow)}<div class="paper"><h2>인물의 수첩 · ${people.length}명</h2>
-      <p class="hint">인물마다 마음에 담아 둔 것을 그 인물 시점의 짧은 메모로 적어 둡니다(말투는 흉내 내지 않고, 답변을 쓰는 모델이 캐릭터 말투로 풀어냄). 메모마다 <b>상황</b>(그때 무슨 일이 있었는지)이 함께 적혀 답변에도 같이 들어가서, 메모만 읽어도 무슨 일인지 알 수 있습니다(한국어 병기 대사를 하는 인물은 한국어로, 영어로만 말하는 인물은 영어로 적고 아래에 한국어 번역을 보여 줍니다). <b>알게 된 것</b>은 상대에 대해 눈여겨본 작은 것, <b>속마음</b>은 그 인물의 다짐이나 마음에 걸리는 것입니다. 답변에는 지금 장면에 있는 인물의 것만 들어갑니다. 인물마다 핵심 3개(★ 먼저, 그다음 최근 것)는 늘, 지금 대화와 뜻이 가까운 것 3개까지는 더 들어갑니다(임베딩이 없으면 낱말로 찾음). 다른 인물은 이 수첩을 모르는 것으로 다룹니다. 사용자 캐릭터의 수첩은 만들지 않습니다.</p>
+      <p class="hint">인물마다 마음에 담아 둔 것을 그 인물 시점의 짧은 메모로 적어 둡니다(말투는 흉내 내지 않고, 답변을 쓰는 모델이 캐릭터 말투로 풀어냄). 메모마다 <b>상황</b>(그때 무슨 일이 있었는지)이 함께 적혀 답변에도 같이 들어가서, 메모만 읽어도 무슨 일인지 알 수 있습니다(한국어 병기 대사를 하는 인물은 한국어로, 영어로만 말하는 인물은 영어로 적고 아래에 한국어 번역을 보여 줍니다). <b>대하는 법</b>은 그 인물이 상대를 어떻게 보고 어떻게 대하기로 했는지, <b>속마음·다짐</b>은 마음에 걸리는 것과 하기로 정한 것입니다. 상대가 어떤 사람인지 같은 사실은 <b>알게 된 사실</b>이 맡고, 수첩에는 같은 내용을 다시 적지 않습니다. 답변에는 지금 장면에 있는 인물의 것만 들어갑니다. 인물마다 핵심 3개(★ 먼저, 그다음 최근 것)는 늘, 지금 대화와 뜻이 가까운 것 3개까지는 더 들어갑니다(임베딩이 없으면 낱말로 찾음). 다른 인물은 이 수첩을 모르는 것으로 다룹니다. 사용자 캐릭터의 수첩은 만들지 않습니다.</p>
       ${people.length ? people.map(person).join('') : '<p class="hint">아직 없습니다. 켠 뒤에 정리되는 장면부터 채워집니다.</p>'}</div>`;
   }
 
