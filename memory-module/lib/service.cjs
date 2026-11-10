@@ -2805,9 +2805,10 @@ async function fixNoteLanguages(chatId, store, job) {
         n.text = got.text;
         if (got.when) n.when = got.when;
         delete n.wantLang;
-        delete n.vague;
-        delete n.langTries;
         done++;
+        // Checked again: a rewrite that still names its owner (or points without a name) is asked once more.
+        if (Nb.needsNames(n.text, n.who, people) && (n.langTries = (n.langTries || 0) + 1) < 2) n.vague = true;
+        else { delete n.vague; delete n.langTries; }
       } else if ((n.langTries = (n.langTries || 0) + 1) >= 2) { delete n.wantLang; delete n.vague; delete n.langTries; }
     });
     saveScenes(chatId, store);

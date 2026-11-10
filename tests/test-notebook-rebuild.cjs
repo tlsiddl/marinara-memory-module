@@ -301,3 +301,16 @@ test('the notebook is not the facts: a note that only says a fact is dropped; th
   assert.match(system.content, /수첩은 사실을 적는 곳이 아니야/);
   assert.equal(Nb.KIND_LABEL.about, '대하는 법');
 });
+
+test('a rewrite that still names its owner is asked again; a clean one is kept', async () => {
+  const room = 'nbself2';
+  X.saveSettings({ ...X.settings(), connection: 'conn', chats: { ...X.settings().chats, [room]: { enabled: true, features: { notebook: 'on' } } } });
+  const store = { ...S.emptyStore(), cast: ['Viktor', 'Sera'], scenes: [scene('S1', 1, 2, { charNotes: [{ who: 'Viktor', kind: 'about', about: 'Sera', when: 'At the pier', text: 'Sera bolts, so Viktor should wait.', vague: true, evidence: [] }] })] };
+  answer = () => ({ lines: [{ when: 'At the pier', text: 'Sera bolts when pressed, so Viktor will wait.' }] });
+  await X.fixNoteLanguages(room, store, null);
+  assert.equal(store.scenes[0].charNotes[0].vague, true, 'still names Viktor: asked again');
+  answer = () => ({ lines: [{ when: 'At the pier', text: 'Sera bolts when pressed, so I will wait.' }] });
+  await X.fixNoteLanguages(room, store, null);
+  assert.equal(store.scenes[0].charNotes[0].text, 'Sera bolts when pressed, so I will wait.');
+  assert.equal('vague' in store.scenes[0].charNotes[0], false);
+});
