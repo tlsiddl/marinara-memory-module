@@ -22,7 +22,9 @@ const A = require('./aliases.cjs');
 
 const NOTEBOOK_VERSION = 1;
 const KINDS = ['about', 'heart'];
-const KIND_LABEL = { about: '알게 된 것', heart: '속마음' };
+// about: how the character reads another person and means to deal with them; heart: their own feeling, resolve, doubt.
+// Facts (what is true about someone) are the facts' job (알게 된 사실), not the notebook's.
+const KIND_LABEL = { about: '대하는 법', heart: '속마음·다짐' };
 const TEXT_MAX = 240;
 const PER_PERSON_SCENE = 1;
 // What the model writes is kept short (a long note crowds the others out of the reply); the user's own edits may be longer.
@@ -71,10 +73,12 @@ const isNotebook = (v) => !!v && typeof v === 'object' && v.version === NOTEBOOK
 /* ---------- the scene call ---------- */
 
 const PROMPT = `인물의 수첩 (이 방에서 켠 기능):
-각 장면 객체에 "notebook"도 적어. 이 장면에 있던 인물(사용자 캐릭터는 빼고)이 나중에도 마음에 담아 둘 만한 것을, 그 인물 시점의 짧은 메모로 써. 인물마다 0~1개이고, 대부분의 장면은 0개야(없으면 []). 처음 알게 된 것, 마음이 바뀐 순간, 새로 정한 것만 적어.
-- kind "about": 다른 사람에 대해 알게 된 작은 것. 취향, 버릇, 인상 깊었던 말, 약한 곳. about에 그 사람 이름.
+각 장면 객체에 "notebook"도 적어. 이 장면에 있던 인물(사용자 캐릭터는 빼고)이 나중에도 마음에 담아 둘 만한 것을, 그 인물 시점의 짧은 메모로 써. 인물마다 0~1개이고, 대부분의 장면은 0개야(없으면 []). 마음이 바뀐 순간, 새로 정한 것, 상대를 대하는 법을 깨달은 때만 적어.
+- 수첩은 사실을 적는 곳이 아니야. 누가 무엇을 했고 어떤 사람인지(취향, 버릇, 과거, 능력, 정체)는 알게 된 사실(facts)이 맡아. 수첩에는 그 인물이 그걸 어떻게 받아들였는지, 그래서 어떻게 하기로 했는지만 적어. 사실(facts)에 있거나 있을 법한 내용을 그대로 옮기면 버려져.
+  예) 사실: "세라는 거절한 사람만 기억함" / 수첩(빅터): "그래서 세라의 제안을 바로 받아들이지 않기로 함."
+- kind "about": 다른 사람을 어떻게 봐야 하고 어떻게 대해야 할지에 대한 그 인물의 판단(예: "세라는 몰아붙이면 달아나니 달래는 편이 나음"). about에 그 사람 이름.
 - 적지 마: 외모·옷차림·몸 묘사(눈 색, 문신, 피어싱 같은 것), 그 장면에서만 의미 있는 사소한 동작, 장면 줄거리 요약.
-- kind "heart": 그 인물의 속마음. 다짐, 마음에 걸리는 것, 품은 의문, 바라는 것. about은 null.
+- kind "heart": 그 인물의 속마음과 다짐. 마음에 걸리는 것, 품은 의문, 바라는 것, 하기로 정한 것. about은 null.
 - 그 인물이 그 자리에서 직접 보고 듣고 겪은 것만 적어. 없었던 자리의 일, 모르는 일은 적지 마.
 - 사실이나 약속을 그대로 옮기지 말고, 그 인물이 그걸 어떻게 받아들였는지를 적어.
 - 원문의 서술 문장을 그대로 옮기거나 시제·인칭만 바꿔 쓰지 마. 그 인물이 무엇을 알게 됐고 어떻게 받아들였는지를 새로 정리한 메모여야 해. 거의 같은 문장은 버려져.
@@ -83,7 +87,7 @@ const PROMPT = `인물의 수첩 (이 방에서 켠 기능):
 - when(상황): 그때 무슨 일이 있었는지 짧게, 40자 안팎. 누가 무엇을 했는지 이름을 넣어 담담하게(예: "식당에서 세라가 체리를 덜어 줬을 때"). 수첩과 같은 언어로.
 - text: 한 문장, 80자 안팎. 메모만 따로 읽어도 누구의 무슨 일인지 알 수 있게 써.
 - 사람은 이름으로 써. "그 애", "이 애", "저 녀석", "그 자식", "그녀", "그 여자"처럼 가리키기만 하는 말은 쓰지 마. 한 메모에서 이름을 한 번 쓴 사람은 그다음엔 주어를 빼도 돼(영어는 she/he). 문장마다 이름을 되풀이하지 마. "그 거품"처럼 장면을 봐야 알 수 있는 말 대신 구체적인 것을 써. 수첩 주인 자신만은 이름으로 부르지 말고 주어를 빼(예: 빅터의 수첩에 "빅터는…"이라고 쓰지 마).
-- 문체: 그 인물 시점의 담담한 메모체. 그 인물이 알게 된 것, 느낀 것, 정한 것을 "~함", "~라고 느낌", "~하기로 함"처럼 짧게 적어(예: "세라는 단 걸 싫다면서 체리는 네 개째 먹음."). 대사 말투·어미·감탄·별명을 흉내 내지 말고, 독백이나 대사처럼 쓰지 마. 영어로 적을 때는 "Learned that …", "Felt …", 중국어로 적을 때는 "发现……", "觉得……"처럼 짧은 메모체로.
+- 문체: 그 인물 시점의 담담한 메모체. 그 인물이 느낀 것, 판단한 것, 정한 것을 "~라고 느낌", "~하기로 함", "~하는 편이 나음"처럼 짧게 적어(예: "세라가 웃을 땐 캐묻지 않기로 함."). 대사 말투·어미·감탄·별명을 흉내 내지 말고, 독백이나 대사처럼 쓰지 마. 영어로 적을 때는 "Learned that …", "Felt …", 중국어로 적을 때는 "发现……", "觉得……"처럼 짧은 메모체로.
 - 언어: 아래 [수첩 언어]에 적힌 언어로 써(when과 text 모두). 기록 언어 설정 대신 이걸 따라.
 - who: 그 인물 이름(등장인물 목록의 표기), evidence: 그렇게 판단한 문장 번호(예: ["23.4"]). 번호가 없으면 적지 마.
 형식: "notebook":[{"who":"인물","kind":"about","about":"대상 인물","when":"그때 무슨 일이 있었는지 한 줄","text":"수첩에 적을 한두 문장","evidence":["23.4"]}]`;
@@ -247,7 +251,7 @@ const REBUILD_HEAD = `이미 정리된 롤플레이 장면들의 원문을 다�
  * One request for the notes of several scenes that are already made: groups [{ scene, messages }] (messages are the
  * scene's own, numbered as in a scene call), with how each character talks and the notes they already have.
  */
-function buildRebuildPrompt(groups, { cast = [], personas = [], voice = '' } = {}) {
+function buildRebuildPrompt(groups, { cast = [], personas = [], voice = '', facts = null } = {}) {
   const parts = [];
   if (cast.length) parts.push(`[등장인물] ${cast.join(', ')}`);
   if (personas.length) parts.push(`[사용자 캐릭터] ${personas.join(', ')}`);
@@ -255,6 +259,7 @@ function buildRebuildPrompt(groups, { cast = [], personas = [], voice = '' } = {
     parts.push('', `## ${scene.id} ${[scene.time, scene.place].filter(Boolean).join(' · ')} ${scene.title || ''}`.trimEnd());
     if (scene.summary) parts.push(`[요약] ${scene.summary}`);
     if (scene.present?.length) parts.push(`[있던 인물] ${[].concat(scene.present).join(', ')}`);
+    if (facts?.[scene.id]?.length) parts.push(`[이 장면의 알게 된 사실] (수첩에 다시 적지 마)`, ...facts[scene.id].map((t) => `- ${t}`));
     for (const message of messages) {
       parts.push(`[${message.number}] ${message.speaker}:`);
       message.sentences.forEach((sentence, i) => parts.push(`[${message.number}.${i + 1}] ${String(sentence).replace(/\s*\n\s*/g, ' / ')}`));
@@ -348,6 +353,8 @@ const alike = (a, b) => {
   }
   return overlapOf(pairs(a), pairs(b));
 };
+/** A note that only restates a fact (알게 된 사실): the same bar as a repeat. */
+const isFact = (note, facts) => (facts || []).some((f) => f && sameNote(note, f));
 /** The same thought written again (merged into one). English by words is a looser measure, so its bar is lower. */
 const sameNote = (a, b) => alike(a, b) >= (latin(a) && latin(b) ? 0.5 : 0.6);
 /** A note that is a sentence of the story with little changed (tense, person): not the character's own words. */
@@ -512,6 +519,6 @@ function view(file) {
 
 module.exports = {
   NOTEBOOK_VERSION, KINDS, KIND_LABEL, TEXT_MAX, PER_PERSON_SCENE, PER_SCENE, PER_PERSON_KEPT, INJECT_CORE, INJECT_RELATED, INJECT_CHARS, PROMPT, WHEN_MAX, NOTE_LEN, WHEN_LEN, WHEN_LEN_LATIN, noteLine, shorten,
-  COPIED, languagesOf, langsFor, vague, noteLanguage, priorNotes, sameNote, NOTE_LANG_PROMPT, buildNoteLanguagePrompt, readNoteLanguage, voiceFromScenes, buildRebuildPrompt, userKept,
+  COPIED, languagesOf, langsFor, vague, isFact, noteLanguage, priorNotes, sameNote, NOTE_LANG_PROMPT, buildNoteLanguagePrompt, readNoteLanguage, voiceFromScenes, buildRebuildPrompt, userKept,
   emptyNotebook, isNotebook, voiceSamples, voiceBlock, cleanNote, fold, editNote, starNote, deleteNote, injectionBlock, view, alike,
 };

@@ -705,7 +705,7 @@ function sceneKeepsakesOf(raw, { cast, personas, index, inScene }) {
   return out.slice(0, Ks.PER_SCENE);
 }
 /** What each character of the scene would keep in mind (인물의 수첩): story people only, never the user's own, with evidence from this scene. */
-function sceneCharNotesOf(raw, { cast, personas, index, inScene, langs = null, prior = null, stats = null }) {
+function sceneCharNotesOf(raw, { cast, personas, index, inScene, langs = null, prior = null, stats = null, facts = null }) {
   const count = (k) => { if (stats) stats[k] = (stats[k] || 0) + 1; };
   const out = [];
   const people = [...cast, ...personas];
@@ -722,6 +722,8 @@ function sceneCharNotesOf(raw, { cast, personas, index, inScene, langs = null, p
     if ([...earlier(cleaned.who), ...out.filter((n) => n.who === cleaned.who).map((n) => n.text)].some((t) => Nb.sameNote(t, cleaned.text))) { count('repeat'); continue; }
     // A sentence of the story with little changed is not the character's own note.
     if (sentences.some((p) => Nb.alike(cleaned.text, p.text) >= Nb.COPIED)) { count('copied'); continue; }
+    // What a fact already says belongs to the facts (알게 된 사실), not the notebook.
+    if (Nb.isFact(cleaned.text, facts)) { count('isFact'); continue; }
     let evidence = L.resolveEvidence(item.evidence, index).filter(inScene).slice(0, 2);
     if (!evidence.length) { count('noEvidence'); continue; }
     count(cleaned.wantLang ? 'keptWrongLanguage' : 'kept');
@@ -817,7 +819,9 @@ function applyScenes(store, result, slice, required, now = new Date().toISOStrin
     const placeNotes = places ? sceneNotesOf(item.placeNotes, cleanText(item.place, 60)) : [];
     const keeps = keepsakes ? sceneKeepsakesOf(item.keepsakes, { cast, personas, index, inScene }) : [];
     const hints = dateHints ? sceneDateHintsOf(item.dates, { cast, personas, index, inScene }) : [];
-    const charNotes = notebook ? sceneCharNotesOf(item.notebook, { cast, personas, index, inScene, langs: noteLangs, prior: store, stats: notebookStats }) : [];
+    // The facts known so far and the ones this scene writes: a note that only says one of them is dropped.
+    const factTexts = notebook ? [...liveFacts(store).map((f) => f.text), ...(Array.isArray(item.facts) ? item.facts : []).map((f) => (typeof f === 'string' ? f : f?.text)).filter(Boolean)] : null;
+    const charNotes = notebook ? sceneCharNotesOf(item.notebook, { cast, personas, index, inScene, langs: noteLangs, prior: store, stats: notebookStats, facts: factTexts }) : [];
     made.push({
       id,
       start: messages[0].number,

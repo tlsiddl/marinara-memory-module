@@ -2196,7 +2196,9 @@ function rebuildNotebook(chatId, { all = false } = {}) {
         const samples = Nb.voiceSamples(slice, cast, { personas });
         const speakers = cast.filter((n) => !personas.includes(n));
         const live = part.map((g) => ({ scene: store.scenes.find((sc) => sc.id === g.id), messages: g.messages })).filter((g) => g.scene);
-        const parsed = L.parseJsonObject(await askModel(model, Nb.buildRebuildPrompt(live, { cast, personas, voice: Nb.voiceBlock(samples, Nb.priorNotes(store, speakers, undefined, { before: live[0]?.scene.id }), { langs: Nb.langsFor(samples, speakers, notebookLanguageOf(chatId)) }) }), { maxTokens: 4000 }));
+        const sceneFacts = {};
+        for (const f of S.liveFacts(store)) if (f.sceneId && live.some((g) => g.scene.id === f.sceneId)) (sceneFacts[f.sceneId] ||= []).push(f.text);
+        const parsed = L.parseJsonObject(await askModel(model, Nb.buildRebuildPrompt(live, { cast, personas, voice: Nb.voiceBlock(samples, Nb.priorNotes(store, speakers, undefined, { before: live[0]?.scene.id }), { langs: Nb.langsFor(samples, speakers, notebookLanguageOf(chatId)) }), facts: sceneFacts }), { maxTokens: 4000 }));
         job.calls++;
         return { answers: Array.isArray(parsed?.scenes) ? parsed.scenes : [], samples, personas, speakers };
       };
@@ -2220,7 +2222,7 @@ function rebuildNotebook(chatId, { all = false } = {}) {
           const keep = Nb.userKept(book, scene);
           // Only the scenes before this one count as already written (a later scene's note is not a repeat of this one).
           const prior = { scenes: [...now.scenes.slice(0, now.scenes.indexOf(scene)), { charNotes: keep }] };
-          const fresh = S.sceneCharNotesOf(answer.notebook, { cast: S.castOf(now), personas, index, inScene, langs, prior, stats: job.stats });
+          const fresh = S.sceneCharNotesOf(answer.notebook, { cast: S.castOf(now), personas, index, inScene, langs, prior, stats: job.stats, facts: S.liveFacts(now).map((f) => f.text) });
           const notes = [...keep, ...fresh];
           if (notes.length) { scene.charNotes = notes; changed++; job.kept += fresh.length; }
           else if (scene.charNotes) { delete scene.charNotes; changed++; }
