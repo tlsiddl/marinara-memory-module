@@ -38,7 +38,7 @@ test('prompt: the scene prompt itself asks for knownBy (a small addition), and t
   assert.match(S.SCENE_PROMPT, /knownBy: 숨긴 일·비밀·귓속말처럼 아는 사람이 갈리는 사실일 때만/);
   assert.match(S.SCENE_PROMPT, /"unaware":\[\{"who":"인물","why":"이유","guess":false\}\],"knownBy":\["인물"\]/);
   const messages = L.prepareMessages([{ id: 'm1', number: 1, role: 'user', speaker: NARI, content: '"안녕."' }]);
-  assert.equal(S.buildScenePrompt(S.emptyStore(), messages, 1, null, {})[0].content, S.SCENE_PROMPT, 'nothing else is added');
+  assert.equal(S.buildScenePrompt(S.emptyStore(), messages, 1, null, {})[0].content, `${S.SCENE_PROMPT}\n\n${S.LINES_PROMPT}`, 'nothing else is added (the story-line part is always there)');
   // It is a few lines, not a new section.
   assert.ok(S.SCENE_PROMPT.match(/knownBy[^\n]*\n/g).length <= 3);
 });

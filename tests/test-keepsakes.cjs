@@ -54,14 +54,14 @@ const messages = L.prepareMessages([{ id: 'm1', number: 1, role: 'user', speaker
 const system = (prefs) => S.buildScenePrompt(S.emptyStore(), messages, 1, null, prefs)[0].content;
 
 test('prompt: off is the scene prompt unchanged; on adds only its own part, after the other optional parts', () => {
-  assert.equal(system({ keepsakes: false }), S.SCENE_PROMPT);
-  assert.equal(system({}), S.SCENE_PROMPT);
+  assert.equal(system({ keepsakes: false }), `${S.SCENE_PROMPT}\n\n${S.LINES_PROMPT}`);
+  assert.equal(system({}), `${S.SCENE_PROMPT}\n\n${S.LINES_PROMPT}`);
   const on = system({ keepsakes: true });
-  assert.equal(on, `${S.SCENE_PROMPT}\n\n${Ks.PROMPT}`);
+  assert.equal(on, `${S.SCENE_PROMPT}\n\n${S.LINES_PROMPT}\n\n${Ks.PROMPT}`);
   assert.match(on, /"keepsakes":\[\{"name":"은반지"/);
   assert.match(on, /평범한 소품은 적지 마/);
   assert.match(on, /지어내지 마/);
-  assert.equal(system({ characterState: true, places: true, keepsakes: true }), `${S.SCENE_PROMPT}\n\n${St.PROMPT}\n\n${Pl.PROMPT}\n\n${Ks.PROMPT}`);
+  assert.equal(system({ characterState: true, places: true, keepsakes: true }), `${S.SCENE_PROMPT}\n\n${S.LINES_PROMPT}\n\n${St.PROMPT}\n\n${Pl.PROMPT}\n\n${Ks.PROMPT}`);
   assert.deepEqual(S.buildScenePrompt(S.emptyStore(), messages, 1, null, {})[1], S.buildScenePrompt(S.emptyStore(), messages, 1, null, { keepsakes: true })[1], 'the user message of the call is the same');
 });
 

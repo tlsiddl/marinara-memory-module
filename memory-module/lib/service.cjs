@@ -1538,17 +1538,66 @@ function withLanguage(messages, lang) {
   return [...messages.slice(0, -1), { ...last, content: `${last.content}${note}` }];
 }
 
+/* ---------- what the memory's own model calls cost (기억 비용) ---------- */
+
+const usageFile = () => path.join(DATA_DIR, 'usage.json');
+const USAGE_DAYS = 14;
+let usageCache = null;
+let usageTimer = null;
+function loadUsage() {
+  if (!usageCache) {
+    const stored = readJson(usageFile(), null, { replaceable: true });
+    usageCache = stored?.v === 1 && stored.days ? stored : { v: 1, days: {} };
+  }
+  return usageCache;
+}
+/** The day as the server's clock has it ("2026-11-11"). */
+const usageDay = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+/**
+ * One model call of the memory's own (organizing, checks, translation): counted per day. Tokens are the provider's
+ * when it reports them, else estimated from the letters (marked as estimated).
+ */
+function noteUsage(inChars, outChars, reported = null) {
+  try {
+    const u = loadUsage();
+    const day = (u.days[usageDay()] ||= { calls: 0, input: 0, output: 0, estimated: 0 });
+    const input = Number(reported?.prompt_tokens ?? reported?.input_tokens ?? reported?.promptTokens ?? NaN);
+    const output = Number(reported?.completion_tokens ?? reported?.output_tokens ?? reported?.completionTokens ?? NaN);
+    const est = !Number.isFinite(input) || !Number.isFinite(output);
+    day.calls++;
+    day.input += est ? Math.round(inChars / 2.5) : input;
+    day.output += est ? Math.round(outChars / 2.5) : output;
+    if (est) day.estimated++;
+    const keep = Object.keys(u.days).sort().slice(-USAGE_DAYS);
+    u.days = Object.fromEntries(keep.map((k) => [k, u.days[k]]));
+    clearTimeout(usageTimer);
+    usageTimer = setTimeout(() => { try { writeJson(usageFile(), u); } catch {} }, 2000);
+    usageTimer.unref?.();
+  } catch {}
+}
+/** Today and the last week, for the library screen. */
+function usageSummary() {
+  const u = loadUsage();
+  const today = u.days[usageDay()] || { calls: 0, input: 0, output: 0, estimated: 0 };
+  const week = Object.entries(u.days).filter(([k]) => k >= usageDay(new Date(Date.now() - 6 * 86400000))).reduce((a, [, d]) => ({ calls: a.calls + d.calls, input: a.input + d.input, output: a.output + d.output, estimated: a.estimated + d.estimated }), { calls: 0, input: 0, output: 0, estimated: 0 });
+  return { today, week, days: u.days };
+}
+
 async function askModel(model, messages, { maxTokens = 4096 } = {}) {
   messages = withLanguage(messages, model.lang);
   const signal = model.signal ? AbortSignal.any([AbortSignal.timeout(MODEL_TIMEOUT_MS), model.signal]) : AbortSignal.timeout(MODEL_TIMEOUT_MS);
   const base = { model: model.model, maxTokens, temperature: 0.2, signal, ...(model.extra || {}) };
   let content;
+  let reply;
+  const inChars = messages.reduce((n, m) => n + String(m?.content ?? '').length, 0);
   try {
-    content = (await model.provider.chatComplete(messages, { ...base, responseFormat: { type: 'json_object' } })).content;
+    reply = await model.provider.chatComplete(messages, { ...base, responseFormat: { type: 'json_object' } });
   } catch (error) {
     if (!/response_format|json_object|responseFormat/i.test(String(error?.message))) throw error;
-    content = (await model.provider.chatComplete(messages, base)).content;
+    reply = await model.provider.chatComplete(messages, base);
   }
+  content = reply?.content;
+  noteUsage(inChars, String(content ?? '').length, reply?.usage || null);
   if (!String(content ?? '').trim()) {
     throw Error(`모델(${model.name || model.model || '기억용 연결'})이 빈 답을 보냈습니다. 생각(추론) 모드가 켜진 모델은 생각하느라 답 쓸 자리를 다 쓰는 경우가 있습니다. 연결 설정에서 생각 모드를 끄거나 다른 모델을 골라 주세요.`);
   }
@@ -1666,13 +1715,18 @@ async function tidyLedger(model, ledger, messages, { scenes = null } = {}) {
     }
   }
   // Feelings are never closed by the tidy pass above; here each needs the line that resolved it.
-  // One call per feeling, each with the story right after it last came up.
+  // One call per feeling, each with the story right after it last came up — only for a feeling the story has moved
+  // past since it was last asked about (asking again over the same messages gives the same answer).
   total.feelingsResolved = 0;
   total.feelingsMoved = 0;
+  total.feelingsSkipped = 0;
+  const upTo = messages.at(-1)?.number;
   for (const feeling of ledger.threads.filter((t) => t.status === 'open' && t.kind === 'emotion')) {
+    if (!L.feelingDue(feeling, upTo)) { total.feelingsSkipped++; continue; }
     const review = L.buildFeelingPrompt(ledger, messages, feeling);
     const parsed = L.parseJsonObject(await askModel(model, review.messages, { maxTokens: 1024 }));
     total.calls++;
+    if (typeof upTo === 'number') feeling.reviewedUpTo = upTo;
     if (!parsed) continue;
     const stats = L.applyFeelingReview(ledger, parsed, review.window);
     total.closed += stats.closed;
@@ -2618,6 +2672,7 @@ const SECTION_NOTES = [
   ['남은 기억', 'A character marked as not remembering a scene does not know what happened in it; one who remembers it only dimly holds just what "남은 기억" says, though "그때" records what they really said and did. '],
   ['[최근 생활]', '"[최근 생활]" says when each person last ate, washed and slept: keep daily life believable, and do not repeat a meal or bath that just happened. '],
   ['[수첩]', '"[수첩]" is what one character privately decided or feels; only that character knows it. Let it show in what they choose and do, never as a speech. '],
+  ['[이야기 줄기]', '"[이야기 줄기]" is where each matter the story keeps coming back to stands now (the scenes it ran through in brackets). An older scene about one of them is the past; this is the present. '],
   ['[작가 계획]', '"[작가 계획]" lists what the story keeps unexplained for now. Keep each one unexplained: no character knows, names, works out or suspects the answer — not in speech, not in thoughts, not in narration. They may only wonder about it. Do not hint at an answer. '],
   ['[지금 상태]', '"[지금 상태]" is how the people here are right now. '],
   ['[장소]', '"[장소]" is the place of this scene as it is now. '],
@@ -3133,8 +3188,20 @@ function renderLedger(chatId) {
     const fixed = memoryHeader(style).length + memoryFooter(style).length + 40;
     const grows = (text.length - fixed) / Math.max(1, source.length - fixed);
     if (grows > 1) {
-      const smaller = renderMemorySource(chatId, Math.floor(fixed + ((MEMORY_MAX_CHARS - fixed) / grows) * 0.97));
-      if (smaller) text = T.translateText(smaller, target, lookup, { names }).text;
+      // A first guess from how much it grew; then a few steps toward the room that is both not empty (too little
+      // room leaves nothing but the instructions out) and fits once translated.
+      const STEP = 400;
+      let budget = Math.floor(fixed + ((MEMORY_MAX_CHARS - fixed) / grows) * 0.97);
+      let best = null;
+      for (let tries = 0; tries < 24 && budget > 0 && budget <= MEMORY_MAX_CHARS; tries++) {
+        const smaller = renderMemorySource(chatId, budget);
+        if (!smaller) { if (best) break; budget += STEP; continue; }
+        const done = T.translateText(smaller, target, lookup, { names }).text;
+        if (done.length <= MEMORY_MAX_CHARS) { best = done; if (tries) break; budget += STEP; continue; }
+        if (best) break;
+        budget -= STEP;
+      }
+      if (best) text = best;
     }
   }
   // The section headings the header names, in the memory's language like the sections themselves.
@@ -3181,7 +3248,11 @@ function renderMemorySource(chatId, maxChars = MEMORY_MAX_CHARS, trace = null) {
     fixed[i] = fitBlock(fixed[i], Math.max(0, Math.floor(room / (fixed.length - i))));
     room -= fixed[i].length + 2;
   }
+  // What changes least goes first (the story so far), what changes every reply last (recalled scenes, notes that
+  // fit the talk, daily life): a reply model that caches the start of its prompt can reuse more of it.
+  const lead = [];
   const story = [];
+  let linesText = '';
   if (scenes && room > 500) {
     const firstInside = windows.get(chatId) ?? scenes.window?.firstInside ?? null;
     const npc = settings().chats?.[chatId]?.organize?.npcCoverage === 'expanded';
@@ -3209,16 +3280,20 @@ function renderMemorySource(chatId, maxChars = MEMORY_MAX_CHARS, trace = null) {
     if (trace) trace.over = { scenes: [], chapters: [], facts: [] };
     const overview = S.renderScenes(scenes, firstInside, { maxChars: Math.floor(9000 * scale), factChars: Math.floor(4500 * scale), chapterChars: Math.floor(chapterChars * scale), query, today, npc, present: lastScenePeople(scenes), hideFacts, skipScenes: hidden, skipChapters: prefs.excluded, pin: { chapters: only('C'), facts: only('F') }, trace: trace?.over || null });
     if (overview) {
-      story.push(overview);
+      lead.push(overview);
       room -= overview.length + 2;
     }
-    const recalled = room > 500 ? R.renderRecalled(scenes, picks, { maxChars: Math.min(amount.sceneChars, room), npc, trace: trace ? (trace.recalled = []) : null }) : '';
+    // How what began in a recalled scene went on, from the open-items ledger (no model call).
+    const sceneAt = (n) => scenes.scenes.find((s) => s.start <= n && n <= s.end)?.id || null;
+    const after = (scene) => [...(ledger ? L.afterLines(ledger, scene, sceneAt) : []), ...S.lineNowFor(scenes, scene)];
+    linesText = S.linesBlock(scenes, { also: picks.map((p) => p.id) });
+    const recalled = room > 500 ? R.renderRecalled(scenes, picks, { maxChars: Math.min(amount.sceneChars, room), npc, after, trace: trace ? (trace.recalled = []) : null }) : '';
     if (recalled) {
       story.push(recalled);
       room -= recalled.length + 2;
     }
     const nearList = prefs.any ? (recall?.semantic || []).filter((x) => !hidden.has(x.id) && !prefs.excluded.has(x.id)) : recall?.semantic || [];
-    const near = amount.near && room > 500 ? R.renderNearEvents(scenes, nearList, picks, { max: amount.near, maxChars: Math.min(5000, room), trace: trace ? (trace.near = []) : null }) : '';
+    const near = amount.near && room > 500 ? R.renderNearEvents(scenes, nearList, picks, { max: amount.near, maxChars: Math.min(5000, room), after, trace: trace ? (trace.near = []) : null }) : '';
     if (near) {
       story.push(near);
       room -= near.length + 2;
@@ -3257,7 +3332,12 @@ function renderMemorySource(chatId, maxChars = MEMORY_MAX_CHARS, trace = null) {
   if (featureOn(chatId, 'trackers')) {
     try { now.push(A.using(chatId, () => Tk.injectionBlock(loadTrackers(chatId), { present: scenes ? lastScenePeople(scenes) : [], story: today }))); } catch {}
   }
-  const parts = [...story, calls, ...now, ...fixed].filter(Boolean);
+  const block = (head) => fixed.find((x) => x.startsWith(head)) || '';
+  const openBlock = block('[아직 끝나지 않은 일]');
+  const planBlock = block('[작가 계획]');
+  const routineBlock = fixed.find((x) => x !== openBlock && x !== planBlock) || '';
+  const trackersLine = now.find((x) => x?.startsWith('[기록]')) || '';
+  const parts = [...lead, planBlock, openBlock, linesText, trackersLine, calls, ...now.filter((x) => x !== trackersLine), ...story, routineBlock].filter(Boolean);
   if (!parts.length) return '';
   const body = parts.join('\n\n');
   return `${memoryHeader(style, body, { planAnswers: answers })}\n\n${body}\n\n${footer}`;
@@ -3508,7 +3588,7 @@ async function routes(app) {
   app.get('/status', guard(async (req) => {
     const src = await phase(req, 'embedding-source', embeddingSourceForView);
     return {
-      version: globalThis.__marinaraMemory?.version || null, settings: settings(), dataDir: DATA_DIR, health: health(),
+      version: globalThis.__marinaraMemory?.version || null, settings: settings(), dataDir: DATA_DIR, health: health(), usage: usageSummary(),
       embedding: { mode: embeddingMode(), model: src?.model || null, label: src?.label || null, error: src ? null : embedSource.error },
     };
   }));
@@ -5092,7 +5172,7 @@ function attach(app) {
   log('admin API ready at /api/memory-module');
 }
 
-module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { loadAddress, saveAddress, refreshAddress, presentPeople, Addr, loadState, saveState, loadPlaces, savePlaces, loadKeepsakes, saveKeepsakes, loadNotebook, saveNotebook, Nb, loadTrackers, saveTrackers, Tk, loadConflicts, saveConflicts, refreshConflicts, refreshWorld, Cf, Ks, organizeFor, sceneTokens, lastScenePeople, St, Pl, listRooms, purgeChatMemory, purgeIfGone, deleteOnSend, deletePrepare, listOrphans, deleteOrphans, goneChats, loadNames, saveNames, enqueue, foldScenes, reviewAttributions, loadAttributionLog, sceneJobs, selectedForView, loadSelected, recalls, windows, loadRecallPrefs, saveRecallPrefs, recallReport, recallCandidates, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, translateDisplayLater, fixNoteLanguages, tidySteps, tidyLedger, planAnswersOn, notebookLanguageOf, notebookLanguageSetting, rebuildNotebook, notebookJobStatus, loadTranslations, saveTranslations, chatLangs, langRecords, loadLang, noteLanguage, LANG_REFRESH_EVERY, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, jobs, writeLanguage, roomWriteLanguage, promptLanguage, memoryCallOptions, routineSetting, routineEnabled, attributionSetting, featureOn, featureSetting, F, B, clearRoomCaches, RESTORE_UNDO_DIR, connectionWithKey, memoryModel, startTrial, trials } };
+module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { loadAddress, saveAddress, refreshAddress, presentPeople, Addr, loadState, saveState, loadPlaces, savePlaces, loadKeepsakes, saveKeepsakes, loadNotebook, saveNotebook, Nb, loadTrackers, saveTrackers, Tk, loadConflicts, saveConflicts, refreshConflicts, refreshWorld, Cf, Ks, organizeFor, sceneTokens, lastScenePeople, St, Pl, listRooms, purgeChatMemory, purgeIfGone, deleteOnSend, deletePrepare, listOrphans, deleteOrphans, goneChats, loadNames, saveNames, enqueue, foldScenes, reviewAttributions, loadAttributionLog, sceneJobs, selectedForView, loadSelected, recalls, windows, loadRecallPrefs, saveRecallPrefs, recallReport, recallCandidates, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, translateDisplayLater, fixNoteLanguages, tidySteps, tidyLedger, noteUsage, usageSummary, planAnswersOn, notebookLanguageOf, notebookLanguageSetting, rebuildNotebook, notebookJobStatus, loadTranslations, saveTranslations, chatLangs, langRecords, loadLang, noteLanguage, LANG_REFRESH_EVERY, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, jobs, writeLanguage, roomWriteLanguage, promptLanguage, memoryCallOptions, routineSetting, routineEnabled, attributionSetting, featureOn, featureSetting, F, B, clearRoomCaches, RESTORE_UNDO_DIR, connectionWithKey, memoryModel, startTrial, trials } };
 
 
 

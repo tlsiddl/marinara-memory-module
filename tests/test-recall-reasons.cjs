@@ -287,7 +287,8 @@ test('pin: a pinned scene is recalled first, in full, even when the recall did n
   seed('rg');
   X.recalls.set('rg', { mode: 'model', used: 'model', picks: [{ id: 'S2', why: 'a' }, { id: 'S3', why: 'b' }, { id: 'S4', why: 'c' }, { id: 'S5', why: 'd' }], semantic: [], raw: [], at: 'x' });
   const before = X.renderMemorySource('rg');
-  const first = (t) => t.split('[지금 떠오르는 지난 장면]\n')[1]?.split('\n')[0];
+  // The first scene's head line (a "(C1 시기)" line naming its chapter may come before it).
+  const first = (t) => t.split('[지금 떠오르는 지난 장면]\n')[1]?.split('\n').find((l) => !/^\(C\d+ 시기\)$/.test(l));
   assert.match(first(before), /S2 .* — 시장 소동$/);
   assert.deepEqual(section(X.recallReport('rg'), 'recalled').map((i) => i.id), ['S2', 'S3', 'S4', 'S5']);
   // the scenes shown: four (the usual number); a pinned one takes the first place and pushes the last one out
