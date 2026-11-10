@@ -126,7 +126,7 @@ test('tidy closes finished threads and merges duplicates of the same kind only',
   assert.match(system.content, /점검/);
   assert.match(user.content, /T3 \[promise\] 스테이크 준비 \| 처음 원문: ""Fine\. Next week, the sea\.""/);
   const stats = L.applyTidy(ledger, { close: [{ id: 'T3', how: '이미 먹어서 완료됨', why: 'done' }, { id: 'T99' }], merge: [{ keep: 'T1', drop: ['T2', 'T4'] }] });
-  assert.deepEqual(stats, { closed: 1, merged: 1, dropped: 2 });
+  assert.deepEqual(stats, { closed: 1, merged: 1, dropped: 2, updated: 0 });
   const open = ledger.threads.filter((t) => t.status === 'open').map((t) => t.id);
   assert.deepEqual(open, ['T1', 'T4']);
   assert.equal(ledger.threads[0].evidence.length, 2, 'the merged line moved into the kept thread');
@@ -211,7 +211,7 @@ test('a feeling never closes on hedged words, without evidence, or from tidy unl
     close: [{ id: 'T2', how: '떨림이 잦아들 기미', why: 'momentary' }, { id: 'T1', how: '풀림' }, { id: 'T3', how: '장면 속 흥분', why: 'momentary' }],
     merge: [{ keep: 'T1', drop: ['T2'] }],
   });
-  assert.deepEqual(stats, { closed: 1, merged: 1, dropped: 2 });
+  assert.deepEqual(stats, { closed: 1, merged: 1, dropped: 2, updated: 0 });
   assert.deepEqual(ledger.threads.map((t) => t.status), ['open', 'closed', 'closed', 'open']);
   assert.equal(ledger.threads[1].mergedInto, 'T1');
   L.applyResult(ledger, { close: [{ id: 'T4', how: '사과하고 화해함', evidence: ['2.2'] }] }, batch);
