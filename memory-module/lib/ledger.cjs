@@ -333,6 +333,33 @@ function markOoc(messages, overrides = {}) {
   return messages;
 }
 
+/**
+ * Open threads that rest on OOC talk alone (opened before OOC was marked, or from a message marked OOC later): a secret
+ * becomes an author's plan (nobody in the story knows it); anything else is closed, and can be opened again by hand.
+ */
+function tidyOocThreads(ledger, messages, now = new Date().toISOString()) {
+  const ooc = new Set((messages || []).filter((m) => m.ooc).map((m) => m.id));
+  const out = { planned: 0, closed: 0 };
+  if (!ooc.size) return out;
+  for (const t of ledger?.threads || []) {
+    if (t.status !== 'open' || t.plan) continue;
+    const points = [...(t.evidence || []), ...(t.clues || [])];
+    if (!points.length || !points.every((p) => ooc.has(p.messageId))) continue;
+    if (t.kind === 'secret') {
+      t.plan = true;
+      t.who = null;
+      t.unaware = [];
+      t.guess = [];
+      t.updatedAt = now;
+      out.planned++;
+    } else {
+      closeThread(t, 'OOC(이야기 밖 대화)에서 열린 항목이라 닫음', [], { messageId: null, number: null, time: null }, now);
+      out.closed++;
+    }
+  }
+  return out;
+}
+
 function messageChars(message) {
   return message.sentences.reduce((sum, s) => sum + s.length + 8, 0) + 20;
 }
@@ -2284,6 +2311,7 @@ function renderCompact(ledger, { maxChars = 2400, query = '', today = ledger?.st
 
 module.exports = {
   markOoc,
+  tidyOocThreads,
   looksOocReply,
   PLAN_LABEL,
   OOC_START,

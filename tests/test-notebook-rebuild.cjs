@@ -314,3 +314,16 @@ test('a rewrite that still names its owner is asked again; a clean one is kept',
   assert.equal(store.scenes[0].charNotes[0].text, 'Sera bolts when pressed, so I will wait.');
   assert.equal('vague' in store.scenes[0].charNotes[0], false);
 });
+
+test('names left in another script in saved notes are fixed with no model call', async () => {
+  const A = require('../memory-module/lib/aliases.cjs');
+  const room = 'nbnames1';
+  X.saveSettings({ ...X.settings(), connection: null, chats: { ...X.settings().chats, [room]: { enabled: true, features: { notebook: 'on' } } } });
+  X.saveNames(room, { version: 1, people: { 세라: { aliases: ['Sera'] }, 빅터: { aliases: ['Viktor'] } } });
+  const store = { ...S.emptyStore(), cast: ['빅터', '세라'], scenes: [scene('S1', 1, 2, { charNotes: [{ who: '빅터', kind: 'about', about: '세라', when: 'When 세라 sat down', text: 'Learned that 세라 hates waiting.', evidence: [] }] })] };
+  prompts.length = 0;
+  await A.using(room, () => X.fixNoteLanguages(room, store, null));
+  assert.equal(store.scenes[0].charNotes[0].text, 'Learned that Sera hates waiting.');
+  assert.equal(store.scenes[0].charNotes[0].when, 'When Sera sat down');
+  assert.equal(prompts.length, 0, 'no model call');
+});

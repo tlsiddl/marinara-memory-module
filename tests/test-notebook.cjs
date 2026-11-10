@@ -371,8 +371,8 @@ test('a note that names its own owner, or one name in every clause, goes to the 
   assert.deepEqual(JSON.parse(user.content).notes[0].aka, ['Viktor']);
   assert.match(system.content, /never named or called he\/she\/him\/her\/his\/himself\/herself in their own note/);
   assert.match(system.content, /"when" is a plain line of what happened \(no voice\), always in the note's "lang"/);
-  // The owner in the third person: "for himself" in their own note goes to the fix pass too.
-  assert.equal(note('Sera bolts when pressed, so decided to see for himself.').vague, true, 'himself');
+  // himself/herself is mostly someone else in a note ("Sera named herself"): not a reason to rewrite.
+  assert.equal(note('Sera bolts when pressed and named herself like a duchess, so I will wait.').vague, undefined, 'herself is Sera');
   assert.equal(Nb.needsNames('Sera bolts when pressed, so I will wait.', 'Viktor', ['Viktor', 'Sera']), false);
   assert.match(Nb.PROMPT, /수첩 주인은 I\/me\/my로 써\. 이름이나 he\/him\/his\/himself로 부르지 마/);
   assert.match(Nb.voiceBlock({}, {}, { langs: { 빅터: 'en' } }), /when과 text를 둘 다 처음부터 English로 써\(상황 줄 when도\)/);
@@ -387,4 +387,21 @@ test('the fix pass checks its own rewrite: still naming the owner is asked once 
   assert.equal(store.scenes[0].charNotes[0].vague, true, 'asked again next time');
   await X.fixNoteLanguages('nb-self', store, {});
   assert.equal('vague' in store.scenes[0].charNotes[0], false);
+});
+
+test('names are written in the note\'s language: "세라" in an English note becomes "Sera" (by the room\'s name table)', () => {
+  const A = require('../memory-module/lib/aliases.cjs');
+  const table = { version: 1, people: { '빅터 헤일': { aliases: ['Viktor Hale', 'Viktor'] }, 세라: { aliases: ['Sera'] } } };
+  A.using(table, () => {
+    assert.equal(Nb.namesInLanguage('Even soaked, 세라 gave orders; 빅터 laughed.', ['빅터 헤일', '세라'], 'en'), 'Even soaked, Sera gave orders; Viktor laughed.');
+    assert.equal(Nb.namesInLanguage('Sera는 웃음.', ['세라'], 'ko'), '세라는 웃음.');
+    assert.equal(Nb.namesInLanguage('Serafina laughed.', ['세라'], 'ko'), 'Serafina laughed.', 'a longer word is not the name');
+    // A note from the scene call is fixed when it is read.
+    const n = Nb.cleanNote({ who: '빅터 헤일', kind: 'about', about: '세라', when: 'When 세라 sat at the pier', text: 'Learned that 세라 hates waiting, so I will come early.' }, { cast: ['빅터 헤일', '세라'], person: (x) => x });
+    assert.equal(n.text, 'Learned that Sera hates waiting, so I will come early.');
+    assert.equal(n.when, 'When Sera sat at the pier');
+    // The fix pass sees each person's names in every script.
+    const [, user] = Nb.buildNoteLanguagePrompt([{ who: '빅터 헤일', text: 'x', wantLang: 'en' }], { people: ['세라'] });
+    assert.deepEqual(JSON.parse(user.content).people, ['세라 / Sera']);
+  });
 });
