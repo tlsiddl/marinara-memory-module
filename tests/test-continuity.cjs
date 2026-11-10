@@ -189,3 +189,24 @@ test('a "최근" line saying it is only partly so is kept (not taken for hedging
   const ledger = { threads: [thread('T2', 'secret', 'Viktor hides his past', 12)] };
   assert.equal(L.applyTidy(ledger, { update: [{ id: 'T2', now: '미나는 일부만 알게 됐고, 세라는 아직 모른다.', scene: 'S9' }] }, 'now', { after: steps }).updated, 1);
 });
+
+test('the check never reads its own earlier lines back as facts; the reply still gets them', () => {
+  const t2 = thread('T2', 'secret', 'Viktor hides his past', 12, { latest: { text: 'Sera still does not know his name.', at: null, number: 40, by: 'check' } });
+  const t3 = thread('T3', 'pending', 'Mina checks the ledger', 12, { latest: { text: 'Mina found the page.', at: null, number: 14 } });
+  const ledger = { lastNumber: 40, threads: [t2, t3] };
+  const tidy = L.buildTidyPrompt(ledger, [], { after: steps })[1].content;
+  assert.doesNotMatch(tidy, /still does not know his name/);
+  assert.match(tidy, /최근: Mina found the page\./, 'a line from the story stays');
+  const one = L.buildOldItemPrompt(ledger, [msg(50, 'Viktor', ['"Sera."'])], t2, steps).messages[1].content;
+  assert.doesNotMatch(one, /still does not know his name/);
+  assert.match(L.render(ledger), /최근: Sera still does not know his name\./);
+  // An older check line (scene only, from 0.28.0/0.28.1) counts as one too.
+  assert.doesNotMatch(L.buildTidyPrompt({ threads: [{ ...t2, latest: { text: 'Old check line.', number: 40, scene: 'S9' } }] }, [], { after: steps })[1].content, /Old check line/);
+});
+
+test('the one-item check shows the last several long messages', () => {
+  const long = (n) => msg(n, 'Viktor', Array.from({ length: 10 }, (_, i) => `Line ${i} of a long reply ${'x'.repeat(480)}.`));
+  const messages = [long(96), long(97), long(98), long(99)];
+  const review = L.buildOldItemPrompt({ threads: [] }, messages, thread('T1', 'secret', 'Sera hides her name', 5), steps);
+  assert.ok(review.window.length >= 3, String(review.window.length));
+});
