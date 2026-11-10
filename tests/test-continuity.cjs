@@ -64,7 +64,7 @@ test('what changed after the last mention becomes the item\'s "최근" line, sho
     { id: 'T2', now: 'Again', scene: 'C1' },
   ] }, 'now', { after: steps });
   assert.equal(stats.updated, 1);
-  assert.deepEqual(ledger.threads[0].latest, { text: 'Mina knows now; Sera still does not.', at: '24-10-03 12:00', number: 40, scene: 'S9' });
+  assert.deepEqual(ledger.threads[0].latest, { text: 'Mina knows now; Sera still does not.', at: '24-10-03 12:00', number: 40, scene: 'S9', by: 'check' });
   assert.equal(ledger.threads[1].latest, undefined, 'feelings are reviewed on their own');
   assert.match(L.render(ledger), /최근: Mina knows now; Sera still does not\. \(24-10-03 12:00\)/);
   // A line the check wrote does not move the item's last mention: the next check still sees S8 and S9 and can
@@ -139,4 +139,53 @@ test('a chapter is shown whole with its turning points; the rules for secrets an
   assert.match(system, /'모름'에 적힌 사람이 그 뒤 장면에서 그걸 알고 쓰는 모습\(그 이름으로 부름/);
   assert.match(system, /비밀로 적혔어도 실제로는 찾기·확인·쫓기 같은 일이면/);
   assert.match(system, /"아직 모른다·아직 안 했다"는 그 뒤 장면에서도 그렇다고 드러날 때만 써/);
+});
+
+function msg(number, speaker, sentences, extra = {}) {
+  return { id: `m${number}`, number, speaker, sentences, content: sentences.join(' '), ...extra };
+}
+
+test('old items are asked about one at a time, oldest first, and not again until more of the story has come', () => {
+  const ledger = { threads: [
+    thread('T1', 'secret', 'Sera hides her name from Viktor', 5),
+    thread('T2', 'pending', 'Mina checks the harbor ledger', 90),
+    thread('T3', 'emotion', 'Viktor sore at Sera', 3),
+    thread('T4', 'promise', 'Walk Sera home', 30),
+    thread('T5', 'state', 'Plan item', 2, { plan: true }),
+  ] };
+  assert.deepEqual(L.oldItemsToReview(ledger, 100).map((t) => t.id), ['T1', 'T4'], 'not recent ones, feelings or plans');
+  ledger.threads[0].reviewedUpTo = 90;
+  assert.deepEqual(L.oldItemsToReview(ledger, 100).map((t) => t.id), ['T4']);
+  assert.deepEqual(L.oldItemsToReview(ledger, 110).map((t) => t.id), ['T1', 'T4'], '20 more messages: asked again');
+});
+
+test('one old item: closed on a line that shows it is over now; changed gets a "최근" line that is not a mention', () => {
+  const messages = [msg(5, 'Sera', ['I am nobody.']), msg(98, 'Viktor', ['"Sera, come here."', 'He held the door.']), msg(99, 'Sera', ['"Fine."']), msg(100, 'Mina', ['OOC: 잠깐'], { ooc: true })];
+  const ledger = { threads: [thread('T1', 'secret', 'Sera hides her name from Viktor', 5), thread('T4', 'promise', 'Walk Sera home', 30)] };
+  const review = L.buildOldItemPrompt(ledger, messages, ledger.threads[0], steps);
+  const user = review.messages[1].content;
+  assert.match(user, /## 항목\nT1 \[secret\].*\| 마지막 언급: 5번/);
+  assert.match(user, /## 그 뒤 이야기[^]*C1 \(1~20번\)[^]*S9 \(31~40번\)/);
+  assert.match(user, /## 지금 대화[^]*\[98\.1\] "Sera, come here\."/);
+  assert.doesNotMatch(user, /OOC: 잠깐/);
+  assert.match(review.messages[0].content, /모른다던 사람이 그 이름을 부르거나/);
+  // Ended, on Viktor calling her by name.
+  assert.equal(L.applyOldItemReview(ledger, ledger.threads[0], { verdict: 'ended', how: 'Viktor calls her Sera now.', evidence: [{ n: '98.1', q: 'Sera, come here' }] }, review.window, steps, 100, 'now'), 'closed');
+  assert.equal(ledger.threads[0].closed.at.number, 98);
+  // No line or scene after its last mention: nothing happens, but it was asked.
+  const t4 = ledger.threads[1];
+  assert.equal(L.applyOldItemReview(ledger, t4, { verdict: 'ended', how: 'Done' }, review.window, steps, 100), 'dropped');
+  assert.equal(t4.status, 'open');
+  assert.equal(t4.reviewedUpTo, 100);
+  assert.equal(L.applyOldItemReview(ledger, t4, { verdict: 'ended', how: '더 이상 언급되지 않음', scene: 'S9' }, review.window, steps, 100), 'dropped');
+  // Changed: the line is from the check, so the item still counts as last brought up at 30.
+  assert.equal(L.applyOldItemReview(ledger, t4, { verdict: 'changed', now: 'Viktor walked her halfway; the rest is still owed.', scene: 'S9' }, review.window, steps, 100), 'updated');
+  assert.deepEqual(t4.latest, { text: 'Viktor walked her halfway; the rest is still owed.', at: '24-10-03 12:00', number: 40, by: 'check', scene: 'S9' });
+  assert.equal(L.lastMentioned(t4), 30);
+  assert.equal(L.applyOldItemReview(ledger, t4, { verdict: 'same' }, review.window, steps, 100), 'same');
+});
+
+test('a "최근" line saying it is only partly so is kept (not taken for hedging)', () => {
+  const ledger = { threads: [thread('T2', 'secret', 'Viktor hides his past', 12)] };
+  assert.equal(L.applyTidy(ledger, { update: [{ id: 'T2', now: '미나는 일부만 알게 됐고, 세라는 아직 모른다.', scene: 'S9' }] }, 'now', { after: steps }).updated, 1);
 });
