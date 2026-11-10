@@ -2435,6 +2435,9 @@ function processScenes(chatId, { rebuild = false, reason = 'auto' } = {}) {
         // Merged facts cut off mid-sentence (saved before merges were length-checked) are undone, to be merged again.
         const uncut = S.undoCutMerges(store);
         if (uncut) { saveScenes(chatId, store); log(`chat ${chatId}: undid ${uncut} merged fact(s) that were cut off, to merge again`); }
+        // Chapter and arc summaries cut off mid-sentence are made again.
+        const recut = S.markCutSummaries(store);
+        if (recut) { saveScenes(chatId, store); log(`chat ${chatId}: ${recut} chapter/arc summary(ies) were cut off, to be made again`); }
         // A long story: old scenes become chapters, and facts that piled up about one person are merged.
         if (S.nextRedo(store) || S.nextChapter(store) || S.nextArc(store) || S.nextFactMerge(store)) job.calls += await condense(chatId, store, await getModel(), job);
         await indexScenes(chatId, store, job);
