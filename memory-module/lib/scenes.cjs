@@ -829,6 +829,8 @@ function applyScenes(store, result, slice, required, now = new Date().toISOStrin
       id,
       start: messages[0].number,
       end: messages.at(-1).number,
+      // A stretch of OOC talk alone: kept so the scenes stay continuous, but not a scene of the story.
+      ...(messages.every((m) => m.ooc) ? { ooc: true } : {}),
       messages: messages.map((m) => ({ id: m.id, h: m.h, ...(m.c ? { c: m.c } : {}) })),
       time: cleanText(item.time, 60),
       place: cleanText(item.place, 60),
@@ -2796,6 +2798,33 @@ function wholeSentences(text) {
   return cut >= 40 ? t.slice(0, cut + 1).replace(/\s*\/$/, '').trim() : t;
 }
 
+/** A scene of the story: not a stretch of OOC talk alone (marked when made, or by markOocScenes). */
+function isStoryScene(scene) {
+  return !!scene && !scene.ooc;
+}
+/**
+ * Scenes whose messages are all OOC talk are marked (scenes made before OOC was known, or a message marked by hand);
+ * a scene with a story message in it is unmarked. Returns how many changed.
+ */
+function markOocScenes(store, messages) {
+  const ooc = new Map((messages || []).map((m) => [m.id, !!m.ooc]));
+  let changed = 0;
+  for (const scene of store?.scenes || []) {
+    const ids = (scene.messages || []).map((m) => m.id).filter((id) => ooc.has(id));
+    if (!ids.length) continue;
+    const all = ids.every((id) => ooc.get(id));
+    if (all && !scene.ooc) { scene.ooc = true; changed++; }
+    else if (!all && scene.ooc) { delete scene.ooc; changed++; }
+  }
+  return changed;
+}
+/** The newest scene of the story (the scene shown now), skipping OOC-only stretches. */
+function lastStoryScene(store) {
+  const list = store?.scenes || [];
+  for (let i = list.length - 1; i >= 0; i--) if (isStoryScene(list[i])) return list[i];
+  return null;
+}
+
 function sceneHead(scene, n, prev = null) {
   // A line right after one of the same day and place says only what changed ("같은 곳"), not the long place again.
   const day = (t) => String(t || '').match(/^\s*\d{2,4}-\d{1,2}-\d{1,2}(?:\s*\([^)]*\))?/)?.[0]?.trim() || null;
@@ -3377,7 +3406,7 @@ function renderScenes(store, firstInside, { maxChars = 9000, maxSummaries = 40, 
   // Scenes already folded into a chapter are told by the chapter.
   // (a chapter waiting to be summarized again after a hand edit does not count: its scenes speak for themselves)
   const chaptered = new Set((store.chapters || []).filter((c) => !c.stale).flatMap((c) => c.scenes));
-  const outside = store.scenes.filter((s) => (firstInside == null || s.start < firstInside) && !chaptered.has(s.id) && !skipScenes?.has(s.id));
+  const outside = store.scenes.filter((s) => (firstInside == null || s.start < firstInside) && !chaptered.has(s.id) && !skipScenes?.has(s.id) && isStoryScene(s));
   const out = [];
   // Chapters the user left out (빼기) are not told; their scenes stay out too (skipScenes).
   const told = skipChapters?.size ? { ...store, chapters: (store.chapters || []).filter((c) => !skipChapters.has(c.id)) } : store;
@@ -3466,6 +3495,9 @@ function renderScenes(store, firstInside, { maxChars = 9000, maxSummaries = 40, 
 }
 
 module.exports = {
+  isStoryScene,
+  markOocScenes,
+  lastStoryScene,
   hangulOutline,
   latinOutlines,
   splitBilingual,

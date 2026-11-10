@@ -1282,8 +1282,31 @@ function addEvidence(thread, evidence, news, now, at = null) {
 
 /** An update that already says it is over closes the thread (never for feelings, which need a real resolution). */
 const DONE_WORDS = /(완료(됐|되었|됨|했|함)?|폐기|취소(됐|되었|됨)|일단락|무산|해결(됐|되었|됨)|밝혀(졌|짐)|자백(했|함)|공개(됐|되었|됨)|끝났|마무리(됐|되었|됨)|깨졌|깨짐|깨져 버)/;
+/** The same in English ("the race is over", "was crossed off the list"), unless it is denied or not yet. */
+const DONE_WORDS_EN = /\b(?:is|was|were|are|has been|have been) (?:over|done|finished|complete|completed|cancell?ed|called off|kept|fulfilled|carried out|settled|resolved|moot)\b|\b(?:already|now) (?:done|over|finished|settled|paid)\b|\bcrossed off\b|\bno longer (?:needed|applies|matters)\b|\bhas (?:ended|been paid)\b/i;
+const NOT_DONE_EN = /\b(?:not|n't|never|yet|almost|nearly|until|unless|if|once|when|after|before|will|would|should|must|wants?|plans?|hopes?)\b/i;
 function soundsDone(thread, text) {
-  return thread.kind !== 'emotion' && typeof text === 'string' && DONE_WORDS.test(text);
+  if (thread.kind === 'emotion' || typeof text !== 'string') return false;
+  if (DONE_WORDS.test(text)) return true;
+  // English: the clause that says it is over must not be denied ("is not over", "isn't done yet").
+  const clause = text.split(/[.;—]/).find((c) => DONE_WORDS_EN.test(c));
+  return !!clause && !NOT_DONE_EN.test(clause);
+}
+
+/**
+ * Open promises, tasks and states whose own description or latest news already says they are over (an update that
+ * was saved before such words were known): closed with that line, so the reply is not told they are still open.
+ */
+function closeDoneThreads(ledger, now = new Date().toISOString()) {
+  let closed = 0;
+  for (const t of ledger?.threads || []) {
+    if (t.status !== 'open' || t.plan || !['promise', 'pending', 'state'].includes(t.kind) || t.edited) continue;
+    const line = [t.latest?.text, t.detail].find((x) => soundsDone(t, x));
+    if (!line) continue;
+    closeThread(t, line, [], { messageId: t.latest?.messageId ?? null, number: t.latest?.number ?? null, time: t.latest?.at ?? null }, now);
+    closed++;
+  }
+  return closed;
 }
 
 /** Words that say a feeling has actually lifted. Hedged wording ("on the verge of") never counts. */
@@ -1951,7 +1974,8 @@ function renderRoutine(ledger, now = null) {
     if (parts.length) lines.push(`- ${who}: ${parts.join(' · ')}`);
   }
   if (!lines.length) return '';
-  const head = now ? `[최근 생활] 지금: ${dayLabel(now.slice(0, 10))} ${now.slice(11)}` : '[최근 생활]';
+  // The heading alone on its line (a fixed heading in every language), the time below it.
+  const head = now ? `[최근 생활]\n지금: ${dayLabel(now.slice(0, 10))} ${now.slice(11)}` : '[최근 생활]';
   return `${head}\n${lines.join('\n')}`;
 }
 
@@ -2346,6 +2370,8 @@ function renderCompact(ledger, { maxChars = 2400, query = '', today = ledger?.st
 module.exports = {
   markOoc,
   tidyOocThreads,
+  closeDoneThreads,
+  soundsDone,
   renderPlans,
   looksOocReply,
   PLAN_LABEL,

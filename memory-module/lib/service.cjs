@@ -528,7 +528,8 @@ function refreshConflicts(chatId, store) {
 }
 /** The people of the scene shown now (the last one): the ones a reply is about. */
 function lastScenePeople(scenes) {
-  const scene = scenes?.scenes?.at(-1);
+  // The scene shown now is the newest scene of the story (an OOC-only stretch has nobody in it).
+  const scene = S.lastStoryScene(scenes);
   if (!scene) return [];
   const list = scene.present?.length ? scene.present : (scene.events || []).flatMap((e) => e.with || []);
   return [...new Set(list.filter((n) => typeof n === 'string' && n.trim()))];
@@ -539,7 +540,7 @@ function presentPeople(chatId, scenes) {
   const picked = new Set((recalls.get(chatId)?.picks || []).map((p) => p.id));
   const out = new Set();
   const add = (scene) => { for (const n of [...(scene.present || []), ...(scene.events || []).flatMap((e) => e.with || [])]) if (typeof n === 'string' && n.trim()) out.add(n); };
-  add(scenes.scenes.at(-1));
+  add(S.lastStoryScene(scenes) || scenes.scenes.at(-1));
   for (const scene of scenes.scenes) if (picked.has(scene.id)) add(scene);
   return [...out];
 }
@@ -1843,7 +1844,9 @@ function processChat(chatId, { rebuild = false, reason = 'auto' } = {}) {
       }
       if (state.rolledBack) log(`chat ${chatId}: message ${state.changedAt + 1} changed, rolled back and re-reading`);
       const fromOoc = L.tidyOocThreads(ledger, messages);
-      if (fromOoc.planned || fromOoc.closed) {
+      const doneAlready = L.closeDoneThreads(ledger);
+      if (doneAlready) log(`chat ${chatId}: ${doneAlready} open thread(s) already said to be over, closed`);
+      if (fromOoc.planned || fromOoc.closed || doneAlready) {
         saveLedger(chatId, ledger);
         recalls.delete(chatId);
         log(`chat ${chatId}: ${fromOoc.planned} thread(s) from OOC talk made author's plans, ${fromOoc.closed} closed`);
@@ -2312,6 +2315,8 @@ function processScenes(chatId, { rebuild = false, reason = 'auto' } = {}) {
           saveScenes(chatId, store);
         }
         if (rebuild && !store.scenes.length) saveScenes(chatId, store);
+        // Scenes that are OOC talk alone (made before OOC was known, or marked by hand since): not scenes of the story.
+        if (S.markOocScenes(store, messages)) saveScenes(chatId, store);
         // Quotes an older split left as pieces of a line are made whole again (no model call).
         const fragments = S.repairFragmentQuotes(store, messages);
         const translated = S.attachTranslations(store, messages) + S.tidyKnowledge(store);
@@ -3144,7 +3149,7 @@ function renderMemorySource(chatId, maxChars = MEMORY_MAX_CHARS, trace = null) {
       try { now.push(A.using(chatId, () => St.injectionBlock(loadState(chatId), lastScenePeople(scenes)))); } catch {}
     }
     if (featureOn(chatId, 'places')) {
-      try { now.push(A.using(chatId, () => Pl.injectionBlock(loadPlaces(chatId), scenes.scenes.at(-1).place))); } catch {}
+      try { now.push(A.using(chatId, () => Pl.injectionBlock(loadPlaces(chatId), (S.lastStoryScene(scenes) || scenes.scenes.at(-1)).place))); } catch {}
     }
     if (featureOn(chatId, 'keepsakes')) {
       try { now.push(A.using(chatId, () => Ks.injectionBlock(loadKeepsakes(chatId), lastScenePeople(scenes)))); } catch {}

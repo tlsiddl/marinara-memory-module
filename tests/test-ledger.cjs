@@ -373,7 +373,7 @@ test('daily life: meals counted per day, sleep length worked out, drinks and smo
   L.commitBatch(ledger, batch);
   assert.ok(!ledger.routine.some((r) => r.who === '하준'), 'bourbon is not a meal');
   assert.equal(ledger.storyTime, '2024-10-18T11:15');
-  assert.equal(L.renderRoutine(ledger, '2024-10-18T11:25'), '[최근 생활] 지금: 24-10-18 (금) 11:25\n- 서아: 식사 기상(11:15) 후 1끼(11:15 토스트), 마지막 10분 전 · 밤잠 03:02에 잠들어 11:15에 깸(8시간 13분 잠) · 최근 24시간 낮잠: 시간 확인 가능한 기록 없음');
+  assert.equal(L.renderRoutine(ledger, '2024-10-18T11:25'), '[최근 생활]\n지금: 24-10-18 (금) 11:25\n- 서아: 식사 기상(11:15) 후 1끼(11:15 토스트), 마지막 10분 전 · 밤잠 03:02에 잠들어 11:15에 깸(8시간 13분 잠) · 최근 24시간 낮잠: 시간 확인 가능한 기록 없음');
   assert.match(L.renderRoutine(ledger, '2024-10-19T09:00'), /식사 기상\(24-10-18 \(금\) 11:15\) 후 1끼/);
   const r = L.reconcile(ledger, L.prepareMessages([{ id: 'r1', number: 1, speaker: '하루', content: '바뀐 메시지.' }]));
   assert.ok(r.rolledBack);
