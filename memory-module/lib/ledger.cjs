@@ -646,6 +646,9 @@ const OLD_ITEM_KINDS = ['pending', 'secret', 'state', 'promise'];
 // Not brought up for this many messages: asked about on its own. Asked again once this many more have come.
 const OLD_ITEM_AFTER = 40;
 const OLD_ITEM_AGAIN = 20;
+// The latest messages shown with it: long replies run to thousands of letters each, and the line that settles an item
+// (someone calling her by name) may be in any of the last few.
+const OLD_ITEM_TAIL_CHARS = 20000;
 
 /** Open items (not feelings or plans) the story has not brought up for a while, oldest first, not asked lately. */
 function oldItemsToReview(ledger, lastNumber) {
@@ -660,7 +663,7 @@ function oldItemsToReview(ledger, lastNumber) {
  * One old item, with how the story went on after it last came up (scene and chapter summaries, `steps` as for the
  * tidy pass) and the latest messages, numbered, as they are now.
  */
-function buildOldItemPrompt(ledger, messages, thread, steps = [], { tailChars = 9000 } = {}) {
+function buildOldItemPrompt(ledger, messages, thread, steps = [], { tailChars = OLD_ITEM_TAIL_CHARS } = {}) {
   const cost = (m) => m.sentences.reduce((n, s) => n + s.length + 8, 20);
   const seen = lastMentioned(thread);
   // Only what came after it last came up: the newest messages, as many as fit.
@@ -823,9 +826,18 @@ function reasonedNames(value, cast) {
 
 const unawareNote = (thread, sep = ' | ') => (thread.unaware?.length ? `${sep}모름: ${thread.unaware.join('·')}` : '') + (thread.guess?.length ? `${sep}짐작만: ${thread.guess.join('·')}` : '');
 
+/** A "최근" line the ledger check wrote from later scenes (not one the story itself gave). */
+function checkLine(latest) {
+  return !!latest && (latest.by === 'check' || !!latest.scene);
+}
+
+/**
+ * One open item as the memory's own calls see it. A "최근" line the check wrote is left out: a wrong one would be
+ * read back as a fact and written again (the reply still gets it; each check works it out anew from the story).
+ */
 function describeThread(thread, today = null) {
   const who = [thread.who, thread.toward].filter(Boolean).join(' → ');
-  const latest = thread.latest ? ` | 최근: ${thread.latest.text}${thread.latest.at ? ` (${thread.latest.at})` : ''}` : '';
+  const latest = thread.latest && !checkLine(thread.latest) ? ` | 최근: ${thread.latest.text}${thread.latest.at ? ` (${thread.latest.at})` : ''}` : '';
   const need = (thread.need ? ` | 풀리려면: ${thread.need}` : '') + (thread.period ? ` | 기간: ${formatPeriod(thread.period, today)}` : '') + (thread.due ? ` | ${thread.kind === 'pending' ? '기한' : '약속한 때'}: ${formatDue(thread.due, today)}` : '');
   return `${thread.id} [${thread.kind}]${thread.plan ? ' [작가 계획]' : ''} ${thread.title}${who ? ` (${who})` : ''}${thread.detail ? ` — ${thread.detail}` : ''}${need}${latest}${unawareNote(thread)}`;
 }
@@ -2287,7 +2299,7 @@ function lastSeen(t) {
  * scene does not count, so the next check still sees every scene since (and can correct or close it from them).
  */
 function lastMentioned(t) {
-  return t.latest?.scene || t.latest?.by === 'check' ? lastSeen({ ...t, latest: null }) : lastSeen(t);
+  return checkLine(t.latest) ? lastSeen({ ...t, latest: null }) : lastSeen(t);
 }
 
 // A feeling nobody has touched for this many messages has faded. It stays in the ledger, out of the prompt.
