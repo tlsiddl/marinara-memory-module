@@ -243,3 +243,36 @@ pre{font-size:12.5px!important;line-height:1.85!important}
   .topbar{min-height:0;padding:6px 12px;gap:6px}
   #status{padding:0 12px 4px}
 }
+
+/* ===== 0.31 개편: 하위 탭 · 시간순 · 인물별 · 여러 개 고르기 · 한눈에 카드 ===== */
+.subtabs{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 16px}
+.subtab{border:1px solid var(--im-line);background:var(--im-paper);color:var(--im-ink);border-radius:999px;padding:5px 12px;font-size:11px}
+.subtab.selected{background:var(--im-ink);color:var(--im-paper);border-color:var(--im-ink)}
+.subtabs select{border-radius:999px;font-size:11px;padding:4px 10px}
+.tl-day{display:grid;grid-template-columns:110px minmax(0,1fr);gap:14px;margin:0 0 18px}
+.tl-stamp{font-family:var(--mono);align-self:start;position:sticky;top:0}.tl-stamp b{display:block;font-size:13px}
+.tl-list{display:grid;gap:8px;border-left:2px solid var(--im-line);padding-left:14px;min-width:0}
+.tl-scene{border:1px solid var(--im-line);border-radius:10px;padding:10px 12px;background:var(--im-paper);min-width:0}
+.tl-scene p{margin:6px 0}.tl-head{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.tl-after{font-size:12px;border-left:3px solid var(--im-line);padding:2px 10px}.tl-after small{font-weight:700;color:var(--im-ink)}
+.tl-chapter{font-size:12px;margin:6px 0 2px;color:var(--im-muted)}.tl-lines .pill{margin-right:4px}
+.person-chips{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 14px}
+.person-chips button{border:1px solid var(--im-line);border-radius:999px;padding:5px 12px;background:var(--im-paper);font-size:12px}
+.person-chips button.selected{background:var(--im-ink);color:var(--im-paper);border-color:var(--im-ink)}
+.person-now{display:grid;grid-template-columns:80px minmax(0,1fr);gap:4px 12px;font-size:12px;margin:6px 0}.person-now dt{color:var(--im-muted)}.person-now dd{margin:0}
+.person-sec>summary{cursor:pointer}.person-row{font-size:12px;margin:6px 0}
+.ledger-tools{margin:0 0 12px}.pick-all{display:flex;gap:6px;align-items:center;font-size:11px;margin:6px 0}
+.pick-row{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px;align-items:start}.pick-row>input{margin-top:14px}
+.fact-row{display:grid;grid-template-columns:auto minmax(0,1fr);column-gap:8px}.fact-row>.pick-fact{margin-top:3px}.fact-row>*:not(.pick-fact){grid-column:2}
+.bulk-bar{position:sticky;top:0;z-index:2;display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;background:var(--im-ink);color:var(--im-paper);border-radius:10px;padding:8px 12px;margin:8px 0}
+.bulk-bar .buttons{margin:0}.bulk-bar button{color:var(--im-paper);border-color:var(--im-paper)}
+.next-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center;padding:8px 0;border-top:1px dashed var(--im-line)}.next-row:first-of-type{border-top:0}
+.next-row small{display:block}.sev{width:7px;height:28px;border-radius:4px;background:#b8862f}.sev.bad{background:#a8443d}.sev.ok{background:#3f7d5c}
+.tracker-tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
+.tracker-tile{border:1px solid var(--im-line);border-radius:10px;padding:8px 10px;display:grid;gap:2px}.tracker-tile b{font-family:var(--mono);font-size:16px}
+.recent-row,.cost-row{display:grid;grid-template-columns:52px minmax(0,1fr) auto;gap:10px;align-items:center;padding:6px 0;border-top:1px dashed var(--im-line);font-size:12px}
+.cost-row{grid-template-columns:70px auto minmax(0,1fr)}
+.bar-row{display:grid;grid-template-columns:140px minmax(0,1fr) 40px;gap:8px;align-items:center;font-size:11px;margin:4px 0}
+.bar{height:9px;border-radius:5px;background:var(--im-line);overflow:hidden}.bar>span{display:block;height:100%;background:var(--im-ink)}
+.search-filters select{font-size:11px}
+@media (max-width:720px){.tl-day{grid-template-columns:minmax(0,1fr)}.tl-stamp{position:static}.bar-row{grid-template-columns:90px minmax(0,1fr) 36px}}

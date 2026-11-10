@@ -21,6 +21,23 @@
     ['inject', '주입 확인', 'search'],
     ['settings', '설정', 'settings'],
   ];
+  /**
+   * Seven tabs, each holding one or more of the old screens as sub-tabs (every old screen and every link into it
+   * stays). The tab bar shows the group; the bar under the title shows its screens.
+   */
+  const GROUPS = [
+    ['home', '한눈에', 'archive', ['home']],
+    ['story', '이야기', 'folder', ['timeline', 'lines', 'scenes']],
+    ['people', '인물', 'person', ['person', 'facts', 'notebook', 'world', 'names']],
+    ['todo', '할 일', 'note', ['ledger', 'promises', 'life']],
+    ['search', '검색', 'search', ['search']],
+    ['inject', '주입 확인', 'search', ['inject']],
+    ['settings', '설정', 'settings', ['settings']],
+  ];
+  const SUBTAB = { timeline: '시간순', lines: '줄기', scenes: '장면·챕터', person: '인물별', facts: '알게 된 사실', notebook: '수첩', world: '상태·장소·물건', names: '이름 정리', ledger: '끝나지 않은 일', promises: '약속', life: '최근 생활' };
+  const groupOf = (t) => GROUPS.find((g) => g[3].includes(t)) || GROUPS[0];
+  /** The screen each group was last on, so its tab goes back there. */
+  const lastIn = {};
   const KIND = { emotion: '감정', state: '상태', promise: '약속', secret: '비밀', pending: '미해결' };
   // Promises first, as in the memory that goes into replies: they were easy to lose under many feelings.
   const KIND_ORDER = ['promise', 'emotion', 'state', 'secret', 'pending'];
@@ -38,9 +55,9 @@
   let storeRoom = '';
   let roomLoadSequence = 0;
   // Tabs that show scenes, facts or links into them (the open-items tab links each item to its scenes).
-  const needsScenes = () => ['scenes', 'search', 'facts', 'ledger', 'promises'].includes(tab);
+  const needsScenes = () => ['scenes', 'search', 'facts', 'ledger', 'promises', 'timeline', 'lines', 'person', 'home'].includes(tab);
   // The open items carry their evidence quotes (most of the room data): fetched with the scenes, only for the tabs that list them.
-  const needsThreads = () => ['scenes', 'search', 'ledger', 'promises'].includes(tab);
+  const needsThreads = () => ['scenes', 'search', 'ledger', 'promises', 'timeline', 'person', 'home'].includes(tab);
   let threadsData = null;
   let threadsRoom = '';
   let threadsKey = '';
@@ -93,6 +110,9 @@
   /** What a rename or merge would change, shown before it is applied: { kind: 'rename' | 'merge', data, form }. */
   let namePreview = null;
   let searchQuery = '';
+  let searchKind = 'all';
+  const pickedFacts = new Set();
+  let searchWho = 'all';
   /** Folded lists the person opened (kept open when the screen is drawn again). */
   const openLists = new Set();
   let connections = [];
@@ -236,6 +256,7 @@
   }
 
   async function loadRoom(id) {
+    noteRecentRoom(id);
     const sequence = ++roomLoadSequence;
     if (!id) { info = null; store = null; storeRoom = ''; return; }
     const i = await api('GET', `/chats/${encodeURIComponent(id)}`);
@@ -269,8 +290,8 @@
     if (!selectedScene && selectedGroup === null) selectedScene = store.scenes.at(-1)?.id || '';
   }
 
-  const needsNames = () => ['names', 'life'].includes(tab);
-  const needsWorld = () => tab === 'world' || tab === 'notebook';
+  const needsNames = () => ['names', 'life', 'person'].includes(tab);
+  const needsWorld = () => ['world', 'notebook', 'person', 'home'].includes(tab);
   async function loadWorld(id) {
     try {
       const w = await api('GET', `/chats/${encodeURIComponent(id)}/world`);
@@ -476,6 +497,23 @@
     schedulePoll();
   }
 
+  /* The rooms opened lately (this browser) and the tab each was left on. */
+  const RECENT_ROOMS = 5;
+  function recentRooms() {
+    try { return JSON.parse(localStorage.getItem('memory-module-recent-rooms') || '[]').filter((x) => typeof x === 'string'); } catch { return []; }
+  }
+  function noteRecentRoom(id) {
+    if (!id) return;
+    try { localStorage.setItem('memory-module-recent-rooms', JSON.stringify([id, ...recentRooms().filter((x) => x !== id)].slice(0, RECENT_ROOMS))); } catch {}
+  }
+  function roomTab(id) {
+    try { const t = JSON.parse(localStorage.getItem('memory-module-room-tabs') || '{}')[id]; return VIEWS[t] ? t : ''; } catch { return ''; }
+  }
+  function rememberRoomTab(id, t) {
+    if (!id || !t) return;
+    try { const all = JSON.parse(localStorage.getItem('memory-module-room-tabs') || '{}'); all[id] = t; localStorage.setItem('memory-module-room-tabs', JSON.stringify(all)); } catch {}
+  }
+
   /** The scene a message number falls in. */
   function sceneOf(number) {
     return number == null ? null : (store?.scenes || []).find((x) => x.start <= number && number <= x.end) || null;
@@ -666,6 +704,7 @@
 
   function viewHome() {
     if (!info) return emptyRoom();
+    loadServerStatus();
     const openCount = threadStats().open;
     const job = info.job || {};
     const sj = info.sceneJob || {};
@@ -676,6 +715,7 @@
       <h1>${esc(roomName())}</h1>
       <p class="intro">지나간 대화를 장면·사실·장부로 정리해, 답변할 때마다 필요한 기억을 넣어 주는 서버 기억 모듈입니다. 이 방에서 기억을 켜 두면 답변마다 자동으로 정리되며, 여기서 고친 내용은 다음 답변부터 반영됩니다.</p>
       ${healthNote()}
+      ${versionNote()}
       ${selectedMemoriesHtml()}
       ${info.summary?.needsRebuild ? `<div class="note">예전 메시지가 수정·삭제되어 장부(아직 끝나지 않은 일·최근 생활)를 처음부터 다시 정리해야 합니다. ${info.summary.rebuildFrom ? `다시 정리하기 전까지는 ${esc(info.summary.rebuildFrom)}번 메시지 전에 정리된 내용만 기억 칸에 넣습니다.` : '다시 정리하기 전까지는 장부 내용을 기억 칸에 넣지 않습니다.'} 아래 '처음부터 다시 정리'를 눌러 주세요(장면 기억은 영향이 없습니다).</div>` : ''}
       <div class="metric-row">
@@ -701,7 +741,11 @@
         ${armed === 'fresh' ? '<div class="note" role="status">처음부터 다시 정리하면 직접 고친 장면·사실도 사라집니다. <button data-act="backupDownload">먼저 백업 내려받기</button> 를 누르면 지금 상태가 파일로 저장되고, 이 확인 상태는 그대로 유지됩니다. 꼭 받으셔야 하는 것은 아닙니다.</div>' : ''}
         <small>‘이어서 정리’는 밀린 정리를 바로 처리합니다. ‘챕터만 다시 묶기’는 장면·사실·장부를 유지하고 챕터와 큰 흐름만 새로 만듭니다. 직접 고친 챕터·큰 흐름은 바뀌며, 정리 모델 사용량이 발생합니다. 처음부터 다시 정리하면 직접 고친 장면도 사라집니다.</small>
       </div>
+      ${suggestionsCard()}
+      ${trackersCard()}
+      ${recentCard()}
       ${deadlinePaper()}
+      ${costCard()}
       <div class="paper">
         <h2>최근 회상</h2>
         ${rc.at
@@ -784,27 +828,45 @@
     return parts.filter(Boolean).join(' ').replace(/\s+/g, ' ');
   }
 
+  /** Every quoted line of the room, as a record of its own (it opens its scene). */
+  function quoteRecords() {
+    const out = [];
+    for (const sc of store?.scenes || []) for (const e of sc.events || []) for (const q of e.quotes || []) {
+      const l = quoteLine(q);
+      out.push({ id: sc.id, title: `${sc.id} · ${l.who}`, text: l.text, people: [q.by, q.to].filter(Boolean) });
+    }
+    return out;
+  }
+  /** Whether a record is about a person: named as who/toward/about/present/speaker, or in its text. */
+  function mentions(record, who) {
+    const fields = [record.who, record.toward, record.about, ...(record.present || []), ...(record.people || [])].filter(Boolean).map(String);
+    return fields.some((f) => f.includes(who)) || searchableText(record).includes(who);
+  }
   function viewSearch() {
     if (!store) return emptyRoom();
     const query = searchQuery.toLocaleLowerCase();
     const groups = [
       ['장면', 'scene', store.scenes || []],
+      ['대사', 'quote', quoteRecords()],
       ['챕터', 'chapter', store.chapters || []],
       ['큰 흐름', 'arc', store.arcs || []],
       ['사실', 'fact', store.facts || []],
       ['미해결·닫힌 기록', 'thread', threadList()],
-    ];
+    ].filter(([, kind]) => searchKind === 'all' || kind === searchKind);
     const results = [];
     if (query) for (const [label, kind, records] of groups) for (const record of records) {
-      const text = searchableText(record);
+      if (searchWho !== 'all' && !mentions(record, searchWho)) continue;
+      const text = kind === 'quote' ? record.text : searchableText(record);
       const at = text.toLocaleLowerCase().indexOf(query);
       if (at < 0) continue;
       const start = Math.max(0, at - 45);
       const excerpt = `${start ? '…' : ''}${text.slice(start, at + query.length + 110)}${text.length > at + query.length + 110 ? '…' : ''}`;
-      results.push(`<a href="#" class="record-link record-row" data-goto-${kind}="${esc(record.id)}"><span class="pill neutral">${label}</span><span class="row-main"><b>${esc(record.title || record.about || record.id)}</b><small>${esc(excerpt)}</small></span><span class="chip-arrow">›</span></a>`);
+      results.push(`<a href="#" class="record-link record-row" data-goto-${kind === 'quote' ? 'scene' : kind}="${esc(record.id)}"><span class="pill neutral">${label}</span><span class="row-main"><b>${esc(record.title || record.about || record.id)}</b><small>${esc(excerpt)}</small></span><span class="chip-arrow">›</span></a>`);
     }
-    return `<h1>기억 검색</h1><p class="intro">이 방의 장면·챕터·큰 흐름·사실·미해결 기록과 닫힌 기록에서 입력한 글자를 찾습니다. 결과를 누르면 해당 기록으로 이동합니다.</p>
-      <form id="memorySearch" class="memory-search"><label for="memorySearchInput">검색어</label><div class="buttons"><input id="memorySearchInput" type="search" value="${esc(searchDraft)}" placeholder="이름, 대사, 장소 등" autocomplete="off"><button class="primary" type="submit">${icon('search')}검색</button><button type="button" data-act="clearSearch">초기화</button></div></form>
+    return `<h1>기억 검색</h1><p class="intro">이 방의 장면·대사·챕터·큰 흐름·사실·미해결 기록과 닫힌 기록에서 입력한 글자를 찾습니다. 종류와 인물로 거를 수 있습니다. 결과를 누르면 해당 기록으로 이동합니다.</p>
+      <form id="memorySearch" class="memory-search"><label for="memorySearchInput">검색어</label><div class="buttons"><input id="memorySearchInput" type="search" value="${esc(searchDraft)}" placeholder="이름, 대사, 장소 등" autocomplete="off"><button class="primary" type="submit">${icon('search')}검색</button><button type="button" data-act="clearSearch">초기화</button></div>
+        <div class="buttons search-filters"><select id="searchKind" aria-label="종류로 거르기"><option value="all">모든 종류</option>${[['scene', '장면'], ['quote', '대사'], ['chapter', '챕터'], ['arc', '큰 흐름'], ['fact', '사실'], ['thread', '미해결·닫힌 기록']].map(([k, l]) => `<option value="${k}" ${searchKind === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
+        <select id="searchWho" aria-label="인물로 거르기"><option value="all">모든 인물</option>${personNames().map((n) => `<option value="${esc(n)}" ${searchWho === n ? 'selected' : ''}>${esc(nameShown(n))}</option>`).join('')}</select></div></form>
       <div role="status">${query ? `${results.length}개 검색 결과` : '검색어를 입력하고 검색 버튼이나 Enter를 눌러 주세요.'}</div>
       <div class="record-list">${results.join('') || (query ? '<p class="hint">일치하는 기억이 없습니다.</p>' : '')}</div>`;
   }
@@ -938,10 +1000,11 @@
     return `<div class="eyebrow">FACTS · ${store.facts.length}</div><h1>알게 된 사실</h1>
       <p class="intro">인물마다 앞으로도 계속 유효한 설정·성격·과거·관계입니다. 인물마다 최신 것부터 고르게 기억 칸에 들어가고, 많이 쌓이면 같은 주제끼리 합쳐집니다.</p>
       ${conflictsPaper(conflicts, store)}
+      ${pickedFacts.size ? `<div class="bulk-bar" role="region" aria-label="고른 사실"><span>${pickedFacts.size}개 고름</span><span class="buttons"><button class="ghost" data-act="factPickClear">고르기 풀기</button><button data-act="factBulkExclude">답변에서 빼기</button><button class="primary" data-act="factBulkDelete">${armed === 'factBulkDelete' ? '한 번 더 누르면 지웁니다' : '지우기'}</button></span></div>` : '<p class="hint">사실 앞의 네모를 누르면 여러 개를 골라 한 번에 답변에서 빼거나 지울 수 있습니다.</p>'}
       ${[...groups].map(([who, list]) => `<div class="paper"><h2>${esc(who)}</h2>${list
         .map((f) => {
           const replaced = f.replacedBy && ids.has(f.replacedBy);
-          return `<div class="fact-row" data-fact="${esc(f.id)}"><label>${esc(f.id)}${f.unaware?.length ? ` · 모름: ${esc(f.unaware.join('·'))}` : ''}${f.guess?.length ? ` · 짐작만: ${esc(f.guess.join('·'))}` : ''}${f.edited || f.knowSet?.length || f.knownLock ? ' · 직접 고침' : ''}${replaced ? ` · ${esc(f.replacedBy)}로 바뀜(기억 칸에서 제외)` : ''}${superseded.has(f.id) ? ' · 기록 충돌에서 뒤로 물림(기억 칸에서 제외)' : ''}</label>
+          return `<div class="fact-row" data-fact="${esc(f.id)}"><input type="checkbox" class="pick-fact" data-pick-fact="${esc(f.id)}" ${pickedFacts.has(f.id) ? 'checked' : ''} aria-label="${esc(f.id)} 고르기"><label>${esc(f.id)}${f.unaware?.length ? ` · 모름: ${esc(f.unaware.join('·'))}` : ''}${f.guess?.length ? ` · 짐작만: ${esc(f.guess.join('·'))}` : ''}${f.edited || f.knowSet?.length || f.knownLock ? ' · 직접 고침' : ''}${replaced ? ` · ${esc(f.replacedBy)}로 바뀜(기억 칸에서 제외)` : ''}${superseded.has(f.id) ? ' · 기록 충돌에서 뒤로 물림(기억 칸에서 제외)' : ''}</label>
             ${f.sceneId ? `<p class="record-links">${sceneLink(store.scenes.find((x) => x.id === f.sceneId), '에서 알게 됨')}</p>` : ''}
             ${knowChips(f)}
             <textarea class="event-field">${esc(f.text)}</textarea>${trEdit(f.text)}
@@ -1028,11 +1091,12 @@
     const dueOf = (t) => t.due?.date || t.period?.to || '';
     const byDue = (a, b) => (dueOf(a) ? 0 : 1) - (dueOf(b) ? 0 : 1) || dueOf(a).localeCompare(dueOf(b));
     const plans = open.filter((t) => t.plan);
-    const groups = KIND_ORDER.map((k) => [k, open.filter((t) => t.kind === k && !t.plan).sort(k === 'promise' ? byDue : () => 0)]).filter(([, l]) => l.length);
+    const groups = KIND_ORDER.map((k) => [k, open.filter((t) => t.kind === k && !t.plan && ledgerMatch(t)).sort(k === 'promise' ? byDue : () => 0)]).filter(([, l]) => l.length);
     return `<div class="eyebrow">LEDGER · ${open.length} OPEN</div><h1>아직 끝나지 않은 일</h1>
       <p class="intro">약속·감정·상태·비밀·미해결 일입니다. 항목을 누르면 제목과 설명을 고치실 수 있고, 잘못 닫힌 항목은 다시 열고 끝난 일은 닫으실 수 있습니다. 직접 고친 내용은 리롤해도 유지됩니다.</p>
       ${plans.length ? `<div class="paper"><h2>작가 계획 · ${plans.length}</h2><p class="hint">OOC(이야기 밖 대화)에서 정한 앞으로의 전개입니다. 답변에는 기본으로 <b>감추는 것</b>(답 없는 한 줄, 예: "손목 흉터가 생긴 진짜 이유")만 "아직 밝히지 말 것"으로 들어갑니다. 롤플 모델이 답을 모르면 인물이 미리 알아채는 일이 없습니다. 이야기에서 다 드러나면 닫힙니다.</p><div class="buttons"><button class="ghost ${info.planAnswers ? 'mark-button is-on' : ''}" data-act="planAnswers">${info.planAnswers ? '답까지 넣는 중 · 끄기' : '답은 넣지 않는 중 · 답까지 넣기'}</button></div>${info.planAnswers ? '<p class="hint">답까지 넣으면 복선을 맞춰 깔기는 쉬워지지만, 롤플 모델이 인물 생각이나 서술에 답을 흘릴 수 있습니다.</p>' : ''}${plans.map(threadRow).join('')}</div>` : ''}
-      ${groups.length ? groups.map(([k, l]) => `<div class="paper"><h2>${KIND[k]} · ${l.length}</h2>${l.map(threadRow).join('')}</div>`).join('') : (plans.length ? '' : '<div class="empty">열린 항목이 없습니다.</div>')}
+      ${ledgerTools(open)}${actionLog[0]?.undo ? `<div class="note" role="status">${esc(actionLog[0].text)} <button data-act="undoAction" data-id="0">되돌리기</button></div>` : ''}
+      ${groups.length ? groups.map(([k, l]) => `<div class="paper"><h2>${KIND[k]} · ${l.length}</h2>${l.map(pickRow).join('')}</div>`).join('') : (plans.length ? '' : '<div class="empty">열린 항목이 없습니다.</div>')}
       ${closed.length ? `<details class="paper"><summary>닫힌 항목 ${closed.length}개</summary>${closed.map(threadRow).join('')}</details>` : ''}
       ${oocPaper()}`;
   }
@@ -1503,9 +1567,10 @@
 
   function viewInject() {
     if (!info) return emptyRoom();
+    loadServerStatus();
     return `<div class="eyebrow">INJECTION · 약 ${tokens(info.rendered)} 토큰</div><h1>주입 확인</h1>
       <p class="intro">지금 프리셋의 {{기억}} 자리에 들어가는 내용 그대로입니다. 회상한 장면은 답변마다 바뀝니다.</p>
-      ${recallCard()}${recallTestCard()}${recallReasonsPaper(recallReportRoom === room ? recallReportData : null, info.recallPrefs, recallReportRoom !== room || (!recallReportData && !recallReportError) ? 'loading' : recallReportError)}
+      ${injectBars()}${costCard()}${recallCard()}${recallTestCard()}${recallReasonsPaper(recallReportRoom === room ? recallReportData : null, info.recallPrefs, recallReportRoom !== room || (!recallReportData && !recallReportError) ? 'loading' : recallReportError)}
       ${info.rendered ? `<pre>${esc(info.rendered)}</pre>` : `<div class="empty">${info.enabled ? '아직 들어가는 기억이 없습니다.' : '이 방에서 기억 사용이 꺼져 있어 {{기억}} 자리에 아무것도 들어가지 않습니다. 저장된 기억은 그대로 남아 있습니다.'}</div>`}`;
   }
 
@@ -1823,7 +1888,252 @@
     return `<details data-list="attrlog"${attributionFilter || openLists.has('attrlog') ? ' open' : ''}><summary>대사 확인 기록 (${count}회${live ? ' · 진행 중' : ''}) · 확인 방식: ${esc(attributionModeLabel(info.attributionCheck?.mode))}</summary><p class="hint">화자·상대 판단과 저장 결과입니다. 서버에 방마다 최근 5회까지 남고, 정리가 끝나거나 서버를 다시 켜도 유지됩니다. 바뀌었거나 다시 물었거나 받아들이지 않은 대사는 모두 남고, 문제없이 그대로인 대사는 장면별 개수로만 보입니다. 대사 원문과 근거 문구는 기록하지 않습니다.</p>${wait}<label>대사 번호로 찾기<input id="attributionFilter" value="${esc(attributionFilter)}" placeholder="예: #1.24" autocomplete="off"></label>${live ? `<details open><summary>진행 중 (${live.length}${esc(tally(sj.attributionProgress))})</summary>${live.map(attributionEntryHtml).join('')}</details>` : ''}${runs.map(run).join('')}</details>`;
   }
 
-  const VIEWS = { notebook: viewNotebook, home: viewHome, scenes: viewScenes, search: viewSearch, facts: viewFacts, ledger: viewLedger, promises: viewPromises, life: viewLife, world: viewWorld, names: viewNames, inject: viewInject, settings: viewSettings };
+  /* ---------- 이야기: 시간순 · 줄기 ---------- */
+
+  /** The story's date at the start of a scene's time ("25-07-18 (금)"), or '' when the scene has none. */
+  const dayOfScene = (sc) => String(sc?.time || '').match(/^\s*\d{2,4}-\d{1,2}-\d{1,2}(?:\s*\([^)]*\))?/)?.[0]?.trim() || '';
+  const lineKey = (name) => String(name || '').toLowerCase().replace(/[\s"'“”‘’「」『』.,!?·~\-_()]/g, '');
+  /** The room's story lines, folded from the scenes as the module does: { name, scenes: [ids], now, nowScene }. */
+  function storyLines() {
+    const map = new Map();
+    for (const sc of store?.scenes || []) {
+      if (sc.ooc) continue;
+      for (const l of sc.lines || []) {
+        const key = lineKey(l.name);
+        if (!key) continue;
+        const line = map.get(key) || { name: l.name, scenes: [], now: null, nowScene: null };
+        line.scenes.push(sc.id);
+        if (l.now) { line.now = l.now; line.nowScene = sc.id; }
+        map.set(key, line);
+      }
+    }
+    const order = (id) => (store?.scenes || []).findIndex((x) => x.id === id);
+    return [...map.values()].sort((a, b) => order(b.scenes.at(-1)) - order(a.scenes.at(-1)));
+  }
+  /** How what began in a scene went on (from the open items): ended, or where it stands now. */
+  function afterOf(sc) {
+    const inside = (n) => typeof n === 'number' && sc.start <= n && n <= sc.end;
+    const out = [];
+    for (const t of threadList()) {
+      if (t.plan || t.mergedInto || !inside(t.openedAt?.number ?? t.evidence?.[0]?.number)) continue;
+      if (t.status !== 'open' && t.closed?.how && !/에 합침/.test(t.closed.how)) out.push({ t, text: shown(t.closed.how), end: sceneOf(t.closed?.at?.number ?? t.closed?.evidence?.[0]?.number) });
+      else if (t.status === 'open' && t.latest?.text && (t.latest.number ?? 0) > sc.end) out.push({ t, text: shown(t.latest.text), now: true, end: sceneOf(t.latest.number) });
+    }
+    return out.slice(0, 3);
+  }
+
+  function viewTimeline() {
+    if (!store) return emptyRoom();
+    const scenes = (store.scenes || []).filter((x) => !x.ooc);
+    if (!scenes.length) return `<h1>시간순</h1><div class="empty">${icon('clock')}아직 장면이 없습니다.</div>`;
+    const chapterOf = new Map();
+    for (const c of store.chapters || []) for (const id of c.scenes || []) chapterOf.set(id, c);
+    const lines = storyLines();
+    const days = [];
+    for (const sc of scenes) {
+      const d = dayOfScene(sc) || '날짜 모름';
+      if (!days.length || days.at(-1).day !== d) days.push({ day: d, list: [] });
+      days.at(-1).list.push(sc);
+    }
+    let lastChapter = null;
+    const card = (sc) => {
+      const c = chapterOf.get(sc.id);
+      const chapterHead = c && c !== lastChapter ? `<div class="tl-chapter"><span class="pill neutral">${esc(c.id)}</span> ${esc(shown(c.title))}</div>` : '';
+      lastChapter = c || lastChapter;
+      const time = String(sc.time || '').replace(dayOfScene(sc), '').trim();
+      const star = (sc.events || []).some((e) => e.importance === 'critical');
+      const after = afterOf(sc);
+      const own = lines.filter((l) => l.scenes.includes(sc.id));
+      return `${chapterHead}<div class="tl-scene">
+        <div class="tl-head">${sceneLink(sc)}<small>${esc([time, sc.place].filter(Boolean).join(' · '))}</small>${star ? '<span class="pill">★ 결정적</span>' : ''}</div>
+        <p>${esc(shown(sc.summary))}</p>
+        ${after.map((a) => `<p class="tl-after"><small>${a.now ? '지금' : '그 뒤'}</small> ${esc(shown(a.t.title))} — ${esc(a.text)}${a.end && a.end.id !== sc.id ? ` ${sceneLink(a.end)}` : ''}</p>`).join('')}
+        ${own.length ? `<p class="tl-lines">${own.map((l) => `<span class="pill neutral">줄기 · ${esc(l.name)}</span>`).join(' ')}</p>` : ''}
+      </div>`;
+    };
+    return `<div class="eyebrow">STORY · ${scenes.length} SCENES</div><h1>시간순</h1>
+      <p class="intro">작중 날짜별로 장면을 이어 보여 줍니다. 장면에서 시작된 일이 그 뒤 어떻게 됐는지(그 뒤 · 지금)와 그 장면의 줄기도 함께 보입니다. 장면 번호를 누르면 장면·챕터 화면에서 열립니다.</p>
+      ${days.map((d) => `<section class="tl-day"><div class="tl-stamp"><b>${esc(d.day)}</b><small>장면 ${d.list.length}</small></div><div class="tl-list">${d.list.map(card).join('')}</div></section>`).join('')}`;
+  }
+
+  function viewLines() {
+    if (!store) return emptyRoom();
+    const lines = storyLines();
+    const titleOf = (id) => (store.scenes || []).find((x) => x.id === id);
+    return `<div class="eyebrow">STORY LINES · ${lines.length}</div><h1>줄기</h1>
+      <p class="intro">떨어진 장면이라도 같은 일을 따라가면 한 줄기로 묶고, 줄기마다 지금 어디까지 왔는지 한 줄을 둡니다. 장면을 정리할 때 함께 적고(호출이 따로 늘지 않음), 답변에는 요즘 줄기와 떠오른 장면의 줄기가 들어갑니다.</p>
+      ${lines.length ? lines.map((l) => `<div class="paper"><h2>${esc(l.name)}</h2>
+        <div class="record-links">${l.scenes.map((id) => sceneLink(titleOf(id) || { id, title: '' })).join('')}</div>
+        ${l.now ? `<p class="tl-after"><small>지금</small> ${esc(shown(l.now))}${l.nowScene ? ` <small>(${esc(l.nowScene)} 기준)</small>` : ''}</p>` : '<p class="hint">지금 상태가 아직 없습니다.</p>'}
+      </div>`).join('') : `<div class="empty">${icon('folder')}아직 줄기가 없습니다. 0.30.0부터 새로 정리되는 장면에 줄기가 붙습니다(이미 정리된 장면은 다시 정리하면 붙습니다).</div>`}`;
+  }
+
+  /* ---------- 인물별 ---------- */
+
+  let selectedPerson = '';
+  function personNames() {
+    const set = new Set([...(store?.cast || info?.cast || []), ...(store?.personas || info?.personas || [])]);
+    for (const c of world?.cards || []) set.add(c.name);
+    for (const f of store?.facts || []) if (f.about) set.add(f.about);
+    return [...set].filter(Boolean);
+  }
+  function viewPerson() {
+    if (!store) return emptyRoom();
+    const people = personNames();
+    if (!people.length) return `<h1>인물별</h1><div class="empty">${icon('person')}아직 인물이 없습니다.</div>`;
+    if (!people.includes(selectedPerson)) selectedPerson = people[0];
+    const p = selectedPerson;
+    const all = store.facts || [];
+    const facts = all.filter((f) => f.about === p && !(f.replacedBy && all.some((x) => x.id === f.replacedBy)));
+    const notes = (world?.notes || {})[p] || [];
+    const card = (world?.cards || []).find((c) => c.name === p);
+    const items = threadList().filter((t) => t.status === 'open' && !t.plan && [t.who, t.toward].some((n) => n && String(n).includes(p)));
+    const scenes = (store.scenes || []).filter((x) => !x.ooc && (x.present || []).includes(p));
+    const quotes = [];
+    for (const sc of [...(store.scenes || [])].reverse()) for (const e of sc.events || []) for (const q of e.quotes || []) if ((q.by === p || q.to === p) && quotes.length < 12) quotes.push({ sc, q });
+    const calls = (names?.address?.entries || []).filter((e) => e.from === p || e.to === p);
+    const field = (label, v) => (v && (!Array.isArray(v) || v.length) ? `<dt>${label}</dt><dd>${esc(Array.isArray(v) ? v.join(' · ') : v)}</dd>` : '');
+    const section = (key, title, count, body, openNow = false) => `<details class="paper person-sec" data-list="person:${esc(key)}" ${openLists.has(`person:${key}`) || openNow ? 'open' : ''}><summary><b>${title}</b> · ${count}</summary>${body}</details>`;
+    return `<div class="eyebrow">PEOPLE · ${people.length}</div><h1>인물별</h1>
+      <p class="intro">한 사람에 대한 기억을 한곳에 모았습니다: 지금 상태, 부르는 말, 알게 된 사실, 수첩, 끝나지 않은 일, 함께한 장면과 주고받은 대사. 고치는 것은 각 항목의 원래 화면에서 합니다(링크).</p>
+      <div class="person-chips">${people.map((n) => `<button class="${n === p ? 'selected' : ''}" data-act="selectPerson" data-id="${esc(n)}">${esc(nameShown(n))}</button>`).join('')}</div>
+      <div class="paper"><h2>${esc(nameShown(p))}</h2>
+        ${card ? `<dl class="person-now">${field('있는 곳', card.location)}${field('차림', card.outfit)}${field('다친 곳', card.injuries)}${field('가진 것', card.carrying)}${field('기분', card.mood)}${field('그 밖', card.other)}</dl>` : '<p class="hint">지금 상태 기록이 없습니다(상태·장소·물건에서 켜고 고칠 수 있음).</p>'}
+        ${calls.length ? `<p class="hint">부르는 말: ${calls.map((e) => `${esc(nameShown(e.from))} → ${esc(nameShown(e.to))} “${esc(e.term)}”`).join(' · ')}</p>` : ''}
+        <div class="buttons"><button class="ghost" data-tab="world">상태 고치기</button><button class="ghost" data-tab="names">이름·호칭 고치기</button></div>
+      </div>
+      ${section('facts', '알게 된 사실', facts.length, facts.length ? facts.map((f) => `<p class="person-row">${esc(shown(f.text))}${f.state ? ` <small>(${esc(f.sceneId || '')} 기준)</small>` : ''} <a href="#" class="record-link chip" data-goto-fact="${esc(f.id)}"><span class="chip-id">${esc(f.id)}</span></a></p>`).join('') : '<p class="hint">없습니다.</p>', true)}
+      ${section('notes', '수첩 (본인만 아는 다짐)', notes.length, notes.length ? notes.map((n) => `<p class="person-row">${n.star ? '★ ' : ''}${n.when ? `<small>(${esc(shown(n.when))})</small> ` : ''}${esc(shown(n.text))}</p>`).join('') + '<div class="buttons"><button class="ghost" data-tab="notebook">수첩에서 고치기</button></div>' : '<p class="hint">없습니다.</p>')}
+      ${section('items', '이 사람의 끝나지 않은 일', items.length, items.length ? items.map((t) => `<p class="person-row"><span class="pill ${t.kind === 'promise' ? '' : 'neutral'}">${esc(KIND[t.kind] || t.kind)}</span> ${esc(shown(t.title))} <a href="#" class="record-link chip" data-goto-thread="${esc(t.id)}"><span class="chip-id">${esc(t.id)}</span></a></p>`).join('') : '<p class="hint">없습니다.</p>', items.length > 0)}
+      ${section('scenes', '함께한 장면', scenes.length, scenes.length ? `<div class="record-links">${scenes.slice(-30).map((x) => sceneLink(x)).join('')}</div>` : '<p class="hint">없습니다.</p>')}
+      ${section('quotes', '주고받은 대사 (최근 12개)', quotes.length, quotes.length ? quotes.map(({ sc, q }) => { const l = quoteLine(q); return `<div class="quote-card"><small>${esc(sc.id)} · ${esc(l.who)}</small><blockquote>${esc(l.text)}</blockquote></div>`; }).join('') : '<p class="hint">없습니다.</p>')}`;
+  }
+
+  /* ---------- 할 일: 거르기 · 여러 개 고르기 · 되돌리기 ---------- */
+
+  let ledgerFilter = 'all';
+  let ledgerWho = 'all';
+  const pickedThreads = new Set();
+  /** What the person did here, newest first, each with how to undo it: { at, text, undo: { act, ids } }. */
+  const actionLog = [];
+  const OLD_AFTER = 40;
+  /** The newest message number the open items know of (how far the story has got). */
+  function storyReach() {
+    let n = info?.scenes?.coveredThrough || 0;
+    for (const t of threadList()) for (const p of [...(t.evidence || []), ...(t.clues || [])]) if ((p.number || 0) > n) n = p.number;
+    return n;
+  }
+  /** The last message where an item came up in the story itself (a line the check wrote does not count). */
+  function lastMention(t) {
+    const nums = [...(t.evidence || []), ...(t.clues || [])].map((p) => p.number).filter((n) => typeof n === 'number');
+    if (typeof t.latest?.number === 'number' && !(t.latest.by === 'check' || t.latest.scene)) nums.push(t.latest.number);
+    return nums.length ? Math.max(...nums) : t.openedAt?.number || 0;
+  }
+  const isOld = (t) => storyReach() - lastMention(t) >= OLD_AFTER;
+  function ledgerMatch(t) {
+    if (ledgerWho !== 'all' && ![t.who, t.toward].some((n) => n && String(n).includes(ledgerWho))) return false;
+    if (ledgerFilter === 'all') return true;
+    if (ledgerFilter === 'old') return isOld(t);
+    return t.kind === ledgerFilter;
+  }
+  function ledgerTools(open) {
+    const shownNow = open.filter((t) => !t.plan && ledgerMatch(t));
+    const allOn = shownNow.length && shownNow.every((t) => pickedThreads.has(t.id));
+    const people = [...new Set(open.flatMap((t) => [t.who, t.toward]).filter(Boolean).flatMap((n) => String(n).split(/\s*[·,]\s*/)))];
+    const chip = (id, label) => `<button class="subtab ${ledgerFilter === id ? 'selected' : ''}" data-act="ledgerFilter" data-id="${esc(id)}">${esc(label)}</button>`;
+    return `<div class="ledger-tools">
+        <div class="subtabs">${chip('all', '전체')}${chip('old', `오래됨 (${OLD_AFTER}개 메시지 넘게 언급 없음) · ${open.filter((t) => !t.plan && isOld(t)).length}`)}${KIND_ORDER.map((k) => chip(k, KIND[k])).join('')}
+          <select id="ledgerWho" aria-label="인물로 거르기"><option value="all">모든 인물</option>${people.map((n) => `<option value="${esc(n)}" ${ledgerWho === n ? 'selected' : ''}>${esc(nameShown(n))}</option>`).join('')}</select></div>
+        <label class="pick-all"><input type="checkbox" id="pickAllLedger" ${allOn ? 'checked' : ''}> 보이는 ${shownNow.length}개 모두 고르기</label>
+        ${pickedThreads.size ? `<div class="bulk-bar" role="region" aria-label="고른 항목"><span>${pickedThreads.size}개 고름</span><span class="buttons"><button class="ghost" data-act="bulkClear">고르기 풀기</button><button class="primary" data-act="bulkClose">고른 항목 닫기</button></span></div>` : ''}
+      </div>`;
+  }
+  /** One open item with its pick box (the box sits outside the folding row, so ticking it does not open the row). */
+  const pickRow = (t) => (t.status === 'open' && !t.plan ? `<div class="pick-row"><input type="checkbox" data-pick-thread="${esc(t.id)}" ${pickedThreads.has(t.id) ? 'checked' : ''} aria-label="${esc(t.id)} 고르기">${threadRow(t)}</div>` : threadRow(t));
+  function logAction(text, undo) {
+    actionLog.unshift({ at: new Date(), text, undo });
+    actionLog.length = Math.min(actionLog.length, 8);
+  }
+
+  /* ---------- 한눈에: 버전 · 세고 있는 것 · 손볼 것 · 최근 바뀐 것 · 기억 비용 ---------- */
+
+  let serverStatus = null;
+  let serverStatusLoading = false;
+  function loadServerStatus() {
+    if (serverStatus || serverStatusLoading) return;
+    serverStatusLoading = true;
+    api('GET', '/status').then((st) => { serverStatus = st; serverStatusLoading = false; render(); }).catch(() => { serverStatusLoading = false; });
+  }
+  function versionNote() {
+    const server = info?.version;
+    if (!server || !VERSION || VERSION.includes('__VERSION__') || server === VERSION) return '';
+    const newer = (a, b) => { const x = String(a).split(/[.-]/).map(Number), y = String(b).split(/[.-]/).map(Number); for (let i = 0; i < 3; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0); return false; };
+    const extNewer = newer(VERSION, server);
+    return `<div class="note" role="status"><b>${extNewer ? '기억 모듈을 업데이트해 주세요' : '기억 서재(확장)를 업데이트해 주세요'}</b> · 확장 v${esc(VERSION)} · 모듈 v${esc(server)}<br>
+      ${extNewer ? '화면(확장)이 서버의 기억 모듈보다 새 버전이라 새 기능이 동작하지 않을 수 있습니다. 서버에서 설치 명령(install.sh)을 한 번 실행하면 맞춰집니다.' : '서버의 기억 모듈이 화면(확장)보다 새 버전입니다. 저장소의 deliverable 폴더에서 새 ZIP을 받아 개인 확장을 바꿔 주세요.'}</div>`;
+  }
+  function trackersCard() {
+    const items = world?.trackers?.items || [];
+    if (!items.length) return '';
+    return `<div class="paper"><div class="paper-toolbar"><h2>세고 있는 것</h2><button class="ghost" data-tab="world">고치기 · 추가</button></div>
+      <div class="tracker-tiles">${items.map((it) => `<div class="tracker-tile"><small>${withKo(it.label)}</small><b>${esc(it.status?.text || '')}</b>${it.inject && it.inject !== 'off' ? '<small>답변에 넣음</small>' : ''}</div>`).join('')}</div></div>`;
+  }
+  function suggestionsCard() {
+    const open = threadList().filter((t) => t.status === 'open' && !t.plan);
+    const old = open.filter(isOld);
+    const overdue = (info?.deadlines || []).filter((d) => d.state === 'overdue');
+    const plans = threadList().filter((t) => t.status === 'open' && t.plan);
+    const rows = [];
+    if (old.length) rows.push(`<div class="next-row"><span class="sev bad"></span><div><b>오래된 항목 ${old.length}개</b><small>${OLD_AFTER}개 메시지 넘게 언급이 없는 끝나지 않은 일입니다. 끝났는지 한 번에 보고 골라서 닫을 수 있습니다.</small></div><button class="primary" data-act="openOld">확인하기</button></div>`);
+    if (overdue.length) rows.push(`<div class="next-row"><span class="sev"></span><div><b>지난 기한 ${overdue.length}개</b><small>${overdue.slice(0, 2).map((d) => esc(shown(d.title))).join(' · ')}</small></div><button data-tab="ledger">보기</button></div>`);
+    if (plans.length) rows.push(`<div class="next-row"><span class="sev ok"></span><div><b>작가 계획 ${plans.length}개</b><small>이야기에서 이미 드러난 계획이 있으면 닫아 주세요(답변에 "인물들은 모름"으로 계속 들어갑니다).</small></div><button data-tab="ledger">보기</button></div>`);
+    if (!rows.length) return '';
+    return `<div class="paper"><h2>손볼 것</h2>${rows.join('')}</div>`;
+  }
+  function recentCard() {
+    const day = Date.now() - 86400000;
+    const auto = threadList().filter((t) => t.status !== 'open' && t.updatedAt && Date.parse(t.updatedAt) > day && !/직접/.test(t.closed?.how || '')).slice(0, 5);
+    if (!actionLog.length && !auto.length) return '';
+    const time = (d) => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    return `<div class="paper"><h2>최근 바뀐 것</h2>
+      ${actionLog.map((a, i) => `<div class="recent-row"><small>${time(a.at)}</small><span>${esc(a.text)}</span>${a.undo ? `<button class="ghost" data-act="undoAction" data-id="${i}">되돌리기</button>` : '<span></span>'}</div>`).join('')}
+      ${auto.map((t) => `<div class="recent-row"><small>자동</small><span>${esc(t.id)} ${esc(shown(t.title))} 닫힘 — ${esc(shown(t.closed?.how || ''))}</span><button class="ghost" data-act="reopen" data-id="${esc(t.id)}">다시 열기</button></div>`).join('')}
+    </div>`;
+  }
+  const kTok = (n) => (n >= 10000 ? `${Math.round(n / 1000)}k` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n || 0));
+  function costCard() {
+    const u = serverStatus?.usage;
+    if (!u) return '';
+    const line = (label, d) => `<div class="cost-row"><span>${label}</span><b>호출 ${d.calls}번</b><small>입력 ${kTok(d.input)} · 출력 ${kTok(d.output)} 토큰${d.estimated ? ' (일부 어림)' : ''}</small></div>`;
+    return `<div class="paper"><h2>기억 비용</h2><p class="hint">기억 모듈이 정리·점검·번역에 쓴 모델 호출입니다(답변 자체는 빼고, 모든 방 합계).</p>${line('오늘', u.today)}${line('최근 7일', u.week)}</div>`;
+  }
+
+  /* ---------- 주입 확인: 섹션별 분량 ---------- */
+
+  function injectBars() {
+    const text = info?.rendered || '';
+    if (!text) return '';
+    const parts = [];
+    let current = { name: '안내문', size: 0 };
+    for (const line of text.split('\n')) {
+      const head = line.match(/^\[([^\]\n]{1,40})\]/);
+      if (head && !/^\[(Memory:|End of memory)/.test(line)) { parts.push(current); current = { name: head[1], size: 0 }; }
+      current.size += line.length + 1;
+    }
+    parts.push(current);
+    const total = parts.reduce((n, p) => n + p.size, 0) || 1;
+    const merged = [...parts.reduce((m, p) => m.set(p.name, (m.get(p.name) || 0) + p.size), new Map())].sort((a, b) => b[1] - a[1]);
+    return `<div class="paper"><h2>섹션별 분량</h2>${merged.map(([name, size]) => `<div class="bar-row"><span>${esc(name)}</span><span class="bar"><span style="width:${Math.max(1, Math.round((size / total) * 100))}%"></span></span><small>${Math.round((size / total) * 100)}%</small></div>`).join('')}</div>`;
+  }
+
+  const VIEWS = { timeline: viewTimeline, lines: viewLines, person: viewPerson, notebook: viewNotebook, home: viewHome, scenes: viewScenes, search: viewSearch, facts: viewFacts, ledger: viewLedger, promises: viewPromises, life: viewLife, world: viewWorld, names: viewNames, inject: viewInject, settings: viewSettings };
+
+  /** The screens of the current tab, as a row of chips under the panel's top (nothing for a one-screen tab). */
+  function subTabs() {
+    const views = groupOf(tab)[3];
+    if (views.length < 2) return '';
+    return `<div class="subtabs" role="tablist">${views.map((v) => `<button class="subtab ${v === tab ? 'selected' : ''}" role="tab" aria-selected="${v === tab}" data-tab="${v}">${esc(SUBTAB[v] || v)}</button>`).join('')}</div>`;
+  }
 
   function render() {
     if (!root) return;
@@ -1834,9 +2144,18 @@
     root.querySelector('#panel').classList.toggle('is-running', Boolean(busy || (info && running())));
     root.querySelector('#panel').hidden = !open;
     if (!open) return;
-    for (const b of root.querySelectorAll('nav button')) b.classList.toggle('selected', b.dataset.tab === tab);
+    const here = groupOf(tab);
+    lastIn[here[0]] = tab;
+    for (const b of root.querySelectorAll('nav button')) {
+      const g = GROUPS.find((x) => x[0] === b.dataset.groupTab);
+      if (!g) { b.classList.toggle('selected', b.dataset.tab === tab); continue; }
+      b.classList.toggle('selected', g === here);
+      b.dataset.tab = lastIn[g[0]] || g[3][0];
+    }
+    const roomOption = (r) => `<option value="${esc(r.id)}" ${r.id === room ? 'selected' : ''}>${r.enabled ? '● ' : ''}${esc(roomLabel(r))}</option>`;
+    const recent = recentRooms().map((id) => rooms.find((r) => r.id === id)).filter(Boolean);
     root.querySelector('#roomSelect').innerHTML = rooms.length
-      ? rooms.map((r) => `<option value="${esc(r.id)}" ${r.id === room ? 'selected' : ''}>${r.enabled ? '● ' : ''}${esc(roomLabel(r))}</option>`).join('')
+      ? (recent.length > 1 ? `<optgroup label="최근 연 방">${recent.map(roomOption).join('')}</optgroup><optgroup label="모든 방">${rooms.filter((r) => !recent.includes(r)).map(roomOption).join('')}</optgroup>` : rooms.map(roomOption).join(''))
       : '<option>채팅방 없음</option>';
     const toggle = root.querySelector('#roomEnabled');
     toggle.checked = Boolean(info?.enabled);
@@ -1851,7 +2170,7 @@
     const jobError = info?.job?.error || info?.sceneJob?.error;
     const warning = jobError ? `<div class="note" role="alert">기억 정리를 마치지 못했습니다. ${esc(jobError)}</div>` : '';
     const translation = trPending || trError ? `<div class="note" role="status">${trError ? `한국어 번역을 마치지 못했습니다. ${esc(trError)}` : trWorking ? '한국어 번역 중입니다.' : trAuto ? '한국어 번역이 남아 있습니다.' : '자동 번역이 꺼져 있어 일부 항목이 영어로 보입니다.'} ${trPending ? `남은 항목: ${trPending}개.` : ''} <button data-act="retryTranslation">${trAuto || trError ? '남은 항목 다시 번역' : '지금 번역'}</button></div>` : '';
-    content.innerHTML = warning + translation + VIEWS[tab]();
+    content.innerHTML = warning + translation + subTabs() + VIEWS[tab]();
     content.scrollTop = scroll;
     root.querySelector('#inspector').innerHTML = inspector();
     const n = root.querySelector('#themeToggle');
@@ -1881,8 +2200,58 @@
   async function handle(actName, el) {
     const id = el?.dataset?.id;
     const chat = encodeURIComponent(room);
-    if (actName !== 'fresh' && !actName.startsWith('deleteFact') && actName !== 'closeThread' && actName !== 'rebuildChapters' && actName !== 'deleteRoutine' && !['nameApply', 'mergeApply', 'aliasApply', 'nameUndo', 'backupDownload', 'restoreApply', 'restoreUndo', 'addressDelete', 'stateReset', 'placeDelete', 'keepDelete', 'noteDelete', 'noteRebuildAll', 'trackerDelete', 'trackerDropStart'].includes(actName)) armed = '';
+    if (actName !== 'fresh' && !actName.startsWith('deleteFact') && actName !== 'closeThread' && actName !== 'factBulkDelete' && actName !== 'rebuildChapters' && actName !== 'deleteRoutine' && !['nameApply', 'mergeApply', 'aliasApply', 'nameUndo', 'backupDownload', 'restoreApply', 'restoreUndo', 'addressDelete', 'stateReset', 'placeDelete', 'keepDelete', 'noteDelete', 'noteRebuildAll', 'trackerDelete', 'trackerDropStart'].includes(actName)) armed = '';
     switch (actName) {
+      case 'factPickClear':
+        pickedFacts.clear();
+        return render();
+      case 'factBulkExclude': {
+        const left = new Set(info?.recallPrefs?.excluded || []);
+        const ids = [...pickedFacts].filter((f) => !left.has(f));
+        return act(async () => {
+          for (const f of ids) await api('POST', `/chats/${chat}/recall-prefs`, { id: f, action: 'exclude' });
+          pickedFacts.clear();
+        }, `사실 ${ids.length}개를 답변에서 뺐습니다. 각 사실의 '빼기 해제'로 되돌릴 수 있습니다.`);
+      }
+      case 'factBulkDelete': {
+        if (armed !== 'factBulkDelete') { armed = 'factBulkDelete'; return render(); }
+        armed = '';
+        const ids = [...pickedFacts];
+        return act(async () => {
+          for (const f of ids) await api('DELETE', `/chats/${chat}/facts/${encodeURIComponent(f)}`);
+          pickedFacts.clear();
+        }, `사실 ${ids.length}개를 지웠습니다.`);
+      }
+      case 'ledgerFilter':
+        ledgerFilter = id || 'all';
+        return render();
+      case 'openOld':
+        tab = 'ledger';
+        ledgerFilter = 'old';
+        void ensureScenes();
+        return render();
+      case 'bulkClear':
+        pickedThreads.clear();
+        return render();
+      case 'bulkClose': {
+        const ids = [...pickedThreads];
+        if (!ids.length) return;
+        return act(async () => {
+          for (const t of ids) await api('POST', `/chats/${chat}/threads/${encodeURIComponent(t)}/close`, { how: '직접 닫음' });
+          pickedThreads.clear();
+          logAction(`${ids.join(', ')} 닫음`, { act: 'reopen', ids });
+        }, `${ids.length}개를 닫았습니다. 되돌리려면 위의 '되돌리기'를 눌러 주세요.`);
+      }
+      case 'undoAction': {
+        const entry = actionLog[Number(id)];
+        if (!entry?.undo) return;
+        const { act: kind, ids } = entry.undo;
+        return act(async () => {
+          for (const t of ids) await api('POST', `/chats/${chat}/threads/${encodeURIComponent(t)}/${kind}`, kind === 'close' ? { how: '직접 닫음' } : undefined);
+          entry.undo = null;
+          entry.text += ' → 되돌림';
+        }, '되돌렸습니다.');
+      }
       case 'retryTranslation':
         return act(async () => {
           const result = await api('POST', `/chats/${chat}/translations/retry`);
@@ -2789,7 +3158,7 @@
       <section id="panel" role="dialog" aria-label="기억 서재" aria-modal="true" hidden>
         <aside class="sidebar"><div class="brand"><span class="logo" aria-hidden="true"><i class="disc"></i><i class="sleeve"></i></span><div>기억 서재<small>MEMORY MODULE</small></div></div>
           <div class="nav-label">YOUR MEMORIES</div>
-          <nav>${NAV.map(([id, label, i]) => `<button data-tab="${id}">${icon(i)}<span>${label}</span></button>`).join('')}</nav>
+          <nav>${GROUPS.map(([id, label, i, views]) => `<button data-tab="${views[0]}" data-group-tab="${id}">${icon(i)}<span>${label}</span></button>`).join('')}</nav>
           <div class="side-bottom"><label class="room-switch"><span id="enabledLabel">이 방에서 사용 안 함</span><input id="roomEnabled" type="checkbox" role="switch" aria-label="이 방에서 기억 사용"></label>
             <button data-act="refresh">${icon('refresh')}서버에서 새로고침</button><small>기억 서재 · 기억 모듈판 v${VERSION}</small></div>
         </aside>
@@ -2866,7 +3235,10 @@
       render();
     };
     root.querySelector('#roomSelect').onchange = (e) => {
+      rememberRoomTab(room, tab);
       room = e.target.value;
+      noteRecentRoom(room);
+      tab = roomTab(room) || tab;
       store = null;
       storeRoom = '';
       searchDraft = searchQuery = '';
@@ -2879,6 +3251,32 @@
       void act(() => api('POST', `/chats/${encodeURIComponent(room)}/${on ? 'enable' : 'disable'}`), on ? '이 방에서 기억을 켰습니다. 처음 켜셨다면 ‘이어서 정리’를 눌러 주세요.' : '이 방의 기억 갱신을 껐습니다.');
     };
     root.addEventListener('change', (e) => {
+      if (e.target.dataset?.pickFact) {
+        if (e.target.checked) pickedFacts.add(e.target.dataset.pickFact);
+        else pickedFacts.delete(e.target.dataset.pickFact);
+        return render();
+      }
+      if (e.target.dataset?.pickThread) {
+        if (e.target.checked) pickedThreads.add(e.target.dataset.pickThread);
+        else pickedThreads.delete(e.target.dataset.pickThread);
+        return render();
+      }
+      if (e.target.id === 'pickAllLedger') {
+        for (const t of threadList().filter((x) => x.status === 'open' && !x.plan && ledgerMatch(x))) {
+          if (e.target.checked) pickedThreads.add(t.id);
+          else pickedThreads.delete(t.id);
+        }
+        return render();
+      }
+      if (e.target.id === 'searchKind' || e.target.id === 'searchWho') {
+        if (e.target.id === 'searchKind') searchKind = e.target.value;
+        else searchWho = e.target.value;
+        return render();
+      }
+      if (e.target.id === 'ledgerWho') {
+        ledgerWho = e.target.value;
+        return render();
+      }
       if (e.target.id === 'setNoteLang') {
         const language = e.target.value;
         const chat = room;
@@ -3067,6 +3465,10 @@
         return;
       }
       if (!n || busy) return;
+      if (n.dataset.act === 'selectPerson') {
+        selectedPerson = n.dataset.id || '';
+        return render();
+      }
       if (n.dataset.tab) {
         tab = n.dataset.tab;
         armed = '';
