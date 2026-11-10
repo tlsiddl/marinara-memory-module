@@ -320,6 +320,30 @@ function cleanText(value, max) {
   return text.slice(0, max);
 }
 
+// English needs about this many times the letters of Korean for the same summary.
+const LATIN_ROOM = 1.8;
+const SENTENCE_END = /[.!?。」』"”)…](?=\s|$)|[다음함임요]\.(?=\s|$)/g;
+
+/**
+ * A summary (scene, chapter, arc) kept whole: `max` letters for Korean, more for English. Longer than that, it ends
+ * at the last whole sentence that fits instead of in the middle of a word ("then walks to the").
+ */
+function summaryText(value, max) {
+  const text = cleanText(value, 100000);
+  if (!text) return null;
+  const room = /[가-힣]/.test(text) ? max : Math.round(max * LATIN_ROOM);
+  if (text.length <= room) return text;
+  let end = -1;
+  for (const m of text.slice(0, room + 1).matchAll(SENTENCE_END)) end = m.index + m[0].length;
+  return end >= room / 3 ? text.slice(0, end).trim() : `${text.slice(0, room - 1).trim()}…`;
+}
+
+/** A saved summary that was cut in the middle of a sentence (before summaries were kept whole). */
+function cutSummary(text) {
+  const t = String(text || '').trim();
+  return t.length >= 500 && !/[.!?。」』"”)…]$|[다음함임요]\.?$/.test(t);
+}
+
 function squash(text) {
   return String(text || '').replace(/[\s"'“”‘’.,!?…~·()\[\]<>|]/g, '').toLowerCase();
 }
@@ -836,7 +860,7 @@ function applyScenes(store, result, slice, required, now = new Date().toISOStrin
       place: cleanText(item.place, 60),
       weather: cleanText(item.weather, 30) || mostOften(messages.map((m) => m.weather), Math.ceil(messages.length / 2)),
       title: cleanText(item.title, 60) || '(제목 없음)',
-      summary: cleanText(item.summary, 600) || '',
+      summary: summaryText(item.summary, 600) || '',
       events,
       recollections,
       present,
@@ -2979,7 +3003,7 @@ function applyChapter(store, result, offered, now = new Date().toISOString()) {
   cut = Math.max(Math.min(CHAPTER_MIN, offered.length) - 1, cut);
   const scenes = offered.slice(0, cut + 1);
   const title = cleanText(result?.title, 60);
-  const summary = cleanText(result?.summary, 700);
+  const summary = summaryText(result?.summary, 700);
   if (!title || !summary) return { error: '챕터 제목이나 요약이 비어 있습니다' };
   const inside = new Set(scenes.map((x) => x.id));
   // Turning points from scenes left for the next chapter do not belong here.
@@ -3182,6 +3206,20 @@ function nextRedo(store) {
   return null;
 }
 
+/**
+ * Chapters and arcs saved with a summary cut in the middle of a sentence are marked to be made again (whole, under
+ * the length rule). Hand-edited ones are left alone. Returns how many were marked.
+ */
+function markCutSummaries(store) {
+  let marked = 0;
+  for (const x of [...(store.chapters || []), ...(store.arcs || [])]) {
+    if (x.stale || x.edited || !cutSummary(x.summary)) continue;
+    x.stale = true;
+    marked++;
+  }
+  return marked;
+}
+
 /** Put a summary made again in place of the marked one (same id, same parts). */
 function applyRedo(store, redo, result, now = new Date().toISOString()) {
   if (redo.kind === 'drop-chapter') {
@@ -3245,7 +3283,7 @@ function applyArc(store, result, offered, now = new Date().toISOString()) {
   cut = Math.max(Math.min(ARC_MIN, offered.length) - 1, cut);
   const chapters = offered.slice(0, cut + 1);
   const title = cleanText(result?.title, 60);
-  const summary = cleanText(result?.summary, 600);
+  const summary = summaryText(result?.summary, 600);
   if (!title || !summary) return { error: '막 제목이나 요약이 비어 있습니다' };
   const inside = new Set(chapters.map((x) => x.id));
   const turns = (Array.isArray(result?.turns) ? result.turns : [])
@@ -3567,6 +3605,8 @@ module.exports = {
   buildFactMergePrompt,
   applyFactMerge,
   undoCutMerges,
+  markCutSummaries,
+  summaryText,
   MERGED_MAX,
   liveFacts,
   castOf,

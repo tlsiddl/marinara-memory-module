@@ -210,3 +210,31 @@ test('the one-item check shows the last several long messages', () => {
   const review = L.buildOldItemPrompt({ threads: [] }, messages, thread('T1', 'secret', 'Sera hides her name', 5), steps);
   assert.ok(review.window.length >= 3, String(review.window.length));
 });
+
+test('summaries end at a whole sentence, with more room for English; cut ones saved before are made again', () => {
+  const en = Array.from({ length: 12 }, (_, i) => `Sera and Viktor crossed the harbor for the ${i + 1}th time and argued about the boat.`).join(' ');
+  const out = S.summaryText(en, 700);
+  assert.ok(out.length > 700 && out.length <= 1260, String(out.length));
+  assert.match(out, /boat\.$/);
+  const ko = '세라와 빅터가 항구를 건넜다. '.repeat(60).trim();
+  assert.ok(S.summaryText(ko, 700).length <= 700);
+  assert.match(S.summaryText(ko, 700), /건넜다\.$/);
+  assert.equal(S.summaryText('Short one.', 700), 'Short one.');
+  const store = { ...S.emptyStore(), chapters: [
+    { id: 'C1', scenes: ['S1'], summary: `${'Sera waits at the pier. '.repeat(30)}then walks to the` },
+    { id: 'C2', scenes: ['S2'], summary: 'Sera waits at the pier. '.repeat(30).trim() },
+    { id: 'C3', scenes: ['S3'], summary: `${'x '.repeat(300)}cut but edited`, edited: true },
+  ], arcs: [{ id: 'A1', chapters: ['C1'], summary: `${'y '.repeat(300)}cut` }] };
+  assert.equal(S.markCutSummaries(store), 2);
+  assert.deepEqual([...store.chapters, ...store.arcs].map((x) => !!x.stale), [true, false, false, true]);
+  assert.equal(S.markCutSummaries(store), 0);
+});
+
+test('a plan whose answer comes out in the story is closed, by the reading and by the check', () => {
+  const [reading] = L.buildPrompt({ threads: [], processed: [] }, [msg(1, 'Viktor', ['Hi.'])]);
+  assert.match(reading.content, /작가 계획의 답이 드러나면\(인물 누구라도[^]*일부 인물만 알게 됐어도 닫아/);
+  const tidy = L.buildTidyPrompt({ threads: [] }, [], { after: steps })[0].content;
+  assert.match(tidy, /\[작가 계획\] 항목은 '그 뒤 이야기'에서 그 답이 이야기 속에 드러났으면/);
+  const ledger = { threads: [thread('T9', 'secret', 'The lighthouse keeper is Viktor\'s father', 5, { plan: true, who: null })] };
+  assert.equal(L.applyTidy(ledger, { close: [{ id: 'T9', why: 'later', how: 'Viktor says it aloud on the pier.', scene: 'S9' }] }, 'now', { after: steps }).closed, 1);
+});
