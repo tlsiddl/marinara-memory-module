@@ -108,7 +108,7 @@ test('off: no daily-life prompt, nothing recorded, nothing injected; old records
   await run('room1', { reason: 'test' });
   assert.equal(X.loadLedger('room1').routine.length, 1, 'on by default: recorded');
   assert.match(X.renderMemorySource('room1'), /\[최근 생활\]/);
-  assert.match(X.renderMemorySource('room1'), /"최근 생활" says/);
+  assert.ok(X.renderMemorySource('room1').includes('"[최근 생활]" says'));
   const kept = structuredClone(X.loadLedger('room1').routine);
 
   await call('POST /chats/:id/routine-mode', 'room1', { mode: 'off' });

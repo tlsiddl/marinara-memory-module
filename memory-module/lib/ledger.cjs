@@ -342,12 +342,15 @@ function tidyOocThreads(ledger, messages, now = new Date().toISOString()) {
   const out = { planned: 0, closed: 0 };
   if (!ooc.size) return out;
   for (const t of ledger?.threads || []) {
+    // A plan made before plans had no person: its leftover owner or target goes.
+    if (t.status === 'open' && t.plan && (t.who || t.toward)) { t.who = null; t.toward = null; t.updatedAt = now; out.planned++; continue; }
     if (t.status !== 'open' || t.plan) continue;
     const points = [...(t.evidence || []), ...(t.clues || [])];
     if (!points.length || !points.every((p) => ooc.has(p.messageId))) continue;
     if (t.kind === 'secret') {
       t.plan = true;
       t.who = null;
+      t.toward = null;
       t.unaware = [];
       t.guess = [];
       t.updatedAt = now;
@@ -898,7 +901,7 @@ function applyResult(ledger, result, batch, now = new Date().toISOString(), { st
       status: 'open',
       title,
       who: plan ? null : canonNames(cleanText(item.who, 40), [...(ledger.cast || []), ...personaNames(batch)]),
-      toward: canonNames(cleanText(item.toward, 40), [...(ledger.cast || []), ...personaNames(batch)]),
+      toward: plan ? null : canonNames(cleanText(item.toward, 40), [...(ledger.cast || []), ...personaNames(batch)]),
       detail: cleanText(item.detail, 300),
       cause: kind === 'emotion' ? cleanText(item.cause, 200) : null,
       need: kind === 'emotion' ? need : null,
@@ -1563,12 +1566,25 @@ function sameNamedPasta(a, b) {
  * What a sitting was, from the entries filed turn by turn ("스테이크 한 입", "스테이크 몇 점", "스테이크"):
  * one name per dish, the latest wording of it; different dishes are listed in the order they came.
  */
+/** Two English food phrases about the same dish: most of their food words are shared ("lamb stew"). */
+const FOOD_STOP = new Set(['bite', 'bites', 'piece', 'pieces', 'second', 'third', 'another', 'more', 'some', 'fed', 'from', 'fork', 'spoon', 'hand', 'raw', 'iced', 'chilled', 'cold', 'frost', 'stiffened', 'little', 'small', 'last']);
+function sameEnglishDish(a, b) {
+  if (/[가-힣]/.test(a) || /[가-힣]/.test(b)) return false;
+  const words = (t) => new Set([...englishWords(t)].filter((w) => !FOOD_STOP.has(w)));
+  const x = words(a), y = words(b);
+  if (!x.size || !y.size) return false;
+  let n = 0;
+  for (const w of x) if (y.has(w)) n++;
+  return n / Math.min(x.size, y.size) >= 0.5;
+}
+
 function sittingText(entries) {
   const dishes = [];
   for (const r of entries) {
     for (const text of foodParts(r.text)) {
       const dish = foodKey(text) || text;
-      const same = dishes.find((d) => d.dish === dish || d.dish.includes(dish) || dish.includes(d.dish) || sameNamedPasta(d.dish, dish));
+      // English bites of one dish ("a spoonful of lamb stew", "second bowl of hot lamb stew"): the same dish.
+      const same = dishes.find((d) => d.dish === dish || d.dish.includes(dish) || dish.includes(d.dish) || sameNamedPasta(d.dish, dish) || sameEnglishDish(d.texts[0], text));
       if (!same) dishes.push({ dish, texts: [text] });
       else {
         same.texts.push(text);
@@ -1576,8 +1592,9 @@ function sittingText(entries) {
       }
     }
   }
-  // Eaten over several turns: the plain name of the dish ("스테이크"), not the first bite ("스테이크 한 입").
-  return dishes.map((d) => (d.texts.length > 1 ? foodLabel(d.texts.findLast((t) => foodKey(t) === d.dish) || d.texts.at(-1)) || d.dish : d.texts[0])).join(', ');
+  // Eaten over several turns: the plain name of the dish ("스테이크"), not the first bite ("스테이크 한 입"); an English
+  // dish keeps its shortest wording.
+  return dishes.map((d) => (d.texts.length > 1 ? (/[가-힣]/.test(d.dish) ? foodLabel(d.texts.findLast((t) => foodKey(t) === d.dish) || d.texts.at(-1)) || d.dish : [...d.texts].sort((a, b) => a.length - b.length)[0]) : d.texts[0])).join(', ');
 }
 
 /** Meals less than two hours after the start of the previous one are the same sitting (one 끼니). */
@@ -2167,7 +2184,7 @@ function renderThread(t, maxClues) {
 function render(ledger, { maxChars = 6000, maxClues = 6 } = {}) {
   // Ledgers saved before lastNumber existed: the newest line any thread points at is close enough.
   const lastNumber = ledger?.lastNumber ?? Math.max(0, ...(ledger?.threads || []).map(lastSeen));
-  const open = (ledger?.threads || []).filter((t) => t.status === 'open' && (t.plan || !faded(t, lastNumber)));
+  const open = (ledger?.threads || []).filter((t) => t.status === 'open' && !t.plan && !faded(t, lastNumber));
   if (!open.length) return '';
   const header = [
     '[Open threads: things still unresolved in this story. The characters remember them.',
@@ -2267,6 +2284,24 @@ function compactLine(ledger, t, kind, today = ledger.storyDate) {
  * mentioned; an overdue one nobody mentions any more is shelved and comes back when the talk touches it (`query`).
  * Without a story date, dated items keep their order and are never shelved.
  */
+/**
+ * "[작가 계획]": the author's plans (decided in OOC talk), newest first, as "- title — detail". Never faded; the user's
+ * 빼기 leaves one out. Empty when there are none.
+ */
+function renderPlans(ledger, { exclude = null, trace = null, maxChars = 1600 } = {}) {
+  const plans = (ledger?.threads || []).filter((t) => t.status === 'open' && t.plan && !exclude?.has(t.id)).sort((a, b) => lastSeen(b) - lastSeen(a)).slice(0, PLAN_LIMIT);
+  const lines = [];
+  let used = 0;
+  for (const t of plans) {
+    const line = `- ${t.title}${t.detail ? ` — ${shortQuote(t.detail, 220)}` : ''}`;
+    if (used + line.length + 1 > maxChars) break;
+    lines.push(line);
+    trace?.push(t.id);
+    used += line.length + 1;
+  }
+  return lines.join('\n');
+}
+
 function renderCompact(ledger, { maxChars = 2400, query = '', today = ledger?.storyDate || null, exclude = null, pin = null, trace = null } = {}) {
   const threads = ledger?.threads || [];
   const lastNumber = ledger?.lastNumber ?? Math.max(0, ...threads.map(lastSeen));
@@ -2283,10 +2318,9 @@ function renderCompact(ledger, { maxChars = 2400, query = '', today = ledger?.st
   const asked = query
     ? dated.filter((t) => shelved(t, today, lastNumber) && sharedPairs(`${t.title} ${t.detail || ''}`, query) >= 0.3).slice(0, 3)
     : [];
-  // The author's plans go in whenever they are open (they do not fade with time like the story's threads).
-  const plans = open.filter((t) => t.plan && !marked.includes(t)).sort((a, b) => lastSeen(b) - lastSeen(a)).slice(0, PLAN_LIMIT);
-  const shown = new Set([...marked, ...plans, ...due, ...asked]);
-  for (const t of [...marked, ...plans, ...due, ...asked]) {
+  // The author's plans have their own block (renderPlans): never among what the characters remember.
+  const shown = new Set([...marked, ...due, ...asked, ...open.filter((t) => t.plan)]);
+  for (const t of [...marked, ...due, ...asked].filter((t) => !t.plan)) {
     const line = compactLine(ledger, t, t.kind, today) + (asked.includes(t) ? ' (기한이 지나고 한동안 말이 없던 일)' : '');
     if (used + line.length + 1 > maxChars) break;
     lines.push(line);
@@ -2312,6 +2346,7 @@ function renderCompact(ledger, { maxChars = 2400, query = '', today = ledger?.st
 module.exports = {
   markOoc,
   tidyOocThreads,
+  renderPlans,
   looksOocReply,
   PLAN_LABEL,
   OOC_START,

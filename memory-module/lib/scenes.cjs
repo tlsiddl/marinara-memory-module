@@ -2763,8 +2763,24 @@ function mostOften(values, atLeast = 1) {
   return value && n >= atLeast ? value : null;
 }
 
-function sceneHead(scene, n) {
-  const where = [scene.time, scene.place, scene.weather].filter(Boolean).join(' · ');
+/**
+ * A text cut in the middle when it was saved (a merged fact at its length limit, "…though the baker saw her near the") ends at its
+ * last whole sentence or part instead; a text that ends properly is unchanged.
+ */
+function wholeSentences(text) {
+  const t = String(text || '').trim();
+  if (t.length < 200 || /[.!?。」』"”)…]$|[다음함임요]\.?$/.test(t)) return t;
+  const cut = Math.max(t.lastIndexOf('. '), t.lastIndexOf('; '), t.lastIndexOf(' / '), t.lastIndexOf('。'));
+  return cut >= 40 ? t.slice(0, cut + 1).replace(/\s*\/$/, '').trim() : t;
+}
+
+function sceneHead(scene, n, prev = null) {
+  // A line right after one of the same day and place says only what changed ("같은 곳"), not the long place again.
+  const day = (t) => String(t || '').match(/^\s*\d{2,4}-\d{1,2}-\d{1,2}(?:\s*\([^)]*\))?/)?.[0]?.trim() || null;
+  const time = prev && scene.time && day(scene.time) && day(scene.time) === day(prev.time) ? scene.time.replace(day(scene.time), '').trim() || scene.time : scene.time;
+  const place = prev && scene.place && scene.place === prev.place ? '같은 곳' : scene.place;
+  const weather = prev && scene.weather && scene.weather === prev.weather && day(scene.time) === day(prev.time) ? null : scene.weather;
+  const where = [time, place, weather].filter(Boolean).join(' · ');
   return `${CIRCLED[n] || `(${n + 1})`} ${where ? `${where} — ` : ''}${scene.title}`;
 }
 
@@ -3349,7 +3365,7 @@ function renderScenes(store, firstInside, { maxChars = 9000, maxSummaries = 40, 
     const shown = outside.slice(-maxSummaries);
     const offset = outside.length - shown.length;
     const cast = castOf(store);
-    const blocks = shown.map((s, i) => `${sceneHead(s, offset + i)}: ${s.summary}${memoryNote(s, cast)}`);
+    const blocks = shown.map((s, i) => `${sceneHead(s, offset + i, i ? shown[i - 1] : null)}: ${s.summary}${memoryNote(s, cast)}`);
     const blockIds = shown.map((s) => s.id);
     let used = blocks.join('\n').length;
     // Expand the newest scenes first, as long as the budget holds.
@@ -3400,7 +3416,7 @@ function renderScenes(store, firstInside, { maxChars = 9000, maxSummaries = 40, 
       for (const f of facts) { if (accepted.has(f.id)) continue; const c = fits(f); if (spent + c > factChars) break; accepted.add(f.id); spent += c; }
     }
     for (const f of accepted ? liveFacts(store).filter((x) => accepted.has(x.id)) : facts) {
-      const base = stripAbout(f.text, f.about);
+      const base = wholeSentences(stripAbout(f.text, f.about));
       const when = f.when || store.scenes.find((s) => s.id === f.sceneId)?.time;
       const dated = when && DATED.test(base) && !/\d{2}-\d{1,2}-\d{1,2}/.test(base) ? `${base} (${when.split(/[~·]/)[0].trim()})` : base;
       const marks = group ? [f.unaware?.length ? `모름: ${f.unaware.join('·')}` : null, f.guess?.length ? `짐작만: ${f.guess.join('·')}` : null].filter(Boolean) : [];
@@ -3413,8 +3429,16 @@ function renderScenes(store, firstInside, { maxChars = 9000, maxSummaries = 40, 
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key).push(text);
     }
-    const lines = [...groups].map(([who, list]) => `- ${who}: ${list.join(' / ')}`);
-    out.push(`[알게 된 사실]\n${lines.join('\n')}`);
+    // One fact per line under its person (a long run of " / " is hard to tell apart), and a fact that a "※" line of the
+    // story so far already states exactly is not said twice.
+    const details = flow ? flow.split('\n').filter((l) => /^\s*※/.test(l)).map((l) => l.replace(/^\s*※\s*/, '')) : [];
+    const lines = [];
+    for (const [who, list] of groups) {
+      const kept = list.filter((t) => !details.some((d) => Nb.alike(t, d) >= 0.6));
+      if (!kept.length) continue;
+      lines.push(kept.length === 1 ? `- ${who}: ${kept[0]}` : `- ${who}:\n${kept.map((t) => `  · ${t}`).join('\n')}`);
+    }
+    if (lines.length) out.push(`[알게 된 사실]\n${lines.join('\n')}`);
   }
   return out.join('\n\n');
 }

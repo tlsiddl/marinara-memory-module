@@ -77,9 +77,11 @@ test('ledger: OOC talk is marked; a plan from it is an author\'s plan; nothing e
   assert.equal(r.updated, 1);
   assert.equal(plan.status, 'open', 'a plan is not closed by OOC talk');
   // The reply: labelled as the author's, unknown to the characters, and shown however old.
-  const line = L.renderCompact({ ...ledger, lastNumber: 9999 });
-  assert.ok(line.includes(L.PLAN_LABEL) && line.includes('등대지기의 딸'), line);
-  assert.match(L.render({ ...ledger, lastNumber: 9999 }), /작가 계획\(인물들은 아직 모름/);
+  // Plans have their own block, never among what the characters remember.
+  assert.ok(!L.renderCompact({ ...ledger, lastNumber: 9999 }).includes('등대지기의 딸'));
+  assert.doesNotMatch(L.render({ ...ledger, lastNumber: 9999 }), /등대지기의 딸/);
+  assert.match(L.renderPlans({ ...ledger, lastNumber: 9999 }), /^- 빅터는 등대지기의 딸에게 빚이 있음 — /);
+  assert.equal(plan.toward, null);
 });
 
 test('service: chat messages carry the marks; the library lists them and saves hand-set marks', async () => {
