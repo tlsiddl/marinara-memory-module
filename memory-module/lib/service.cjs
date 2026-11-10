@@ -1824,6 +1824,12 @@ function processChat(chatId, { rebuild = false, reason = 'auto' } = {}) {
         saveLedger(chatId, ledger);
       }
       if (state.rolledBack) log(`chat ${chatId}: message ${state.changedAt + 1} changed, rolled back and re-reading`);
+      const fromOoc = L.tidyOocThreads(ledger, messages);
+      if (fromOoc.planned || fromOoc.closed) {
+        saveLedger(chatId, ledger);
+        recalls.delete(chatId);
+        log(`chat ${chatId}: ${fromOoc.planned} thread(s) from OOC talk made author's plans, ${fromOoc.closed} closed`);
+      }
       const remaining = messages.slice(state.from);
       const batches = remaining.length ? L.planBatches(remaining, REBUILD_BATCH_CHARS) : [];
       job.total = batches.length;
@@ -2782,6 +2788,16 @@ async function fixNoteLanguages(chatId, store, job) {
   // A note in the wrong language, or one that points at a person without naming them ("그 애", "저 녀석").
   for (const scene of store?.scenes || []) for (const n of scene.charNotes || []) if (n.wantLang || n.vague) todo.push(n);
   const people = [...new Set([...S.castOf(store || {}), ...(store?.personas || [])])];
+  // Names left in another script in notes already saved ("세라" in an English note): written the note's way, no call.
+  let renamed = 0;
+  for (const scene of store?.scenes || []) {
+    for (const n of scene.charNotes || []) {
+      const text = Nb.namesInLanguage(n.text, people, Nb.noteLanguage(n.text));
+      const when = n.when ? Nb.namesInLanguage(n.when, people, Nb.noteLanguage(n.when)) : n.when;
+      if (text !== n.text || when !== n.when) { n.text = text; n.when = when; renamed++; }
+    }
+  }
+  if (renamed) { saveScenes(chatId, store); log(`chat ${chatId}: names written in their note's language in ${renamed} notebook note(s)`); }
   if (!todo.length) return 0;
   // Groups of a few notes: one answer that does not line up loses only its own group. Each note is asked at most
   // twice (over runs); after that it stays in the language it was written in.
@@ -2804,8 +2820,9 @@ async function fixNoteLanguages(chatId, store, job) {
     part.forEach((n, j) => {
       const got = lines?.[j];
       if (got) {
-        n.text = got.text;
-        if (got.when) n.when = got.when;
+        // Names in the note's language even when the rewrite left one in another script.
+        n.text = Nb.namesInLanguage(got.text, people, Nb.noteLanguage(got.text));
+        if (got.when) n.when = Nb.namesInLanguage(got.when, people, Nb.noteLanguage(got.when));
         delete n.wantLang;
         done++;
         // Checked again: a rewrite that still names its owner (or points without a name) is asked once more.

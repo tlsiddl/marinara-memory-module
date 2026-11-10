@@ -117,3 +117,26 @@ test('library: 작가 계획 has its own group and pill; the OOC list loads on d
   assert.ok(source.includes("${t.plan ? '작가 계획' : KIND[t.kind] || t.kind}"));
   assert.ok(source.includes('<h2>작가 계획 · ${plans.length}</h2>'));
 });
+
+test('threads opened from OOC talk alone (before OOC was marked): a secret becomes a plan, the rest are closed', () => {
+  const batch = prepared();
+  const ledger = L.emptyLedger();
+  // Opened as if OOC were not marked yet.
+  const plain = batch.map((m) => { const { ooc, ...rest } = m; return rest; });
+  L.applyResult(ledger, { open: [
+    { kind: 'secret', title: '빅터의 빚', who: 'Viktor', unaware: [{ who: 'Mina', why: '모름' }], evidence: [{ n: '7.1', q: '빚이 있다는' }] },
+    { kind: 'pending', title: '빅터의 과거 정하기', who: 'Mina', evidence: [{ n: '5.1', q: '과거를' }] },
+    { kind: 'promise', title: '미나가 부두로 돌아옴', who: 'Mina', evidence: [{ n: '9.1', q: '부두로 걸어갔다' }] },
+  ] }, plain);
+  assert.equal(ledger.threads.length, 3);
+  const r = L.tidyOocThreads(ledger, batch);
+  assert.deepEqual(r, { planned: 1, closed: 1 });
+  const [secret, pending, story] = ledger.threads;
+  assert.equal(secret.plan, true);
+  assert.equal(secret.who, null);
+  assert.deepEqual(secret.unaware, []);
+  assert.equal(pending.status, 'closed');
+  assert.match(pending.closed.how, /OOC/);
+  assert.equal(story.status, 'open', 'a thread from the story stays');
+  assert.deepEqual(L.tidyOocThreads(ledger, batch), { planned: 0, closed: 0 }, 'nothing twice');
+});

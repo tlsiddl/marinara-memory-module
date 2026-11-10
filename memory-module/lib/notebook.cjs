@@ -84,15 +84,46 @@ function timesNamed(text, person) {
 
 /**
  * A note the fix pass rewrites: a pointing word with no name in the note ("그 애", "that girl"), the owner called by
- * their own name or in the third person ("so Viktor should…", "decided to see for himself" in Viktor's notebook), or one
- * name in every clause.
+ * their own name ("so Viktor should…" in Viktor's notebook), or one name in every clause. (himself/herself is not a
+ * sign: in a note it is mostly someone else, "she named herself".)
  */
 function needsNames(text, who, people = []) {
   const others = people.filter((p) => p && p !== who);
   if (vague(text) && !others.some((p) => timesNamed(text, p) > 0)) return true;
   if (timesNamed(text, who) > 0) return true;
-  if (/\b(himself|herself)\b/i.test(text)) return true;
   return others.some((p) => timesNamed(text, p) >= 3);
+}
+
+/** The script a name is written in: 'ko' (Hangul), 'zh' (Han), 'en' (Latin). */
+const scriptOf = (t) => (/[가-힣]/.test(t) ? 'ko' : /[\u3400-\u4dbf\u4e00-\u9fff]/.test(t) ? 'zh' : /[A-Za-z]/.test(t) ? 'en' : null);
+/** A person's name as written in a language, from the room's name table ("Viktor" for 빅터 in English); null if none. */
+function nameIn(person, lang) {
+  return A.formsOf(person).find((f) => scriptOf(f) === lang) || null;
+}
+/**
+ * People's names written in the note's language: "세라" in an English note becomes "Sera" (by the room's name table).
+ * Longer forms first, so "Viktor Hale" is not left as "Viktor 헤일". Names with no form in that language stay.
+ */
+function namesInLanguage(text, people, lang) {
+  let out = String(text || '');
+  if (!lang || !out) return out;
+  const swaps = [];
+  for (const p of people || []) {
+    const target = nameIn(p, lang);
+    if (!target) continue;
+    for (const form of A.formsOf(p)) {
+      if (scriptOf(form) === lang) continue;
+      swaps.push([form, target]);
+      const first = form.split(/\s+/)[0];
+      if (first !== form && first.length >= 2) swaps.push([first, target.split(/\s+/)[0]]);
+    }
+  }
+  swaps.sort((a, b) => b[0].length - a[0].length);
+  for (const [from, to] of swaps) {
+    const e = from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    out = out.replace(new RegExp(/[A-Za-z]/.test(from) ? `\\b${e}\\b` : e, 'g'), () => to);
+  }
+  return out;
 }
 
 /** A long note cut at the end of a sentence within n characters when there is one, else clipped. */
@@ -276,10 +307,19 @@ function cleanNote(raw, { cast = [], personas = [], person = (n) => tidy(n), lan
   // Notes the fix pass rewrites (marked `vague`): a pointing word with no name in the note ("그 애", "that girl"), the
   // owner called by their own name ("so Viktor should…" in Viktor's notebook), or one name in every clause.
   if (needsNames(text, who, [...cast, ...personas])) want.vague = true;
-  const kind = KINDS.includes(raw.kind) ? raw.kind : 'heart';
-  const about = kind === 'about' ? person(tidy(raw.about)) || null : null;
-  if (about === who) return { who, kind: 'heart', ...ctx, text, ...want };
-  return { who, kind, ...(about ? { about } : {}), ...ctx, text, ...want };
+  // A name the model left in another script ("세라" in an English note) is written the note's way.
+  const lang = noteLanguage(text);
+  const fixedText = namesInLanguage(text, [...cast, ...personas], lang);
+  const fixedWhen = ctx.when ? namesInLanguage(ctx.when, [...cast, ...personas], noteLanguage(ctx.when)) : null;
+  if (fixedWhen) ctx.when = fixedWhen;
+  if (fixedText !== text) return finish(fixedText);
+  return finish(text);
+  function finish(t) {
+    const kind = KINDS.includes(raw.kind) ? raw.kind : 'heart';
+    const about = kind === 'about' ? person(tidy(raw.about)) || null : null;
+    if (about === who) return { who, kind: 'heart', ...ctx, text: t, ...want };
+    return { who, kind, ...(about ? { about } : {}), ...ctx, text: t, ...want };
+  }
 }
 
 /* ---------- notes for scenes already made (수첩만 다시 받기) ---------- */
@@ -319,7 +359,7 @@ const NOTE_LANG_PROMPT = `You rewrite a role-play character's private notebook n
 Input: a JSON object {"names":{...},"people":["the story's people"],"notes":[{"who":"the note's owner","aka":["the owner's other names"],"about":"the person it is about","lang":"ko|en|zh","when":"what happened","text":"note"}]}.
 Output: a JSON object {"lines":[{"when":"…","text":"…"}, …]} with exactly one rewritten note per input note, in the same order. "when" is a plain line of what happened (no voice), always in the note's "lang" (rewrite it even when only the text needed fixing); leave it out only when the input has none.
 - Keep the meaning and whose view it is. Write a plain short memo, not the character's speech: no imitation of their way of talking.
-- Write people's names the way "names" gives them; else as the note has them.
+- Write people's names the way "names" gives them; else as the note has them. Names are in the note's "lang": an English note uses the Latin form from "people" (e.g. "Viktor", never "빅터").
 - Name people: a word that only points at someone (그 애, 이 애, 저 녀석, 그 자식, 그녀, that girl, …) becomes that person's name; "about", "when" and "people" tell who it is. Name each person once per note; after that leave the subject out (Korean) or use she/he (English) — do not repeat the name in every clause. The owner ("who", also called by the "aka" names) is never named or called he/she/him/her/his/himself/herself in their own note ("so Viktor should…", "saw for himself" in Viktor's note): leave the subject out (Korean) or write I/me/my/myself (English).
 - Korean ("ko"): a natural Korean memo, ending like "~함", "~라고 느낌", "~하기로 함"; not a word-for-word translation.
 - Same length or shorter. Add nothing.`;
@@ -330,7 +370,7 @@ function buildNoteLanguagePrompt(notes, { names = [], people = [] } = {}) {
   const used = names.filter((n) => text.includes(n.from));
   const input = {
     ...(used.length ? { names: Object.fromEntries(used.map((n) => [n.from, n.to])) } : {}),
-    ...(people.length ? { people } : {}),
+    ...(people.length ? { people: people.map((p) => [...new Set(A.formsOf(p))].join(' / ')) } : {}),
     notes: notes.map((n) => {
       // The owner's other names (an English note says "Viktor" for 빅터): the model must not name them either.
       const aka = A.formsOf(n.who).filter((f) => f !== n.who);
@@ -570,6 +610,6 @@ function view(file) {
 
 module.exports = {
   NOTEBOOK_VERSION, KINDS, KIND_LABEL, TEXT_MAX, PER_PERSON_SCENE, PER_SCENE, PER_PERSON_KEPT, INJECT_CORE, INJECT_RELATED, INJECT_CHARS, PROMPT, WHEN_MAX, NOTE_LEN, NOTE_LEN_LATIN, INJECT_CHARS_LATIN, WHEN_LEN, WHEN_LEN_LATIN, noteLine, shorten,
-  COPIED, languagesOf, langsFor, vague, timesNamed, needsNames, isFact, noteLanguage, priorNotes, sameNote, NOTE_LANG_PROMPT, buildNoteLanguagePrompt, readNoteLanguage, voiceFromScenes, buildRebuildPrompt, userKept,
+  COPIED, languagesOf, langsFor, vague, timesNamed, needsNames, nameIn, namesInLanguage, isFact, noteLanguage, priorNotes, sameNote, NOTE_LANG_PROMPT, buildNoteLanguagePrompt, readNoteLanguage, voiceFromScenes, buildRebuildPrompt, userKept,
   emptyNotebook, isNotebook, voiceSamples, voiceBlock, cleanNote, fold, editNote, starNote, deleteNote, injectionBlock, view, alike,
 };
