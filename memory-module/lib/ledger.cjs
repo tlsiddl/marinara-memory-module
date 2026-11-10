@@ -525,14 +525,17 @@ const TIDY_PROMPT = `너는 장기 롤플레이의 기억 관리자야. 지금 �
 '## 그 뒤 이야기'가 있으면: 각 항목의 '마지막 언급' 번호 뒤에 이어진 장면들의 요약이야. 그 항목이 마지막으로 언급된 뒤 이야기가 어떻게 흘렀는지 보고 판단해.
 - 그 뒤 장면에서 그 일이 이뤄졌거나, 끝났거나, 더 이상 사실이 아니게 됐으면 close에 why "later"로 적고, scene에 그걸 보여 주는 장면 번호를 적어.
   예) 기절한 상태 → 그 뒤 장면에서 깨어나 움직임. 누군가를 찾는 일 → 그 뒤 장면에서 이미 만나 함께 지냄. 비밀 → 숨긴 상대가 그 뒤 장면에서 실제로 알게 됨.
+  '모름'에 적힌 사람이 그 뒤 장면에서 그걸 알고 쓰는 모습(그 이름으로 부름, 그 일을 두고 말함)이 나오면 알게 된 거야.
+  비밀로 적혔어도 실제로는 찾기·확인·쫓기 같은 일이면, 그 일이 끝났을 때(찾음, 확인함, 그만둠) 닫아.
   장면 요약에 드러난 것만 근거로 삼아. 언급이 없다는 것만으로는 닫지 마. 감정은 이걸로 닫지 마.
 - 닫을 정도는 아니지만 그 뒤 장면에서 상황이 달라졌으면(일부만 이뤄짐, 몇 사람만 알게 됨, 방향이 바뀜) update에 적어.
   now는 지금 어떤 상태인지 한 문장(항목과 같은 언어로), scene은 그 변화가 드러난 장면 번호. 이미 '최근'에 적힌 것과 같으면 적지 마. 감정은 적지 마.
+  now에는 그 장면 요약에 드러난 것만 써. 항목의 옛 설명을 옮겨 적지 마. "아직 모른다·아직 안 했다"는 그 뒤 장면에서도 그렇다고 드러날 때만 써.
 
 출력 형식:
 {"close":[{"id":"T3","how":"닫는 이유","why":"done|momentary|later","scene":"S12"}],"merge":[{"keep":"T5","drop":["T9"]}],"update":[{"id":"T7","now":"지금 상태 한 문장","scene":"S14"}]}
 why: done = 약속이나 미해결 일의 기록에 이미 실행·완료가 적혀 있음. momentary = 장면 속 순간 반응이나 그 자리에서 끝난 화제가 잘못 들어감. later = 그 뒤 장면에서 끝났음이 드러남(scene 필수).
-비밀은 '그 뒤 이야기'에서 숨긴 상대가 알게 된 게 드러날 때만 later로 닫아. 그 밖에는 점검에서 닫지 마.
+비밀은 '그 뒤 이야기'에서 숨긴 상대가 알게 된 게 드러나거나, 비밀이 아니라 찾기·확인 같은 일이고 그 일이 끝났을 때만 later로 닫아. 그 밖에는 점검에서 닫지 마.
 바꿀 게 없으면 {"close":[],"merge":[],"update":[]}.`;
 
 const FEELING_PROMPT = `너는 장기 롤플레이의 기억 관리자야. 아직 열려 있는 감정마다, 그 뒤 이야기에서 풀렸는지 판단해.
@@ -1217,10 +1220,10 @@ function buildTidyPrompt(ledger, recent = [], { after = [] } = {}) {
   const parts = ['## 열린 항목'];
   for (const t of open) {
     const origin = t.evidence[0]?.text ? ` | 처음 원문: "${shortQuote(t.evidence[0].text, 120)}"` : '';
-    const seen = after.length ? ` | 마지막 언급: ${lastSeen(t)}번` : '';
+    const seen = after.length ? ` | 마지막 언급: ${lastMentioned(t)}번` : '';
     parts.push(`${describeThread(t, ledger.storyDate)}${t.since ? ` | 시작: ${t.since}` : ''}${seen}${origin}`);
   }
-  const earliest = Math.min(...open.map(lastSeen));
+  const earliest = Math.min(...open.map(lastMentioned));
   const later = after.filter((x) => x.end > earliest);
   if (later.length) {
     parts.push('', '## 그 뒤 이야기 (오래된 순, 번호는 메시지 번호)');
@@ -1243,7 +1246,7 @@ function applyTidy(ledger, result, now = new Date().toISOString(), { strictClose
   const steps = new Map(after.map((x) => [String(x.id).toUpperCase(), x]));
   const stepAfter = (thread, id) => {
     const step = steps.get(String(id || '').trim().toUpperCase());
-    return step && thread && step.end > lastSeen(thread) ? step : null;
+    return step && thread && step.end > lastMentioned(thread) ? step : null;
   };
   if (!result || typeof result !== 'object') return { ...stats, invalid: true };
   const byId = new Map(ledger.threads.map((t) => [t.id, t]));
@@ -1293,14 +1296,18 @@ function applyTidy(ledger, result, now = new Date().toISOString(), { strictClose
     stats.closed++;
   }
   // How an item went on after its last mention: the scene that shows it becomes its "최근" line.
+  const lined = new Set();
   for (const item of Array.isArray(result.update) ? result.update : []) {
     const thread = openThread(item?.id);
     const step = thread?.kind !== 'emotion' ? stepAfter(thread, item?.scene) : null;
     const text = cleanText(item?.now, 200);
-    if (!step || !text || hedged(text) || text === thread.latest?.text) {
+    // One line per item per check: the one from the latest scene (several answers for one item are not stacked).
+    if (!step || !text || hedged(text) || text === thread.latest?.text || (lined.has(thread.id) && thread.latest.number >= step.end)) {
       stats.dropped++;
       continue;
     }
+    if (lined.has(thread.id)) stats.updated--;
+    lined.add(thread.id);
     thread.latest = { text, at: step.time || null, number: step.end, scene: step.id };
     thread.updatedAt = now;
     stats.updated++;
@@ -2185,6 +2192,14 @@ function lastSeen(t) {
   return numbers.length ? Math.max(...numbers) : t.openedAt?.number ?? 0;
 }
 
+/**
+ * The last message where the story itself brought this thread up: a "최근" line the ledger check wrote from a later
+ * scene does not count, so the next check still sees every scene since (and can correct or close it from them).
+ */
+function lastMentioned(t) {
+  return t.latest?.scene ? lastSeen({ ...t, latest: null }) : lastSeen(t);
+}
+
 // A feeling nobody has touched for this many messages has faded. It stays in the ledger, out of the prompt.
 // Promises and secrets do not fade: a promise made 500 turns ago is still a promise.
 const FEELING_FADES_AFTER = 120;
@@ -2507,6 +2522,7 @@ module.exports = {
   render,
   faded,
   lastSeen,
+  lastMentioned,
   SYSTEM_PROMPT, SYSTEM_PROMPT_NO_ROUTINE, markRoutineGap, trimRoutineGaps, matchName, nameKeys, htmlToText, canonNames };
 
 

@@ -1574,7 +1574,10 @@ async function reconcileMealDisplays(chatId, ledger, model, job) {
   return saved;
 }
 
-const TIDY_STEP_CHARS = 320;
+// A scene's summary is kept under 600 when made; a chapter tells up to twenty scenes, so it gets its whole summary and
+// its turning points (cut short, the check could not see what happened early on and kept old items open).
+const TIDY_STEP_CHARS = 600;
+const TIDY_CHAPTER_CHARS = 2000;
 
 /**
  * How the story went on, for the ledger check: one line per chapter (for the scenes it holds) and per later scene,
@@ -1586,12 +1589,14 @@ function tidySteps(store, upTo = Infinity) {
   const byId = new Map(store.scenes.map((s) => [s.id, s]));
   const chaptered = new Set();
   const out = [];
-  const clip = (s) => (s.length > TIDY_STEP_CHARS ? `${s.slice(0, TIDY_STEP_CHARS - 1)}…` : s);
+  const clip = (s, max = TIDY_STEP_CHARS) => (s.length > max ? `${s.slice(0, max - 1)}…` : s);
   for (const c of (store.chapters || []).filter((x) => !x.stale)) {
     const held = c.scenes.map((id) => byId.get(id)).filter(Boolean);
     if (!held.length) continue;
     for (const s of held) chaptered.add(s.id);
-    out.push({ id: c.id, start: held[0].start, end: held.at(-1).end, time: held.at(-1).time || null, line: clip(`${c.title}: ${c.summary}`) });
+    const turns = (c.turns || []).filter(Boolean);
+    const line = `${c.title}: ${c.summary}${turns.length ? ` | 결정적인 일: ${turns.join(' / ')}` : ''}`;
+    out.push({ id: c.id, start: held[0].start, end: held.at(-1).end, time: held.at(-1).time || null, line: clip(line, TIDY_CHAPTER_CHARS) });
   }
   for (const s of store.scenes) {
     if (chaptered.has(s.id) || !S.isStoryScene(s)) continue;
