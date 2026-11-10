@@ -448,6 +448,8 @@ const isFact = (note, facts) => (facts || []).some((f) => f && sameNote(note, f)
 const sameNote = (a, b) => alike(a, b) >= (latin(a) && latin(b) ? 0.5 : 0.6);
 /** A note that is a sentence of the story with little changed (tense, person): not the character's own words. */
 const COPIED = 0.75;
+/** Two notes this close say the same kind of thing: only one of them goes into the reply. */
+const NEAR_NOTE = 0.45;
 
 /**
  * The notes as they stand: every scene's notes in story order, the same thought written again replacing the older one,
@@ -551,7 +553,7 @@ const noteLine = (n) => (n.when ? `(${n.when}) ${n.text}` : n.text);
  * talk now — `related` ([{ id, z }], best first, from meaning search) when the room has an embedding model, else the
  * notes that share the most character pairs with `query`. Within `max` characters. Empty when nobody here has notes.
  */
-function injectionBlock(file, present, { query = '', related = null, max = null } = {}) {
+function injectionBlock(file, present, { query = '', related = null, max = null, before = null } = {}) {
   if (!isNotebook(file) || !(file.notes || []).length) return '';
   // Mostly English or Chinese notes: more letters for the same tokens.
   max ||= file.notes.filter((n) => !isKorean(n.text)).length > file.notes.length / 2 ? INJECT_CHARS_LATIN : INJECT_CHARS;
@@ -568,8 +570,18 @@ function injectionBlock(file, present, { query = '', related = null, max = null 
   for (const who of here) {
     const list = file.notes.filter((n) => A.canonical(n.who) === who);
     if (!list.length) continue;
-    const core = list.map((n, i) => ({ n, i })).sort((a, b) => (b.n.star ? 1 : 0) - (a.n.star ? 1 : 0) || b.i - a.i).slice(0, INJECT_CORE).map((x) => x.n);
-    const rest = list.filter((n) => !core.includes(n));
+    // Core: ★ first, then the newest notes from scenes before the recent messages (the reply model reads those
+    // messages itself; their notes would only say again what it sees), then the rest. A note close to one already
+    // taken is skipped, so three notes are three different things.
+    const outside = (n) => before == null || !Number.isFinite(n.number) || n.number < before;
+    const order = list.map((n, i) => ({ n, i })).sort((a, b) => (b.n.star ? 1 : 0) - (a.n.star ? 1 : 0) || (outside(b.n) ? 1 : 0) - (outside(a.n) ? 1 : 0) || b.i - a.i).map((x) => x.n);
+    const core = [];
+    for (const n of order) {
+      if (core.length >= INJECT_CORE) break;
+      if (!n.star && core.some((c) => alike(c.text, n.text) >= NEAR_NOTE)) continue;
+      core.push(n);
+    }
+    const rest = list.filter((n) => !core.includes(n) && !core.some((c) => alike(c.text, n.text) >= NEAR_NOTE));
     const fit = rank
       // By meaning: this person's notes clearly above this question's average, closest first.
       ? rest.filter((n) => rank.has(n.id) && rank.get(n.id).z >= 0.5).sort((a, b) => rank.get(a.id).i - rank.get(b.id).i)
@@ -577,7 +589,7 @@ function injectionBlock(file, present, { query = '', related = null, max = null 
     parts.push({ who, core: core.map(noteLine), now: fit.slice(0, INJECT_RELATED).map(noteLine) });
   }
   if (!parts.length) return '';
-  const head = '[수첩] (각 인물만 아는 속마음과 눈여겨본 것. 다른 인물은 모름. 자연스러울 때만 말과 행동에 묻어나게.)';
+  const head = '[수첩] (각 인물이 혼자 정해 둔 대하는 법과 속마음·다짐. 그 인물만 알고 다른 인물은 모름. 말로 꺼내지 말고 그 인물의 선택과 행동에 묻어나게.)';
   let line = head;
   for (const p of parts) {
     let piece = ` ${p.who}:`;

@@ -522,7 +522,9 @@ function forBranch(file, store) {
 
 /** The words a tracker gives the reply model: "하린·세아 사귄 지 3일째", "하린 발정기: 진행 중 (2/5일째)". */
 function entryText(item, status) {
-  const who = item.scope !== 'room' && item.people.length ? `${item.people.join('·')} ` : '';
+  // "빅터 만난 지" already names Viktor: no "빅터 헤일 빅터 만난 지".
+  const named = item.people.some((p) => String(item.label || '').includes(String(p).split(/\s+/)[0]));
+  const who = item.scope !== 'room' && item.people.length && !named ? `${item.people.join('·')} ` : '';
   return item.type === 'cycle' ? `${who}${item.label}: ${status.short}` : `${who}${item.label} ${status.short}`;
 }
 

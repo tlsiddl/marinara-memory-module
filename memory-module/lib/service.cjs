@@ -2524,10 +2524,31 @@ const RECALL_STYLES = {
   },
 };
 
-/** The header's line about daily life, left out with it when it is off for the room. */
-const ROUTINE_HEADER_NOTE = '"최근 생활" says when each person last ate, washed and slept: keep daily life believable, and do not repeat a meal or bath that just happened unless the story calls for it. ';
+/**
+ * The note about each kind of section, said only when that section is in the memory. The headings are written as they
+ * are in the Korean source; renderLedger turns them into the memory's language with the sections themselves.
+ */
+const SECTION_NOTES = [
+  ['[지난 이야기 흐름]', '"[지난 이야기 흐름]" runs from the oldest part of the story (A…, then chapters C…); "… 줄임" stands for a stretch left out. "※" lines are details that must stay exact (dates, deadlines, conditions). '],
+  ['남은 기억', 'A character marked as not remembering a scene does not know what happened in it; one who remembers it only dimly holds just what "남은 기억" says, though "그때" records what they really said and did. '],
+  ['[최근 생활]', '"[최근 생활]" says when each person last ate, washed and slept: keep daily life believable, and do not repeat a meal or bath that just happened. '],
+  ['[수첩]', '"[수첩]" is what one character privately decided or feels; only that character knows it. Let it show in what they choose and do, never as a speech. '],
+  ['[작가 계획]', '"[작가 계획]" is where the author means the story to go. No character knows it: never let anyone say, hint at or guess it as knowledge. Do not hurry it; only when a scene already moves that way may a small detail point toward it. '],
+  ['[지금 상태]', '"[지금 상태]" is how the people here are right now. '],
+  ['[장소]', '"[장소]" is the place of this scene as it is now. '],
+  ['[소중한 물건]', '"[소중한 물건]" are things the people here keep and what they mean. '],
+  ['[호칭]', '"[호칭]" is how people address each other. '],
+  ['[기록]', '"[기록]" counts days from dates the user tracks. '],
+];
+/** Kept for older callers: the daily-life note (said only when "[최근 생활]" is in the memory). */
+const ROUTINE_HEADER_NOTE = SECTION_NOTES.find(([k]) => k === '[최근 생활]')[1];
 
-function memoryHeader(style) {
+/**
+ * The instructions at the top: what the memory is and how to use it, and a short note for each kind of section that
+ * is actually in `body` (no rule about a section that is not there).
+ */
+function memoryHeader(style, body = null) {
+  const notes = SECTION_NOTES.filter(([key]) => body == null || body.includes(key)).map(([, note]) => note).join('');
   return (
     '[Memory: what the characters remember from earlier in this story, beyond the recent messages. ' +
     'This is background the characters already carry, not material to retell: the reader has already read all of it. ' +
@@ -2538,17 +2559,12 @@ function memoryHeader(style) {
     'Mention them again only to answer an explicit question or requested correction, address a new development that changes their meaning, or support a decision that directly needs that detail now; use only the necessary part. ' +
     'Scope a request to repeat or correct something to the specific answer the user asked to hear again. Correct or restate that answer only; do not replay its already explained background, origin story or supporting anecdote in narration, inner thoughts or dialogue. ' +
     'Unless the user explicitly asks to revisit that past event itself, respond to the present request without reconstructing the event to justify the answer. A connection to the past can remain implicit in tone, familiarity, choices and reactions. ' +
-    'Do not repeatedly use the same remembered fact as the same rationale for similar advice or care. Keep continuity implicit in a new reaction or action instead. ' +
+    'Do not repeatedly use the same remembered fact as the same rationale for similar advice or care. ' +
     'When recalling an established event, preserve its dates, elapsed time, counts and circumstances; do not reconstruct or embellish them. ' +
-    'Quoted lines are verbatim from the story. ' +
-    'A character marked as not remembering a scene does not know what happened in it; one marked as remembering it only dimly holds just what "남은 기억" says, ' +
-    'even though "그때" records what they really said and did. Others may remind them. ' +
+    'Quoted lines are verbatim from the story, shortened for memory; keep writing the story in its own usual format. ' +
     'Each character knows only what they saw, heard or were told: "모름: X" or "자리에 없어 모름" means X does not know it — X must not mention it, hint at it or act on it until X learns it in the story, even while others who know it are in the same scene. "짐작만: X" means X suspects it without the details. ' +
-    'Lines are quoted here in a short form for memory only; keep writing the story in its own usual format. ' +
-    ROUTINE_HEADER_NOTE +
-    '"[지난 이야기 흐름]" starts with the oldest parts of the story (A1, A2 …, each covering many chapters) and goes on with chapters (C…); a line "… 줄임" stands for a stretch left out for length. ' +
-    '"※" lines under a chapter are details that must stay exact (dates, deadlines, conditions). ' +
-    'The weather by a scene is how that day was: a character may recall it naturally ("the night it rained") when that scene comes to mind, but do not bring weather up for its own sake.]'
+    notes +
+    'The weather by a scene is how that day was; do not bring weather up for its own sake.]'
   );
 }
 
@@ -3026,6 +3042,13 @@ function renderLedger(chatId) {
       if (smaller) text = T.translateText(smaller, target, lookup).text;
     }
   }
+  // The section headings the header names, in the memory's language like the sections themselves.
+  const head = text.indexOf('\n\n');
+  if (head > 0) {
+    let top = text.slice(0, head);
+    for (const [ko, other] of Object.entries(T.STATIC[target] || {})) if (/^\[/.test(ko)) top = top.split(`"${ko}"`).join(`"${other}"`);
+    text = top + text.slice(head);
+  }
   if (target === 'zh') {
     return text.replace(/\]\n\n/, ' Labels in Chinese: "不知道" = does not know, "仅猜测" = suspects without the details, "记得" = what is still remembered, "当时" = what they did and felt at the time, "※" lines = details that must stay exact.]\n\n');
   }
@@ -3048,11 +3071,13 @@ function renderMemorySource(chatId, maxChars = MEMORY_MAX_CHARS, trace = null) {
   const prefs = activePrefs(chatId, scenes);
   const only = (letter) => new Set([...prefs.pinned].filter((id) => id[0] === letter));
   const open = ledger ? L.renderCompact(ledger, { query, today, exclude: prefs.excluded, pin: prefs.pinned, trace: trace ? (trace.threads = []) : null }) : '';
+  const plans = ledger ? L.renderPlans(ledger, { exclude: prefs.excluded }) : '';
   const routineOn = routineEnabled(chatId);
   const routine = ledger && routineOn ? L.renderRoutine(ledger, storyNow.get(chatId) || ledger.storyTime || null) : '';
-  const fixed = [open ? `[아직 끝나지 않은 일]\n${open}` : '', routine].filter(Boolean);
+  const fixed = [open ? `[아직 끝나지 않은 일]\n${open}` : '', plans ? `[작가 계획]\n${plans}` : '', routine].filter(Boolean);
   const style = settings().recallStyle;
-  const header = routineOn ? memoryHeader(style) : memoryHeader(style).replace(ROUTINE_HEADER_NOTE, '');
+  // The full header (every section note) is what the room is planned against; the one sent names only what is there.
+  const header = memoryHeader(style);
   const footer = memoryFooter(style);
   let room = maxChars - header.length - footer.length - 40;
   // What is still open and daily life come first; if even they are too long, their oldest lines go.
@@ -3128,7 +3153,8 @@ function renderMemorySource(chatId, maxChars = MEMORY_MAX_CHARS, trace = null) {
     if (featureOn(chatId, 'notebook')) {
       // The notes that fit the talk now: by meaning when the turn's recall found some, else by shared words.
       const related = recalls.get(chatId)?.notes;
-      try { now.push(A.using(chatId, () => Nb.injectionBlock(loadNotebook(chatId), lastScenePeople(scenes), { query: turnQuery.get(chatId) || '', related: Array.isArray(related) && related.length ? related : null }))); } catch {}
+      const before = windows.get(chatId) ?? scenes.window?.firstInside ?? null;
+      try { now.push(A.using(chatId, () => Nb.injectionBlock(loadNotebook(chatId), lastScenePeople(scenes), { query: turnQuery.get(chatId) || '', related: Array.isArray(related) && related.length ? related : null, before }))); } catch {}
     }
   }
   // The user's date and cycle trackers (one short line; nothing while the feature is off).
@@ -3136,7 +3162,9 @@ function renderMemorySource(chatId, maxChars = MEMORY_MAX_CHARS, trace = null) {
     try { now.push(A.using(chatId, () => Tk.injectionBlock(loadTrackers(chatId), { present: scenes ? lastScenePeople(scenes) : [], story: today }))); } catch {}
   }
   const parts = [...story, calls, ...now, ...fixed].filter(Boolean);
-  return parts.length ? `${header}\n\n${parts.join('\n\n')}\n\n${footer}` : '';
+  if (!parts.length) return '';
+  const body = parts.join('\n\n');
+  return `${memoryHeader(style, body)}\n\n${body}\n\n${footer}`;
 }
 
 /**

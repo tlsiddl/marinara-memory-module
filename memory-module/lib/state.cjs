@@ -19,20 +19,34 @@ const STATE_VERSION = 1;
 const SCALARS = ['location', 'outfit', 'mood', 'other'];
 const LISTS = ['injuries', 'carrying'];
 const FIELDS = [...SCALARS, ...LISTS];
-const SCALAR_MAX = { location: 40, outfit: 60, mood: 30, other: 60 };
+const SCALAR_MAX = { location: 60, outfit: 80, mood: 40, other: 60 };
 const LIST_CAP = { injuries: 8, carrying: 10 };
-const ITEM_MAX = 30;
+const ITEM_MAX = 50;
+/**
+ * An injury or symptom stays on the card while it is recent: from the person's latest story day, or among their last
+ * INJURY_ENTRIES state changes when the scenes have no dates. One that lasts by nature (a cast, stitches, a scar, a
+ * burn…) stays until it is healed. A cramp, a faint or nausea from yesterday is not "now".
+ */
+const INJURY_ENTRIES = 4;
+const LASTING = /골절|부러|깁스|붕대|꿰맨|봉합|흉터|화상|흉|임신|실명|절단|fractur|broken|cast\b|stitch|scar|burn|bandag|sling|pregnan|blind|amputat/i;
+const dayOf = (time) => String(time || '').match(/\d{2,4}-\d{1,2}-\d{1,2}/)?.[0] || null;
 const PER_SCENE_ITEMS = 4;
 const EVIDENCE_KEEP = 6;
 const MAX_CARDS = 60;
 /** The most the injected "[지금 상태]" line may take. */
-const INJECT_CHARS = 200;
+const INJECT_CHARS = 320;
 
 const tidy = (s) => String(s ?? '').normalize('NFC').replace(/\s+/g, ' ').trim();
 const clip = (s, max) => {
   const t = tidy(s);
   if (!t || /^(null|none|없음|미상|해당 없음)$/i.test(t)) return '';
-  return t.slice(0, max);
+  if (t.length <= max) return t;
+  let cut = t.slice(0, max);
+  const space = cut.lastIndexOf(' ');
+  if (space > max * 0.6) cut = cut.slice(0, space);
+  // No dangling little word at the end ("leg cramps after jumping from").
+  while (/\s(?:from|of|to|with|and|or|the|a|an|after|before|by|in|on|at|for|into|under)$/i.test(cut)) cut = cut.replace(/\s\S+$/, '');
+  return cut.replace(/[\s,;:·/-]+$/, '');
 };
 /** What two spellings of one place or item share: case, spaces and punctuation aside. */
 const keyOf = (s) => tidy(s).toLowerCase().replace(/[\s.,!?'"“”‘’·~\-_()[\]]/g, '');
@@ -116,7 +130,7 @@ function fold(store, previous) {
   const old = isState(previous) ? previous : emptyState();
   const auto = new Map();
   const touch = (name) => {
-    if (!auto.has(name)) auto.set(name, { name, injuries: [], carrying: [], evidence: [], asOf: null });
+    if (!auto.has(name)) auto.set(name, { name, injuries: [], carrying: [], evidence: [], asOf: null, injuryAt: new Map(), entries: 0, day: null });
     return auto.get(name);
   };
   for (const scene of store?.scenes || []) {
@@ -126,11 +140,27 @@ function fold(store, previous) {
       const card = touch(name);
       for (const f of SCALARS) if (entry[f]) card[f] = entry[f];
       card.injuries = applyList(card.injuries, entry.injuries?.add || [], entry.injuries?.heal || [], LIST_CAP.injuries);
+      card.entries++;
+      card.day = dayOf(scene.time) || card.day;
+      for (const a of entry.injuries?.add || []) card.injuryAt.set(keyOf(a), { entry: card.entries, day: dayOf(scene.time) });
       card.carrying = applyList(card.carrying, entry.carrying?.gain || [], entry.carrying?.lose || [], LIST_CAP.carrying);
       const marks = (entry.evidence || []).filter((e) => Number.isFinite(e?.number)).map((e) => ({ scene: scene.id, number: e.number, sentence: e.sentence }));
       card.evidence = [...card.evidence, ...marks].slice(-EVIDENCE_KEEP);
       card.asOf = { scene: scene.id, number: marks.length ? Math.max(...marks.map((m) => m.number)) : Number.isFinite(scene.end) ? scene.end : 0 };
     }
+  }
+  // Injuries that are not recent any more are left off (lasting ones stay until healed).
+  for (const card of auto.values()) {
+    card.injuries = card.injuries.filter((x) => {
+      if (LASTING.test(x)) return true;
+      const at = card.injuryAt.get(keyOf(x));
+      if (!at) return true;
+      if (at.day && card.day) return at.day === card.day;
+      return card.entries - at.entry < INJURY_ENTRIES;
+    });
+    delete card.injuryAt;
+    delete card.entries;
+    delete card.day;
   }
   const users = new Map();
   for (const c of old.cards) {

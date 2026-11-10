@@ -158,7 +158,7 @@ test('fold: the same thought written again replaces the older one; edits, stars 
 
 test('reply: the people in the scene only; three core notes (★ first, then the newest) and up to three that fit the talk', () => {
   const notes = [
-    ...Array.from({ length: 6 }, (_, i) => ({ id: `n${i}`, who: '빅터', kind: 'heart', text: `빅터 메모 ${i}.` })),
+    ...['바다 냄새가 싫음.', '선장을 믿지 않기로 함.', '창고 열쇠를 숨겨 둠.', '항구 빚을 갚을 때까지 버팀.', '비 오는 날엔 일찍 들어가기로 함.', '총은 늘 왼쪽 서랍에.'].map((text, i) => ({ id: `n${i}`, who: '빅터', kind: 'heart', text })),
     { id: 'star', who: '빅터', kind: 'heart', text: '세라를 지킨다.', star: true },
     { id: 's1', who: '세라', kind: 'about', text: '빅터는 거짓말할 때 귀를 만진다.' },
     { id: 'm1', who: '마르코', kind: 'heart', text: '자리에 없음.' },
@@ -166,14 +166,25 @@ test('reply: the people in the scene only; three core notes (★ first, then the
   // By meaning: the matches above this question's average go in, closest first; a weak one does not.
   const related = [{ id: 'n1', z: 2.1 }, { id: 'n0', z: 1.3 }, { id: 'n2', z: 0.2 }, { id: 'n5', z: 3 }];
   const line = Nb.injectionBlock({ ...Nb.emptyNotebook(), notes }, ['빅터', '세라'], { related });
-  assert.match(line, /^\[수첩\] \(각 인물만 아는/);
-  assert.match(line, /빅터: 세라를 지킨다\. \/ 빅터 메모 5\. \/ 빅터 메모 4\. \(지금 떠오르는 것: 빅터 메모 1\. \/ 빅터 메모 0\.\)/, 'core: ★ then newest; then the matches not already in');
-  assert.doesNotMatch(line, /빅터 메모 2/);
+  assert.match(line, /^\[수첩\] \(각 인물이 혼자 정해 둔 대하는 법과 속마음·다짐/);
+  assert.match(line, /빅터: 세라를 지킨다\. \/ 총은 늘 왼쪽 서랍에\. \/ 비 오는 날엔 일찍 들어가기로 함\. \(지금 떠오르는 것: 선장을 믿지 않기로 함\. \/ 바다 냄새가 싫음\.\)/, 'core: ★ then newest; then the matches not already in');
+  assert.doesNotMatch(line, /창고 열쇠/);
   // Without meaning search: the notes that share words with the talk now.
   const byWords = Nb.injectionBlock({ ...Nb.emptyNotebook(), notes: [...notes, { id: 'w', who: '빅터', kind: 'about', text: '세라는 체리를 좋아한다.' }, { id: 'x', who: '빅터', kind: 'heart', text: '아무 상관 없는 메모.' }, { id: 'y', who: '빅터', kind: 'heart', text: '최근 메모 하나.' }, { id: 'z', who: '빅터', kind: 'heart', text: '최근 메모 둘.' }] }, ['빅터'], { query: '체리 좋아해?' });
   assert.match(byWords, /지금 떠오르는 것: 세라는 체리를 좋아한다\./);
   const line2 = Nb.injectionBlock({ ...Nb.emptyNotebook(), notes }, ['빅터', '세라']);
-  assert.equal((line2.match(/빅터 메모/g) || []).length, 2, 'no matches: the three core notes only');
+  assert.match(line2, /빅터: 세라를 지킨다\. \/ 총은 늘 왼쪽 서랍에\. \/ 비 오는 날엔 일찍 들어가기로 함\. ·/, 'no matches: the three core notes only');
+  // Core notes from scenes before the recent messages first (the model reads the recent ones itself), and a note
+  // close to one already taken is skipped.
+  const dated = [
+    { id: 'o1', who: '빅터', kind: 'heart', text: '등대 열쇠는 내가 갖고 있기로 함.', number: 10 },
+    { id: 'o2', who: '빅터', kind: 'heart', text: '선장에게 빚진 걸 잊지 않음.', number: 20 },
+    { id: 'r1', who: '빅터', kind: 'heart', text: '세라를 더 몰아붙이지 않기로 함.', number: 90 },
+    { id: 'r2', who: '빅터', kind: 'heart', text: '세라를 더는 몰아붙이지 않기로 함!', number: 95 },
+  ];
+  const recent = Nb.injectionBlock({ ...Nb.emptyNotebook(), notes: dated }, ['빅터'], { before: 80 });
+  assert.match(recent, /빅터: 선장에게 빚진 걸 잊지 않음\. \/ 등대 열쇠는 내가 갖고 있기로 함\. \/ 세라를 더는 몰아붙이지 않기로 함!/);
+  assert.doesNotMatch(recent, /세라를 더 몰아붙이지 않기로 함\./, 'near repeat left out');
   assert.match(line, /세라: 빅터는 거짓말할 때 귀를 만진다\./);
   assert.doesNotMatch(line, /마르코/);
   assert.equal(Nb.injectionBlock({ ...Nb.emptyNotebook(), notes }, ['미나']), '');
@@ -349,9 +360,11 @@ test('English notes get English room: a 25-word note is kept whole, and the repl
   // The reply block: English notes have a larger letter budget than Korean ones.
   // Three people in the scene, three core notes each.
   const people = ['Viktor', 'Sera', 'Marco'];
-  const many = (text) => ({ ...Nb.emptyNotebook(), notes: people.flatMap((who) => Array.from({ length: 3 }, (_, i) => ({ id: `${who}${i}`, who, kind: 'heart', when: 'When the rain started at the pier at night', text: `${i} ${text}` }))) });
+  const twist = ['', ' Then the lighthouse went dark and nobody came.', ' Marco swore the ledger was burned before dawn.'];
+  const many = (text) => ({ ...Nb.emptyNotebook(), notes: people.flatMap((who) => Array.from({ length: 3 }, (_, i) => ({ id: `${who}${i}`, who, kind: 'heart', when: 'When the rain started at the pier at night', text: i ? `${twist[i].trim()} ${['Owes a debt to the harbour master.', 'Keeps the key under the third plank.'][i - 1]}` : text }))) });
   const enLine = Nb.injectionBlock(many(en), people);
-  assert.ok(enLine.length > Nb.INJECT_CHARS && enLine.length <= Nb.INJECT_CHARS_LATIN, String(enLine.length));
+  assert.ok(enLine.length <= Nb.INJECT_CHARS_LATIN, String(enLine.length));
+  assert.equal((enLine.match(/When the rain started/g) || []).length, 9, 'every core note of the three people fits');
   assert.ok(Nb.injectionBlock(many(ko), people).length <= Nb.INJECT_CHARS);
   assert.match(Nb.PROMPT, /영어는 25단어 안팎/);
 });

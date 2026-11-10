@@ -214,7 +214,7 @@ test('injection line: only the people present, a state per person, within the ca
   assert.equal(St.injectionBlock(null, [HARIN]), '');
   const big = storeOf(sc('S1', 3, { state: cast.map((n) => st(n, { location: '아주 넓은 대리석 로비의 한가운데', outfit: '금색 단추가 달린 짙은 남색 정장', injuries: { add: ['오른쪽 무릎 찰과상', '왼쪽 손목 염좌'] }, carrying: { gain: ['가죽 서류 가방', '접이식 우산'] }, mood: '초조함' })) }));
   const line = St.injectionBlock(St.fold(big, null), cast);
-  assert.ok(line.length <= 200, `${line.length}: ${line}`);
+  assert.ok(line.length <= St.INJECT_CHARS, `${line.length}: ${line}`);
   assert.ok(line.startsWith('[지금 상태] 하린: 아주 넓은'), line);
   assert.equal(T.planLines(line, 'en')[0].kind, 'keep', 'never sent for translation');
   assert.equal(T.planLines('[장소] 집무실: 통유리 너머 항구', 'en')[0].kind, 'keep');

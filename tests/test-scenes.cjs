@@ -152,7 +152,8 @@ test('facts: the name is not repeated, a changed fact replaces the old one, and 
   assert.equal(applied.facts[0].text, '몸살기 때 기억을 잃는다');
   S.commitScenes(store, applied);
   const text = S.renderScenes(store, 7);
-  assert.match(text, /\[알게 된 사실\]\n- 서아: 몸살기 때 기억을 잃는다 \/ 문을 이미 열었다\./);
+  // One fact per line under its person.
+  assert.match(text, /\[알게 된 사실\]\n- 서아:\n  · 몸살기 때 기억을 잃는다\n  · 문을 이미 열었다\./);
   assert.doesNotMatch(text, /문신에 묶여/);
   S.reconcileScenes(store, L.prepareMessages(chat.map((m) => (m.id === 'u3' ? { ...m, content: '바뀜.' } : m))));
   assert.match(S.renderScenes(store, 7), /문신에 묶여 있다/);
