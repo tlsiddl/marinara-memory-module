@@ -287,6 +287,52 @@ function prepareMessages(rows) {
   });
 }
 
+/* ---------- OOC: talk outside the story ---------- */
+
+/** A message that opens with an OOC mark: "OOC", "Ooc.", "(OOC:", "[ooc]", "((". */
+const OOC_START = /^\s*[([{<]*\s*(?:ooc|o\.o\.c\.?)(?![a-z])|^\s*\(\(/i;
+const OOC_REPLY = /RP를?\s*(?:잠시\s*)?(?:멈추|중단)|롤플(?:레이)?를?\s*(?:잠시\s*)?(?:멈추|중단)|\bOOC\b|out of character/i;
+/**
+ * A reply that answers out of the story: it says so near its start, or it is written as notes (headings, 📌, ---,
+ * bold list items) — a story reply rarely has two such marks.
+ */
+function looksOocReply(content) {
+  const t = String(content || '');
+  if (OOC_START.test(t) || OOC_REPLY.test(t.slice(0, 300))) return true;
+  return (t.match(/^(?:#{1,4}\s|---\s*$|.*📌|\s*[-*]\s+\*\*|\s*\d+[.)]\s+\*\*)/gm) || []).length >= 2;
+}
+/** A user line that goes on with an OOC talk: short, and no dialogue in it. */
+const looksOocFollowUp = (content) => { const t = String(content || '').trim(); return t.length <= 400 && !/["“”「」『』]/.test(t); };
+
+/**
+ * Marks messages that are talk outside the story (m.ooc = true): a user message with an OOC mark; the reply to it when
+ * the reply also answers out of the story (an OOC direction like "OOC: she sleeps for hours" gets a story reply, which
+ * stays story); and, while such a talk goes on, the short dialogue-free user lines and the replies that still answer
+ * out of the story. overrides: { messageId: true | false } set by hand in the library win.
+ */
+function markOoc(messages, overrides = {}) {
+  let talk = false;
+  let asked = false;
+  for (const m of messages) {
+    const set = overrides?.[m.id];
+    let ooc;
+    if (m.role === 'user') {
+      ooc = OOC_START.test(m.content) || (talk && looksOocFollowUp(m.content));
+      if (typeof set === 'boolean') ooc = set;
+      asked = ooc;
+      if (!ooc) talk = false;
+    } else {
+      ooc = asked ? looksOocReply(m.content) : OOC_START.test(m.content);
+      if (typeof set === 'boolean') ooc = set;
+      talk = ooc;
+      asked = false;
+    }
+    if (ooc) m.ooc = true;
+    else delete m.ooc;
+  }
+  return messages;
+}
+
 function messageChars(message) {
   return message.sentences.reduce((sum, s) => sum + s.length + 8, 0) + 20;
 }
@@ -381,6 +427,11 @@ const SYSTEM_PROMPT = `너는 장기 롤플레이의 기억 관리자야. 새 �
   원문에 "짐작은 갔다", "눈치챘다"처럼 나오면 모르는 게 아니야. 자세히는 모르고 짐작만 하면 {"who":"하준","why":"숨겼지만 짐작은 함","guess":true}.
 - 장부 항목에 '모름'으로 적힌 인물이 그 일을 직접 듣거나 보게 되면 update에 learned로 그 인물을 적어. 예) "learned":["하준"].
   그 일을 보고 놀라거나 따지면("도대체 언제 한 거야?") 알게 된 거야. 같은 메시지들 안에서 들키거나 털어놓으면 처음부터 unaware에 넣지 마.
+
+OOC(이야기 밖 대화):
+- 메시지에 (OOC)라고 표시된 건 작가와 AI가 이야기 밖에서 나눈 상의야. 이야기 속에서 일어난 일이 아니니까 그 내용으로는 아무것도 기록하거나 update·close하지 마(아래 작가 계획만 예외).
+- 거기서 작가가 "앞으로 이렇게 하자"고 정한 전개 계획(복선, 숨겨 둔 설정)만 kind "secret", "plan":true로 open해. who는 null, unaware는 [](이야기 속 인물은 아무도 몰라). title은 계획을 한 줄로, detail에 정해진 내용만. 아직 정하지 못한 것, 후보·아이디어 목록은 적지 마.
+- 이미 있는 작가 계획(장부에 [작가 계획]으로 표시)이 OOC에서 바뀌거나 구체화되면 update해. 이야기 속에서 그 계획이 다 드러나면 close해.
 
 근거(evidence) 적는 법:
 - 각 근거는 {"n":"문장 번호","q":"그 문장 속 핵심 구절"}이야. q는 그 문장에 실제로 있는 말을 5~20자 그대로 옮겨.
@@ -483,7 +534,7 @@ function buildFeelingPrompt(ledger, messages, feeling, { afterChars = 20000, tai
     tail.unshift(messages[i]);
     used += cost(messages[i]);
   }
-  const window = [...head, ...tail];
+  const window = [...head, ...tail].filter((m) => !m.ooc);
   const parts = [];
   const personas = personaNames(messages);
   if (personas.length) parts.push(`[사용자 캐릭터] ${personas.join(', ')}`, '');
@@ -646,7 +697,7 @@ function describeThread(thread, today = null) {
   const who = [thread.who, thread.toward].filter(Boolean).join(' → ');
   const latest = thread.latest ? ` | 최근: ${thread.latest.text}${thread.latest.at ? ` (${thread.latest.at})` : ''}` : '';
   const need = (thread.need ? ` | 풀리려면: ${thread.need}` : '') + (thread.period ? ` | 기간: ${formatPeriod(thread.period, today)}` : '') + (thread.due ? ` | ${thread.kind === 'pending' ? '기한' : '약속한 때'}: ${formatDue(thread.due, today)}` : '');
-  return `${thread.id} [${thread.kind}] ${thread.title}${who ? ` (${who})` : ''}${thread.detail ? ` — ${thread.detail}` : ''}${need}${latest}${unawareNote(thread)}`;
+  return `${thread.id} [${thread.kind}]${thread.plan ? ' [작가 계획]' : ''} ${thread.title}${who ? ` (${who})` : ''}${thread.detail ? ` — ${thread.detail}` : ''}${need}${latest}${unawareNote(thread)}`;
 }
 
 /** Names of the characters the user plays (speakers of user messages). */
@@ -674,11 +725,11 @@ function buildPrompt(ledger, batch, context = [], { routine = true } = {}) {
   }
   if (context.length) {
     parts.push('', '## 바로 앞 장면 (참고용, 근거로 쓰지 마)');
-    for (const message of context) parts.push(`${message.speaker}: ${message.content.slice(-1500)}`);
+    for (const message of context.filter((m) => !m.ooc)) parts.push(`${message.speaker}: ${message.content.slice(-1500)}`);
   }
   parts.push('', '## 새 메시지 (번호가 붙은 문장만 근거로 쓸 수 있어)');
   for (const message of batch) {
-    parts.push(`[${message.number}] ${message.speaker}${clockNote(message)}:`);
+    parts.push(`[${message.number}] ${message.speaker}${message.ooc ? ' (OOC — 이야기 밖 대화)' : clockNote(message)}:`);
     message.sentences.forEach((sentence, index) => parts.push(`[${message.number}.${index + 1}] ${oneLine(sentence)}`));
   }
   return [
@@ -792,10 +843,14 @@ function applyResult(ledger, result, batch, now = new Date().toISOString(), { st
   const byId = new Map(ledger.threads.map((t) => [t.id, t]));
   const firstNumber = batch[0]?.number ?? null;
 
+  // Sentences of OOC talk: evidence for an author's plan only, never for something that happened in the story.
+  const oocIds = new Set(batch.filter((m) => m.ooc).map((m) => m.id));
+  const storyOnly = (list) => list.filter((p) => !oocIds.has(p.messageId));
   for (const item of Array.isArray(result.open) ? result.open : []) {
     const kind = KINDS.includes(item?.kind) ? item.kind : null;
     const title = cleanText(item?.title, 80);
-    const evidence = resolveEvidence(item?.evidence, index);
+    const plan = kind === 'secret' && item?.plan === true;
+    const evidence = plan ? resolveEvidence(item?.evidence, index) : storyOnly(resolveEvidence(item?.evidence, index));
     const need = cleanText(item?.need, 120);
     // A feeling with nothing left to resolve is a memory, not an open thread.
     if (!kind || !title || !evidence.length || (kind === 'emotion' && !need)) {
@@ -815,7 +870,7 @@ function applyResult(ledger, result, batch, now = new Date().toISOString(), { st
       kind,
       status: 'open',
       title,
-      who: canonNames(cleanText(item.who, 40), [...(ledger.cast || []), ...personaNames(batch)]),
+      who: plan ? null : canonNames(cleanText(item.who, 40), [...(ledger.cast || []), ...personaNames(batch)]),
       toward: canonNames(cleanText(item.toward, 40), [...(ledger.cast || []), ...personaNames(batch)]),
       detail: cleanText(item.detail, 300),
       cause: kind === 'emotion' ? cleanText(item.cause, 200) : null,
@@ -823,8 +878,9 @@ function applyResult(ledger, result, batch, now = new Date().toISOString(), { st
       since: cleanText(item.since, 60),
       period: kind === 'emotion' ? null : dawnFix(parsePeriod(item.period, storyDate(batch) || ledger.storyDate), item, evidence, batch),
       due: kind === 'emotion' ? null : dawnFix(parseDue(item.due, storyDate(batch) || ledger.storyDate), item, evidence, batch),
-      unaware: reasonedNames(item.unaware, groupCast(ledger)).filter((n) => !String(item.who || '').includes(n) && !guessNames(item.unaware, groupCast(ledger)).includes(n)),
-      guess: guessNames(item.unaware, groupCast(ledger)).filter((n) => !String(item.who || '').includes(n)),
+      unaware: plan ? [] : reasonedNames(item.unaware, groupCast(ledger)).filter((n) => !String(item.who || '').includes(n) && !guessNames(item.unaware, groupCast(ledger)).includes(n)),
+      guess: plan ? [] : guessNames(item.unaware, groupCast(ledger)).filter((n) => !String(item.who || '').includes(n)),
+      ...(plan ? { plan: true } : {}),
       evidence,
       clues: [],
       openedAt: { messageId: evidence[0].messageId, number: evidence[0].number ?? firstNumber },
@@ -838,7 +894,10 @@ function applyResult(ledger, result, batch, now = new Date().toISOString(), { st
 
   for (const item of Array.isArray(result.update) ? result.update : []) {
     const thread = byId.get(String(item?.id || ''));
-    const evidence = resolveEvidence(item?.evidence, index);
+    const resolved = resolveEvidence(item?.evidence, index);
+    const evidence = thread?.plan ? resolved : storyOnly(resolved);
+    // An update that only rests on OOC talk is not something that happened in the story (plans aside).
+    if (thread && !thread.plan && resolved.length && !evidence.length) { stats.dropped++; continue; }
     const news = cleanText(item?.now ?? item?.detail, 300);
     const at = cleanText(item?.at, 60);
     if (!thread || thread.status !== 'open' || (!evidence.length && !news)) {
@@ -867,7 +926,10 @@ function applyResult(ledger, result, batch, now = new Date().toISOString(), { st
 
   for (const item of Array.isArray(result.close) ? result.close : []) {
     const thread = byId.get(String(item?.id || ''));
-    const evidence = resolveEvidence(item?.evidence, index);
+    const resolvedClose = resolveEvidence(item?.evidence, index);
+    const evidence = storyOnly(resolvedClose);
+    // A plan is closed by the story revealing it, and nothing is closed by OOC talk alone.
+    if (resolvedClose.length && !evidence.length) { stats.dropped++; continue; }
     const how = cleanText(item?.how, 200);
     const feelingBlocked = thread?.kind === 'emotion' && (!evidence.length || hedged(how));
     const groundedClose = evidence.some((p) => (Array.isArray(item?.evidence) ? item.evidence : []).some((e) => typeof e?.q === 'string' && squash(e.q).length >= 2 && squash(p.text).includes(squash(e.q))));
@@ -2061,7 +2123,7 @@ const RENDER_LIMIT = { emotion: 8, state: 6, promise: 10, secret: 6, pending: 6 
 
 function renderThread(t, maxClues) {
   const who = [t.who, t.toward].filter(Boolean).join(' → ');
-  const head = `- ${who ? `${who}: ` : ''}${t.title}${t.detail ? ` — ${t.detail}` : ''}`;
+  const head = `- ${t.plan ? `${PLAN_LABEL}: ` : ''}${who ? `${who}: ` : ''}${t.title}${t.detail ? ` — ${t.detail}` : ''}`;
   const extra = [t.cause ? `원인: ${t.cause}` : null, t.need ? `풀리려면: ${t.need}` : null, t.period ? `기간: ${formatPeriod(t.period)}` : t.since ? `시작: ${t.since}` : null, t.unaware?.length ? `모름: ${t.unaware.join('·')}` : null].filter(Boolean).join(' · ');
   const lines = [extra ? `${head} (${extra})` : head];
   if (t.latest) lines.push(`  최근: ${t.latest.text}${t.latest.at ? ` (${t.latest.at})` : ''}`);
@@ -2078,7 +2140,7 @@ function renderThread(t, maxClues) {
 function render(ledger, { maxChars = 6000, maxClues = 6 } = {}) {
   // Ledgers saved before lastNumber existed: the newest line any thread points at is close enough.
   const lastNumber = ledger?.lastNumber ?? Math.max(0, ...(ledger?.threads || []).map(lastSeen));
-  const open = (ledger?.threads || []).filter((t) => t.status === 'open' && !faded(t, lastNumber));
+  const open = (ledger?.threads || []).filter((t) => t.status === 'open' && (t.plan || !faded(t, lastNumber)));
   if (!open.length) return '';
   const header = [
     '[Open threads: things still unresolved in this story. The characters remember them.',
@@ -2104,6 +2166,9 @@ function render(ledger, { maxChars = 6000, maxClues = 6 } = {}) {
   return sections.length ? `${header}\n\n${sections.join('\n\n')}` : '';
 }
 
+/** An author's plan (decided in OOC talk): the reply model knows it; the characters do not. */
+const PLAN_LABEL = '작가 계획(인물들은 아직 모름. 이야기에서 서서히 드러낼 것)';
+const PLAN_LIMIT = 4;
 const COMPACT_LIMIT = { emotion: 6, state: 5, promise: 8, secret: 5, pending: 4 };
 const COMPACT_LABEL = { emotion: '감정', state: '상태', promise: '약속', secret: '비밀', pending: '미해결' };
 
@@ -2165,7 +2230,8 @@ function compactLine(ledger, t, kind, today = ledger.storyDate) {
   const said2 = t.kind === 'state' && t.detail ? ` — ${shortQuote(t.detail, 100)}` : '';
   const marks = groupCast(ledger).length ? [t.unaware?.length ? `모름: ${t.unaware.join('·')}` : null, t.guess?.length ? `짐작만: ${t.guess.join('·')}` : null].filter(Boolean) : [];
   const unaware = marks.length ? ` [${marks.join(' / ')}]` : '';
-  const line = `- ${COMPACT_LABEL[kind]} ${who ? `${who}: ` : ''}${t.title}${said}${said2}${when}${tail}${unaware}`;
+  const plan = t.plan && t.detail ? ` — ${shortQuote(t.detail, 140)}` : '';
+  const line = `- ${t.plan ? PLAN_LABEL : COMPACT_LABEL[kind]} ${who ? `${who}: ` : ''}${t.title}${said}${said2}${plan}${when}${tail}${unaware}`;
   return line;
 }
 
@@ -2190,8 +2256,10 @@ function renderCompact(ledger, { maxChars = 2400, query = '', today = ledger?.st
   const asked = query
     ? dated.filter((t) => shelved(t, today, lastNumber) && sharedPairs(`${t.title} ${t.detail || ''}`, query) >= 0.3).slice(0, 3)
     : [];
-  const shown = new Set([...marked, ...due, ...asked]);
-  for (const t of [...marked, ...due, ...asked]) {
+  // The author's plans go in whenever they are open (they do not fade with time like the story's threads).
+  const plans = open.filter((t) => t.plan && !marked.includes(t)).sort((a, b) => lastSeen(b) - lastSeen(a)).slice(0, PLAN_LIMIT);
+  const shown = new Set([...marked, ...plans, ...due, ...asked]);
+  for (const t of [...marked, ...plans, ...due, ...asked]) {
     const line = compactLine(ledger, t, t.kind, today) + (asked.includes(t) ? ' (기한이 지나고 한동안 말이 없던 일)' : '');
     if (used + line.length + 1 > maxChars) break;
     lines.push(line);
@@ -2215,6 +2283,10 @@ function renderCompact(ledger, { maxChars = 2400, query = '', today = ledger?.st
 }
 
 module.exports = {
+  markOoc,
+  looksOocReply,
+  PLAN_LABEL,
+  OOC_START,
   englishWords,
   routineDisplayKind,
   pendingMealDisplays,

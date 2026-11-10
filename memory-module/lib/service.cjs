@@ -1213,6 +1213,8 @@ async function chatMessages(chatId) {
   await addTrackerClock(e, chatId, out);
   for (const m of out) delete m.swipe;
   const prepared = L.prepareMessages(out);
+  // Talk outside the story (OOC): marked here, so no part of the memory takes it for the story. Hand-set marks win.
+  L.markOoc(prepared, settings().chats?.[chatId]?.ooc || {});
   noteLanguage(chatId, prepared);
   return prepared;
 }
@@ -4279,6 +4281,34 @@ async function routes(app) {
     const v = trackersView(chatId);
     return { items: v.items.filter((t) => t.type !== 'until').map((t) => ({ id: t.id, label: t.label, type: t.type, scope: t.scope, people: t.people })), people: v.people, sceneDates: v.sceneDates };
   };
+  /* ---------- OOC: talk outside the story ---------- */
+  // The messages taken for OOC talk (found, or set by hand), and the hand-set marks: { id, number, ooc: true | false | null }.
+  const oocView = async (chatId) => {
+    const messages = await chatMessages(chatId);
+    const own = settings().chats?.[chatId]?.ooc || {};
+    // What the marking alone would say, to show which ones were set by hand.
+    const auto = new Set(L.markOoc(messages.map((m) => ({ id: m.id, role: m.role, content: m.content }))).filter((m) => m.ooc).map((m) => m.id));
+    const items = messages
+      .filter((m) => m.ooc || typeof own[m.id] === 'boolean')
+      .map((m) => ({ id: m.id, number: m.number, role: m.role, speaker: m.speaker, preview: m.content.replace(/\s+/g, ' ').slice(0, 120), ooc: !!m.ooc, auto: auto.has(m.id), set: typeof own[m.id] === 'boolean' ? own[m.id] : null }));
+    return { items };
+  };
+  app.get('/chats/:id/ooc', guard(async (req) => oocView(safeChatId(req.params.id))));
+  app.post('/chats/:id/ooc', guard(async (req) => {
+    const chatId = safeChatId(req.params.id);
+    const b = req.body || {};
+    const messages = await chatMessages(chatId);
+    const m = b.id ? messages.find((x) => x.id === String(b.id)) : messages.find((x) => x.number === Number(b.number));
+    if (!m) throw Error('그 메시지를 찾지 못했습니다.');
+    if (![true, false, null].includes(b.ooc)) throw Error('ooc는 true, false, null 중 하나여야 합니다.');
+    const all = settings();
+    const own = { ...(all.chats?.[chatId] || {}) };
+    const marks = { ...(own.ooc || {}) };
+    if (b.ooc === null) delete marks[m.id]; else marks[m.id] = b.ooc;
+    if (Object.keys(marks).length) own.ooc = marks; else delete own.ooc;
+    saveSettings({ ...all, chats: { ...(all.chats || {}), [chatId]: own } });
+    return oocView(chatId);
+  }));
   app.get('/chats/:id/trackers', guard(async (req) => {
     const chatId = safeChatId(req.params.id);
     needFeature(chatId, 'trackers');
@@ -4814,7 +4844,7 @@ async function computeRecall(chatId, store, view, userMessage, { mode, firstInsi
     const wordHit = R.directHit(list, latest, { tr });
     if (wordHit && entry.picks.length < R.MAX_PICKS && !entry.picks.some((p) => p.id === wordHit.id)) entry.picks.push({ id: wordHit.id, why: `방금 메시지의 낱말(${wordHit.hits.slice(0, 3).join(', ')})이 이 장면에 있음` });
     // Lines from old messages (outside the window) that the newest message names, for details a summary dropped.
-    entry.raw = R.rawHits(view.filter((m) => firstInside != null && m.number < firstInside), latest);
+    entry.raw = R.rawHits(view.filter((m) => !m.ooc && firstInside != null && m.number < firstInside), latest);
     if (wordHit) entry.direct = { id: wordHit.id, hits: wordHit.hits.slice(0, 5) };
     // What came of a recalled scene later (its real reason, who heard of it) comes along with it.
     entry.picks = R.withFollowUps(store, entry.picks, list);

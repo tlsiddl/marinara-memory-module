@@ -277,6 +277,8 @@ function buildScenePrompt(store, slice, required, problem = null, preferences = 
   if (problem) parts.push('', `## 지난번 답의 문제 (이번엔 고쳐 줘)`, problem);
   parts.push('', `## 메시지 (${slice[0].number}번부터)`, `[필수 끝 번호] ${required}`);
   for (const message of slice) {
+    // Talk outside the story: in the scene by its number (scenes stay continuous), but nothing in it is the story.
+    if (message.ooc) { parts.push(`[${message.number}] ${message.speaker}: (OOC — 이야기 밖 대화라 생략. 장면 내용·사실·인용·수첩에 쓰지 마)`); continue; }
     parts.push(`[${message.number}] ${message.speaker}${L.clockNote(message)}:`);
     message.sentences.forEach((sentence, index) => parts.push(`[${message.number}.${index + 1}] ${String(sentence).replace(/\s*\n\s*/g, ' / ')}`));
   }
@@ -768,7 +770,8 @@ function sceneNotesOf(raw, scenePlace) {
 function applyScenes(store, result, slice, required, now = new Date().toISOString(), { partial = false, quoteMode = 'dialogue', verifyAttribution = false, strictCoverage = false, characterState = false, places = false, keepsakes = false, dateHints = false, notebook = false, notebookStats = null, notebookLang = 'character' } = {}) {
   const raw = Array.isArray(result?.scenes) ? result.scenes : null;
   if (!raw || !raw.length) return { error: '장면이 비어 있습니다' };
-  const index = L.indexBatch(slice);
+  // OOC talk is never a quote, a fact's evidence or a note's evidence.
+  const index = L.indexBatch(slice.filter((m) => !m.ooc));
   const personas = L.personaNames(slice);
   const cast = castOf(store);
   // 인물의 수첩: each character's note language, from their lines in this slice (Korean for a Korean-bracketed speaker).
@@ -914,7 +917,7 @@ function applyScenes(store, result, slice, required, now = new Date().toISOStrin
   const missing = (scene) => {
     if (!strictCoverage) return [];
     const cited = new Set(scene.events.flatMap((event) => event.quotes.map((q) => q.number)));
-    return slice.slice(scene._from, scene._to + 1).filter((m) => String(m.content || '').trim().length >= 80 && !cited.has(m.number)).map((m) => m.number);
+    return slice.slice(scene._from, scene._to + 1).filter((m) => !m.ooc && String(m.content || '').trim().length >= 80 && !cited.has(m.number)).map((m) => m.number);
   };
   const bad = made.findIndex((scene) => uncited(scene, slice, newFacts) > MAX_UNCITED || missing(scene).length);
   if (bad >= 0) {
@@ -994,6 +997,8 @@ function uncited(scene, slice, facts) {
   let run = 0;
   let longest = 0;
   for (let i = scene._from; i <= scene._to; i++) {
+    // OOC talk has nothing to quote: it neither counts as uncited nor breaks a run of the story's own messages.
+    if (slice[i].ooc) continue;
     run = cited.has(slice[i].number) ? 0 : run + 1;
     longest = Math.max(longest, run);
   }

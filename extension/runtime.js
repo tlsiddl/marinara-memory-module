@@ -75,6 +75,9 @@
   // 인물·장소 tab: the cards and places of the room, and the two "add" boxes.
   let world = null;
   let worldRoom = '';
+  // OOC로 본 메시지 (아직 끝나지 않은 일 tab): loaded when asked for.
+  let oocList = null;
+  let oocRoom = '';
   let worldError = '';
   let worldForm = { person: '', place: '', keep: '', keepOwner: '' };
   // 날짜·주기 트래커: the form being filled (null = closed) and the small "이 장면부터" picker on a scene card.
@@ -970,11 +973,26 @@
       ${c.conflicts.map(row).join('')}</div>`;
   }
 
+  /**
+   * OOC로 본 메시지: the messages taken for talk outside the story (left out of scenes, facts and notes; plans decided
+   * there become 작가 계획). Each can be set back to story, and any message can be marked OOC by its number.
+   */
+  function oocPaper() {
+    const list = oocRoom === room ? oocList : null;
+    const ROLE = { user: '사용자', assistant: 'AI', narrator: '나레이터' };
+    const row = (m) => `<div class="ooc-row"><p><b>#${esc(m.number)}</b> ${esc(ROLE[m.role] || m.role)} · ${m.ooc ? 'OOC로 봄' : '이야기로 봄'}${m.set != null ? ' (직접 정함)' : ''}</p><p class="hint">${esc(m.preview)}</p>
+      <div class="buttons">${m.ooc ? `<button class="ghost" data-act="oocSet" data-id="${esc(m.id)}" data-ooc="false">이야기로 보기</button>` : `<button class="ghost" data-act="oocSet" data-id="${esc(m.id)}" data-ooc="true">OOC로 보기</button>`}${m.set != null ? `<button class="ghost" data-act="oocSet" data-id="${esc(m.id)}" data-ooc="null">자동으로 되돌리기</button>` : ''}</div></div>`;
+    return `<details class="paper" data-list="ooc" ${openLists.has('ooc') ? 'open' : ''}><summary>OOC로 본 메시지${list ? ` · ${list.items.filter((m) => m.ooc).length}개` : ''}</summary>
+      <p class="hint">"OOC", "(OOC", "((" 로 시작하는 사용자 메시지와, 거기에 이야기 밖으로 답한 AI 메시지(이어지는 상의 포함)는 장면·사실·수첩에 넣지 않습니다. 거기서 정한 앞으로의 전개만 <b>작가 계획</b>으로 남깁니다. 잘못 본 메시지는 여기서 바로잡을 수 있습니다(새로 정리되는 기억부터 적용).</p>
+      ${list ? (list.items.length ? list.items.map(row).join('') : '<p class="hint">OOC로 본 메시지가 없습니다.</p>') : '<div class="buttons"><button data-act="oocLoad">불러오기</button></div>'}
+      <div class="buttons"><input id="oocNumber" type="number" min="1" placeholder="메시지 번호" style="max-width:9rem"><button class="ghost" data-act="oocMark">이 번호를 OOC로</button></div></details>`;
+  }
+
   function threadRow(t) {
     const who = [t.who, t.toward].filter(Boolean).map(nameShown).join(' → ');
     const when = t.due ? `약속한 때 ${[t.due.date, t.due.time].filter(Boolean).join(' ')}` : t.period ? `기간 ${day(t.period.from)}~${day(t.period.to)}` : '';
     const closed = t.status !== 'open';
-    return `<details class="event-row" data-tid="${esc(t.id)}"><summary><span class="event-no">${esc(t.id)}</span><span class="event-main"><b title="${esc(t.title)}">${esc(shown(t.title))}</b><small>${esc(who)}${when ? ` · ${esc(when)}` : ''}${t.unaware?.length ? ` · 모름: ${esc(t.unaware.map(nameShown).join('·'))}` : ''}${t.guess?.length ? ` · 짐작만: ${esc(t.guess.map(nameShown).join('·'))}` : ''}${closed ? ` · 닫힘: ${esc(shown(t.closed?.how))}` : ''}</small></span><span class="pill ${closed ? 'neutral' : ''}">${KIND[t.kind] || t.kind}</span></summary>
+    return `<details class="event-row" data-tid="${esc(t.id)}"><summary><span class="event-no">${esc(t.id)}</span><span class="event-main"><b title="${esc(t.title)}">${esc(shown(t.title))}</b><small>${esc(who)}${when ? ` · ${esc(when)}` : ''}${t.unaware?.length ? ` · 모름: ${esc(t.unaware.map(nameShown).join('·'))}` : ''}${t.guess?.length ? ` · 짐작만: ${esc(t.guess.map(nameShown).join('·'))}` : ''}${closed ? ` · 닫힘: ${esc(shown(t.closed?.how))}` : ''}</small></span><span class="pill ${closed ? 'neutral' : ''}">${t.plan ? '작가 계획' : KIND[t.kind] || t.kind}</span></summary>
       <div class="event-body">
         <div class="form-grid" data-thread="${esc(t.id)}">
           <label class="full">제목<input data-f="title" value="${esc(t.title)}"></label>${trEdit(t.title)}
@@ -1005,11 +1023,14 @@
     // Promises with a set day come first, the nearest day first; the rest keep their order.
     const dueOf = (t) => t.due?.date || t.period?.to || '';
     const byDue = (a, b) => (dueOf(a) ? 0 : 1) - (dueOf(b) ? 0 : 1) || dueOf(a).localeCompare(dueOf(b));
-    const groups = KIND_ORDER.map((k) => [k, open.filter((t) => t.kind === k).sort(k === 'promise' ? byDue : () => 0)]).filter(([, l]) => l.length);
+    const plans = open.filter((t) => t.plan);
+    const groups = KIND_ORDER.map((k) => [k, open.filter((t) => t.kind === k && !t.plan).sort(k === 'promise' ? byDue : () => 0)]).filter(([, l]) => l.length);
     return `<div class="eyebrow">LEDGER · ${open.length} OPEN</div><h1>아직 끝나지 않은 일</h1>
       <p class="intro">약속·감정·상태·비밀·미해결 일입니다. 항목을 누르면 제목과 설명을 고치실 수 있고, 잘못 닫힌 항목은 다시 열고 끝난 일은 닫으실 수 있습니다. 직접 고친 내용은 리롤해도 유지됩니다.</p>
-      ${groups.length ? groups.map(([k, l]) => `<div class="paper"><h2>${KIND[k]} · ${l.length}</h2>${l.map(threadRow).join('')}</div>`).join('') : '<div class="empty">열린 항목이 없습니다.</div>'}
-      ${closed.length ? `<details class="paper"><summary>닫힌 항목 ${closed.length}개</summary>${closed.map(threadRow).join('')}</details>` : ''}`;
+      ${plans.length ? `<div class="paper"><h2>작가 계획 · ${plans.length}</h2><p class="hint">OOC(이야기 밖 대화)에서 정한 앞으로의 전개입니다. 답변에는 "인물들은 아직 모름, 서서히 드러낼 것"으로 들어가고, 이야기에서 다 드러나면 닫힙니다.</p>${plans.map(threadRow).join('')}</div>` : ''}
+      ${groups.length ? groups.map(([k, l]) => `<div class="paper"><h2>${KIND[k]} · ${l.length}</h2>${l.map(threadRow).join('')}</div>`).join('') : (plans.length ? '' : '<div class="empty">열린 항목이 없습니다.</div>')}
+      ${closed.length ? `<details class="paper"><summary>닫힌 항목 ${closed.length}개</summary>${closed.map(threadRow).join('')}</details>` : ''}
+      ${oocPaper()}`;
   }
 
   /**
@@ -2162,6 +2183,24 @@
           const r = await api('POST', `/chats/${chat}/notebook/rebuild`, { all: actName === 'noteRebuildAll' });
           if (info) info.notebookJob = r.notebookJob;
         }, '수첩 받기를 시작했습니다. 채팅은 계속하셔도 됩니다.', { reload: false });
+      case 'oocLoad':
+        return act(async () => {
+          oocList = await api('GET', `/chats/${chat}/ooc`);
+          oocRoom = room;
+          openLists.add('ooc');
+        }, '', { reload: false });
+      case 'oocSet':
+      case 'oocMark': {
+        const body = actName === 'oocMark'
+          ? { number: Number(root.querySelector('#oocNumber')?.value || 0), ooc: true }
+          : { id, ooc: el?.dataset?.ooc === 'null' ? null : el?.dataset?.ooc === 'true' };
+        if (actName === 'oocMark' && !body.number) return;
+        return act(async () => {
+          oocList = await api('POST', `/chats/${chat}/ooc`, body);
+          oocRoom = room;
+          openLists.add('ooc');
+        }, '저장했습니다. 새로 정리되는 기억부터 적용됩니다.', { reload: false });
+      }
       case 'noteRebuildStop':
         return act(async () => {
           const r = await api('POST', `/chats/${chat}/notebook/rebuild`, { stop: true });

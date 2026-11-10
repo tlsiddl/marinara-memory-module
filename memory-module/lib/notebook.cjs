@@ -176,7 +176,7 @@ function voiceSamples(messages, cast, { personas = [], max = VOICE_PER_PERSON } 
     return (quote ? quote[1] : rest).trim();
   };
   const found = new Map(people.map((p) => [p, []]));
-  for (const m of [...(messages || [])].reverse()) {
+  for (const m of [...(messages || [])].filter((x) => !x.ooc).reverse()) {
     if (m.role === 'user') continue;
     for (const l of linesOf(m.content)) {
       const list = l.who && found.get(l.who);
@@ -302,6 +302,7 @@ function buildRebuildPrompt(groups, { cast = [], personas = [], voice = '', fact
     if (scene.present?.length) parts.push(`[있던 인물] ${[].concat(scene.present).join(', ')}`);
     if (facts?.[scene.id]?.length) parts.push(`[이 장면의 알게 된 사실] (수첩에 다시 적지 마)`, ...facts[scene.id].map((t) => `- ${t}`));
     for (const message of messages) {
+      if (message.ooc) { parts.push(`[${message.number}] ${message.speaker}: (OOC — 이야기 밖 대화라 생략)`); continue; }
       parts.push(`[${message.number}] ${message.speaker}:`);
       message.sentences.forEach((sentence, i) => parts.push(`[${message.number}.${i + 1}] ${String(sentence).replace(/\s*\n\s*/g, ' / ')}`));
     }
