@@ -29,7 +29,9 @@ const RECALL_PROMPT = `너는 장기 롤플레이의 기억 관리자야. 곧 �
 
 /** Scenes that may be recalled: outside the window, minus the newest `expand` already shown in full. */
 function candidates(store, firstInside, expand = 2) {
-  const outside = store.scenes.filter((s) => firstInside == null || s.start < firstInside);
+  // OOC-only stretches are not memories to recall (S is loaded lazily: recall is loaded by scenes too).
+  const story = (s) => !s.ooc;
+  const outside = store.scenes.filter((s) => (firstInside == null || s.start < firstInside) && story(s));
   return outside.slice(0, Math.max(0, outside.length - expand));
 }
 

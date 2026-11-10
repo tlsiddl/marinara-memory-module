@@ -85,3 +85,43 @@ test('[최근 생활]: bites of one dish are one dish; [기록]: a name the labe
   assert.equal(Tk.entryText({ scope: 'people', people: ['빅터 헤일'], label: '빅터 만난 지', type: 'since' }, { short: '5일째' }), '빅터 만난 지 5일째');
   assert.equal(Tk.entryText({ scope: 'people', people: ['세라'], label: '생일까지', type: 'until' }, { short: 'D-3' }), '세라 생일까지 D-3');
 });
+
+test('a scene of OOC talk alone is not a scene of the story: not listed, not the scene shown now', () => {
+  const store = S.emptyStore();
+  const story = { id: 'S1', start: 1, end: 2, messages: [{ id: 'a1' }, { id: 'a2' }], time: 't', place: '부두', title: '부두', summary: '만남', present: ['빅터', '세라'], events: [{ text: 'e', quotes: [] }], recollections: [] };
+  const ooc = { id: 'S2', start: 3, end: 4, messages: [{ id: 'a3' }, { id: 'a4' }], time: 't', place: '?', title: 'Out-of-story exchange', summary: 'omitted', present: [], events: [], recollections: [] };
+  store.scenes = [story, ooc];
+  // Made before OOC was known: marked once the messages say so.
+  assert.equal(S.markOocScenes(store, [{ id: 'a1' }, { id: 'a2' }, { id: 'a3', ooc: true }, { id: 'a4', ooc: true }]), 1);
+  assert.equal(store.scenes[1].ooc, true);
+  assert.equal(S.markOocScenes(store, [{ id: 'a1' }, { id: 'a2' }, { id: 'a3', ooc: true }, { id: 'a4', ooc: true }]), 0, 'nothing twice');
+  assert.doesNotMatch(S.renderScenes(store, null, { expand: 0 }), /Out-of-story/);
+  assert.equal(S.lastStoryScene(store).id, 'S1');
+  assert.deepEqual(X.lastScenePeople(store), ['빅터', '세라'], 'the people now are those of the last story scene');
+  // A message set back to story by hand: the scene is a story scene again.
+  assert.equal(S.markOocScenes(store, [{ id: 'a3' }, { id: 'a4', ooc: true }]), 1);
+  assert.equal(store.scenes[1].ooc, undefined);
+});
+
+test('threads already said to be over (in English too) are closed; "not over yet" and plans to finish are not', () => {
+  const t = (id, kind, detail, latest) => ({ id, kind, status: 'open', title: id, detail, latest: latest ? { text: latest } : null, evidence: [], clues: [], updatedAt: 'x' });
+  const ledger = { ...L.emptyLedger(), threads: [
+    t('T1', 'promise', 'Viktor rows the boat out — the race is over; Sera rests on the dock.'),
+    t('T2', 'promise', 'Marco called back', 'Marco was paid and crossed off the list.'),
+    t('T3', 'promise', 'The race is not over yet.'),
+    t('T4', 'pending', 'They will go once the paperwork is done.'),
+    t('T5', 'emotion', 'Her anger is over.'),
+  ] };
+  assert.equal(L.closeDoneThreads(ledger), 2);
+  assert.deepEqual(ledger.threads.map((x) => x.status), ['closed', 'closed', 'open', 'open', 'open']);
+  assert.match(ledger.threads[1].closed.how, /crossed off/);
+});
+
+test('[최근 생활] is a heading of its own line, so it reads the same as the header calls it in every language', () => {
+  const ledger = L.emptyLedger();
+  ledger.routine = [{ who: '세라', what: 'wake', at: '2025-03-02 08:00', number: 1 }];
+  const text = L.renderRoutine(ledger, '2025-03-02 09:00');
+  assert.match(text, /^\[최근 생활\]\n지금: /);
+  const T = require('../memory-module/lib/translate.cjs');
+  assert.equal(T.planLines(text, 'en')[0].text, '[Recent daily life]');
+});
