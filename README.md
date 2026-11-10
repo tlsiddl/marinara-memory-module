@@ -7,7 +7,7 @@
 > Marinara Engine **2.5.1**과 **2.5.2**에서 확인했습니다. 다른 버전에서는 일부 기능이 스스로 꺼질 수 있습니다(아래 참고).
 > **2.5.2로 올리기 전에 마리나라 데이터 폴더를 꼭 백업하세요** — [아래 참고](#마리나라-252로-올릴-때).
 
-지금 버전: **v0.27.0 (베타)** · 변경 내역은 [CHANGELOG.md](CHANGELOG.md)
+지금 버전: **v0.27.1 (베타)** · 변경 내역은 [CHANGELOG.md](CHANGELOG.md)
 
 ---
 
@@ -59,7 +59,7 @@
 curl -fsSL https://raw.githubusercontent.com/tlsiddl/marinara-memory-module/main/install.sh | sh
 ```
 
-켜져 있는 마리나라 컨테이너를 찾아 `docker-compose.override.yml`을 만들고 다시 켭니다. 이미 그 파일이 있다면 건드리지 않고 넣을 내용을 알려 드립니다. compose를 `-f` 여러 개로 켜고 계셨다면, 앞으로도 마지막에 `-f docker-compose.override.yml`을 붙여 주세요.
+켜져 있는 마리나라 컨테이너를 찾아 `docker-compose.override.yml`을 만들고 다시 켭니다. 이름에 marinara가 들어간 프록시·봇 같은 다른 컨테이너가 있어도, 안에서 마리나라 서버(`packages/server/dist/index.js`)가 도는 컨테이너만 고릅니다. 마리나라 서버가 여러 개거나 어느 것인지 확실하지 않으면 아무것도 바꾸지 않고 멈추니, 그때는 컨테이너 이름을 지정해 주세요: `curl -fsSL https://raw.githubusercontent.com/tlsiddl/marinara-memory-module/main/install.sh | MARINARA_CONTAINER=컨테이너이름 sh` 이미 그 파일이 있다면 건드리지 않고 넣을 내용을 알려 드립니다. compose를 `-f` 여러 개로 켜고 계셨다면, 앞으로도 마지막에 `-f docker-compose.override.yml`을 붙여 주세요.
 
 **그냥 실행 (Linux·macOS)** — 마리나라 폴더에서 같은 명령을 실행한 뒤, 앞으로는 `start.sh` 대신 이렇게 켜 주세요:
 
