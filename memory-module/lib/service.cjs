@@ -1482,6 +1482,11 @@ function notebookLanguageOf(chatId) {
   return set === 'write' ? writeLanguage(chatId) : set;
 }
 
+/** 작가 계획: whether the reply model is told the answers (off: only what stays hidden, so nothing can slip out). */
+function planAnswersOn(chatId) {
+  return settings().chats?.[chatId]?.planAnswers === true;
+}
+
 function writeLanguage(chatId) {
   const own = roomWriteLanguage(chatId);
   const set = own === 'follow' ? settings().writeLanguage : own;
@@ -1827,6 +1832,19 @@ function processChat(chatId, { rebuild = false, reason = 'auto' } = {}) {
       if (state.rolledBack) log(`chat ${chatId}: message ${state.changedAt + 1} changed, rolled back and re-reading`);
       const fromOoc = L.tidyOocThreads(ledger, messages);
       const doneAlready = L.closeDoneThreads(ledger);
+      // Plans made before they had a hidden line: one call writes it (until then they stay out of the reply).
+      const bare = ledger.threads.filter((t) => t.status === 'open' && t.plan && !t.mystery);
+      if (bare.length && settings().connection) {
+        try {
+          const model = { ...(await memoryModel()), signal: job.abort.signal };
+          const set = L.applyPlanMysteries(ledger, L.parseJsonObject(await askModel(model, L.buildPlanMysteryPrompt(bare), { maxTokens: 1500 })));
+          job.calls = (job.calls || 0) + 1;
+          if (set) { saveLedger(chatId, ledger); recalls.delete(chatId); log(`chat ${chatId}: wrote what ${set} author's plan(s) keep hidden`); }
+        } catch (error) {
+          if (job.cancel) throw error;
+          log(`chat ${chatId}: plan hidden lines skipped (${error?.message || error})`);
+        }
+      }
       if (doneAlready) log(`chat ${chatId}: ${doneAlready} open thread(s) already said to be over, closed`);
       if (fromOoc.planned || fromOoc.closed || doneAlready) {
         saveLedger(chatId, ledger);
@@ -2509,7 +2527,7 @@ const SECTION_NOTES = [
   ['남은 기억', 'A character marked as not remembering a scene does not know what happened in it; one who remembers it only dimly holds just what "남은 기억" says, though "그때" records what they really said and did. '],
   ['[최근 생활]', '"[최근 생활]" says when each person last ate, washed and slept: keep daily life believable, and do not repeat a meal or bath that just happened. '],
   ['[수첩]', '"[수첩]" is what one character privately decided or feels; only that character knows it. Let it show in what they choose and do, never as a speech. '],
-  ['[작가 계획]', '"[작가 계획]" is where the author means the story to go. No character knows it: never let anyone say, hint at or guess it as knowledge. Do not hurry it; only when a scene already moves that way may a small detail point toward it. '],
+  ['[작가 계획]', '"[작가 계획]" lists what the story keeps unexplained for now. Keep each one unexplained: no character knows, names, works out or suspects the answer — not in speech, not in thoughts, not in narration. They may only wonder about it. Do not hint at an answer. '],
   ['[지금 상태]', '"[지금 상태]" is how the people here are right now. '],
   ['[장소]', '"[장소]" is the place of this scene as it is now. '],
   ['[소중한 물건]', '"[소중한 물건]" are things the people here keep and what they mean. '],
@@ -2523,8 +2541,10 @@ const ROUTINE_HEADER_NOTE = SECTION_NOTES.find(([k]) => k === '[최근 생활]')
  * The instructions at the top: what the memory is and how to use it, and a short note for each kind of section that
  * is actually in `body` (no rule about a section that is not there).
  */
-function memoryHeader(style, body = null) {
-  const notes = SECTION_NOTES.filter(([key]) => body == null || body.includes(key)).map(([, note]) => note).join('');
+/** The note for "[작가 계획]" when the room gives the reply model the answers too. */
+const PLAN_ANSWERS_NOTE = '"[작가 계획]" is where the author means the story to go (the answers). No character knows any of it: never let anyone say, think, work out or suspect it — not in speech, thoughts or narration — until the story shows it to them. Do not hurry it; only when a scene already moves that way may a small detail point toward it. ';
+function memoryHeader(style, body = null, { planAnswers = false } = {}) {
+  const notes = SECTION_NOTES.filter(([key]) => body == null || body.includes(key)).map(([key, note]) => (key === '[작가 계획]' && planAnswers ? PLAN_ANSWERS_NOTE : note)).join('');
   return (
     '[Memory: what the characters remember from earlier in this story, beyond the recent messages. ' +
     'This is background the characters already carry, not material to retell: the reader has already read all of it. ' +
@@ -3047,7 +3067,8 @@ function renderMemorySource(chatId, maxChars = MEMORY_MAX_CHARS, trace = null) {
   const prefs = activePrefs(chatId, scenes);
   const only = (letter) => new Set([...prefs.pinned].filter((id) => id[0] === letter));
   const open = ledger ? L.renderCompact(ledger, { query, today, exclude: prefs.excluded, pin: prefs.pinned, trace: trace ? (trace.threads = []) : null }) : '';
-  const plans = ledger ? L.renderPlans(ledger, { exclude: prefs.excluded }) : '';
+  const answers = planAnswersOn(chatId);
+  const plans = ledger ? L.renderPlans(ledger, { exclude: prefs.excluded, answers }) : '';
   const routineOn = routineEnabled(chatId);
   const routine = ledger && routineOn ? L.renderRoutine(ledger, storyNow.get(chatId) || ledger.storyTime || null) : '';
   const fixed = [open ? `[아직 끝나지 않은 일]\n${open}` : '', plans ? `[작가 계획]\n${plans}` : '', routine].filter(Boolean);
@@ -3140,7 +3161,7 @@ function renderMemorySource(chatId, maxChars = MEMORY_MAX_CHARS, trace = null) {
   const parts = [...story, calls, ...now, ...fixed].filter(Boolean);
   if (!parts.length) return '';
   const body = parts.join('\n\n');
-  return `${memoryHeader(style, body)}\n\n${body}\n\n${footer}`;
+  return `${memoryHeader(style, body, { planAnswers: answers })}\n\n${body}\n\n${footer}`;
 }
 
 /**
@@ -3310,6 +3331,16 @@ async function routes(app) {
       return reply.status(400).send({ error: error?.message || String(error) });
     }
   };
+  // 작가 계획: whether replies get the answers too (off: only what stays hidden).
+  app.post('/chats/:id/plan-answers', guard(async (req) => {
+    const chatId = safeChatId(req.params.id);
+    const all = settings();
+    const own = { ...(all.chats?.[chatId] || {}) };
+    if (req.body?.on === true) own.planAnswers = true; else delete own.planAnswers;
+    saveSettings({ ...all, chats: { ...(all.chats || {}), [chatId]: own } });
+    recalls.delete(chatId);
+    return { planAnswers: planAnswersOn(chatId) };
+  }));
   // Hand fixes to the ledger (the CLI and, later, the extension screen): reopen or close one item.
   app.post('/chats/:id/threads/:tid/:action', guard(async (req) => {
     const chatId = safeChatId(req.params.id);
@@ -3324,6 +3355,7 @@ async function routes(app) {
         for (const field of ['title', 'detail', 'need']) {
           if (typeof req.body?.[field] === 'string' && req.body[field].trim()) thread[field] = req.body[field].trim().slice(0, 300);
         }
+        if (thread.plan && typeof req.body?.mystery === 'string' && req.body.mystery.trim()) thread.mystery = req.body.mystery.trim().slice(0, 160);
         if (req.body?.unaware !== undefined) thread.unaware = nameList(req.body.unaware);
         if (req.body?.guess !== undefined) thread.guess = nameList(req.body.guess);
         // The date to meet, set by hand: "24-10-20", "10월 20일", with an optional time. Both empty clears it.
@@ -3754,6 +3786,7 @@ async function routes(app) {
       attributionRuns: loadAttributionLog(chatId).runs.length,
       attributionStamp: fileStamp(attributionLogFile(chatId)),
       speakerTags: speakerTagsOn(chatId),
+      planAnswers: planAnswersOn(chatId),
       selectedCount: fs.existsSync(selectedFile(chatId)) ? loadSelected(chatId, { readonly: true }).items.length : 0,
       selectedStamp: fileStamp(selectedFile(chatId)),
       speakerNames: speakerNamesOn(chatId),
@@ -4956,7 +4989,7 @@ function attach(app) {
   log('admin API ready at /api/memory-module');
 }
 
-module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { loadAddress, saveAddress, refreshAddress, presentPeople, Addr, loadState, saveState, loadPlaces, savePlaces, loadKeepsakes, saveKeepsakes, loadTrackers, saveTrackers, Tk, loadConflicts, saveConflicts, refreshConflicts, refreshWorld, Cf, Ks, organizeFor, sceneTokens, lastScenePeople, St, Pl, listRooms, purgeChatMemory, purgeIfGone, deleteOnSend, deletePrepare, listOrphans, deleteOrphans, goneChats, loadNames, saveNames, enqueue, foldScenes, reviewAttributions, loadAttributionLog, sceneJobs, selectedForView, loadSelected, recalls, windows, loadRecallPrefs, saveRecallPrefs, recallReport, recallCandidates, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, loadTranslations, saveTranslations, chatLangs, langRecords, loadLang, noteLanguage, LANG_REFRESH_EVERY, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, jobs, writeLanguage, roomWriteLanguage, memoryCallOptions, routineSetting, routineEnabled, attributionSetting, featureOn, featureSetting, F, B, clearRoomCaches, promptLanguage, translateDisplayLater, loadNotebook, saveNotebook, Nb, fixNoteLanguages, rebuildNotebook, notebookJobStatus, notebookLanguageOf, notebookLanguageSetting, RESTORE_UNDO_DIR } };
+module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { loadAddress, saveAddress, refreshAddress, presentPeople, Addr, loadState, saveState, loadPlaces, savePlaces, loadKeepsakes, saveKeepsakes, loadTrackers, saveTrackers, Tk, loadConflicts, saveConflicts, refreshConflicts, refreshWorld, Cf, Ks, organizeFor, sceneTokens, lastScenePeople, St, Pl, listRooms, purgeChatMemory, purgeIfGone, deleteOnSend, deletePrepare, listOrphans, deleteOrphans, goneChats, loadNames, saveNames, enqueue, foldScenes, reviewAttributions, loadAttributionLog, sceneJobs, selectedForView, loadSelected, recalls, windows, loadRecallPrefs, saveRecallPrefs, recallReport, recallCandidates, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, loadTranslations, saveTranslations, chatLangs, langRecords, loadLang, noteLanguage, LANG_REFRESH_EVERY, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, jobs, writeLanguage, roomWriteLanguage, memoryCallOptions, routineSetting, routineEnabled, attributionSetting, featureOn, featureSetting, F, B, clearRoomCaches, promptLanguage, translateDisplayLater, loadNotebook, saveNotebook, Nb, fixNoteLanguages, rebuildNotebook, notebookJobStatus, notebookLanguageOf, notebookLanguageSetting, planAnswersOn, RESTORE_UNDO_DIR } };
 
 
 

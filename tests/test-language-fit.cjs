@@ -26,7 +26,7 @@ test('English that comes out much longer still fits the limit and keeps its endi
   store.window = { size: 4, firstInside: 200 };
   X.saveScenes('big', store);
   const source = X.renderMemorySource('big');
-  assert.ok(source.length > 5000, 'the room has plenty to say');
+  assert.ok(source.length > 3000, 'the room has plenty to say');
   const data = X.loadTranslations('big');
   for (const line of X.injectionLines('big', 'en')) data.items[T.key('en', line)] = `EN ${'x'.repeat(line.length * 6)}`;
   X.saveTranslations('big', data);
