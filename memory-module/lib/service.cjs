@@ -1596,6 +1596,8 @@ async function reconcileMealDisplays(chatId, ledger, model, job) {
 // its turning points (cut short, the check could not see what happened early on and kept old items open).
 const TIDY_STEP_CHARS = 600;
 const TIDY_CHAPTER_CHARS = 2000;
+// Old items asked about one at a time, per check (oldest first; the rest wait for the next check).
+const OLD_ITEMS_PER_TIDY = 10;
 
 /**
  * How the story went on, for the ledger check: one line per chapter (for the scenes it holds) and per later scene,
@@ -1645,6 +1647,22 @@ async function tidyLedger(model, ledger, messages, { scenes = null } = {}) {
       total.closed += stats.closed;
       total.merged += stats.merged;
       total.updated += stats.updated;
+    }
+  }
+  // Items the story has not brought up for a while are asked about one at a time (in a long list the model keeps
+  // them open when unsure): with the scenes after them and the latest messages, each answer needs a line or a scene.
+  // An item asked once is asked again only after more of the story.
+  total.oldChecked = 0;
+  const lastNumber = messages.at(-1)?.number;
+  if (scenes) {
+    for (const thread of L.oldItemsToReview(ledger, lastNumber).slice(0, OLD_ITEMS_PER_TIDY)) {
+      const review = L.buildOldItemPrompt(ledger, messages, thread, steps);
+      const parsed = L.parseJsonObject(await askModel(model, review.messages, { maxTokens: 1024 }));
+      total.calls++;
+      total.oldChecked++;
+      const outcome = L.applyOldItemReview(ledger, thread, parsed, review.window, steps, lastNumber);
+      if (outcome === 'closed') total.closed++;
+      if (outcome === 'updated') total.updated++;
     }
   }
   // Feelings are never closed by the tidy pass above; here each needs the line that resolved it.
