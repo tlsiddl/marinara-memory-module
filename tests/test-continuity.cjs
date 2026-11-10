@@ -238,3 +238,81 @@ test('a plan whose answer comes out in the story is closed, by the reading and b
   const ledger = { threads: [thread('T9', 'secret', 'The lighthouse keeper is Viktor\'s father', 5, { plan: true, who: null })] };
   assert.equal(L.applyTidy(ledger, { close: [{ id: 'T9', why: 'later', how: 'Viktor says it aloud on the pier.', scene: 'S9' }] }, 'now', { after: steps }).closed, 1);
 });
+
+test('a feeling is reviewed only when the story went on after it, and again only after more of it', () => {
+  const f = thread('T7', 'emotion', 'Viktor sore at Sera', 50);
+  assert.equal(L.feelingDue(f, 50), false, 'nothing after it yet');
+  assert.equal(L.feelingDue(f, 51), true);
+  f.reviewedUpTo = 51;
+  assert.equal(L.feelingDue(f, 55), false, 'asked about these messages already');
+  assert.equal(L.feelingDue(f, 51 + L.FEELING_AGAIN), true);
+});
+
+test('a recalled scene says how what began in it went on, and which chapter it falls in', () => {
+  const R = require('../memory-module/lib/recall.cjs');
+  const store = { ...S.emptyStore(), scenes: [
+    { id: 'S6', start: 20, end: 22, time: '11-03 21:00', place: '다락방', title: '드라마 약속', summary: '세라가 3화를 같이 보자고 함.', events: [], recollections: [], present: [] },
+    { id: 'S10', start: 40, end: 42, time: '11-04 22:10', place: '다락방', title: '3화를 다 본 밤', summary: '둘이 3화를 봄.', events: [], recollections: [], present: [] },
+  ], chapters: [{ id: 'C2', scenes: ['S6'], title: 't', summary: 's' }] };
+  const ledger = { threads: [
+    { ...thread('T15', 'promise', 'Watch episode 3 together', 21), status: 'closed', closed: { how: 'Watched it to the end', at: { number: 41 } } },
+    { ...thread('T16', 'pending', 'Fix the railing', 21), latest: { text: 'Half done', number: 41 } },
+    { ...thread('T17', 'secret', 'A plan', 21), plan: true, status: 'open', latest: { text: 'x', number: 41 } },
+    { ...thread('T18', 'emotion', 'Elsewhere', 5), status: 'closed', closed: { how: 'gone', at: { number: 9 } } },
+  ] };
+  const sceneAt = (n) => store.scenes.find((s) => s.start <= n && n <= s.end)?.id || null;
+  const lines = L.afterLines(ledger, store.scenes[0], sceneAt);
+  assert.deepEqual(lines, ['→ 그 뒤: Watch episode 3 together — Watched it to the end (S10)', '→ 지금: Fix the railing — Half done (S10)']);
+  const text = R.renderRecalled(store, [{ id: 'S6' }], { after: (s) => L.afterLines(ledger, s, sceneAt) });
+  assert.match(text, /^\[지금 떠오르는 지난 장면\]\n\(C2 시기\)\nS6 /);
+  assert.match(text, /→ 그 뒤: Watch episode 3 together — Watched it to the end \(S10\)/);
+  const T = require('../memory-module/lib/translate.cjs');
+  assert.match(T.translateText('[지금 떠오르는 지난 장면]\n(C2 시기)\n→ 그 뒤: Watched (S10)', 'en', () => null).text, /\(during C2\)\n→ later: Watched/);
+});
+
+test('story lines: written per scene, folded across the story, shown with where they stand, and named in the next scene call', () => {
+  assert.deepEqual(S.lineEntries([{ name: 'Watching the drama', now: 'Episode 3 next.' }, { name: 'watching the  drama' }, { name: 'Key' }, { name: 'Third' }]),
+    [{ name: 'Watching the drama', now: 'Episode 3 next.' }, { name: 'Key' }], 'at most two, no repeat of one name');
+  const sc = (id, start, lines, extra = {}) => ({ id, start, end: start + 1, time: id, title: id, summary: id, events: [], recollections: [], present: [], lines, ...extra });
+  const store = { ...S.emptyStore(), scenes: [
+    sc('S6', 20, [{ name: 'Watching the drama', now: 'Episode 3 together tonight.' }]),
+    sc('S7', 24, [{ name: 'The key', now: 'Viktor keeps it.' }]),
+    sc('S8', 28, [], { ooc: true }),
+    sc('S10', 40, [{ name: 'watching the drama', now: 'Watched episode 3. Episode 4 next.' }]),
+  ] };
+  const lines = S.storyLines(store);
+  assert.deepEqual(lines.map((l) => [l.name, l.scenes.join(','), l.nowScene]), [['The key', 'S7', 'S7'], ['Watching the drama', 'S6,S10', 'S10']]);
+  assert.deepEqual(S.lineNowFor(store, store.scenes[0]), ['→ 줄기 「Watching the drama」 지금: Watched episode 3. Episode 4 next. (S10)']);
+  assert.deepEqual(S.lineNowFor(store, store.scenes[3]), [], 'the newest scene of its line is already now');
+  assert.equal(S.linesBlock(store), '[이야기 줄기]\n- The key (S7): Viktor keeps it.\n- Watching the drama (S6·S10): Watched episode 3. Episode 4 next.');
+  const msgs = L.prepareMessages([{ id: 'm1', number: 50, role: 'user', speaker: 'Mina', content: '"Episode 4?"' }]);
+  const [system, user] = S.buildScenePrompt(store, msgs, 50, null, {});
+  assert.match(system.content, /이야기 줄기 \(lines\):/);
+  assert.match(user.content, /## 이야기 줄기 \(이어 가면 같은 이름으로\)\n- The key: Viktor keeps it\.\n- Watching the drama: Watched episode 3\. Episode 4 next\./);
+  const T = require('../memory-module/lib/translate.cjs');
+  assert.match(T.translateText('[이야기 줄기]\n- The key (S7): kept.\n\n→ 줄기 「The key」 지금: kept (S7)', 'en', () => null).text, /^\[Story lines\]\n- The key \(S7\): kept\.\n\n→ story line "The key" now: kept \(S7\)$/);
+});
+
+test('the memory\'s own model calls are counted per day, with the provider\'s tokens or an estimate', () => {
+  const before = X.usageSummary().today;
+  X.noteUsage(2500, 250, { prompt_tokens: 900, completion_tokens: 80 });
+  X.noteUsage(2500, 250, null);
+  const after = X.usageSummary().today;
+  assert.equal(after.calls - before.calls, 2);
+  assert.equal(after.input - before.input, 900 + 1000);
+  assert.equal(after.output - before.output, 80 + 100);
+  assert.equal(after.estimated - before.estimated, 1);
+});
+
+test('a fact about a state that can change is shown with the scene it was true as of', () => {
+  const store = S.emptyStore();
+  store.scenes = [{ id: 'S4', start: 1, end: 2, time: '25-03-01', title: 't', summary: 's', events: [], recollections: [], present: [] }];
+  store.facts = [
+    { id: 'F1', about: '세라', text: 'Stays at the harbor inn.', state: true, sceneId: 'S4', evidence: [], unaware: [], guess: [] },
+    { id: 'F2', about: '세라', text: 'Hates the rain.', sceneId: 'S4', evidence: [], unaware: [], guess: [] },
+  ];
+  const text = S.renderScenes(store, null, {});
+  assert.match(text, /Stays at the harbor inn\. \(S4 기준\)/);
+  assert.doesNotMatch(text, /Hates the rain\. \(S4/);
+  assert.match(S.SCENE_PROMPT, /"state":true로 적어/);
+});

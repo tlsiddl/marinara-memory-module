@@ -721,6 +721,44 @@ function applyOldItemReview(ledger, thread, result, window, steps = [], lastNumb
   return 'updated';
 }
 
+// A feeling is asked about again only once this many more messages have come since the last time.
+const FEELING_AGAIN = 8;
+/** Whether a feeling is worth a review now: the story went on after it, and enough since it was last asked about. */
+function feelingDue(t, lastNumber) {
+  if (typeof lastNumber !== 'number') return true;
+  if (lastNumber <= lastSeen(t)) return false;
+  return t.reviewedUpTo == null || lastNumber - t.reviewedUpTo >= FEELING_AGAIN;
+}
+
+/* ---------- how what began in a scene went on ---------- */
+
+const AFTER_LINES = 3;
+/**
+ * Lines for a recalled old scene: each open item that began in it and how it stands now, or how it ended
+ * ("→ 그 뒤: 3화 같이 보기 — 3화 다 봄 (S10)"). Without them the scene reads as if it were still so.
+ * sceneAt(number) → the id of the scene a message number falls in (or null). Author's plans and merged items are left out.
+ */
+function afterLines(ledger, scene, sceneAt = () => null) {
+  if (!ledger || !scene || typeof scene.start !== 'number' || typeof scene.end !== 'number') return [];
+  const began = (t) => {
+    const n = t.openedAt?.number ?? t.evidence?.[0]?.number;
+    return typeof n === 'number' && n >= scene.start && n <= scene.end;
+  };
+  const where = (n) => { const id = typeof n === 'number' ? sceneAt(n) : null; return id && id !== scene.id ? ` (${id})` : typeof n === 'number' && n > scene.end ? ` (#${n})` : ''; };
+  const out = [];
+  for (const t of (ledger.threads || []).filter((x) => !x.plan && !x.mergedInto && began(x))) {
+    if (t.status !== 'open') {
+      const how = String(t.closed?.how || '').replace(/s*(Sd+)$/, '');
+      if (!how || /에 합침/.test(how)) continue;
+      out.push(`→ 그 뒤: ${t.title} — ${how}${where(t.closed?.at?.number)}`);
+    } else if (t.latest?.text && (t.latest.number ?? 0) > scene.end) {
+      out.push(`→ 지금: ${t.title} — ${t.latest.text}${where(t.latest.number)}`);
+    }
+    if (out.length >= AFTER_LINES) break;
+  }
+  return out;
+}
+
 const RECENTLY_CLOSED_SHOWN = 8;
 
 /** The chat's characters other than the user's, when there are at least two (a group story). */
@@ -2588,6 +2626,9 @@ module.exports = {
   routineKey,
   tidyKnowledge,
   buildFeelingPrompt,
+  afterLines,
+  feelingDue,
+  FEELING_AGAIN,
   oldItemsToReview,
   buildOldItemPrompt,
   applyOldItemReview,

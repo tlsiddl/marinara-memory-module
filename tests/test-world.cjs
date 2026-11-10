@@ -44,19 +44,19 @@ const messages = L.prepareMessages([{ id: 'm1', number: 1, role: 'user', speaker
 const system = (prefs) => S.buildScenePrompt(S.emptyStore(), messages, 1, null, prefs)[0].content;
 
 test('prompt: with both switches off the system prompt is the scene prompt unchanged; each switch adds only its own part', () => {
-  assert.equal(system(undefined), S.SCENE_PROMPT);
-  assert.equal(system({}), S.SCENE_PROMPT);
-  assert.equal(system({ characterState: false, places: false }), S.SCENE_PROMPT);
+  assert.equal(system(undefined), `${S.SCENE_PROMPT}\n\n${S.LINES_PROMPT}`);
+  assert.equal(system({}), `${S.SCENE_PROMPT}\n\n${S.LINES_PROMPT}`);
+  assert.equal(system({ characterState: false, places: false }), `${S.SCENE_PROMPT}\n\n${S.LINES_PROMPT}`);
   const withState = system({ characterState: true });
-  assert.equal(withState, `${S.SCENE_PROMPT}\n\n${St.PROMPT}`);
+  assert.equal(withState, `${S.SCENE_PROMPT}\n\n${S.LINES_PROMPT}\n\n${St.PROMPT}`);
   assert.match(withState, /"state":\[\{"who"/);
   assert.match(withState, /지어내지 마/);
   assert.doesNotMatch(withState, /placeNotes/);
   const withPlaces = system({ places: true });
-  assert.equal(withPlaces, `${S.SCENE_PROMPT}\n\n${Pl.PROMPT}`);
+  assert.equal(withPlaces, `${S.SCENE_PROMPT}\n\n${S.LINES_PROMPT}\n\n${Pl.PROMPT}`);
   assert.match(withPlaces, /"placeNotes":\[\{"place"/);
-  assert.doesNotMatch(withPlaces, /"state"/);
-  assert.equal(system({ characterState: true, places: true }), `${S.SCENE_PROMPT}\n\n${St.PROMPT}\n\n${Pl.PROMPT}`);
+  assert.doesNotMatch(withPlaces, /"state":\[/, 'no character-state part (a fact\'s own "state":false is another thing)');
+  assert.equal(system({ characterState: true, places: true }), `${S.SCENE_PROMPT}\n\n${S.LINES_PROMPT}\n\n${St.PROMPT}\n\n${Pl.PROMPT}`);
   // The user message of the call is the same either way.
   assert.deepEqual(S.buildScenePrompt(S.emptyStore(), messages, 1, null, {})[1], S.buildScenePrompt(S.emptyStore(), messages, 1, null, { characterState: true, places: true })[1]);
   // Together with the user's own preferences the additions come last.

@@ -103,6 +103,7 @@ const SCENE_PROMPT = `너는 장기 롤플레이의 기억 관리자야. 지나�
   이 장면에서 한 행동이나 결정(예: 병가를 냈다, 사과했다, 약속했다)은 사실이 아니라 사건이야. 사실에 넣지 마.
   [이미 아는 사실]에 있으면 넣지 마. 이미 아는 사실이 이 장면에서 바뀌었으면 새 사실을 적고 replaces에 바뀐 사실 번호(예: "F3")를 적어. 없으면 [].
   text에 인물 이름을 다시 쓰지 마(about에 이미 있어).
+  머무는 곳, 가진 물건, 처지, 관계의 지금 상태처럼 나중에 바뀔 수 있는 사실은 "state":true로 적어(예: "항구 여관에 묵고 있다", "열쇠를 갖고 있다"). 체질·과거·성격처럼 변하지 않는 사실은 false.
   곧·지금·요즘·~것 같다처럼 잠깐만 맞는 내용(예: 곧 열이 오를 것 같다)은 사실이 아니야.
   알게 된 때나 바뀐 때가 중요한 사실(몰랐다가 알게 됨, 관계가 바뀜, 끊음)은 그 사실만 읽어도 무슨 일인지 알게 써. 예) "도윤과 하준이 6년 전부터 몰래 연락해 왔다는 걸 처음 알게 됐다". '이 장면에서'처럼 장면을 가리키는 말은 쓰지 마(프로그램이 때를 붙여).
   대상을 줄여 쓰지 마. 원문이 "약을 다 끊겠다"라면 앞서 나온 약 이름을 모두 적어. 예) "수면제와 진통제 등 약을 모두 끊기로 했다".
@@ -143,10 +144,23 @@ const SCENE_PROMPT = `너는 장기 롤플레이의 기억 관리자야. 지나�
 {"scenes":[{"end":25,"time":"…","place":"…","weather":"… 또는 null","title":"…","summary":"…","present":["인물"],
  "events":[{"text":"누가 누구에게 무엇을 어떻게","time":"작중 시각 또는 null","why":"이유·계기 또는 null","importance":"critical|major|minor","with":["그 사건 때 그 자리에 있던 인물"],"quotes":[{"n":"23.4","q":"…","by":"말한 사람 또는 null","to":"들은 사람 또는 null","byEvidence":"화자 근거 또는 null","toEvidence":"수신자 근거 또는 null"}]}],
  "recollections":[{"who":"인물","text":"…","remembers":"full|partial|none","why":"…또는 null","kept":"…또는 null"}],
- "facts":[{"about":"인물","text":"…","evidence":[{"n":"23.9","q":"…"}],"replaces":null,"unaware":[{"who":"인물","why":"이유","guess":false}],"knownBy":["인물"]}],
+ "facts":[{"about":"인물","text":"…","evidence":[{"n":"23.9","q":"…"}],"state":false,"replaces":null,"unaware":[{"who":"인물","why":"이유","guess":false}],"knownBy":["인물"]}],
  "learned":[],"later":[]}]}`;
 
 const PRESENCE_SCENES = 40;
+
+/**
+ * 이야기 줄기: one matter followed across the story (scenes need not be next to each other), with where it has got to.
+ * Written in the same scene call; a recalled old scene is shown with its line's state now.
+ */
+const LINES_PROMPT = `이야기 줄기 (lines):
+- 장면마다 lines에, 이 장면이 이어 가는 이야기 줄기를 0~2개 적어. 줄기는 여러 장면에 걸쳐 이어지는 한 가지 일이야(예: "드라마 같이 보기", "창고 열쇠", "형과의 불화").
+- [이야기 줄기] 목록에 있는 줄기를 이어 가면 그 이름을 글자 그대로 써. 새로 시작되는 일이면 짧은 이름을 새로 지어.
+- now에는 이 장면이 끝난 때 그 줄기가 어디까지 왔는지 한 문장(예: "3화까지 함께 봄. 다음은 4화", "열쇠는 아직 빅터에게 있음"). 끝난 줄기면 끝났다고 써.
+- 한 장면에서 끝나는 잡담이나 한 번뿐인 일은 줄기로 만들지 마.
+형식: "lines":[{"name":"줄기 이름","now":"지금 어디까지 왔는지"}] · 없으면 [].`;
+const LINE_NAME_MAX = 30;
+const LINE_NOW_MAX = 160;
 
 /** The chat's characters (not the user's), as saved by the service. */
 function castOf(store) {
@@ -264,6 +278,11 @@ function buildScenePrompt(store, slice, required, problem = null, preferences = 
       parts.push(`- ${s.id} ${[s.time, s.place].filter(Boolean).join(' · ')} ${s.title}${away.length ? ` (모름: ${away.join('·')})` : ''}`);
     }
   }
+  const lines = storyLines(store).slice(-12);
+  if (lines.length) {
+    parts.push('', '## 이야기 줄기 (이어 가면 같은 이름으로)');
+    for (const l of lines) parts.push(`- ${l.name}: ${l.now || '(지금 상태 없음)'}`);
+  }
   const previous = store.scenes.slice(-2);
   if (previous.length) {
     parts.push('', '## 바로 앞 장면 (참고용)');
@@ -292,7 +311,7 @@ function buildScenePrompt(store, slice, required, problem = null, preferences = 
   if (preferences.quoteMode === 'narration') guidance.push('인용은 사건의 중요한 서술 문장 위주로 골라. 중요 문답·약속·거절의 대사도 함께 보존해. 서술의 by와 to는 null로 둬.');
   if (preferences.quoteMode === 'both') guidance.push(`사건의 대사와 중요한 서술을 모두 인용해. 각 사건에서 중요한 대사와 행동·표정·접촉·상황 변화의 서술을 각각 원문 문장 번호로 인용해. 대사가 있는 사건도 관련 서술이 있으면 최소 한 문장을 별도 quotes 항목으로 넣어. 원문에 없으면 만들지 마. 사건마다 최대 ${quoteLimit('both')}개. 질문과 답변은 함께 보존하고 서술의 by와 to는 null로 둬. 이름·철자 공개 뒤의 질문과 반응처럼 새 전개가 있으면 별도 사건을 만들어 그 대사를 직접 연결해.`);
   // Optional records (인물 상태, 장소): added only while the room's switch is on, so a room without them gets the same prompt as before.
-  const extras = [];
+  const extras = [LINES_PROMPT];
   if (preferences.characterState) extras.push(St.PROMPT);
   if (preferences.places) extras.push(Pl.PROMPT);
   if (preferences.keepsakes) extras.push(Ks.PROMPT);
@@ -309,6 +328,66 @@ ${voice}` : Nb.PROMPT);
     { role: 'system', content: base + (guidance.length ? '\n\n사용자가 선택한 정리 우선순위 (위의 대사 우선 규칙보다 우선):\n' + guidance.join('\n') : '') + (extras.length ? '\n\n' + extras.join('\n\n') : '') },
     { role: 'user', content: parts.join('\n') },
   ];
+}
+
+/* ---------- story lines ---------- */
+
+const lineKey = (name) => String(name || '').toLowerCase().replace(/[\s"'“”‘’「」『』.,!?·~\-_()]/g, '');
+
+/** The lines the scene call wrote for one scene: at most two, each with a name and (optionally) where it stands. */
+function lineEntries(raw) {
+  const out = [];
+  for (const x of Array.isArray(raw) ? raw : []) {
+    const name = cleanText(x?.name, LINE_NAME_MAX);
+    if (!name || out.some((l) => lineKey(l.name) === lineKey(name))) continue;
+    const now = summaryText(x?.now, LINE_NOW_MAX);
+    out.push({ name, ...(now ? { now } : {}) });
+    if (out.length >= 2) break;
+  }
+  return out;
+}
+
+/**
+ * Every story line of the room, folded from its scenes in story order: { name, scenes: [ids], now, nowScene }.
+ * Folded each time, so a scene made again or removed changes its lines with it.
+ */
+function storyLines(store) {
+  const map = new Map();
+  for (const scene of store?.scenes || []) {
+    if (!isStoryScene(scene)) continue;
+    for (const l of scene.lines || []) {
+      const key = lineKey(l.name);
+      if (!key) continue;
+      const line = map.get(key) || { name: l.name, scenes: [], now: null, nowScene: null };
+      line.scenes.push(scene.id);
+      if (l.now) { line.now = l.now; line.nowScene = scene.id; }
+      map.set(key, line);
+    }
+  }
+  return [...map.values()].sort((a, b) => sceneOrder(store, a.scenes.at(-1)) - sceneOrder(store, b.scenes.at(-1)));
+}
+const sceneOrder = (store, id) => (store?.scenes || []).findIndex((x) => x.id === id);
+
+/** "줄기 「name」 지금: …" for a recalled scene whose line went on after it. */
+function lineNowFor(store, scene) {
+  return storyLines(store)
+    .filter((l) => l.scenes.includes(scene.id) && l.now && l.nowScene && l.nowScene !== scene.id && sceneOrder(store, l.nowScene) > sceneOrder(store, scene.id))
+    .map((l) => `→ 줄기 「${l.name}」 지금: ${l.now} (${l.nowScene})`);
+}
+
+const LINES_RECENT = 15;
+const LINES_SHOWN = 6;
+/**
+ * "[이야기 줄기]": the lines the story is on lately (and those of the recalled scenes), each with where it stands.
+ * `also`: scene ids whose lines go in even when older.
+ */
+function linesBlock(store, { also = [] } = {}) {
+  const recent = new Set((store?.scenes || []).filter(isStoryScene).slice(-LINES_RECENT).map((x) => x.id));
+  const extra = new Set(also);
+  const list = storyLines(store).filter((l) => l.now && l.scenes.some((id) => recent.has(id) || extra.has(id))).slice(-LINES_SHOWN);
+  if (!list.length) return '';
+  const span = (ids) => (ids.length > 4 ? [...ids.slice(0, 2), '…', ...ids.slice(-1)] : ids).join('·');
+  return `[이야기 줄기]\n${list.map((l) => `- ${l.name} (${span(l.scenes)}): ${l.now}`).join('\n')}`;
 }
 
 /* ---------- applying a result ---------- */
@@ -870,6 +949,7 @@ function applyScenes(store, result, slice, required, now = new Date().toISOStrin
       ...(keeps.length ? { keepsakes: keeps } : {}),
       ...(hints.length ? { dateHints: hints } : {}),
       ...(charNotes.length ? { charNotes } : {}),
+      ...(lineEntries(item.lines).length ? { lines: lineEntries(item.lines) } : {}),
       heardLater: [],
       edited: false,
       createdAt: now,
@@ -907,7 +987,7 @@ function applyScenes(store, result, slice, required, now = new Date().toISOStrin
       // Who knows it: as the model listed, or (for a fact some people do not know) the people of the scene who do. Empty = not specified.
       const people = [...cast, ...personas];
       const knownBy = K.deriveKnownBy({ listed: castNames(f?.knownBy, people), present: castNames(scene.present, people), unaware, guess, guessed: /\(추정\)|추정된다|보인다/.test(text) });
-      newFacts.push({ id: `F${store.nextFact + newFacts.length}`, about, text, evidence, sceneId: id, when: cleanText(item.time, 60), replaces, unaware, guess, ...(knownBy.length ? { knownBy } : {}), edited: false, createdAt: now });
+      newFacts.push({ id: `F${store.nextFact + newFacts.length}`, about, text, evidence, sceneId: id, when: cleanText(item.time, 60), replaces, unaware, guess, ...(f.state === true ? { state: true } : {}), ...(knownBy.length ? { knownBy } : {}), edited: false, createdAt: now });
     }
     for (const l of Array.isArray(item.learned) ? item.learned : []) {
       const who = castNames([l?.who], cast)[0];
@@ -3481,6 +3561,7 @@ function applyFactMerge(store, about, facts, result, now = new Date().toISOStrin
       // Who learned it in which scene comes along, so undoing that scene undoes it on the merged fact as well.
       ...inheritKnowing(sources),
       sources: sources.map((f) => f.id),
+      ...(sources.some((f) => f.state) ? { state: true } : {}),
       edited: false,
       createdAt: now,
     });
@@ -3554,7 +3635,9 @@ function renderScenes(store, firstInside, { maxChars = 9000, maxSummaries = 40, 
       const fits = (f) => {
         const base = stripAbout(f.text, f.about);
         const when = f.when || store.scenes.find((s) => s.id === f.sceneId)?.time;
-        const dated = when && DATED.test(base) && !/\d{2}-\d{1,2}-\d{1,2}/.test(base) ? `${base} (${when.split(/[~·]/)[0].trim()})` : base;
+        const datedText = when && DATED.test(base) && !/\d{2}-\d{1,2}-\d{1,2}/.test(base) ? `${base} (${when.split(/[~·]/)[0].trim()})` : base;
+      // A state (where someone stays, what they hold) is true as of a scene; a later one may have changed it.
+      const dated = f.state && f.sceneId ? `${datedText} (${f.sceneId} 기준)` : datedText;
         const marks = group ? [f.unaware?.length ? `모름: ${f.unaware.join('·')}` : null, f.guess?.length ? `짐작만: ${f.guess.join('·')}` : null].filter(Boolean) : [];
         const unknown = K.unknownMarker(f, here, { personas: store.personas || [], covered: group ? f.unaware || [] : [] });
         return ((marks.length ? `${dated} [${marks.join(' / ')}]` : dated) + unknown).length + 4;
@@ -3566,7 +3649,9 @@ function renderScenes(store, firstInside, { maxChars = 9000, maxSummaries = 40, 
     for (const f of accepted ? liveFacts(store).filter((x) => accepted.has(x.id)) : facts) {
       const base = wholeSentences(stripAbout(f.text, f.about));
       const when = f.when || store.scenes.find((s) => s.id === f.sceneId)?.time;
-      const dated = when && DATED.test(base) && !/\d{2}-\d{1,2}-\d{1,2}/.test(base) ? `${base} (${when.split(/[~·]/)[0].trim()})` : base;
+      const datedText = when && DATED.test(base) && !/\d{2}-\d{1,2}-\d{1,2}/.test(base) ? `${base} (${when.split(/[~·]/)[0].trim()})` : base;
+      // A state (where someone stays, what they hold) is true as of a scene; a later one may have changed it.
+      const dated = f.state && f.sceneId ? `${datedText} (${f.sceneId} 기준)` : datedText;
       const marks = group ? [f.unaware?.length ? `모름: ${f.unaware.join('·')}` : null, f.guess?.length ? `짐작만: ${f.guess.join('·')}` : null].filter(Boolean) : [];
       const unknown = K.unknownMarker(f, here, { personas: store.personas || [], covered: group ? f.unaware || [] : [] });
       const text = (marks.length ? `${dated} [${marks.join(' / ')}]` : dated) + unknown;
@@ -3624,6 +3709,11 @@ module.exports = {
   buildFactMergePrompt,
   applyFactMerge,
   undoCutMerges,
+  storyLines,
+  lineNowFor,
+  linesBlock,
+  lineEntries,
+  LINES_PROMPT,
   markCutSummaries,
   summaryText,
   MERGED_MAX,

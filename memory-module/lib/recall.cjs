@@ -355,14 +355,22 @@ function shownPicks(picks, max) {
   return out;
 }
 
-function renderRecalled(store, picks, { maxChars = 16000, npc = false, trace = null } = {}) {
+/**
+ * after(scene): lines on how what began in that scene went on ("→ 그 뒤: …"), so an old scene is not read as now.
+ * The chapter it falls in is named, so the reply model can place it in the story so far.
+ */
+function renderRecalled(store, picks, { maxChars = 16000, npc = false, trace = null, after = null } = {}) {
   const blocks = [];
   let used = 0;
   for (const pick of picks) {
     const index = store.scenes.findIndex((s) => s.id === pick.id);
     if (index < 0) continue;
-    const body = S.renderExpanded(store.scenes[index], index, store.personas || [], S.castOf(store), { npc });
-    const block = pick.follow ? `(${pick.from}에 이어진 장면)\n${body}` : body;
+    const scene = store.scenes[index];
+    const chapter = (store.chapters || []).find((c) => !c.stale && c.scenes.includes(scene.id));
+    const later = typeof after === 'function' ? after(scene) : [];
+    const body = [S.renderExpanded(scene, index, store.personas || [], S.castOf(store), { npc }), ...later].join('\n');
+    const where = chapter ? `(${chapter.id} 시기)\n` : '';
+    const block = pick.follow ? `(${pick.from}에 이어진 장면)\n${where}${body}` : `${where}${body}`;
     if (used + block.length > maxChars) break;
     blocks.push(block);
     trace?.push(pick);
@@ -375,7 +383,7 @@ function renderRecalled(store, picks, { maxChars = 16000, npc = false, trace = n
  * Close-in-meaning scenes that did not come up in full: just the event that matched, with its lines.
  * Cheap, and enough for a character to remember "oh, that".
  */
-function renderNearEvents(store, semantic, picks, { max = 6, maxChars = 5000, trace = null } = {}) {
+function renderNearEvents(store, semantic, picks, { max = 6, maxChars = 5000, trace = null, after = null } = {}) {
   const shown = new Set(picks.map((p) => p.id));
   const blocks = [];
   let used = 0;
@@ -387,6 +395,7 @@ function renderNearEvents(store, semantic, picks, { max = 6, maxChars = 5000, tr
     const e = x.piece != null ? scene.events[x.piece] : null;
     const lines = [`- ${where ? `${where} — ` : ''}${scene.title}: ${e ? e.text : scene.summary}`];
     if (e) for (const q of S.pickQuotes(e.quotes)) lines.push(`  ${S.quoteLine(q)}`);
+    if (typeof after === 'function') lines.push(...after(scene).map((l) => `  ${l}`));
     const block = lines.join('\n');
     if (used + block.length > maxChars) break;
     blocks.push(block);

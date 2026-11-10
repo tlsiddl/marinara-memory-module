@@ -148,3 +148,24 @@ test('a pending task that was carried out (answered, found, explained) is closed
   assert.equal(L.closeDoneThreads(ledger), 3);
   assert.deepEqual(ledger.threads.map((x) => x.status), ['closed', 'closed', 'open', 'open', 'open', 'closed']);
 });
+
+test('what changes least comes first: the story so far, then plans and open items; what changes every reply last', () => {
+  const room = 'txtorder';
+  X.saveSettings({ connection: null, chats: { [room]: { enabled: true } } });
+  const store = S.emptyStore();
+  store.scenes = [
+    { id: 'S1', start: 1, end: 2, messages: [], time: '25-03-01 (토) 15:00', place: '부두', title: '창고', summary: '빅터와 세라가 창고에서 만남.', events: [], recollections: [], present: ['빅터', '세라'] },
+    { id: 'S2', start: 3, end: 4, messages: [], time: '25-03-02 (일) 09:00', place: '부엌', title: '아침', summary: '셋이 아침을 먹음.', events: [], recollections: [], present: ['빅터', '세라'] },
+  ];
+  store.window = { size: 4, firstInside: 50 };
+  X.saveScenes(room, store);
+  const ledger = L.emptyLedger();
+  ledger.threads.push({ id: 'T1', kind: 'promise', status: 'open', title: '창고 열쇠 돌려주기', who: '빅터', toward: '세라', evidence: [{ number: 2, sentence: 1, text: 'x' }], clues: [], unaware: [] });
+  X.saveLedger(room, ledger);
+  X.recalls.set(room, { picks: [{ id: 'S1', why: 'test' }] });
+  const text = X.renderMemorySource(room);
+  const at = (s) => text.indexOf(s);
+  assert.ok(at('[지난 장면들]') > 0 && at('[아직 끝나지 않은 일]') > at('[지난 장면들]'), 'the story so far first');
+  assert.ok(at('[지금 떠오르는 지난 장면]') > at('[아직 끝나지 않은 일]'), 'recalled scenes after the open items');
+  X.recalls.delete(room);
+});
