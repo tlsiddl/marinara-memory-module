@@ -352,3 +352,19 @@ test('English notes get English room: a 25-word note is kept whole, and the repl
   assert.ok(Nb.injectionBlock(many(ko), people).length <= Nb.INJECT_CHARS);
   assert.match(Nb.PROMPT, /영어는 25단어 안팎/);
 });
+
+test('a note that names its own owner, or one name in every clause, goes to the fix pass (with the owner\'s other names)', () => {
+  const o = { cast: ['Viktor', 'Sera'], person: (n) => n };
+  const note = (text) => Nb.cleanNote({ who: 'Viktor', kind: 'heart', when: 'At the pier', text }, o);
+  assert.equal(note('Sera bolts when pressed, so Viktor should wait.').vague, true, 'owner named');
+  assert.equal(note('Sera bolts, so pressing Sera only makes Sera run.').vague, true, 'one name three times');
+  assert.equal(note('Sera bolts when pressed, so I will wait for her.').vague, undefined);
+  assert.equal(note('Serafina came by; Sera was not with her.').vague, undefined, 'a longer word is not the name');
+  assert.equal(Nb.timesNamed('Sera shuts down, so pressing Sera only makes Sera bolt.', 'Sera'), 3);
+  // The fix pass sees the owner's other names (from the room's name table) and is told never to use them.
+  const A = require('../memory-module/lib/aliases.cjs');
+  const table = { version: 1, people: { 빅터: { aliases: ['Viktor'] }, 세라: { aliases: ['Sera'] } } };
+  const [system, user] = A.using(table, () => Nb.buildNoteLanguagePrompt([{ who: '빅터', text: 'So Viktor should wait.', wantLang: 'en' }]));
+  assert.deepEqual(JSON.parse(user.content).notes[0].aka, ['Viktor']);
+  assert.match(system.content, /never named in their own note, not even in the third person/);
+});
