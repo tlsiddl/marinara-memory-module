@@ -29,6 +29,9 @@ const TEXT_MAX = 240;
 const PER_PERSON_SCENE = 1;
 // What the model writes is kept short (a long note crowds the others out of the reply); the user's own edits may be longer.
 const NOTE_LEN = 120;
+// English and Chinese need about twice the letters of Korean for the same note (and cost about the same tokens).
+const NOTE_LEN_LATIN = 240;
+const noteLen = (t) => (isKorean(t) ? NOTE_LEN : NOTE_LEN_LATIN);
 const WHEN_LEN = 60;
 const WHEN_LEN_LATIN = 110;
 const whenLen = (t) => (isKorean(t) ? WHEN_LEN : WHEN_LEN_LATIN);
@@ -39,6 +42,7 @@ const WHEN_MAX = 100;
 const INJECT_CORE = 3;
 const INJECT_RELATED = 3;
 const INJECT_CHARS = 1600;
+const INJECT_CHARS_LATIN = 2600;
 const VOICE_PER_PERSON = 3;
 const VOICE_LINE_MAX = 80;
 
@@ -85,7 +89,7 @@ const PROMPT = `인물의 수첩 (이 방에서 켠 기능):
 - 사용자 캐릭터의 메시지에서 다른 인물이 알 수 있는 건 큰따옴표 대사와 겉으로 보이는 행동뿐이야. 사용자 캐릭터의 속마음·생각 서술은 다른 인물이 모르니 수첩에 쓰지 마.
 - [이미 적은 수첩]에 있는 생각은 표현을 바꿔도 다시 적지 마. 같은 주제(숨는 버릇, 잊어버리는 버릇 같은 것)는 새로 알게 된 게 있을 때만 적어. 새로운 게 없으면 그 인물은 0개로 둬.
 - when(상황): 그때 무슨 일이 있었는지 짧게, 40자 안팎. 누가 무엇을 했는지 이름을 넣어 담담하게(예: "식당에서 세라가 체리를 덜어 줬을 때"). 수첩과 같은 언어로.
-- text: 한 문장, 80자 안팎. 메모만 따로 읽어도 누구의 무슨 일인지 알 수 있게 써.
+- text: 한 문장, 80자 안팎(영어는 25단어 안팎). 메모만 따로 읽어도 누구의 무슨 일인지 알 수 있게 써.
 - 사람은 이름으로 써. "그 애", "이 애", "저 녀석", "그 자식", "그녀", "그 여자"처럼 가리키기만 하는 말은 쓰지 마. 한 메모에서 이름을 한 번 쓴 사람은 그다음엔 주어를 빼도 돼(영어는 she/he). 문장마다 이름을 되풀이하지 마. "그 거품"처럼 장면을 봐야 알 수 있는 말 대신 구체적인 것을 써. 수첩 주인 자신만은 이름으로 부르지 말고 주어를 빼(예: 빅터의 수첩에 "빅터는…"이라고 쓰지 마).
 - 문체: 그 인물 시점의 담담한 메모체. 그 인물이 느낀 것, 판단한 것, 정한 것을 "~라고 느낌", "~하기로 함", "~하는 편이 나음"처럼 짧게 적어(예: "세라가 웃을 땐 캐묻지 않기로 함."). 대사 말투·어미·감탄·별명을 흉내 내지 말고, 독백이나 대사처럼 쓰지 마. 영어로 적을 때는 "Learned that …", "Felt …", 중국어로 적을 때는 "发现……", "觉得……"처럼 짧은 메모체로.
 - 언어: 아래 [수첩 언어]에 적힌 언어로 써(when과 text 모두). 기록 언어 설정 대신 이걸 따라.
@@ -224,7 +228,7 @@ function cleanNote(raw, { cast = [], personas = [], person = (n) => tidy(n), lan
   if (!raw || typeof raw !== 'object') return null;
   const who = person(tidy(raw.who));
   if (!who || personas.includes(who) || (cast.length && !cast.includes(who))) return null;
-  const text = shorten(raw.text, NOTE_LEN);
+  const text = shorten(raw.text, noteLen(raw.text));
   if (!text || letters(text) < 2) return null;
   // A note in another language than the one set for this character (e.g. English for one who speaks Korean) is kept and
   // marked: the service turns it into the right language after the scene call (it used to be dropped, and models that
@@ -462,8 +466,10 @@ const noteLine = (n) => (n.when ? `(${n.when}) ${n.text}` : n.text);
  * talk now — `related` ([{ id, z }], best first, from meaning search) when the room has an embedding model, else the
  * notes that share the most character pairs with `query`. Within `max` characters. Empty when nobody here has notes.
  */
-function injectionBlock(file, present, { query = '', related = null, max = INJECT_CHARS } = {}) {
+function injectionBlock(file, present, { query = '', related = null, max = null } = {}) {
   if (!isNotebook(file) || !(file.notes || []).length) return '';
+  // Mostly English or Chinese notes: more letters for the same tokens.
+  max ||= file.notes.filter((n) => !isKorean(n.text)).length > file.notes.length / 2 ? INJECT_CHARS_LATIN : INJECT_CHARS;
   const here = [];
   for (const n of present || []) {
     const c = A.canonical(n);
@@ -518,7 +524,7 @@ function view(file) {
 }
 
 module.exports = {
-  NOTEBOOK_VERSION, KINDS, KIND_LABEL, TEXT_MAX, PER_PERSON_SCENE, PER_SCENE, PER_PERSON_KEPT, INJECT_CORE, INJECT_RELATED, INJECT_CHARS, PROMPT, WHEN_MAX, NOTE_LEN, WHEN_LEN, WHEN_LEN_LATIN, noteLine, shorten,
+  NOTEBOOK_VERSION, KINDS, KIND_LABEL, TEXT_MAX, PER_PERSON_SCENE, PER_SCENE, PER_PERSON_KEPT, INJECT_CORE, INJECT_RELATED, INJECT_CHARS, PROMPT, WHEN_MAX, NOTE_LEN, NOTE_LEN_LATIN, INJECT_CHARS_LATIN, WHEN_LEN, WHEN_LEN_LATIN, noteLine, shorten,
   COPIED, languagesOf, langsFor, vague, isFact, noteLanguage, priorNotes, sameNote, NOTE_LANG_PROMPT, buildNoteLanguagePrompt, readNoteLanguage, voiceFromScenes, buildRebuildPrompt, userKept,
   emptyNotebook, isNotebook, voiceSamples, voiceBlock, cleanNote, fold, editNote, starNote, deleteNote, injectionBlock, view, alike,
 };

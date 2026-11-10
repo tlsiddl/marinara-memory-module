@@ -117,8 +117,8 @@ test('checks in code (from the audit): the language set per character, no near-c
   // A situation line in the wrong language marks the note too.
   assert.equal(Nb.cleanNote({ who: 'Viktor', kind: 'heart', when: '세라가 부두에서 토라졌을 때', text: 'Tell her no once and she takes it as a dare.' }, { cast: ['Viktor', 'Sera'], person: (n) => n, langs: { Viktor: 'en' } }).wantLang, 'en');
   // What the model writes is kept short: a long note is cut at a sentence end, a long situation line is clipped.
-  const long = Nb.cleanNote({ who: 'Viktor', kind: 'heart', when: '가'.repeat(90), text: `${'Sera never says sorry, she just brings coffee. '.repeat(2)}And then a third sentence that goes on.` }, { cast: ['Viktor'], person: (n) => n });
-  assert.equal(long.text, 'Sera never says sorry, she just brings coffee. Sera never says sorry, she just brings coffee.');
+  const long = Nb.cleanNote({ who: 'Viktor', kind: 'heart', when: '가'.repeat(90), text: `${'Sera never says sorry, she just brings coffee. '.repeat(5)}And then a sixth sentence that goes on.` }, { cast: ['Viktor'], person: (n) => n });
+  assert.equal(long.text, 'Sera never says sorry, she just brings coffee. '.repeat(5).trim(), 'cut at a sentence end within the English limit');
   assert.equal(long.when.length, Nb.WHEN_LEN);
   // English needs more letters for the same line: a longer limit, so a line like this one is not cut.
   const enWhen = 'When Sera said at the harbour cafe that she could not read French at all, then hid'.padEnd(150, ' x');
@@ -334,4 +334,21 @@ test('the library: 수첩 언어 picker shows the choices and what the default f
   assert.match(html, /<option value="en" selected>/);
   assert.match(html, /인물이 말하는 언어/);
   assert.ok(source.includes("e.target.id === 'setNoteLang'"));
+});
+
+test('English notes get English room: a 25-word note is kept whole, and the reply has more letters for them', () => {
+  const opts = { cast: ['Viktor', 'Sera'], person: (n) => n };
+  const en = 'Sera shuts down the moment she feels cornered, so pressing her about the hotel will only make her bolt; better to wait until she brings it up herself.';
+  assert.ok(en.length > Nb.NOTE_LEN && en.length < Nb.NOTE_LEN_LATIN);
+  assert.equal(Nb.cleanNote({ who: 'Viktor', kind: 'about', about: 'Sera', when: 'When Sera would not name her hotel', text: en }, opts).text, en, 'not cut');
+  const ko = '세라는 궁지에 몰렸다 싶으면 입을 닫아 버리니 호텔에 대해 캐물으면 도망칠 뿐임. 세라가 먼저 꺼낼 때까지 기다리는 편이 나음. 그리고 덧붙여 아주 긴 문장이 계속 이어지고 또 이어짐.';
+  assert.ok(Nb.cleanNote({ who: 'Viktor', kind: 'about', about: 'Sera', when: '부두에서', text: ko }, opts).text.length <= Nb.NOTE_LEN, 'Korean keeps its cap');
+  // The reply block: English notes have a larger letter budget than Korean ones.
+  // Three people in the scene, three core notes each.
+  const people = ['Viktor', 'Sera', 'Marco'];
+  const many = (text) => ({ ...Nb.emptyNotebook(), notes: people.flatMap((who) => Array.from({ length: 3 }, (_, i) => ({ id: `${who}${i}`, who, kind: 'heart', when: 'When the rain started at the pier at night', text: `${i} ${text}` }))) });
+  const enLine = Nb.injectionBlock(many(en), people);
+  assert.ok(enLine.length > Nb.INJECT_CHARS && enLine.length <= Nb.INJECT_CHARS_LATIN, String(enLine.length));
+  assert.ok(Nb.injectionBlock(many(ko), people).length <= Nb.INJECT_CHARS);
+  assert.match(Nb.PROMPT, /영어는 25단어 안팎/);
 });
