@@ -178,6 +178,52 @@ const LINE_FILL_PROMPT = `너는 장기 롤플레이의 기억 관리자야. 장
 const LINE_FILL_BATCH = 30;
 const LINE_FILL_ONE_MIN = 8; // a stretch this long…
 const LINE_FILL_ONE_SHARE = 0.6; // …mostly on one line is refused
+/**
+ * People who were somewhere else: a scene can follow two places at once (the terrace, and someone on his yacht), and
+ * the people of an event are listed with it. Those whose events never share anyone with the group of the user's
+ * character were not there: they go to scene.elsewhere and out of present.
+ * Returns the change, or null. Only with every event's people known; a scene edited by hand is left alone.
+ */
+function separatedPresence(scene, personas = []) {
+  const events = scene?.events || [];
+  if (scene?.edited || events.length < 2 || events.some((e) => !Array.isArray(e.with) || !e.with.length)) return null;
+  const parent = new Map();
+  const find = (x) => { while (parent.get(x) !== x) x = parent.get(x); return x; };
+  const join = (a, b) => { const ra = find(a), rb = find(b); if (ra !== rb) parent.set(ra, rb); };
+  for (const e of events) for (const n of e.with) if (!parent.has(n)) parent.set(n, n);
+  for (const e of events) for (const n of e.with.slice(1)) join(e.with[0], n);
+  const groups = new Map();
+  for (const n of parent.keys()) { const r = find(n); groups.set(r, [...(groups.get(r) || []), n]); }
+  if (groups.size < 2) return null;
+  const size = (g) => events.filter((e) => e.with.some((n) => g.includes(n))).length;
+  const list = [...groups.values()];
+  // Only around the user's character: without them in the scene there is no telling which group is "here" (and a
+  // scene whose events list one listener each would split two people talking).
+  const main = list.find((g) => g.some((n) => personas.includes(n)));
+  if (!main || main.length < 2) return null;
+  void size;
+  const away = list.filter((g) => g !== main).flat();
+  const present = (scene.present || []).filter((n) => !away.includes(n));
+  const gone = (scene.present || []).filter((n) => away.includes(n));
+  if (!gone.length) return null;
+  return { present, elsewhere: [...new Set([...(scene.elsewhere || []), ...away])] };
+}
+/** Applies separatedPresence to the scenes not checked yet; returns how many changed. */
+function fixSeparatedPresence(store) {
+  let changed = 0;
+  const personas = store?.personas || [];
+  for (const scene of store?.scenes || []) {
+    if (scene.presenceSplit) continue;
+    const fix = separatedPresence(scene, personas);
+    scene.presenceSplit = true;
+    if (!fix) continue;
+    scene.present = fix.present;
+    scene.elsewhere = fix.elsewhere;
+    changed++;
+  }
+  return changed;
+}
+
 /** A filled line that ended up on one scene only is not a line (one-off matters are not lines): it is taken off. */
 function pruneLoneFilledLines(store) {
   const count = new Map();
@@ -423,7 +469,7 @@ function lineEntries(raw) {
   for (const x of Array.isArray(raw) ? raw : []) {
     // A name over the limit is cut at a word, never in the middle of one.
     let name = cleanText(x?.name, 200);
-    if (name.length > LINE_NAME_MAX) { const cut = name.slice(0, LINE_NAME_MAX + 1).lastIndexOf(' '); name = (cut > 8 ? name.slice(0, cut) : name.slice(0, LINE_NAME_MAX)).replace(/[s,;:·—-]+$/, ''); }
+    if (name.length > LINE_NAME_MAX) { const cut = name.slice(0, LINE_NAME_MAX + 1).lastIndexOf(' '); name = (cut > 8 ? name.slice(0, cut) : name.slice(0, LINE_NAME_MAX)).replace(/[\s,;:·—-]+$/, ''); name = name.replace(/(?:\s+(?:the|a|an|and|or|of|to|in|on|at|for|with|your|my|his|her|their|its|our|is|was))+$/i, '').trim() || name; }
     if (!name || out.some((l) => lineKey(l.name) === lineKey(name))) continue;
     const now = summaryText(x?.now, LINE_NOW_MAX);
     out.push({ name, ...(now ? { now } : {}) });
@@ -3898,6 +3944,8 @@ module.exports = {
   applyLineFill,
   undoLineFill,
   pruneLoneFilledLines,
+  separatedPresence,
+  fixSeparatedPresence,
   LINE_FILL_BATCH,
   lineNowFor,
   linesBlock,

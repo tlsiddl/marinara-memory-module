@@ -171,5 +171,5 @@ test('a plan keeps a hidden line with no answer; old plans get one from one call
   const source = fs.readFileSync(path.join(__dirname, '../extension/runtime.js'), 'utf8');
   assert.ok(source.includes('data-act=\\"planAnswers\\"') || source.includes('data-act="planAnswers"'));
   assert.ok(source.includes("data-f=\\\"mystery\\\"") || source.includes('data-f="mystery"') || source.includes('data-f=\\"mystery\\"'));
-  assert.ok(source.includes("for (const f of ['title', 'who', 'toward', 'detail', 'need', 'mystery',"));
+  assert.ok(source.includes("for (const f of ['title', 'who', 'toward', 'detail', 'latest', 'need', 'mystery',"));
 });

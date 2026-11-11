@@ -45,14 +45,14 @@ test('the 인물·장소 screen shows a Korean line under each field that has on
   };
   const state = fn('statePaper')({ characterState: true, cards: [{ name: 'Daniel', outfit: 'a grey coat', injuries: ['cut on the left hand', 'bruise'] }], sceneTitles: {} }, null, '');
   assert.match(state, /<h3>다니엘<\/h3>/);
-  assert.match(state, /한국어: 회색 코트/);
-  assert.match(state, /한국어: 왼손 베인 상처 · bruise/, 'a list: each item looked up');
+  assert.match(state, /한국어<input class="ko-edit"[^>]*value="회색 코트"/);
+  assert.match(state, /한국어<input class="ko-edit"[^>]*value="왼손 베인 상처 · bruise"/, 'a list: each item looked up');
   const places = fn('placesPaper')({ places: true, placeList: [{ id: 'p1', name: 'The harbor', description: 'Foggy docks', features: [] }], sceneTitles: {} }, null, '');
   assert.match(places, /The harbor <small class="tr-inline">\(항구\)<\/small>/);
-  assert.match(places, /한국어: 안개 낀 부두/);
+  assert.match(places, /한국어<input class="ko-edit"[^>]*value="안개 낀 부두"/);
   const keeps = fn('keepsakesPaper')({ keepsakes: true, keepList: [{ id: 'k1', name: 'Silver compass', meaning: 'a way home', owner: 'Daniel' }], sceneTitles: {} }, null, '');
   assert.match(keeps, /Silver compass <small class="tr-inline">\(은 나침반\)<\/small>/);
-  assert.match(keeps, /한국어: 집으로 가는 길/);
+  assert.match(keeps, /한국어<input class="ko-edit"[^>]*value="집으로 가는 길"/);
   assert.match(keeps, /한국어: 다니엘/, 'the owner is a name: written the Korean way');
 });
 
