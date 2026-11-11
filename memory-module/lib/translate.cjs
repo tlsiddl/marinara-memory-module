@@ -197,7 +197,7 @@ const LABELS = {
     [/\(월\)/g, '(Mon)'], [/\(화\)/g, '(Tue)'], [/\(수\)/g, '(Wed)'], [/\(목\)/g, '(Thu)'], [/\(금\)/g, '(Fri)'], [/\(토\)/g, '(Sat)'], [/\(일\)/g, '(Sun)'],  ],
 };
 /** "(이탈리아어로)" before a quoted line's words, in the memory's language (the words themselves stay as written). */
-const SPOKEN_IN = { en: ([, en]) => `(in ${en})`, zh: ([ko]) => `(${{ 영어: '英语', 이탈리아어: '意大利语', 그리스어: '希腊语', 프랑스어: '法语', 독일어: '德语', 스페인어: '西班牙语', 포르투갈어: '葡萄牙语', 러시아어: '俄语', 라틴어: '拉丁语', 일본어: '日语', 중국어: '中文', 한국어: '韩语' }[ko]})` };
+const SPOKEN_IN = { en: ([, en]) => `(in ${en})`, zh: ([ko]) => `(${{ 영어: '英语', 이탈리아어: '意大利语', 그리스어: '希腊语', 프랑스어: '法语', 독일어: '德语', 스페인어: '西班牙语', 포르투갈어: '葡萄牙语', 러시아어: '俄语', 라틴어: '拉丁语', 일본어: '日语', 중국어: '中文', 한국어: '韩语', '고대 그리스어': '古希腊语' }[ko]})` };
 function spokenIn(line, target) {
   if (!SPOKEN_IN[target]) return line;
   const at = line.search(/["“「『]/);

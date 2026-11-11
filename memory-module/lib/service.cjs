@@ -1170,6 +1170,40 @@ function setSpeakerTags(chatId, on) {
 }
 
 function speakerNamesOn(chatId) { return settings().chats?.[chatId]?.speakerNames === true; }
+
+/*
+ * 배경 설정 · 진행 규칙: what the user set for the room from the start (moved here from the author's note, say).
+ * 배경 설정 is facts: it opens {{기억}} as written, and the memory's own calls read it to understand the story.
+ * 진행 규칙 is instructions: it goes in with the reply's other instructions, near the end of the prompt.
+ */
+const SETUP_MAX_CHARS = 12000;
+const SETUP_READ_CHARS = 6000; // the most of 배경 설정 a memory call reads
+function cleanSetupText(v) {
+  return String(v ?? '').replace(/\r\n?/g, '\n').replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n').trim().slice(0, SETUP_MAX_CHARS);
+}
+function roomSetup(chatId) {
+  const s = settings().chats?.[chatId]?.setup || {};
+  return { lore: cleanSetupText(s.lore), rules: cleanSetupText(s.rules) };
+}
+const SETUP_LORE_HEAD = '[배경 설정 — 이 방에서 처음부터 정해진 사실]';
+const SETUP_RULES_HEAD = '[진행 규칙 — 이 방에서 지킬 것]';
+/** 배경 설정 for a memory call (cut at a line when long), or ''. */
+function setupNote(chatId) {
+  const lore = roomSetup(chatId).lore;
+  if (!lore) return '';
+  let text = lore;
+  if (text.length > SETUP_READ_CHARS) {
+    const cut = text.lastIndexOf('\n', SETUP_READ_CHARS);
+    text = text.slice(0, cut > 0 ? cut : SETUP_READ_CHARS);
+  }
+  return `## 이 방의 배경 설정 (사용자가 처음부터 정해 둔 사실. 인물·관계·비밀·말투를 이해하는 데만 쓰고, 이것만 보고 새 항목·사실·인용을 만들지 마)\n${text}`;
+}
+/** The call's first user message with 배경 설정 in front (the same start every time, so it can be cached). */
+function withSetup(note, messages) {
+  if (!note) return messages;
+  const at = messages.findIndex((m) => m.role === 'user');
+  return at < 0 ? messages : messages.map((m, i) => (i === at ? { ...m, content: `${note}\n\n${m.content}` } : m));
+}
 function setSpeakerNames(chatId, on) {
   const next = settings();
   next.chats = { ...next.chats, [chatId]: { ...(next.chats?.[chatId] || {}), speakerNames: on } };
@@ -1625,7 +1659,7 @@ async function askModel(model, messages, { maxTokens = 4096 } = {}) {
 /** Read one batch; an unreadable reply is retried once, then the batch is halved. */
 async function readBatch(model, ledger, batch, context, routine = true) {
   for (let attempt = 0; attempt < 2; attempt++) {
-    const reply = await askModel(model, L.buildPrompt(ledger, batch, context, { routine }));
+    const reply = await askModel(model, withSetup(model.setup, L.buildPrompt(ledger, batch, context, { routine })));
     const parsed = L.parseJsonObject(reply);
     if (parsed) return [{ batch, parsed }];
   }
@@ -1777,7 +1811,7 @@ async function foldScenes(chatId, store, messages, window, model, job, { minPend
       let lastParsed = null;
       let lastCode = null;
       for (let attempt = 0; attempt < 2 && !applied; attempt++) {
-        const reply = await askModel(model, S.buildScenePrompt(store, next.slice, next.required, lastError || null, organizeFor(chatId)), { maxTokens: sceneTokens(chatId) });
+        const reply = await askModel(model, withSetup(setupNote(chatId), S.buildScenePrompt(store, next.slice, next.required, lastError || null, organizeFor(chatId))), { maxTokens: sceneTokens(chatId) });
         calls++;
         lastReply = String(reply || '');
         const { result: parsed, truncated } = S.parseScenesReply(reply);
@@ -2036,7 +2070,7 @@ function processChat(chatId, { rebuild = false, reason = 'auto' } = {}) {
         job.state = 'done';
         return;
       }
-      const model = { ...(await memoryModel()), signal: job.abort.signal, lang: await promptLanguageOf(chatId) };
+      const model = { ...(await memoryModel()), signal: job.abort.signal, lang: await promptLanguageOf(chatId), setup: setupNote(chatId) };
       for (const batch of batches) {
         if (job.cancel) throw Error('중단했습니다. 다시 시작하면 이어서 정리합니다.');
         const at = messages.indexOf(batch[0]);
@@ -2366,7 +2400,7 @@ function rebuildNotebook(chatId, { all = false } = {}) {
         const live = part.map((g) => ({ scene: store.scenes.find((sc) => sc.id === g.id), messages: g.messages })).filter((g) => g.scene);
         const sceneFacts = {};
         for (const f of S.liveFacts(store)) if (f.sceneId && live.some((g) => g.scene.id === f.sceneId)) (sceneFacts[f.sceneId] ||= []).push(f.text);
-        const parsed = L.parseJsonObject(await askModel(model, Nb.buildRebuildPrompt(live, { cast, personas, voice: Nb.voiceBlock(samples, Nb.priorNotes(store, speakers, undefined, { before: live[0]?.scene.id }), { langs: Nb.langsFor(samples, speakers, notebookLanguageOf(chatId)) }), facts: sceneFacts }), { maxTokens: 4000 }));
+        const parsed = L.parseJsonObject(await askModel(model, withSetup(setupNote(chatId), Nb.buildRebuildPrompt(live, { cast, personas, voice: Nb.voiceBlock(samples, Nb.priorNotes(store, speakers, undefined, { before: live[0]?.scene.id }), { langs: Nb.langsFor(samples, speakers, notebookLanguageOf(chatId)) }), facts: sceneFacts })), { maxTokens: 4000 }));
         job.calls++;
         return { answers: Array.isArray(parsed?.scenes) ? parsed.scenes : [], samples, personas, speakers };
       };
@@ -3269,6 +3303,12 @@ function memoryLanguage(chatId) {
  * translation fills in before the reply when it can and in the background otherwise.
  */
 function renderLedger(chatId) {
+  const lore = roomSetup(chatId).lore;
+  const text = renderLedgerBody(chatId);
+  // 배경 설정 goes in as the user wrote it (never translated), ahead of the memory: it changes least.
+  return lore ? `${SETUP_LORE_HEAD}\n${lore}${text ? `\n\n${text}` : ''}` : text;
+}
+function renderLedgerBody(chatId) {
   const source = renderMemorySource(chatId);
   if (!source) return '';
   const target = memoryLanguage(chatId);
@@ -3829,6 +3869,26 @@ async function routes(app) {
     recalls.delete(chatId);
     return { speechMarks: rules };
   }));
+  // 배경 설정 · 진행 규칙: { lore, rules } (one left out is kept; empty text clears it).
+  app.post('/chats/:id/setup', guard(async (req) => {
+    const chatId = safeChatId(req.params.id);
+    const body = req.body || {};
+    for (const key of ['lore', 'rules']) {
+      if (body[key] != null && typeof body[key] !== 'string') throw Error(`${key}는 글이어야 합니다.`);
+      if (typeof body[key] === 'string' && body[key].trim().length > SETUP_MAX_CHARS) throw Error(`한 칸에 ${SETUP_MAX_CHARS.toLocaleString()}자까지 쓸 수 있습니다.`);
+    }
+    const all = settings();
+    const own = { ...(all.chats?.[chatId] || {}) };
+    const setup = { ...(own.setup || {}) };
+    for (const key of ['lore', 'rules']) {
+      if (typeof body[key] !== 'string') continue;
+      const text = cleanSetupText(body[key]);
+      if (text) setup[key] = text; else delete setup[key];
+    }
+    if (Object.keys(setup).length) own.setup = setup; else delete own.setup;
+    saveSettings({ ...all, chats: { ...(all.chats || {}), [chatId]: own } });
+    return { setup: roomSetup(chatId) };
+  }));
   app.post('/settings/recall-style', guard(async (req) => {
     const style = String(req.body?.style || '').trim();
     if (!RECALL_STYLES[style]) throw Error('기억을 드러내는 정도는 quiet, natural, active 중 하나여야 합니다.');
@@ -4078,6 +4138,7 @@ async function routes(app) {
       writeLanguage: writeLanguage(chatId),
       roomWriteLanguage: roomWriteLanguage(chatId),
       speechMarks: L.cleanSpeechMarks(settings().chats?.[chatId]?.speechMarks),
+      setup: roomSetup(chatId),
       // How many Korean lines the library could show, and whether more are being made: the library reloads them when it changes.
       translationStamp: Object.keys(loadTranslations(chatId).items || {}).length,
       displayTranslating: translating.has(`${chatId}:ko`),
@@ -5118,7 +5179,11 @@ function speakerInstructions(chatId, names) {
 
 /** Visible name labels also apply to one-to-one RP. */
 function nameInstructions(chatId, names) {
-  return speakerNamesOn(chatId) ? SP.namePrefixInstructions(names) : '';
+  const parts = [];
+  const rules = roomSetup(chatId).rules;
+  if (rules) parts.push(`${SETUP_RULES_HEAD}\n${rules}`);
+  if (speakerNamesOn(chatId)) parts.push(SP.namePrefixInstructions(names));
+  return parts.filter(Boolean).join('\n\n');
 }
 
 /** From Marinara's reply cleanup (synchronous): merged roleplay group replies in chats that color speakers. */
@@ -5327,7 +5392,7 @@ function attach(app) {
   log('admin API ready at /api/memory-module');
 }
 
-module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { loadAddress, saveAddress, refreshAddress, presentPeople, Addr, loadState, saveState, loadPlaces, savePlaces, loadKeepsakes, saveKeepsakes, loadNotebook, saveNotebook, Nb, loadTrackers, saveTrackers, Tk, loadConflicts, saveConflicts, refreshConflicts, refreshWorld, Cf, Ks, organizeFor, sceneTokens, lastScenePeople, St, Pl, listRooms, purgeChatMemory, purgeIfGone, deleteOnSend, deletePrepare, listOrphans, deleteOrphans, goneChats, loadNames, saveNames, enqueue, foldScenes, reviewAttributions, loadAttributionLog, sceneJobs, selectedForView, loadSelected, recalls, windows, loadRecallPrefs, saveRecallPrefs, recallReport, recallCandidates, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, translateDisplayLater, fixNoteLanguages, tidySteps, tidyLedger, noteUsage, usageSummary, planAnswersOn, notebookLanguageOf, notebookLanguageSetting, rebuildNotebook, notebookJobStatus, notebookRunning: (id) => notebookJobs.get(id)?.state === 'running', loadTranslations, saveTranslations, translationRun: (id, texts) => translateMissing(id, "ko", texts), flushTranslations, clearTranslationFailures, translationGaveUp, chatLangs, langRecords, loadLang, noteLanguage, LANG_REFRESH_EVERY, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, jobs, writeLanguage, roomWriteLanguage, promptLanguage, memoryCallOptions, routineSetting, routineEnabled, attributionSetting, featureOn, featureSetting, F, B, clearRoomCaches, RESTORE_UNDO_DIR, connectionWithKey, memoryModel, startTrial, trials } };
+module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { loadAddress, saveAddress, refreshAddress, presentPeople, Addr, loadState, saveState, loadPlaces, savePlaces, loadKeepsakes, saveKeepsakes, loadNotebook, saveNotebook, Nb, loadTrackers, saveTrackers, Tk, loadConflicts, saveConflicts, refreshConflicts, refreshWorld, Cf, Ks, organizeFor, sceneTokens, lastScenePeople, St, Pl, listRooms, purgeChatMemory, purgeIfGone, deleteOnSend, deletePrepare, listOrphans, deleteOrphans, goneChats, loadNames, saveNames, enqueue, foldScenes, reviewAttributions, loadAttributionLog, sceneJobs, selectedForView, loadSelected, recalls, windows, loadRecallPrefs, saveRecallPrefs, recallReport, recallCandidates, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, translateDisplayLater, fixNoteLanguages, tidySteps, tidyLedger, noteUsage, usageSummary, planAnswersOn, notebookLanguageOf, notebookLanguageSetting, rebuildNotebook, notebookJobStatus, notebookRunning: (id) => notebookJobs.get(id)?.state === 'running', loadTranslations, saveTranslations, translationRun: (id, texts) => translateMissing(id, "ko", texts), flushTranslations, clearTranslationFailures, translationGaveUp, chatLangs, langRecords, loadLang, noteLanguage, LANG_REFRESH_EVERY, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, roomSetup, setupNote, withSetup, nameInstructions, jobs, writeLanguage, roomWriteLanguage, promptLanguage, memoryCallOptions, routineSetting, routineEnabled, attributionSetting, featureOn, featureSetting, F, B, clearRoomCaches, RESTORE_UNDO_DIR, connectionWithKey, memoryModel, startTrial, trials } };
 
 
 
