@@ -276,3 +276,6 @@ pre{font-size:12.5px!important;line-height:1.85!important}
 .bar{height:9px;border-radius:5px;background:var(--im-line);overflow:hidden}.bar>span{display:block;height:100%;background:var(--im-ink)}
 .search-filters select{font-size:11px}
 @media (max-width:720px){.tl-day{grid-template-columns:minmax(0,1fr)}.tl-stamp{position:static}.bar-row{grid-template-columns:90px minmax(0,1fr) 36px}}
+/* 페르소나 말 표시: one row per mark (start message, mark, language) */
+.speech-row{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;margin:6px 0}.speech-row label{flex:1 1 110px;min-width:0}.speech-row input,.speech-row select{width:100%}.speech-row button{flex:none}
+.speech-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px}

@@ -1212,7 +1212,8 @@ async function chatMessages(chatId) {
   }
   await addTrackerClock(e, chatId, out);
   for (const m of out) delete m.swipe;
-  const prepared = L.prepareMessages(out);
+  // The room's speech marks ("[…]" is the user's character speaking Italian, say): read as speech, with the language.
+  const prepared = L.prepareMessages(out, { speechMarks: settings().chats?.[chatId]?.speechMarks || null });
   // Talk outside the story (OOC): marked here, so no part of the memory takes it for the story. Hand-set marks win.
   L.markOoc(prepared, settings().chats?.[chatId]?.ooc || {});
   noteLanguage(chatId, prepared);
@@ -2447,6 +2448,9 @@ function processScenes(chatId, { rebuild = false, reason = 'auto' } = {}) {
         if (S.markOocScenes(store, messages)) saveScenes(chatId, store);
         // Quotes an older split left as pieces of a line are made whole again (no model call).
         const fragments = S.repairFragmentQuotes(store, messages);
+        // Saved lines read again under the room's speech marks: their language, and bracketed lines as speech.
+        const voiced = S.applySpeechMarks(store, messages);
+        if (voiced) recalls.delete(chatId);
         const translated = S.attachTranslations(store, messages) + S.tidyKnowledge(store);
         const personas = L.personaNames(messages);
         const cast = await chatCast(chatId);
@@ -2456,7 +2460,7 @@ function processScenes(chatId, { rebuild = false, reason = 'auto' } = {}) {
           store.cast = cast;
         }
         seedNames(chatId, [...cast, ...personas]);
-        if (translated || personasChanged || fragments.repaired) {
+        if (translated || personasChanged || fragments.repaired || voiced) {
           saveScenes(chatId, store);
           if (translated) log(`chat ${chatId}: added the translation to ${translated} saved line(s)`);
           if (fragments.repaired) {
@@ -3714,6 +3718,20 @@ async function routes(app) {
     maybePrepareTranslation(chatId);
     return { roomWriteLanguage: roomWriteLanguage(chatId), writeLanguage: writeLanguage(chatId) };
   }));
+  // 페르소나 말 표시: [{ from, marks: { '"': 'en', '[': 'it' } }]. An empty list clears it. Lines already saved get
+  // their language (and a bracketed line becomes a spoken one) on the next pass over the room, with no model call.
+  app.post('/chats/:id/speech-marks', guard(async (req) => {
+    const chatId = safeChatId(req.params.id);
+    if (!Array.isArray(req.body?.rules)) throw Error('rules는 목록이어야 합니다.');
+    const rules = L.cleanSpeechMarks(req.body.rules);
+    if (req.body.rules.length && !rules.length) throw Error('표시와 언어를 하나 이상 골라 주세요.');
+    const all = settings();
+    const own = { ...(all.chats?.[chatId] || {}) };
+    if (rules.length) own.speechMarks = rules; else delete own.speechMarks;
+    saveSettings({ ...all, chats: { ...(all.chats || {}), [chatId]: own } });
+    recalls.delete(chatId);
+    return { speechMarks: rules };
+  }));
   app.post('/settings/recall-style', guard(async (req) => {
     const style = String(req.body?.style || '').trim();
     if (!RECALL_STYLES[style]) throw Error('기억을 드러내는 정도는 quiet, natural, active 중 하나여야 합니다.');
@@ -3958,6 +3976,7 @@ async function routes(app) {
       memoryLanguage: memoryLanguage(chatId),
       writeLanguage: writeLanguage(chatId),
       roomWriteLanguage: roomWriteLanguage(chatId),
+      speechMarks: L.cleanSpeechMarks(settings().chats?.[chatId]?.speechMarks),
       // How many Korean lines the library could show, and whether more are being made: the library reloads them when it changes.
       translationStamp: Object.keys(loadTranslations(chatId).items || {}).length,
       displayTranslating: translating.has(`${chatId}:ko`),

@@ -4,6 +4,7 @@
 // filled in the background. Lines quoted from the story stay exactly as written.
 
 const crypto = require('node:crypto');
+const L = require('./ledger.cjs');
 
 const LANGS = ['ko', 'en', 'zh'];
 const NAMES = { ko: '한국어', en: 'English', zh: '中文' };
@@ -193,9 +194,18 @@ const LABELS = {
     [/\) 새벽(?=\s)/g, ') dawn'], [/\) 아침(?=\s)/g, ') morning'], [/\) 오전(?=\s)/g, ') morning'], [/\) 오후(?=\s)/g, ') afternoon'], [/\) 저녁(?=\s)/g, ') evening'], [/\) 밤(?=\s)/g, ') night'],
     // A stretch of the story left out of the overview, and the note that explains it.
     [/"… 줄임" stands for a stretch left out\./g, '"… left out" marks a stretch of it not shown.'], [/ — 챕터 (\d+)개 줄임/g, ' — $1 chapters left out'], [/ — 큰 흐름 (\d+)개 줄임/g, ' — $1 arcs left out'],
-    [/\(월\)/g, '(Mon)'], [/\(화\)/g, '(Tue)'], [/\(수\)/g, '(Wed)'], [/\(목\)/g, '(Thu)'], [/\(금\)/g, '(Fri)'], [/\(토\)/g, '(Sat)'], [/\(일\)/g, '(Sun)'],
-  ],
+    [/\(월\)/g, '(Mon)'], [/\(화\)/g, '(Tue)'], [/\(수\)/g, '(Wed)'], [/\(목\)/g, '(Thu)'], [/\(금\)/g, '(Fri)'], [/\(토\)/g, '(Sat)'], [/\(일\)/g, '(Sun)'],  ],
 };
+/** "(이탈리아어로)" before a quoted line's words, in the memory's language (the words themselves stay as written). */
+const SPOKEN_IN = { en: ([, en]) => `(in ${en})`, zh: ([ko]) => `(${{ 영어: '英语', 이탈리아어: '意大利语', 그리스어: '希腊语', 프랑스어: '法语', 독일어: '德语', 스페인어: '西班牙语', 포르투갈어: '葡萄牙语', 러시아어: '俄语', 라틴어: '拉丁语', 일본어: '日语', 중국어: '中文', 한국어: '韩语' }[ko]})` };
+function spokenIn(line, target) {
+  if (!SPOKEN_IN[target]) return line;
+  const at = line.search(/["“「『]/);
+  if (at < 0) return line;
+  let head = line.slice(0, at);
+  for (const pair of Object.values(L.SPEECH_LANGS)) head = head.split(`(${pair[0]}로)`).join(SPOKEN_IN[target](pair));
+  return head + line.slice(at);
+}
 function fallbackLabels(line, target) {
   let out = line;
   for (const [re, to] of LABELS[target] || []) out = out.replace(re, to);
@@ -351,9 +361,9 @@ function translateText(text, target, lookup, { names = [] } = {}) {
       const passage = p.line.match(/^- \((\d+)번\) (.*)$/);
       if (passage) return `- (#${passage[1]}) ${passage[2].split(' / ').map(dropGloss).join(' / ')}`;
       // A line kept because it is already in the target language may still carry the module's Korean labels.
-      if (!story && !p.narration) return latinizeNames(fallbackLabels(p.line, target), latin);
+      if (!story && !p.narration) return spokenIn(latinizeNames(fallbackLabels(p.line, target), latin), target);
       const line = p.narration ? p.line.replace('(서술) ', narration) : dropGloss(p.line.replace(/\(추정\)(?=: ["“「『])/, guess));
-      return latinizeNames(line, latin, story);
+      return spokenIn(latinizeNames(line, latin, story), target);
     }
     const indent = p.line.match(/^\s*/)[0];
     const body = p.line.slice(indent.length);
@@ -361,7 +371,7 @@ function translateText(text, target, lookup, { names = [] } = {}) {
     if (done == null) {
       missing.push(body);
       // Not translated yet: its frame (labels, weekdays, names) is, at least.
-      return latinizeNames(fallbackLabels(p.line, target), latin);
+      return spokenIn(latinizeNames(fallbackLabels(p.line, target), latin), target);
     }
     return latinizeNames(indent + done, latin);
   });

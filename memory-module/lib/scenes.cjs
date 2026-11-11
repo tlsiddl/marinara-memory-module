@@ -580,7 +580,10 @@ function resolveQuotes(items, index, slice, verifyAttribution = false, names = [
     // A person the line calls by name ("Signor X, …") is the one spoken to, not the speaker.
     if (by && !line.by && names.length && addressedIn(line.text, names).names.some((n) => samePerson(n, by, names))) { by = null; to = null; }
     const parts = splitBilingual(line.text);
-    out.push({ ...pointer, text: parts.text, ...(parts.translation ? { translation: parts.translation } : {}), kind: spoken ? 'dialogue' : 'narration', by, to });
+    // The language the room's speech marks give this line ("[…]" = Italian), saved with it: a later change of what a
+    // mark means does not change what this line was said in.
+    const lang = spoken ? message?.speechLangs?.[pointer.sentence - 1] || null : null;
+    out.push({ ...pointer, text: parts.text, ...(parts.translation ? { translation: parts.translation } : {}), kind: spoken ? 'dialogue' : 'narration', by, to, ...(lang ? { lang } : {}) });
   }
   return out;
 }
@@ -2964,14 +2967,52 @@ function sceneHead(scene, n, prev = null) {
   return `${label} ${where ? `${where} — ` : ''}${scene.title}`;
 }
 
-/** 하준 → 서아: "I love you, Seoa." (사랑해, 서아야.) — narration stays as it is. */
+/**
+ * 하준 → 서아: "I love you, Seoa." (사랑해, 서아야.) — narration stays as it is. A line the room's speech marks gave
+ * a language says it: 서아 → 하준 (이탈리아어로): "가자." — the words are often written in Korean for a line said in
+ * another language, and the reply model would not know otherwise.
+ */
 function quoteLine(q) {
   const text = cleanQuote(quoteText(q));
   const by = q.by || parseLine(q.text).by;
   const spoken = q.kind ? q.kind === 'dialogue' : isSpoken(text);
-  if (!by) return spoken ? text : `(서술) ${text}`;
+  const lang = spoken && L.SPEECH_LANGS[q.lang] ? ` (${L.SPEECH_LANGS[q.lang][0]}로)` : '';
+  // With no speaker the language still leads, as "(영어로): …", so the line reads as a quoted line of the story.
+  if (!by) return spoken ? `${lang ? `${lang.trim()}: ` : ''}${text}` : `(서술) ${text}`;
   // A listener that was only guessed is left out: the story model is not told something uncertain as certain.
-  return `${by}${q.to && !q.toGuess ? ` → ${q.to}` : ''}: ${spoken ? text : `"${text}"`}`;
+  return `${by}${q.to && !q.toGuess ? ` → ${q.to}` : ''}${lang}: ${spoken ? text : `"${text}"`}`;
+}
+
+/**
+ * Lines already saved, read again under the room's speech marks (no model call): each gets the language its mark
+ * gives (or loses one no rule gives any more), and a line of the user's character the old reading took for narration
+ * ("[Ciao.]" in brackets) becomes a spoken line of theirs, its words as the source now reads them.
+ * Returns how many lines changed.
+ */
+function applySpeechMarks(store, messages) {
+  const byNumber = new Map(messages.map((m) => [m.number, m]));
+  const byId = new Map(messages.map((m) => [m.id, m]));
+  let changed = 0;
+  for (const scene of store.scenes || []) {
+    for (const q of [...(scene.events || []).flatMap((e) => e.quotes || []), ...(scene.loose || [])]) {
+      const found = quoteSource(q, byNumber, byId);
+      if (found.stale) continue;
+      const lang = found.m.speechLangs?.[found.sentence - 1] || null;
+      const before = JSON.stringify([q.lang || null, q.kind, q.text, q.by, q.sentence]);
+      if (lang) q.lang = lang;
+      else delete q.lang;
+      if (lang && q.kind === 'narration' && found.m.role === 'user') {
+        const parts = splitBilingual(parseLine(found.source).text);
+        q.kind = 'dialogue';
+        q.text = parts.text;
+        if (parts.translation && !q.translation) q.translation = parts.translation;
+        q.sentence = found.sentence;
+        if (!q.by && found.m.speaker) q.by = A.rewriteName(found.m.speaker);
+      }
+      if (JSON.stringify([q.lang || null, q.kind, q.text, q.by, q.sentence]) !== before) changed++;
+    }
+  }
+  return changed;
 }
 
 // Lines quoted under one event: the spoken ones first, then a narration line if there is room. A scrap of narration
@@ -3785,6 +3826,7 @@ module.exports = {
   parseScenesReply,
   attachTranslations,
   repairFragmentQuotes,
+  applySpeechMarks,
   attachLedgerTranslations,
   orderSceneEvents,
   attributionDiagnostics,
