@@ -15,7 +15,7 @@ const { fileURLToPath } = require('node:url');
 const TAG = '[memory-module]';
 /** The Marinara version these patches were made and tested against. */
 const TESTED_MARINARA = '2.4.6';
-const VERSION = '0.32.0-marinara.2.4.6.136';
+const VERSION = '0.32.1-marinara.2.4.6.137';
 const NOTES_DIR = process.env.MEMORY_MODULE_NOTES_DIR || path.join(__dirname, 'notes');
 const DEFAULT_NOTE = '_default.txt';
 /** Last safety net only: the service already keeps the memory within its own limit (40,000 by default). */
@@ -66,11 +66,29 @@ const PATCHES = [
     ok: 'native speaker-tag instructions include exact names and quote-only dialogue',
   },
   {
+    // The prompt preview shows what a reply gets from nameInstructions (진행 규칙, name labels), where a reply gets it:
+    // ahead of the group speaker-tag instructions.
+    name: 'namesPreview',
+    target: /[\\/]packages[\\/]server[\\/]dist[\\/]routes[\\/]chats\.routes\.js$/,
+    anchorRegex: /^[ \t]*if \(isGroupChat && groupChatMode === "merged" && groupSpeakerColors && chatMode !== "conversation"\) \{/gm,
+    before: true,
+    insert: 'try { if (chatMode === "roleplay") { const memoryNames = []; for (const memoryCid of assistantCharacterIds) { try { const memoryRow = await charStore.getById(memoryCid); if (memoryRow) memoryNames.push(JSON.parse(memoryRow.data).name ?? ""); } catch {} } const memoryNameInstruction = globalThis.__marinaraMemory?.nameInstructions?.(req.params.id, memoryNames.filter(Boolean)); if (memoryNameInstruction) injectIntoOutputFormatOrLastUser(assembled.messages, memoryNameInstruction, { indent: true }); } } catch {}\n',
+    ok: 'prompt preview shows the room rules and dialogue name instructions',
+  },
+  {
     name: 'speakerPreview',
     target: /[\\/]packages[\\/]server[\\/]dist[\\/]routes[\\/]chats\.routes\.js$/,
     anchor: 'injectIntoOutputFormatOrLastUser(assembled.messages, instructionBlock, { indent: true });',
     insert: '\ntry { const memorySpeakerInstruction = globalThis.__marinaraMemory?.speakerInstructions?.(req.params.id, charNames); if (memorySpeakerInstruction && chatMode === "roleplay") injectIntoOutputFormatOrLastUser(assembled.messages, memorySpeakerInstruction, { indent: true }); } catch {}',
     ok: 'prompt preview uses the same native speaker-tag instructions',
+  },
+  {
+    name: 'namesDryRun',
+    target: /[\\/]packages[\\/]server[\\/]dist[\\/]routes[\\/]generate[\\/]dry-run-route\.js$/,
+    anchor: 'if (wrapLastMessage && !usePromptParts) {',
+    before: true,
+    insert: 'try { if (chatMode === "roleplay" && !impersonate) { const memoryNameMap = await resolveCharacterNameMap(promptCharacterIds, (id) => chars.getById(id)); const memoryNameInstruction = globalThis.__marinaraMemory?.nameInstructions?.(chatId, promptCharacterIds.map((id) => memoryNameMap.get(id)).filter(Boolean)); if (memoryNameInstruction) { const memoryNameUtils = await import("./generate-route-utils.js"); memoryNameUtils.injectIntoOutputFormatOrLastUser(finalMessages, memoryNameInstruction, { indent: true }); } } } catch {}\n',
+    ok: 'dry-run preview shows the room rules and dialogue name instructions',
   },
   {
     name: 'speakerDryRun',

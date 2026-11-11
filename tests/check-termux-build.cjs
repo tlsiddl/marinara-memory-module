@@ -10,7 +10,7 @@ process.env.MEMORY_MODULE_HOOK_TEST = '1';
 const runtimePath = path.resolve(__dirname, '../memory-module/marinara-memory-runtime.cjs');
 const runtime = require(runtimePath);
 assert.equal(JSON.parse(fs.readFileSync(path.join(upstream, 'package.json'))).version, '2.4.6');
-const files = { macro: 'packages/shared/src/utils/macro-engine.ts', app: 'packages/server/src/app.ts', speakers: 'packages/server/src/routes/generate.routes.ts', speakerPrompt: 'packages/server/src/routes/generate.routes.ts', speakerPreview: 'packages/server/src/routes/chats.routes.ts', speakerDryRun: 'packages/server/src/routes/generate/dry-run-route.ts' };
+const files = { macro: 'packages/shared/src/utils/macro-engine.ts', app: 'packages/server/src/app.ts', speakers: 'packages/server/src/routes/generate.routes.ts', speakerPrompt: 'packages/server/src/routes/generate.routes.ts', speakerPreview: 'packages/server/src/routes/chats.routes.ts', speakerDryRun: 'packages/server/src/routes/generate/dry-run-route.ts', speakerNamesPrompt: 'packages/server/src/routes/generate.routes.ts', namesPreview: 'packages/server/src/routes/chats.routes.ts', namesDryRun: 'packages/server/src/routes/generate/dry-run-route.ts' };
 for (const patch of runtime.PATCHES) {
   const source = fs.readFileSync(path.join(upstream, files[patch.name]), 'utf8');
   for (const compiler of ['tsc', 'esbuild']) {
