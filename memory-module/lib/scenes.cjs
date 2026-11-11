@@ -3179,6 +3179,8 @@ function commitChapter(store, chapter) {
 }
 
 /** "[지난 이야기 흐름]": newest chapters whole, older ones shorter, the oldest just their titles, in order. */
+// A shortened chapter keeps this many of its exact details.
+const SHORT_KEEP = 3;
 function renderChapters(store, limit = 4000, query = '', today = null, { pin = null, trace = null } = {}) {
   // A chapter or arc whose parts were changed by hand is left out until it is summarized again: its scenes (or
   // chapters) are shown instead, so the hand fix is what goes in, never the old summary.
@@ -3209,11 +3211,17 @@ function renderChapters(store, limit = 4000, query = '', today = null, { pin = n
   if (!list.length) return `${HEAD}${arcText.join('\n')}`;
   const full = (c) => [`${c.id} ${c.time ? `${c.time} — ` : ''}${c.title}: ${c.summary}`, ...c.turns.map((t) => `  · ${t}`), ...(c.keep || []).map((t) => `  ※ ${t}`)].join('\n');
   // Details that must stay exact (deadlines, conditions) are kept even when the chapter is shortened.
-  const keepLines = (c) => (c.keep || []).map((t) => `  ※ ${t}`).join('\n');
+  const keepLines = (c, max = Infinity) => {
+    // Shortened, the details with a date, a number or a condition stay first (they are what must not drift).
+    const exact = (t) => (/\d|~하면|면 |if |unless |until |by /i.test(t) ? 0 : 1);
+    const list = (c.keep || []).map((t, i) => ({ t, i })).sort((a, b) => (max === Infinity ? 0 : exact(a.t) - exact(b.t)) || a.i - b.i).slice(0, max).sort((a, b) => a.i - b.i);
+    return list.map(({ t }) => `  ※ ${t}`).join('\n');
+  };
+  // How it began and where it ended up (the last two sentences): the end alone left the reader without the start.
   const short = (c) => {
     const sentences = String(c.summary).split(/(?<=[.!?。！？])\s+/).filter(Boolean);
-    const summary = sentences.slice(-2).join(' ');
-    return [`${c.id} ${c.time ? `${c.time} — ` : ''}${c.title}: ${summary}`, keepLines(c)].filter(Boolean).join('\n');
+    const summary = sentences.length > 3 ? `${sentences[0]} … ${sentences.slice(-2).join(' ')}` : sentences.join(' ');
+    return [`${c.id} ${c.time ? `${c.time} — ` : ''}${c.title}: ${summary}`, keepLines(c, SHORT_KEEP)].filter(Boolean).join('\n');
   };
   const tiny = (c) => `${c.id} ${c.title}`;
   // Order of details: what the talk touches now; then dates still ahead in the story (nearest first); then the

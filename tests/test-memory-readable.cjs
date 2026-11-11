@@ -80,3 +80,21 @@ test('the notebook gives each person a line of their own', () => {
   const block = Nb.injectionBlock({ ...Nb.emptyNotebook(), notes }, ['빅터', '세라']);
   assert.match(block, /^\[수첩\] [^\n]+\n- 빅터: I will wait\.\n- 세라: He lies badly\.$/);
 });
+
+test('a name inside a Korean phrase stays Korean; a time of day after a date is in English', () => {
+  const names = [{ from: '세라', to: 'Sera' }];
+  assert.equal(T.latinizeNames('- 세라: 세라의 열쇠 · 세라는 모름', names), '- Sera: 세라의 열쇠 · 세라는 모름');
+  const out = T.translateText('[지난 이야기 흐름]\nC1 25-03-01 (토) 오후 ~ 25-03-01 (토) 17:00 — Title: Text.', 'en', () => null).text;
+  assert.match(out, /C1 25-03-01 \(Sat\) afternoon ~ 25-03-01 \(Sat\) 17:00/);
+});
+
+test('a shortened old chapter keeps how it began and where it ended, and its three most exact details', () => {
+  const store = S.emptyStore();
+  const long = 'First Sera arrives at the harbor. Then a lot happens. More happens. Viktor gives her the key. They watch the boats.';
+  store.chapters = Array.from({ length: 40 }, (_, i) => ({ id: `C${i + 1}`, scenes: [], title: `t${i + 1}`, summary: i === 0 ? long : 'Filler day. '.repeat(30).trim(), turns: [],
+    keep: i === 0 ? ['Sera waits outside.', 'The ferry leaves at 06:00.', 'Viktor owes 300 coins.', 'It rains.', 'If the bell rings twice, they leave.'] : [] }));
+  const text = S.renderChapters(store, 4000, '');
+  assert.match(text, /C1 t1: First Sera arrives at the harbor\. … Viktor gives her the key\. They watch the boats\./);
+  assert.match(text, /※ The ferry leaves at 06:00\.\n  ※ Viktor owes 300 coins\.\n  ※ If the bell rings twice, they leave\./);
+  assert.doesNotMatch(text, /Sera waits outside|It rains/);
+});
