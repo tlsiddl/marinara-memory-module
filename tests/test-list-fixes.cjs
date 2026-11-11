@@ -78,11 +78,12 @@ test('story lines for older scenes come from their summaries, only where a scene
   ] };
   assert.deepEqual(S.lineFillTargets(store).map((s) => s.id), ['S1', 'S2']);
   const prompt = S.buildLineFillPrompt(store, S.lineFillTargets(store))[1].content;
-  assert.match(prompt, /## 이미 있는 줄기\n- Shed key: Found\./);
+  assert.doesNotMatch(prompt, /Shed key/, 'a line that began after the asked scenes is not offered');
   assert.match(prompt, /S1 Key: Sera hides the shed key\./);
   const filled = S.applyLineFill(store, { scenes: [{ id: 's1', lines: [{ name: 'Shed key', now: 'Hidden.' }] }, { id: 'S3', lines: [{ name: 'Other' }] }] }, S.lineFillTargets(store));
   assert.equal(filled, 1);
   assert.deepEqual(store.scenes[0].lines, [{ name: 'Shed key', now: 'Hidden.' }]);
+  assert.equal(store.scenes[0].linesFilled, true);
   assert.deepEqual(store.scenes[2].lines, [{ name: 'Shed key', now: 'Found.' }], 'a scene that had lines keeps them');
   assert.deepEqual(S.lineFillTargets(store), [], 'S2 was asked and got none: not asked again');
 });
@@ -94,4 +95,21 @@ test('a feeling filed for a habit moves to a state; the review prompt knows a fe
   assert.equal(stats.moved, 1);
   assert.equal(ledger.threads[0].kind, 'state');
   assert.match(fs.readFileSync(path.join(__dirname, '../memory-module/lib/ledger.cjs'), 'utf8'), /가라앉음도 풀림이야/);
+});
+
+test('a line fill that puts a long stretch on one line is refused; filled lines can be taken back; later lines are not offered', () => {
+  const S = require('../memory-module/lib/scenes.cjs');
+  const scenes = Array.from({ length: 10 }, (_, i) => ({ id: `S${i + 1}`, start: i * 2 + 1, end: i * 2 + 2, title: `t${i}`, summary: `s${i}`, present: [], events: [] }));
+  scenes[9].lines = [{ name: 'Late trip', now: 'Arrived.' }];
+  const store = { ...S.emptyStore(), scenes };
+  const list = S.lineFillTargets(store);
+  assert.doesNotMatch(S.buildLineFillPrompt(store, list)[1].content, /Late trip/, 'a line that starts after the asked scenes is not offered');
+  const all = { scenes: list.map((s) => ({ id: s.id, lines: [{ name: 'Late trip' }] })) };
+  assert.equal(S.applyLineFill(store, all, list), -1);
+  assert.equal(store.scenes.filter((s) => s.lines).length, 1);
+  delete store.lineFillTried;
+  assert.equal(S.applyLineFill(store, { scenes: [{ id: 'S1', lines: [{ name: 'Key' }] }, { id: 'S2', lines: [{ name: 'Key' }] }] }, S.lineFillTargets(store)), 2);
+  assert.equal(S.undoLineFill(store), 2);
+  assert.equal(store.scenes.filter((s) => s.lines).length, 1, 'the scene call\'s own lines stay');
+  assert.equal(S.lineFillTargets(store).length, 9);
 });

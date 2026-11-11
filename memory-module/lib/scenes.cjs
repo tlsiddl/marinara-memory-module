@@ -171,16 +171,32 @@ const LINE_FILL_PROMPT = `너는 장기 롤플레이의 기억 관리자야. 장
 - [이미 있는 줄기]를 이어 가면 그 이름을 글자 그대로 써. 여러 장면이 같은 일을 이어 가면 모두 같은 이름을 써.
 - now는 그 장면이 끝난 때 그 줄기가 어디까지 왔는지 한 문장. 끝났으면 끝났다고 써. 요약에 있는 것만 쓰고 지어내지 마.
 - 한 장면에서 끝나는 잡담이나 한 번뿐인 일은 줄기로 만들지 마. 줄기가 없는 장면은 적지 않아도 돼.
+- 줄기는 이야기 전체가 아니라 그 안의 한 가지 일이야. 모든 장면을 한 줄기에 몰아넣지 말고, 장소나 사건이 바뀌면 그 일에 맞는 다른 줄기를 써.
 - 이름과 now는 요약과 같은 언어로 써.
 출력 형식: {"scenes":[{"id":"S3","lines":[{"name":"줄기 이름","now":"지금 어디까지 왔는지"}]}]}`;
 const LINE_FILL_BATCH = 30;
+const LINE_FILL_ONE_MIN = 8; // a stretch this long…
+const LINE_FILL_ONE_SHARE = 0.6; // …mostly on one line is refused
+/** Takes back the lines a fill put in (the scene call's own lines stay), so they can be made again. */
+function undoLineFill(store) {
+  let undone = 0;
+  const tried = new Set(store.lineFillTried || []);
+  for (const s of store.scenes || []) {
+    if (!s.linesFilled && !tried.has(s.id)) continue;
+    if (s.linesFilled || tried.has(s.id)) { if ((s.lines || []).length) undone++; delete s.lines; delete s.linesFilled; }
+  }
+  delete store.lineFillTried;
+  return undone;
+}
 /** Story scenes with no line yet, oldest first. */
 function lineFillTargets(store) {
   return (store?.scenes || []).filter((s) => isStoryScene(s) && !(s.lines || []).length && !(store.lineFillTried || []).includes(s.id));
 }
 function buildLineFillPrompt(store, list) {
   const parts = [];
-  const known = storyLines(store);
+  // Only lines that had begun before the first scene asked about: one that starts later cannot be where they went.
+  const firstAt = Math.min(...list.map((s) => sceneOrder(store, s.id)));
+  const known = storyLines(store).filter((l) => sceneOrder(store, l.scenes[0]) < firstAt);
   if (known.length) parts.push('## 이미 있는 줄기', ...known.map((l) => `- ${l.name}${l.now ? `: ${l.now}` : ''}`), '');
   parts.push('## 장면 (오래된 순)');
   for (const s of list) parts.push(`${s.id} ${[s.time, s.place].filter(Boolean).join(' · ')} ${s.title || ''}: ${s.summary || ''}`.replace(/\s+/g, ' ').trim());
@@ -190,12 +206,20 @@ function buildLineFillPrompt(store, list) {
 function applyLineFill(store, result, list) {
   const asked = new Set(list.map((s) => s.id));
   let filled = 0;
+  // An answer that puts most of a long stretch on one single line is not a reading of it: nothing of it is taken.
+  const names = new Map();
+  for (const item of Array.isArray(result?.scenes) ? result.scenes : []) for (const l of lineEntries(item?.lines)) names.set(lineKey(l.name), (names.get(lineKey(l.name)) || 0) + 1);
+  if (list.length >= LINE_FILL_ONE_MIN && [...names.values()].some((n) => n > list.length * LINE_FILL_ONE_SHARE)) {
+    store.lineFillTried = [...new Set([...(store.lineFillTried || []), ...asked])];
+    return -1;
+  }
   for (const item of Array.isArray(result?.scenes) ? result.scenes : []) {
     const scene = store.scenes.find((s) => s.id === String(item?.id || '').trim().toUpperCase());
     if (!scene || !asked.has(scene.id) || (scene.lines || []).length) continue;
     const lines = lineEntries(item.lines);
     if (!lines.length) continue;
     scene.lines = lines;
+    scene.linesFilled = true;
     filled++;
   }
   store.lineFillTried = [...new Set([...(store.lineFillTried || []), ...asked])];
@@ -3851,6 +3875,7 @@ module.exports = {
   lineFillTargets,
   buildLineFillPrompt,
   applyLineFill,
+  undoLineFill,
   LINE_FILL_BATCH,
   lineNowFor,
   linesBlock,
