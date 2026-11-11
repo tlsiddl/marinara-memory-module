@@ -675,10 +675,11 @@ const FEELING_PROMPT = `너는 장기 롤플레이의 기억 관리자야. 아�
   예) 술에 취해 실수할까 봐 두려움 → "술을 권하지 않겠다"는 약속은 상대의 행동만 약속할 뿐 스스로 취해 실수하는 일 자체는 그대로라서 아직.
 - 반대로 감정의 전제가 사라졌으면 풀림이야. 예) 붙잡아 둔 것이 죄책감 → 상대가 원래 스스로 남아 있었다는 게 밝혀지고 받아들임.
 - [사용자 캐릭터]의 감정은 그 인물이 받아들였다는 게 원문에 드러날 때만 풀림이야. 짐작하지 마.
+- 가라앉음도 풀림이야: 그 감정의 '최근' 기록이 이미 누그러졌다거나 풀렸다고 말하고 그 뒤 다시 드러나지 않았거나, 마지막 언급 뒤로 긴 이야기가 지나는 동안 그 감정이 다시 드러나지 않고 감정을 품은 인물이 그 상대에게 그 감정과 맞지 않게 대하면(예: 서운함 → 아무렇지 않게 웃으며 기대고 장난침) 풀림이야. how에 "가라앉음: …"으로 쓰고, 근거는 그 달라진 모습을 보여 주는 문장(또는 누그러졌다는 문장)이야.
 - 확실하지 않으면 아직이야.
 
 풀린 감정만 적어. 각각 근거가 꼭 있어야 해: 풀리게 한 바로 그 문장의 번호와 그 문장 속 구절 5~20자.
-감정이 아니라 결심·약속·할 일이 잘못 들어간 항목은 misfiled에 적어(kind: promise 또는 pending).
+감정이 아니라 결심·약속·할 일이 잘못 들어간 항목은 misfiled에 적어(kind: promise 또는 pending). 버릇·호칭·습관처럼 계속되는 상태면 kind: state.
 출력 형식: {"resolved":[{"id":"T5","how":"어떻게 풀렸는지 한 문장","evidence":[{"n":"41.3","q":"핵심 구절"}]}],"misfiled":[{"id":"T8","kind":"promise"}]}
 풀린 게 없으면 {"resolved":[],"misfiled":[]}.`;
 
@@ -741,10 +742,10 @@ function applyFeelingReview(ledger, result, window, now = new Date().toISOString
     closeThread(thread, how, evidence, { messageId: evidence[0].messageId, number: evidence[0].number, time: null }, now);
     stats.closed++;
   }
-  // A resolution ("약을 끊겠다는 결심") filed as a feeling: move it where it belongs.
+  // A resolution ("약을 끊겠다는 결심") or a habit filed as a feeling: move it where it belongs.
   for (const item of Array.isArray(result?.misfiled) ? result.misfiled : []) {
     const thread = ledger.threads.find((t) => t.id === String(item?.id || '') && t.status === 'open' && t.kind === 'emotion');
-    if (!thread || !['promise', 'pending'].includes(item?.kind)) continue;
+    if (!thread || !['promise', 'pending', 'state'].includes(item?.kind)) continue;
     thread.kind = item.kind;
     thread.need = null;
     thread.updatedAt = now;
@@ -864,6 +865,8 @@ function applyOldItemReview(ledger, thread, result, window, steps = [], lastNumb
 // A feeling is asked about again only once this many more messages have come since the last time.
 const FEELING_AGAIN = 8;
 /** Whether a feeling is worth a review now: the story went on after it, and enough since it was last asked about. */
+/** Raised when the feeling review asks something new (2: a feeling that faded is closed too). */
+const FEELING_RULE = 2;
 function feelingDue(t, lastNumber) {
   if (typeof lastNumber !== 'number') return true;
   if (lastNumber <= lastSeen(t)) return false;
@@ -2870,6 +2873,7 @@ module.exports = {
   SPEECH_LANGS,
   cleanSpeechMarks,
   speechMarksAt,
+  FEELING_RULE,
   planBatches,
   buildPrompt,
   buildTidyPrompt,

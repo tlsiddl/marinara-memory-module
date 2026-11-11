@@ -1654,6 +1654,7 @@ async function readBatch(model, ledger, batch, context, routine = true) {
 
 const TIDY_EVERY_REPLIES = 15;
 const TIDY_CHUNK = 60;
+const FEELING_GROUP_MIN = 3;
 
 // Semantic food matching affects display only. Raw routine entries and their source remain intact.
 async function reconcileMealDisplays(chatId, ledger, model, job) {
@@ -1757,17 +1758,42 @@ async function tidyLedger(model, ledger, messages, { scenes = null } = {}) {
   total.feelingsSkipped = 0;
   const upTo = messages.at(-1)?.number;
   for (const feeling of ledger.threads.filter((t) => t.status === 'open' && t.kind === 'emotion')) {
-    if (!L.feelingDue(feeling, upTo)) { total.feelingsSkipped++; continue; }
+    // A feeling looked at under an older rule is looked at once more under the new one.
+    if (!L.feelingDue(feeling, upTo) && feeling.reviewRule === L.FEELING_RULE) { total.feelingsSkipped++; continue; }
     const review = L.buildFeelingPrompt(ledger, messages, feeling);
     const parsed = L.parseJsonObject(await askModel(model, review.messages, { maxTokens: 1024 }));
     total.calls++;
     if (typeof upTo === 'number') feeling.reviewedUpTo = upTo;
+    feeling.reviewRule = L.FEELING_RULE;
     if (!parsed) continue;
     const stats = L.applyFeelingReview(ledger, parsed, review.window);
     total.closed += stats.closed;
     total.feelingsResolved += stats.closed;
     total.feelingsMoved += stats.moved || 0;
   }
+  // Several open feelings of one person toward the same person: asked about together, once for each new set, so
+  // feelings that come from the same matter are folded into one.
+  total.feelingGroups = 0;
+  const groups = new Map();
+  for (const t of ledger.threads.filter((x) => x.status === 'open' && x.kind === 'emotion' && x.who)) {
+    const key = `${t.who}→${t.toward || ''}`;
+    groups.set(key, [...(groups.get(key) || []), t]);
+  }
+  const tried = ledger.feelingGroupsTried || {};
+  for (const [key, group] of groups) {
+    if (group.length < FEELING_GROUP_MIN) continue;
+    const ids = group.map((t) => t.id).join(',');
+    if (tried[key] === ids) continue;
+    const parsed = L.parseJsonObject(await askModel(model, L.buildTidyPrompt({ threads: group }, recent)));
+    total.calls++;
+    total.feelingGroups++;
+    if (parsed) {
+      const stats = L.applyTidy(ledger, { merge: parsed.merge || [] }, undefined, { strictCloseEvidence: true });
+      total.merged += stats.merged;
+    }
+    tried[key] = ledger.threads.filter((x) => x.status === 'open' && x.kind === 'emotion' && `${x.who}→${x.toward || ''}` === key).map((t) => t.id).join(',');
+  }
+  ledger.feelingGroupsTried = tried;
   ledger.repliesSinceTidy = 0;
   ledger.lastTidy = { at: new Date().toISOString(), ...total };
   return total;
@@ -2464,6 +2490,25 @@ function rebuildNotebook(chatId, { all = false } = {}) {
   return job;
 }
 
+const LINE_FILL_MIN = 5;
+/** Story lines for scenes that have none, from their summaries. Returns the number of calls. */
+async function fillLines(chatId, store, model, job = null) {
+  let calls = 0;
+  const note = setupNote(chatId);
+  for (let tries = 0; tries < 6; tries++) {
+    const list = S.lineFillTargets(store).slice(0, S.LINE_FILL_BATCH);
+    if (!list.length || job?.cancel) break;
+    if (job) job.stage = `줄기 채우기 (${list[0].id}부터)`;
+    const parsed = L.parseJsonObject(await askModel(model, withSetup(note, S.buildLineFillPrompt(store, list)), { maxTokens: 4000 }));
+    calls++;
+    const filled = S.applyLineFill(store, parsed, list);
+    saveScenes(chatId, store);
+    log(`chat ${chatId}: story lines filled for ${filled} of ${list.length} older scene(s)`);
+  }
+  if (job) job.stage = null;
+  return calls;
+}
+
 function processScenes(chatId, { rebuild = false, reason = 'auto' } = {}) {
   const key = `scenes:${chatId}`;
   // One fold at a time; a reply that arrives meanwhile is picked up by the loop below.
@@ -2543,6 +2588,8 @@ function processScenes(chatId, { rebuild = false, reason = 'auto' } = {}) {
         if (recut) { saveScenes(chatId, store); log(`chat ${chatId}: ${recut} chapter/arc summary(ies) were cut off, to be made again`); }
         // A long story: old scenes become chapters, and facts that piled up about one person are merged.
         if (S.nextRedo(store) || S.nextChapter(store) || S.nextArc(store) || S.nextFactMerge(store)) job.calls += await condense(chatId, store, await getModel(), job);
+        // Scenes from before story lines existed get theirs from their summaries (a few calls, once per scene).
+        if (S.lineFillTargets(store).length >= LINE_FILL_MIN) job.calls += await fillLines(chatId, store, await getModel(), job);
         await indexScenes(chatId, store, job);
         // Memory in another language: the lines it may need next are translated now, not at reply time.
         await translateAfterRun(chatId, job).catch((error) => log(`chat ${chatId}: translation failed, will try again later (${error?.message || error})`));
@@ -4407,6 +4454,18 @@ async function routes(app) {
       learnFromEdit(chatId, wasStore, wasScene, scene);
       return scene;
     });
+  }));
+  app.post('/chats/:id/lines/fill', guard(async (req) => {
+    const chatId = safeChatId(req.params.id);
+    if (sceneJobs.get(chatId)?.state === 'running') throw Error('지금 장면을 정리하는 중입니다. 끝난 뒤에 다시 시도해 주세요.');
+    const store = loadScenes(chatId);
+    if (!store?.scenes.length) throw Error('아직 장면이 없습니다.');
+    if (req.body?.again === true) { delete store.lineFillTried; saveScenes(chatId, store); }
+    const left = S.lineFillTargets(store).length;
+    if (!left) return { started: false, left: 0 };
+    const model = await memoryModel();
+    enqueue(`scenes:${chatId}`, async () => { const s = loadScenes(chatId); await fillLines(chatId, s, model); }).catch((error) => log(`chat ${chatId}: story lines not filled (${error?.message || error})`));
+    return { started: true, left };
   }));
   app.post('/chats/:id/chapters/rebuild', guard(async (req) => {
     const chatId = safeChatId(req.params.id);

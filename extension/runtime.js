@@ -1066,7 +1066,7 @@
       ${[...groups].map(([who, list]) => `<div class="paper"><h2>${esc(who)}</h2>${list
         .map((f) => {
           const replaced = f.replacedBy && ids.has(f.replacedBy);
-          return `<div class="fact-row" data-fact="${esc(f.id)}"><input type="checkbox" class="pick-fact" data-pick-fact="${esc(f.id)}" ${pickedFacts.has(f.id) ? 'checked' : ''} aria-label="${esc(f.id)} 고르기"><label>${esc(f.id)}${f.unaware?.length ? ` · 모름: ${esc(f.unaware.join('·'))}` : ''}${f.guess?.length ? ` · 짐작만: ${esc(f.guess.join('·'))}` : ''}${f.edited || f.knowSet?.length || f.knownLock ? ' · 직접 고침' : ''}${replaced ? ` · ${esc(f.replacedBy)}로 바뀜(기억 칸에서 제외)` : ''}${superseded.has(f.id) ? ' · 기록 충돌에서 뒤로 물림(기억 칸에서 제외)' : ''}</label>
+          return `<div class="fact-row" data-fact="${esc(f.id)}"><input type="checkbox" class="pick-fact" data-pick-fact="${esc(f.id)}" ${pickedFacts.has(f.id) ? 'checked' : ''} aria-label="${esc(f.id)} 고르기"><label>${esc(f.id)}${f.unaware?.length ? ` · 모름: ${esc(f.unaware.join('·'))}` : ''}${f.guess?.length ? ` · 짐작만: ${esc(f.guess.join('·'))}` : ''}${f.edited || f.knowSet?.length || f.knownLock ? ' · 직접 고침' : ''}${replaced ? ` · ${esc(f.replacedBy)}로 합쳐짐(기억 칸에서 제외 · 고치려면 ${esc(f.replacedBy)}를 고치세요)` : ''}${superseded.has(f.id) ? ' · 기록 충돌에서 뒤로 물림(기억 칸에서 제외)' : ''}</label>
             ${f.sceneId ? `<p class="record-links">${sceneLink(store.scenes.find((x) => x.id === f.sceneId), '에서 알게 됨')}</p>` : ''}
             ${knowChips(f)}
             <textarea class="event-field">${esc(f.text)}</textarea>${trEdit(f.text)}
@@ -2049,6 +2049,7 @@
     const titleOf = (id) => (store.scenes || []).find((x) => x.id === id);
     return `<div class="eyebrow">STORY LINES · ${lines.length}</div><h1>줄기</h1>
       <p class="intro">떨어진 장면이라도 같은 일을 따라가면 한 줄기로 묶고, 줄기마다 지금 어디까지 왔는지 한 줄을 둡니다. 장면을 정리할 때 함께 적고(호출이 따로 늘지 않음), 답변에는 요즘 줄기와 떠오른 장면의 줄기가 들어갑니다.</p>
+      ${(() => { const bare = (store.scenes || []).filter((x) => !x.ooc && !(x.lines || []).length && !(store.lineFillTried || []).includes(x.id)).length; return bare >= 3 ? `<div class="note">줄기가 없는 장면이 <b>${bare}개</b> 있습니다(줄기 기능이 생기기 전에 정리한 장면). 장면 요약만 읽어 채웁니다(원문은 안 읽음, 모델 호출 약 ${Math.ceil(bare / 30)}번). 다음 장면 정리 때도 저절로 채웁니다. <button data-act="fillLines">지금 채우기</button></div>` : ''; })()}
       ${lines.length ? lines.map((l) => `<div class="paper"><h2>${esc(l.name)}</h2>
         <div class="record-links">${l.scenes.map((id) => sceneLink(titleOf(id) || { id, title: '' })).join('')}</div>
         ${l.now ? `<p class="tl-after"><small>지금</small> ${esc(shown(l.now))}${l.nowScene ? ` <small>(${esc(l.nowScene)} 기준)</small>` : ''}</p>` : '<p class="hint">지금 상태가 아직 없습니다.</p>'}
@@ -2381,6 +2382,11 @@
         speechRows = [...(speechRows || []), { from: last?.from || 1, mark: last ? '[' : '"', lang: last?.lang === 'en' ? 'it' : 'en' }];
         return render();
       }
+      case 'fillLines':
+        return act(async () => {
+          const r = await api('POST', `/chats/${chat}/lines/fill`, {});
+          if (!r.started) throw Error('채울 장면이 없습니다.');
+        }, '줄기를 채우는 중입니다. 잠시 뒤 새로고침하면 보입니다.');
       case 'tlJump': {
         const target = root.querySelector(`[data-tl="${CSS.escape(el.dataset.target || '')}"]`);
         const nav = root.querySelector('.tl-nav');
