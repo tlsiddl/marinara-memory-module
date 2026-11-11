@@ -38,6 +38,20 @@ test('the user\'s bracketed words are read as speech, each line with the languag
   assert.equal(L.prepareMessages(rows)[0].speechLangs, undefined, 'no rules: as before');
 });
 
+test('brackets in any shape of message: between narration, over a line break, inside quotes, with quotes inside', () => {
+  const read = (content, marks = { '"': 'en', '[': 'it', '{': 'el' }) => {
+    const [m] = L.prepareMessages([{ id: 'x', number: 1, role: 'user', speaker: 'Mina', content }], { speechMarks: [{ from: 1, marks }] });
+    return [m.sentences, m.speechLangs || null];
+  };
+  assert.deepEqual(read('미나가 웃었다. [가자, 지금.] 그리고 문을 열었다.'), [['미나가 웃었다.', '"가자, 지금."', '그리고 문을 열었다.'], [null, 'it', null]]);
+  assert.deepEqual(read('[좋아, 가 보자.\n근데 비 오면?]'), [['"좋아, 가 보자. 근데 비 오면?"'], ['it']], 'over a line break: one line of speech');
+  assert.deepEqual(read('[좋아.\n\n근데?]')[1], null, 'a blank line inside: not one line of speech');
+  assert.deepEqual(read('"그가 [가자]라고 했어."'), [['"그가 [가자]라고 했어."'], ['en']], 'a bracket inside quoted words is part of them');
+  assert.deepEqual(read('[그가 "가자"라고 했어.]'), [['"그가 ‘가자’라고 했어."'], ['it']], 'quotes inside a bracket become ‘…’');
+  assert.deepEqual(read('{Γεια.} [Ciao.] "Hi."')[1], ['el', 'it', 'en'], 'several marks: each in the order they come');
+  assert.deepEqual(read('[ooc: 잠깐 쉬어요]')[1], null);
+});
+
 test('lines already saved get their language; a bracketed line saved as narration becomes the user\'s spoken line', () => {
   const messages = L.prepareMessages([{ id: 'm1', number: 4, role: 'user', speaker: 'Mina', content: '"오늘은 바다 가자."\n[좋아, 가 보자. 비 오면?]' }], { speechMarks: RULES });
   const store = { ...S.emptyStore(), scenes: [{ id: 'S1', start: 4, end: 4, messages: [{ id: 'm1' }], events: [{ text: 'Mina hesitates', quotes: [
