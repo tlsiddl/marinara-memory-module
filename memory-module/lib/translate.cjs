@@ -410,6 +410,8 @@ Input: a JSON object {"lines":[...]}. Output: a JSON object {"lines":[...]} with
 - 직역하지 말고 한국어로 자연스러운 말로 옮겨. 관용 표현은 뜻으로 옮겨.
   예) "a lapdog that wags at any stranger's hand" → "아무 손에나 꼬리를 흔드는 애완견"
 - 줄들은 한 기록의 제목·설명·원인·풀리려면·최근 순으로 이어져 나올 때가 많아. 앞뒤 줄을 맥락으로 삼아 같은 대상은 같은 낱말로 옮겨.
+원문 대사를 따온 줄:
+- quoted에 그 줄이 있으면, 그 줄은 채팅의 원문 대사(또는 그 일부)를 따온 거야. quoted 값은 그 대사의 원문과 채팅에서 이미 쓴 한국어 번역이야. 따온 부분은 그 한국어 번역의 표현·어조를 그대로 따라 옮겨(제목이면 그 번역에서 해당하는 부분을 살려 짧게). 새로 의역하지 마.
 그대로 둘 것:
 - 숫자·날짜·시각·금액·번호(S12, C3, A1, T5, F9)와 표시(★ ※ · → ① …).
 - 따옴표 안의 대사("…").
@@ -417,13 +419,16 @@ Input: a JSON object {"lines":[...]}. Output: a JSON object {"lines":[...]} with
 };
 
 /** `names`: [{ from, to }] (koreanNames), sent along when translating into Korean. Only names that appear are sent. */
-function buildTranslatePrompt(lines, target, { names = [], glossary = [] } = {}) {
+function buildTranslatePrompt(lines, target, { names = [], glossary = [], quoted = null } = {}) {
   const text = lines.join('\n');
   const used = target === 'ko' ? names.filter((n) => text.includes(n.from)) : [];
   // Into English or Chinese: the glossary's words that appear, to be written the glossary's way.
   const terms = target === 'ko' ? [] : (glossary || []).filter((p) => p?.to && text.includes(p.to));
   // "names" (and "terms") go first so the model reads them before the lines.
   const input = used.length ? { names: Object.fromEntries(used.map((n) => [n.from, n.to])), lines } : terms.length ? { terms: Object.fromEntries(terms.map((p) => [p.to, p.from])), lines } : { lines };
+  // Lines that quote the chat, with the chat's own Korean for what they quote.
+  const hints = target === 'ko' && quoted ? Object.fromEntries(lines.filter((l) => quoted[l]).map((l) => [l, quoted[l]])) : {};
+  if (Object.keys(hints).length) input.quoted = hints;
   return [
     { role: 'system', content: TRANSLATE_PROMPT[target] },
     { role: 'user', content: JSON.stringify(input) },

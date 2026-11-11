@@ -2021,29 +2021,58 @@
     };
     return `<div class="eyebrow">STORY · ${scenes.length} SCENES</div><h1>시간순</h1>
       <p class="intro">작중 날짜별로 장면을 이어 보여 줍니다. 장면에서 시작된 일이 그 뒤 어떻게 됐는지(그 뒤 · 지금)와 그 장면의 줄기도 함께 보입니다. 장면 번호를 누르면 장면·챕터 화면에서 열립니다.</p>
-      ${timelineNav(days)}
-      ${days.map((d, i) => `<section class="tl-day" data-tl="day-${i}"><div class="tl-stamp"><b>${esc(d.day)}</b><small>장면 ${d.list.length}</small></div><div class="tl-list">${d.list.map(card).join('')}</div></section>`).join('')}`;
+      ${(() => {
+        if (tlRoom !== room) { tlRoom = room; tlDay = null; tlMonth = null; }
+        const at = days.findIndex((d) => d.day === tlDay);
+        const i = at >= 0 ? at : days.length - 1;
+        const d = days[i];
+        // Chapter heads are drawn from the first scene of the day shown.
+        lastChapter = i > 0 ? chapterOf.get(days[i - 1].list.at(-1).id) || null : null;
+        return `${timelineCalendar(days, d)}
+        <section class="tl-day"><div class="tl-stamp"><b>${esc(d.day)}</b><small>장면 ${d.list.length}</small></div><div class="tl-list">${d.list.map(card).join('')}</div></section>
+        <div class="buttons tl-steps">${i > 0 ? `<button data-act="tlDay" data-day="${esc(days[i - 1].day)}">‹ ${esc(days[i - 1].day)}</button>` : ''}${i < days.length - 1 ? `<button data-act="tlDay" data-day="${esc(days[i + 1].day)}">${esc(days[i + 1].day)} ›</button>` : ''}</div>`;
+      })()}`;
   }
 
+  /* 시간순: the story day shown (the latest by default), and the month the calendar is on. */
+  let tlDay = null;
+  let tlMonth = null;
+  let tlRoom = null;
+  /** "25-07-18 (금)" → { y: 2025, m: 7, d: 18 }, or null. */
+  const storyYmd = (day) => {
+    const m = String(day || '').match(/^(\d{2,4})-(\d{1,2})-(\d{1,2})/);
+    if (!m) return null;
+    const y = Number(m[1]);
+    return { y: y < 100 ? 2000 + y : y, m: Number(m[2]), d: Number(m[3]) };
+  };
   /**
-   * The bar over 시간순 that stays at the top while it scrolls: every story day, and under the day the hours its
-   * scenes start at; a press scrolls to it. A long story (many days) shows the days only.
+   * A month calendar of the story's days: a day that has scenes is a button (with how many), the day shown is marked,
+   * and ‹ › go to the other months that have scenes. Days with no date are a chip of their own.
    */
-  function timelineNav(days) {
-    if (!days.length) return '';
-    const hourOf = (sc) => { const m = String(sc.time || '').match(/(\d{1,2}):\d{2}/); return m ? Number(m[1]) : null; };
-    const hoursOf = (d) => {
-      const seen = new Map();
-      for (const sc of d.list) { const h = hourOf(sc); if (h != null && !seen.has(h)) seen.set(h, sc.id); }
-      return [...seen];
-    };
-    const many = days.length > 12;
-    const rows = days.map((d, i) => {
-      const hours = many ? [] : hoursOf(d);
-      return `<div class="tl-nav-day"><button data-act="tlJump" data-target="day-${i}"><b>${esc(d.day)}</b> <small>${d.list.length}</small></button>${hours.length > 1 ? hours.map(([h, id]) => `<button class="tl-nav-hour" data-act="tlJump" data-target="sc-${esc(id)}">${h}시</button>`).join('') : ''}</div>`;
-    }).join('');
-    const last = days.at(-1).list.at(-1);
-    return `<nav class="tl-nav" aria-label="날짜로 이동">${rows}<div class="tl-nav-day"><button class="tl-nav-hour" data-act="tlJump" data-target="sc-${esc(last.id)}">최근 장면으로</button></div></nav>`;
+  function timelineCalendar(days, shownDay) {
+    const dated = days.map((d) => ({ d, ymd: storyYmd(d.day) })).filter((x) => x.ymd);
+    const undated = days.filter((d) => !storyYmd(d.day));
+    const chips = undated.map((d) => `<button class="${d === shownDay ? 'is-on' : ''}" data-act="tlDay" data-day="${esc(d.day)}">${esc(d.day)} <small>${d.list.length}</small></button>`).join('');
+    if (!dated.length) return `<div class="tl-cal">${chips}</div>`;
+    const months = [...new Set(dated.map((x) => `${x.ymd.y}-${x.ymd.m}`))];
+    const shownYmd = storyYmd(shownDay.day);
+    const current = tlMonth && months.includes(tlMonth) ? tlMonth : shownYmd ? `${shownYmd.y}-${shownYmd.m}` : months.at(-1);
+    const [y, m] = current.split('-').map(Number);
+    const mi = months.indexOf(current);
+    const byDate = new Map(dated.filter((x) => x.ymd.y === y && x.ymd.m === m).map((x) => [x.ymd.d, x.d]));
+    const first = new Date(y, m - 1, 1).getDay();
+    const count = new Date(y, m, 0).getDate();
+    const cells = [];
+    for (let k = 0; k < first; k++) cells.push('<span></span>');
+    for (let n = 1; n <= count; n++) {
+      const d = byDate.get(n);
+      cells.push(d ? `<button class="${d === shownDay ? 'is-on' : ''}" data-act="tlDay" data-day="${esc(d.day)}" title="${esc(d.day)} · 장면 ${d.list.length}">${n}<small>${d.list.length}</small></button>` : `<span class="tl-off">${n}</span>`);
+    }
+    return `<div class="tl-cal">
+      <div class="tl-cal-head"><button class="ghost" data-act="tlMonth" data-month="${esc(months[mi - 1] || '')}" ${mi > 0 ? '' : 'disabled'}>‹</button><b>${y}년 ${m}월</b><button class="ghost" data-act="tlMonth" data-month="${esc(months[mi + 1] || '')}" ${mi < months.length - 1 ? '' : 'disabled'}>›</button></div>
+      <div class="tl-cal-grid">${['일', '월', '화', '수', '목', '금', '토'].map((w) => `<span class="tl-week">${w}</span>`).join('')}${cells.join('')}</div>
+      ${chips ? `<div class="tl-cal-extra">${chips}</div>` : ''}
+    </div>`;
   }
 
   function viewLines() {
@@ -2406,13 +2435,17 @@
         return act(async () => {
           await api('POST', `/chats/${chat}/lines/fill`, { redo: true });
         }, '채운 줄기를 지우고 다시 만드는 중입니다. 잠시 뒤 새로고침하면 보입니다.');
-      case 'tlJump': {
-        const target = root.querySelector(`[data-tl="${CSS.escape(el.dataset.target || '')}"]`);
-        const nav = root.querySelector('.tl-nav');
+      case 'tlDay': {
+        tlDay = el.dataset.day || null;
+        tlMonth = null;
+        render();
         const box = root.querySelector('#content');
-        if (target && box) box.scrollTo({ top: box.scrollTop + target.getBoundingClientRect().top - box.getBoundingClientRect().top - (nav?.offsetHeight || 0) - 8, behavior: 'smooth' });
+        if (box) box.scrollTop = 0;
         return;
       }
+      case 'tlMonth':
+        if (el.dataset.month) tlMonth = el.dataset.month;
+        return render();
       case 'speechRowRemove':
         speechRows = (speechRows || []).filter((_, i) => i !== Number(el.dataset.i));
         return render();
