@@ -676,12 +676,26 @@ async function inheritBranch(sourceId, targetId) {
       if (sourceConflicts && !fs.existsSync(conflictsFile(targetId))) { saveConflicts(targetId, Cf.fold(result.scenes || S.emptyStore(), structuredClone(sourceConflicts))); written.push(conflictsFile(targetId)); }
       // 중요/빼기 marks come along (those on scenes, chapters and facts this branch does not have drop out).
       if (sourceMarks && !fs.existsSync(recallPrefsFile(targetId))) { saveRecallPrefs(targetId, Rp.prune(structuredClone(sourceMarks), Rp.liveIds(result.scenes || S.emptyStore(), null, S.liveFacts), { ledger: false })); written.push(recallPrefsFile(targetId)); }
+      // The glossary and the translations come along (they are the same lines up to the branch; the failed-line marks do not).
+      if (fs.existsSync(translationsFile(sourceId)) && !fs.existsSync(translationsFile(targetId))) {
+        flushTranslations(sourceId);
+        const { failed: _failed, ...copy } = structuredClone(loadTranslations(sourceId));
+        if (Object.keys(copy.items || {}).length || copy.glossary) { saveTranslations(targetId, copy); written.push(translationsFile(targetId)); }
+      }
       if (sourceSettings) {
-        next.chats = { ...next.chats, [targetId]: structuredClone(sourceSettings) };
+        const own = structuredClone(sourceSettings);
+        // The user's OOC marks are by message id, and the branch's messages have ids of their own.
+        if (own.ooc) {
+          const marks = {};
+          for (const [id, value] of Object.entries(own.ooc)) if (ids.has(id)) marks[ids.get(id)] = value;
+          if (Object.keys(marks).length) own.ooc = marks; else delete own.ooc;
+        }
+        next.chats = { ...next.chats, [targetId]: own };
         saveSettings(next);
       }
     } catch (error) {
       for (const file of written) fs.rmSync(file, { force: true });
+      translationCache.delete(targetId);
       cache.delete(targetId); sceneCache.delete(targetId); touchScenes(targetId); vectorCache.delete(targetId); addressCache.delete(targetId); stateCache.delete(targetId); placesCache.delete(targetId); conflictsCache.delete(targetId); keepsakesCache.delete(targetId); notebookCache.delete(targetId); trackersCache.delete(targetId); recallPrefsCache.delete(targetId); langRecords.delete(targetId); chatLangs.delete(targetId);
       throw error;
     }

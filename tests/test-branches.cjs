@@ -171,6 +171,22 @@ function mockEngine(f, targetId, count) {
   return { chats: { listMessages: async (id) => chats.get(id) || [], getById: async () => ({ metadata: '{}' }) } };
 }
 
+test('a branch gets the OOC marks (by its own message ids) and the translations and glossary of the parent', async () => {
+  const f = fixture();
+  T.setEngine(mockEngine(f, 'child-ooc', 4));
+  T.saveLedger('parent', f.ledger); T.saveScenes('parent', f.scenes);
+  T.saveSettings({ connection: 'keep-global', chats: { parent: { enabled: true, ooc: { m1: true, m2: false, m6: true } } } });
+  T.saveTranslations('parent', { v: 1, items: { 'ko:Hello there.': '안녕하세요.' }, failed: { 'ko:Bad': { n: 2, at: Date.now() } }, glossary: { pairs: [{ from: 'Daniel', to: '다니엘' }], hash: 'h1', source: 'x', at: 'now' } });
+  await T.branchOnSend({ method: 'POST', raw: { url: '/api/chats/parent/branch' } }, { statusCode: 200 }, JSON.stringify({ id: 'child-ooc' }));
+  assert.deepEqual(T.settings().chats['child-ooc'].ooc, { b1: true, b2: false }, 'ids of the branch; m6 is not in it');
+  assert.deepEqual(T.settings().chats.parent.ooc, { m1: true, m2: false, m6: true }, 'the parent keeps its own');
+  const copy = T.loadTranslations('child-ooc');
+  assert.equal(copy.items['ko:Hello there.'], '안녕하세요.');
+  assert.equal(copy.glossary.pairs[0].to, '다니엘');
+  assert.equal(copy.failed, undefined, 'failed marks are not inherited');
+  assert.ok(fs.existsSync(path.join(dir, 'memory-module/chats/child-ooc.translations.json')));
+});
+
 test('service copies files/settings/vectors before successful branch response; independent and idempotent', async () => {
   const f = fixture();
   T.setEngine(mockEngine(f, 'child', 4));
