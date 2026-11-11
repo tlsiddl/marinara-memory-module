@@ -351,3 +351,24 @@ test('a saved note whose situation line is in another language is rewritten too,
   assert.equal(prompts.length, 0);
   assert.equal(store.scenes[0].charNotes[0].langGaveUp, true);
 });
+
+test('a notebook rebuild is a room job: stop aborts its model call, and purge cancels it', async () => {
+  const id = 'nbrebuild-stop';
+  X.saveSettings({ ...X.settings(), connection: 'conn', autoTranslate: false, chats: { ...(X.settings().chats || {}), [id]: { enabled: true, features: { notebook: 'on' } } } });
+  X.saveScenes(id, { ...S.emptyStore(), cast: ['Viktor'], personas: ['Mina'], scenes: [scene('S1', 1, 2)] });
+  let signal = null;
+  const slow = { async chatComplete(messages, opts) { signal = opts.signal; await new Promise((resolve, reject) => opts.signal.addEventListener('abort', () => reject(new Error('aborted')))); } };
+  const saved = provider.chatComplete;
+  provider.chatComplete = slow.chatComplete;
+  try {
+    const job = X.rebuildNotebook(id, { all: true });
+    for (let i = 0; i < 100 && !signal; i++) await new Promise((r) => setTimeout(r, 20));
+    assert.ok(signal, 'the model call got a signal');
+    assert.equal(X.notebookRunning(id), true, 'the room counts as busy');
+    X.purgeChatMemory(id);
+    await job.run;
+    assert.equal(signal.aborted, true);
+    assert.equal(job.state, 'stopped');
+    assert.equal(job.error, null, 'a stop is not an error');
+  } finally { provider.chatComplete = saved; }
+});
