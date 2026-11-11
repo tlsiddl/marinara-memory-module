@@ -282,7 +282,7 @@ const SPEECH_MARKS = { '"': ['"', '"'], '[': ['[', ']'], '{': ['{', '}'], '<': [
 const SPEECH_LANGS = {
   en: ['영어', 'English'], it: ['이탈리아어', 'Italian'], el: ['그리스어', 'Greek'], fr: ['프랑스어', 'French'], de: ['독일어', 'German'],
   es: ['스페인어', 'Spanish'], pt: ['포르투갈어', 'Portuguese'], ru: ['러시아어', 'Russian'], la: ['라틴어', 'Latin'],
-  ja: ['일본어', 'Japanese'], zh: ['중국어', 'Chinese'], ko: ['한국어', 'Korean'],
+  ja: ['일본어', 'Japanese'], zh: ['중국어', 'Chinese'], ko: ['한국어', 'Korean'], grc: ['고대 그리스어', 'Ancient Greek'],
 };
 
 /**

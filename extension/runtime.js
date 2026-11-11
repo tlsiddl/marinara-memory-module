@@ -673,7 +673,7 @@
   }
 
   /* 페르소나 말 표시: which marks around the user's character's words are speech, and in what language. */
-  const SPEECH_LANGS = { en: '영어', it: '이탈리아어', el: '그리스어', fr: '프랑스어', de: '독일어', es: '스페인어', pt: '포르투갈어', ru: '러시아어', la: '라틴어', ja: '일본어', zh: '중국어', ko: '한국어' };
+  const SPEECH_LANGS = { en: '영어', it: '이탈리아어', el: '그리스어', fr: '프랑스어', de: '독일어', es: '스페인어', pt: '포르투갈어', ru: '러시아어', la: '라틴어', ja: '일본어', zh: '중국어', ko: '한국어', grc: '고대 그리스어' };
   const SPEECH_MARKS = [['"', '"…"'], ['[', '[…]'], ['{', '{…}'], ['<', '<…>'], ['「', '「…」'], ['『', '『…』'], ['«', '«…»']];
   // Rows being edited (one per mark and start), kept apart from what is saved until 저장 is pressed.
   let speechRows = null;
@@ -701,6 +701,27 @@
       <p class="hint">나중에 표시의 뜻을 바꿀 때는 지우지 말고 <b>시작 메시지</b>를 그때 번호로 한 새 줄을 더하세요. 그 메시지부터 새 규칙을 쓰고, 그 전 대사는 그때 규칙대로 남습니다. 내 메시지에만 적용되고, 저장하면 이미 저장된 대사도 다음 정리 때 다시 읽어 언어를 붙입니다(모델 호출 없음).</p>
       ${rows || '<p class="hint">아직 없습니다.</p>'}
       <div class="speech-actions"><button data-act="speechRowAdd">줄 더하기</button><button data-act="speechSave" ${dirty ? '' : 'disabled'}>저장</button>${dirty ? '<small class="hint">저장하지 않은 변경이 있습니다.</small>' : ''}</div>
+    </details>`;
+  }
+
+  /* 배경 설정 · 진행 규칙: what the user set for the room from the start (kept as typed until 저장). */
+  let setupDraft = null;
+  let setupDraftRoom = null;
+  function setupPaper() {
+    if (!room || !info) return '';
+    const saved = { lore: info.setup?.lore || '', rules: info.setup?.rules || '' };
+    if (setupDraftRoom !== room || !setupDraft) {
+      setupDraft = { ...saved };
+      setupDraftRoom = room;
+    }
+    const has = [saved.lore ? '배경 설정' : '', saved.rules ? '진행 규칙' : ''].filter(Boolean);
+    return `<details class="paper" data-list="roomSetup" ${openLists.has('roomSetup') ? 'open' : ''}><summary>배경 설정 · 진행 규칙 · ${has.length ? esc(has.join('·')) : '없음'}</summary>
+      <p class="hint">이 방에서 처음부터 정해 둔 것을 적어 두는 곳입니다. 작가 노트에 있던 내용을 옮겨 와도 됩니다. 적은 그대로 들어가고 번역하지 않습니다. 기억 갱신을 꺼 둔 방에도 들어가고, <b>{{user}}</b> 같은 매크로는 바뀌지 않습니다.</p>
+      <label class="full">배경 설정 (사실)<textarea class="event-field" data-setup="lore" style="min-height:140px" maxlength="12000" placeholder="예: 두 사람은 오래전부터 아는 사이다. 마을 사람들에게는 정체를 숨긴다.">${esc(setupDraft.lore)}</textarea></label>
+      <p class="hint">인물, 관계, 과거, 비밀처럼 <b>이야기 속 사실</b>을 적어 주세요. 답글마다 기억 맨 앞에 들어가고, 기억을 정리하는 모델도 이 내용을 참고해 인물과 비밀을 헷갈리지 않습니다. 정리할 때는 앞부분 6,000자까지만 읽습니다.</p>
+      <label class="full">진행 규칙 (지시)<textarea class="event-field" data-setup="rules" style="min-height:140px" maxlength="12000" placeholder="예: 대사와 대사 사이에는 빈 줄. 내 메시지의 <…>는 고대 그리스어로 한 말.">${esc(setupDraft.rules)}</textarea></label>
+      <p class="hint">대사 형식, 문체, 금지 표현, 내 메시지의 표시를 어떻게 읽을지 같은 <b>지시</b>를 적어 주세요. 답글을 쓸 때 프롬프트 끝 쪽(출력 형식 자리)에 들어가 잘 지켜집니다. 롤플레이 방에서만 들어갑니다.</p>
+      <div class="speech-actions"><button data-act="setupSave">저장</button></div>
     </details>`;
   }
 
@@ -1808,6 +1829,7 @@
           <option value="zh" ${serverSettings?.writeLanguage === 'zh' ? 'selected' : ''}>중국어로 (간체 · 한국어 방도 중국어로 정리)</option></select></label>
         <p class="hint">기억 서재에 <b>저장되는</b> 언어입니다. 영어나 중국어로 바꾸면 <b>새로 정리되는 기억부터</b> 그 언어로 저장하고, 이 화면에서는 한국어 번역이 함께 보입니다. 이미 정리된 기억은 그대로 두고 넣을 때 번역하므로 바로 써도 됩니다. 전부 그 언어로 저장하고 싶으시면 한눈에 → <b>처음부터 다시 정리</b>를 눌러 주세요. 대사 인용과 이름은 늘 원문 그대로입니다. 한국어 방에서 영어나 중국어로 정리해도 낱말로 찾기는 이 화면의 한국어 번역과 원래 낱말을 함께 봅니다(번역이 아직 없는 기억은 원래 낱말로만 찾습니다).</p>
         ${roomWriteLanguagePicker()}
+        ${setupPaper()}
         ${speechMarksPaper()}
         <label>기억을 넣을 언어<select id="setMemLang">
           <option value="auto" ${!serverSettings?.memoryLanguage || serverSettings?.memoryLanguage === 'auto' ? 'selected' : ''}>정리한 언어 그대로 (기본 · 번역 없음)</option>
@@ -2334,6 +2356,13 @@
       case 'speechRowRemove':
         speechRows = (speechRows || []).filter((_, i) => i !== Number(el.dataset.i));
         return render();
+      case 'setupSave': {
+        const body = { lore: setupDraft?.lore ?? '', rules: setupDraft?.rules ?? '' };
+        return act(async () => {
+          await api('POST', `/chats/${chat}/setup`, body);
+          setupDraft = null;
+        }, body.lore.trim() || body.rules.trim() ? '배경 설정과 진행 규칙을 저장했습니다. 다음 답글부터 들어갑니다.' : '배경 설정과 진행 규칙을 비웠습니다.');
+      }
       case 'speechSave': {
         const rules = new Map();
         for (const r of speechRows || []) {
@@ -3281,6 +3310,7 @@
     for (const type of ['keydown', 'keypress', 'keyup']) root.addEventListener(type, (e) => e.stopPropagation());
     root.addEventListener('input', (e) => {
       if (e.target.id === 'memorySearchInput') searchDraft = e.target.value;
+      if (e.target.dataset?.setup && setupDraft && setupDraftRoom === room) setupDraft[e.target.dataset.setup] = e.target.value;
       if (['nameSource', 'nameTarget', 'nameDisplay'].includes(e.target.id)) readNameForm();
       if (['addrFrom', 'addrTo', 'addrTerm', 'addrNote'].includes(e.target.id)) readAddressForm();
       if (e.target.id === 'stateNewName') worldForm.person = e.target.value;

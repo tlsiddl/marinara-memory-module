@@ -86,7 +86,7 @@ test('the memory says the language: in Korean, and in an English or Chinese memo
 
 test('the library edits the rules in 설정 → 언어 and shows each line\'s language', () => {
   const source = fs.readFileSync(path.join(__dirname, '../extension/runtime.js'), 'utf8').split('\r\n').join('\n');
-  assert.match(source, /\$\{roomWriteLanguagePicker\(\)\}\n\s+\$\{speechMarksPaper\(\)\}/);
+  assert.match(source, /\$\{roomWriteLanguagePicker\(\)\}\n\s+(?:\$\{setupPaper\(\)\}\n\s+)?\$\{speechMarksPaper\(\)\}/);
   for (const act of ['speechRowAdd', 'speechRowRemove', 'speechSave']) assert.match(source, new RegExp(`case '${act}':`));
   assert.match(source, /api\('POST', `\/chats\/\$\{chat\}\/speech-marks`, \{ rules:/);
   assert.match(source, /const lang = SPEECH_LANGS\[q\.lang\] \? ` · \$\{SPEECH_LANGS\[q\.lang\]\}로` : '';/);
