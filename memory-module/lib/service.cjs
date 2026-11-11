@@ -4377,6 +4377,39 @@ async function routes(app) {
       return fact;
     });
   }));
+  // A fact added by hand to a scene: { sceneId, text, about?, unaware?, guess?, knownBy? }. Marked edited, so later
+  // passes over the room keep it as written.
+  app.post('/chats/:id/facts', guard(async (req) => {
+    const chatId = safeChatId(req.params.id);
+    const text = typeof req.body?.text === 'string' ? req.body.text.trim() : '';
+    if (!text) throw Error('사실 내용을 적어 주세요.');
+    if (text.length > 1000) throw Error('사실은 1,000자까지 적을 수 있습니다.');
+    return editScenes(chatId, (store) => {
+      const scene = store.scenes.find((x) => x.id === req.body?.sceneId);
+      if (!scene) throw Error('사실을 넣을 장면을 찾지 못했습니다.');
+      const fact = {
+        id: `F${store.nextFact++}`,
+        about: typeof req.body?.about === 'string' ? req.body.about.trim() : '',
+        text,
+        evidence: [],
+        sceneId: scene.id,
+        when: scene.time || null,
+        replaces: null,
+        unaware: req.body?.unaware !== undefined ? nameList(req.body.unaware) : [],
+        guess: req.body?.guess !== undefined ? nameList(req.body.guess) : [],
+        ...(req.body?.knownBy !== undefined && nameList(req.body.knownBy).length ? { knownBy: nameList(req.body.knownBy) } : {}),
+        edited: true,
+        editsSplit: true,
+        manual: true,
+        createdAt: new Date().toISOString(),
+      };
+      // Who knows it was set by hand.
+      const set = [...new Set([...fact.unaware, ...fact.guess])];
+      if (set.length) fact.knowSet = set;
+      store.facts.push(fact);
+      return fact;
+    });
+  }));
   app.delete('/chats/:id/facts/:factId', guard(async (req) => {
     const chatId = safeChatId(req.params.id);
     return editScenes(chatId, (store) => {
