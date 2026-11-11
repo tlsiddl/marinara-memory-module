@@ -662,7 +662,42 @@
     if (prefix) text = text.slice(prefix[0].length);
     // The original and its translation are saved apart and shown in one form: "original" (번역).
     if (typeof q.translation === 'string' && q.translation.trim()) text = `${text.trim()} (${q.translation.trim()})`;
-    return { who: by ? `${by}${q.to ? ` → ${q.to}${q.toGuess ? '(추정)' : ''}` : ''}` : q.to ? `화자 미확정 → ${q.to}${q.toGuess ? '(추정)' : ''}` : (/^\s*["“'‘「『]/.test(text) ? '대사' : '서술'), text: text.trim() };
+    // The language the room's speech marks gave the line (페르소나 말 표시).
+    const lang = SPEECH_LANGS[q.lang] ? ` · ${SPEECH_LANGS[q.lang]}로` : '';
+    const who = by ? `${by}${q.to ? ` → ${q.to}${q.toGuess ? '(추정)' : ''}` : ''}` : q.to ? `화자 미확정 → ${q.to}${q.toGuess ? '(추정)' : ''}` : (/^\s*["“'‘「『]/.test(text) ? '대사' : '서술');
+    return { who: who + lang, text: text.trim() };
+  }
+
+  /* 페르소나 말 표시: which marks around the user's character's words are speech, and in what language. */
+  const SPEECH_LANGS = { en: '영어', it: '이탈리아어', el: '그리스어', fr: '프랑스어', de: '독일어', es: '스페인어', pt: '포르투갈어', ru: '러시아어', la: '라틴어', ja: '일본어', zh: '중국어', ko: '한국어' };
+  const SPEECH_MARKS = [['"', '"…"'], ['[', '[…]'], ['{', '{…}'], ['<', '<…>'], ['「', '「…」'], ['『', '『…』'], ['«', '«…»']];
+  // Rows being edited (one per mark and start), kept apart from what is saved until 저장 is pressed.
+  let speechRows = null;
+  let speechRowsRoom = null;
+  function speechRowsFrom(rules) {
+    return (rules || []).flatMap((r) => Object.entries(r.marks || {}).map(([mark, lang]) => ({ from: r.from, mark, lang })));
+  }
+  function speechMarksPaper() {
+    if (!room || !info) return '';
+    if (speechRowsRoom !== room || !speechRows) {
+      speechRows = speechRowsFrom(info.speechMarks);
+      speechRowsRoom = room;
+    }
+    const opt = (list, v) => list.map(([value, label]) => `<option value="${esc(value)}" ${value === v ? 'selected' : ''}>${esc(label)}</option>`).join('');
+    const langs = Object.entries(SPEECH_LANGS);
+    const rows = speechRows.map((r, i) => `<div class="speech-row" data-speech-row="${i}">
+        <label>시작 메시지<input type="number" min="1" data-speech-from value="${esc(String(r.from || 1))}"></label>
+        <label>표시<select data-speech-mark>${opt(SPEECH_MARKS, r.mark)}</select></label>
+        <label>언어<select data-speech-lang>${opt(langs, r.lang)}</select></label>
+        <button data-act="speechRowRemove" data-i="${i}" title="이 줄 빼기">빼기</button></div>`).join('');
+    const saved = speechRowsFrom(info.speechMarks);
+    const dirty = JSON.stringify(saved) !== JSON.stringify(speechRows);
+    return `<details class="paper" data-list="speechMarks" ${openLists.has('speechMarks') ? 'open' : ''}><summary>페르소나 말 표시 · ${saved.length ? `${saved.length}개` : '없음'}</summary>
+      <p class="hint">내 캐릭터가 표시마다 다른 언어로 말할 때 씁니다. 예를 들어 <b>"…"는 영어, […]는 이탈리아어</b>로 정해 두면 […] 줄도 대사로 저장되고, 기억에는 "(이탈리아어로)"처럼 무슨 언어로 한 말인지 함께 들어갑니다. 대사를 한국어로 적어도 됩니다.</p>
+      <p class="hint">나중에 표시의 뜻을 바꿀 때는 지우지 말고 <b>시작 메시지</b>를 그때 번호로 한 새 줄을 더하세요. 그 메시지부터 새 규칙을 쓰고, 그 전 대사는 그때 규칙대로 남습니다. 내 메시지에만 적용되고, 저장하면 이미 저장된 대사도 다음 정리 때 다시 읽어 언어를 붙입니다(모델 호출 없음).</p>
+      ${rows || '<p class="hint">아직 없습니다.</p>'}
+      <div class="speech-actions"><button data-act="speechRowAdd">줄 더하기</button><button data-act="speechSave" ${dirty ? '' : 'disabled'}>저장</button>${dirty ? '<small class="hint">저장하지 않은 변경이 있습니다.</small>' : ''}</div>
+    </details>`;
   }
 
   /** A warning when this Marinara is not the version the module was tested on, or a patch could not go in. */
@@ -1769,6 +1804,7 @@
           <option value="zh" ${serverSettings?.writeLanguage === 'zh' ? 'selected' : ''}>중국어로 (간체 · 한국어 방도 중국어로 정리)</option></select></label>
         <p class="hint">기억 서재에 <b>저장되는</b> 언어입니다. 영어나 중국어로 바꾸면 <b>새로 정리되는 기억부터</b> 그 언어로 저장하고, 이 화면에서는 한국어 번역이 함께 보입니다. 이미 정리된 기억은 그대로 두고 넣을 때 번역하므로 바로 써도 됩니다. 전부 그 언어로 저장하고 싶으시면 한눈에 → <b>처음부터 다시 정리</b>를 눌러 주세요. 대사 인용과 이름은 늘 원문 그대로입니다. 한국어 방에서 영어나 중국어로 정리해도 낱말로 찾기는 이 화면의 한국어 번역과 원래 낱말을 함께 봅니다(번역이 아직 없는 기억은 원래 낱말로만 찾습니다).</p>
         ${roomWriteLanguagePicker()}
+        ${speechMarksPaper()}
         <label>기억을 넣을 언어<select id="setMemLang">
           <option value="auto" ${!serverSettings?.memoryLanguage || serverSettings?.memoryLanguage === 'auto' ? 'selected' : ''}>정리한 언어 그대로 (기본 · 번역 없음)</option>
           <option value="ko" ${serverSettings?.memoryLanguage === 'ko' ? 'selected' : ''}>한국어</option>
@@ -2251,6 +2287,25 @@
           entry.undo = null;
           entry.text += ' → 되돌림';
         }, '되돌렸습니다.');
+      }
+      case 'speechRowAdd': {
+        const last = speechRows?.at(-1);
+        speechRows = [...(speechRows || []), { from: last?.from || 1, mark: last ? '[' : '"', lang: last?.lang === 'en' ? 'it' : 'en' }];
+        return render();
+      }
+      case 'speechRowRemove':
+        speechRows = (speechRows || []).filter((_, i) => i !== Number(el.dataset.i));
+        return render();
+      case 'speechSave': {
+        const rules = new Map();
+        for (const r of speechRows || []) {
+          const from = Math.max(1, Math.floor(Number(r.from) || 1));
+          rules.set(from, { ...(rules.get(from) || {}), [r.mark]: r.lang });
+        }
+        return act(async () => {
+          await api('POST', `/chats/${chat}/speech-marks`, { rules: [...rules].map(([from, marks]) => ({ from, marks })) });
+          speechRows = null;
+        }, rules.size ? '페르소나 말 표시를 저장했습니다. 이미 저장된 대사도 다음 정리 때 언어를 붙입니다.' : '페르소나 말 표시를 지웠습니다.');
       }
       case 'retryTranslation':
         return act(async () => {
@@ -3251,6 +3306,17 @@
       void act(() => api('POST', `/chats/${encodeURIComponent(room)}/${on ? 'enable' : 'disable'}`), on ? '이 방에서 기억을 켰습니다. 처음 켜셨다면 ‘이어서 정리’를 눌러 주세요.' : '이 방의 기억 갱신을 껐습니다.');
     };
     root.addEventListener('change', (e) => {
+      // 페르소나 말 표시: a row being edited (saved only with 저장).
+      const speechRow = e.target.closest?.('[data-speech-row]');
+      if (speechRow && speechRows) {
+        const r = speechRows[Number(speechRow.dataset.speechRow)];
+        if (r) {
+          if ('speechFrom' in e.target.dataset) r.from = Math.max(1, Math.floor(Number(e.target.value) || 1));
+          if ('speechMark' in e.target.dataset) r.mark = e.target.value;
+          if ('speechLang' in e.target.dataset) r.lang = e.target.value;
+        }
+        return render();
+      }
       if (e.target.dataset?.pickFact) {
         if (e.target.checked) pickedFacts.add(e.target.dataset.pickFact);
         else pickedFacts.delete(e.target.dataset.pickFact);

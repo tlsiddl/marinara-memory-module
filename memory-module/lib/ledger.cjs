@@ -274,16 +274,93 @@ function segmentHtmlSpeech(content, speech) {
 /** A bubble kept whole may hold line breaks: in a numbered list it stays on its own line. */
 const oneLine = (sentence) => String(sentence).replace(/\s*\n\s*/g, ' / ');
 
-function prepareMessages(rows) {
+/* ---------- 페르소나 말 표시: which marks around the user's character's words are speech, in which language ---------- */
+
+/** The marks a room can give a language: the opening mark and its closing one. */
+const SPEECH_MARKS = { '"': ['"', '"'], '[': ['[', ']'], '{': ['{', '}'], '<': ['<', '>'], '「': ['「', '」'], '『': ['『', '』'], '«': ['«', '»'] };
+/** The languages a mark can stand for: [Korean name, English name]. */
+const SPEECH_LANGS = {
+  en: ['영어', 'English'], it: ['이탈리아어', 'Italian'], el: ['그리스어', 'Greek'], fr: ['프랑스어', 'French'], de: ['독일어', 'German'],
+  es: ['스페인어', 'Spanish'], pt: ['포르투갈어', 'Portuguese'], ru: ['러시아어', 'Russian'], la: ['라틴어', 'Latin'],
+  ja: ['일본어', 'Japanese'], zh: ['중국어', 'Chinese'], ko: ['한국어', 'Korean'],
+};
+
+/**
+ * A room's rules, cleaned: [{ from: message number, marks: { '"': 'en', '[': 'it' } }], oldest first. A rule holds from
+ * its message on, until the next one: the meaning of a mark can change later in a story without changing what the
+ * lines before said.
+ */
+function cleanSpeechMarks(raw) {
+  const out = new Map();
+  for (const rule of Array.isArray(raw) ? raw : []) {
+    const from = Math.max(1, Math.floor(Number(rule?.from) || 1));
+    const marks = {};
+    for (const [mark, lang] of Object.entries(rule?.marks || {})) if (SPEECH_MARKS[mark] && SPEECH_LANGS[lang]) marks[mark] = lang;
+    if (Object.keys(marks).length) out.set(from, marks);
+  }
+  return [...out].sort((a, b) => a[0] - b[0]).map(([from, marks]) => ({ from, marks }));
+}
+
+/** The marks that hold at a message number (the latest rule from at or before it), or null. */
+function speechMarksAt(rules, number) {
+  let at = null;
+  for (const rule of rules || []) if (typeof number === 'number' && rule.from <= number) at = rule.marks;
+  return at;
+}
+
+const escRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/**
+ * The user's character's words in a room's marks, read as speech: a mark other than quotes ("[Ciao.]") becomes quotes,
+ * so the line is a spoken line like any other, and each sentence gets the language its mark stands for (or null).
+ * A bracket that holds an OOC note, or quotes of its own, is left as it is.
+ */
+function markSpeech(content, marks) {
+  const converted = [];
+  let text = content;
+  for (const [mark, lang] of Object.entries(marks)) {
+    const [open, close] = SPEECH_MARKS[mark];
+    if (open === '"') continue;
+    text = text.replace(new RegExp(`${escRe(open)}([^${escRe(open)}${escRe(close)}\\n]+)${escRe(close)}`, 'g'), (whole, inner) => {
+      if (/^\s*\(?\s*(?:ooc|o\.o\.c)/i.test(inner) || /["“”]/.test(inner)) return whole;
+      converted.push({ inner: inner.trim(), lang });
+      return `"${inner.trim()}"`;
+    });
+  }
+  return { text, converted };
+}
+function speechLangs(sentences, converted, marks) {
+  let next = 0;
+  const langs = sentences.map((s) => {
+    const t = String(s).trim();
+    if (!/^["“]/.test(t)) return null;
+    for (let k = next; k < converted.length; k++) {
+      if (t.startsWith(`"${converted[k].inner}"`)) {
+        next = k + 1;
+        return converted[k].lang;
+      }
+    }
+    return marks['"'] || null;
+  });
+  return langs.some(Boolean) ? langs : null;
+}
+
+function prepareMessages(rows, { speechMarks = null } = {}) {
   // The fingerprint (h) is of the message as stored, so a change in how it is read never looks like an edit.
   // Bubbles drawn on the user's side of an HTML chat are the user's own character speaking.
   const user = rows.find((r) => r.role === 'user' && r.speaker)?.speaker || null;
+  const rules = cleanSpeechMarks(speechMarks);
   return rows.map((row) => {
     const speech = [];
-    const content = htmlToText(row.content, { user, speech });
+    let content = htmlToText(row.content, { user, speech });
     const { trackerMark, ...rest } = row;
+    // The room's speech marks, for the user's own messages only (the replies keep their own way of writing).
+    const marks = row.role === 'user' ? speechMarksAt(rules, row.number) : null;
+    let converted = [];
+    if (marks) ({ text: content, converted } = markSpeech(content, marks));
+    const sentences = segmentHtmlSpeech(content, speech);
+    const langs = marks ? speechLangs(sentences, converted, marks) : null;
     // c: the tracker's own date, time and weather for this message (not part of the text, so not in h).
-    return { ...rest, content, h: hashText(row.content), ...(trackerMark ? { c: TRACKER_MARK + hashText(JSON.stringify(trackerMark)) } : {}), sentences: segmentHtmlSpeech(content, speech) };
+    return { ...rest, content, h: hashText(row.content), ...(trackerMark ? { c: TRACKER_MARK + hashText(JSON.stringify(trackerMark)) } : {}), sentences, ...(langs ? { speechLangs: langs } : {}) };
   });
 }
 
@@ -2681,6 +2758,10 @@ module.exports = {
   segment,
   splitSentences,
   prepareMessages,
+  SPEECH_MARKS,
+  SPEECH_LANGS,
+  cleanSpeechMarks,
+  speechMarksAt,
   planBatches,
   buildPrompt,
   buildTidyPrompt,
