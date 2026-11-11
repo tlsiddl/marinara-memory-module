@@ -763,6 +763,7 @@ function removeRoomFiles(chatId) {
 /** Everything held in memory for one room (not the files). The next read loads from disk again. */
 function clearRoomCaches(chatId) {
   for (const map of [cache, windows, sceneCache, namesCache, addressCache, stateCache, placesCache, conflictsCache, keepsakesCache, notebookCache, trackersCache, recallPrefsCache, selectedViews, vectorCache, chatLangs, langRecords, replyLedgers, translationCache, displayTranslationStatus, preparing, replyViews, speakerColors, recalls, turnQuery, storyDays, storyNow, mysteryRuns]) map.delete(chatId);
+  { const timer = translationTimers.get(chatId); if (timer) { clearTimeout(timer); translationTimers.delete(chatId); } }
   // A finished notebook job's status goes with the room's caches; one still running is stopped by purge/cancel, not dropped here.
   if (notebookJobs.get(chatId)?.state !== 'running') notebookJobs.delete(chatId);
   touchScenes(chatId);
@@ -2821,11 +2822,66 @@ function loadTranslations(chatId) {
 }
 
 function saveTranslations(chatId, data) {
+  const timer = translationTimers.get(chatId);
+  if (timer) { clearTimeout(timer); translationTimers.delete(chatId); }
   const keys = Object.keys(data.items);
   // Oldest first out when the cache grows past its limit (memory edited many times over leaves old lines behind).
   if (keys.length > TRANSLATIONS_KEPT) for (const k of keys.slice(0, keys.length - TRANSLATIONS_KEPT)) delete data.items[k];
   writeJson(translationsFile(chatId), data);
   translationCache.set(chatId, data);
+}
+
+/**
+ * Several parts of one run are saved together: the cache is written at most once per TRANSLATIONS_SAVE_MS while a run goes
+ * on, and always when the run ends (and when the process exits). A write of the same cache by anyone else covers it.
+ */
+const TRANSLATIONS_SAVE_MS = 4000;
+const translationTimers = new Map();
+function saveTranslationsLater(chatId) {
+  if (translationTimers.has(chatId)) return;
+  const timer = setTimeout(() => flushTranslations(chatId), TRANSLATIONS_SAVE_MS);
+  timer.unref?.();
+  translationTimers.set(chatId, timer);
+}
+function flushTranslations(chatId) {
+  const timer = translationTimers.get(chatId);
+  if (!timer) return;
+  clearTimeout(timer);
+  translationTimers.delete(chatId);
+  if (goneChats.has(chatId) || !translationCache.has(chatId)) return;
+  try { saveTranslations(chatId, translationCache.get(chatId)); } catch (error) { log(`chat ${chatId}: translations not saved (${error?.message || error})`); }
+}
+process.on('exit', () => { for (const id of [...translationTimers.keys()]) flushTranslations(id); });
+
+/**
+ * Lines that could not be translated even alone (a content filter, an answer that never lines up) are remembered in the
+ * translations file with a count: after TRANSLATE_GIVE_UP failures they are skipped (not asked every few minutes) until
+ * TRANSLATE_FAILED_MS passes or the user asks again ("다시 번역").
+ */
+const TRANSLATE_GIVE_UP = 2;
+const TRANSLATE_FAILED_MS = 24 * 60 * 60 * 1000;
+const TRANSLATE_FAILED_KEPT = 2000;
+function translationGaveUp(data, key) {
+  const f = data?.failed?.[key];
+  return Boolean(f && f.n >= TRANSLATE_GIVE_UP && Date.now() - f.at < TRANSLATE_FAILED_MS);
+}
+function noteTranslationFailure(data, key) {
+  data.failed ||= {};
+  const f = data.failed[key];
+  data.failed[key] = { n: (f?.n || 0) + 1, at: Date.now() };
+  const keys = Object.keys(data.failed);
+  if (keys.length > TRANSLATE_FAILED_KEPT) for (const k of keys.slice(0, keys.length - TRANSLATE_FAILED_KEPT)) delete data.failed[k];
+}
+/** The user asked again: the lines given up on get their tries back. */
+function clearTranslationFailures(chatId, texts = null, target = 'ko') {
+  const data = loadTranslations(chatId);
+  if (!data.failed) return 0;
+  const keys = texts ? texts.map((t) => T.key(target, t)) : Object.keys(data.failed);
+  let n = 0;
+  for (const k of keys) if (data.failed[k]) { delete data.failed[k]; n++; }
+  if (!Object.keys(data.failed).length) delete data.failed;
+  if (n) saveTranslations(chatId, data);
+  return n;
 }
 
 /**
@@ -2897,7 +2953,8 @@ function translateMissing(chatId, target, texts, { max = TRANSLATE_MAX_PER_RUN }
   if (translating.has(runKey)) return translating.get(runKey);
   const run = (async () => {
     const lookup = translationLookup(chatId, target);
-    const todo = [...new Set(texts)].filter((t) => t && lookup(t) == null).slice(0, max);
+    const stored = loadTranslations(chatId);
+    const todo = [...new Set(texts)].filter((t) => t && lookup(t) == null && !translationGaveUp(stored, T.key(target, t))).slice(0, max);
     if (!todo.length) return 0;
     const model = await translateModel();
     const names = target === 'ko' ? roomKoreanNames(chatId) : [];
@@ -2912,7 +2969,7 @@ function translateMissing(chatId, target, texts, { max = TRANSLATE_MAX_PER_RUN }
         if (!out) throw Error('번역 응답의 형식이 올바르지 않습니다.');
       } catch (error) {
         if (!splittableTranslationError(error)) throw error;
-        if (part.length === 1) { failed.push(error); return; }
+        if (part.length === 1) { failed.push(error); noteTranslationFailure(loadTranslations(chatId), T.key(target, part[0])); saveTranslationsLater(chatId); return; }
         const middle = Math.floor(part.length / 2);
         await translatePart(part.slice(0, middle));
         await translatePart(part.slice(middle));
@@ -2922,12 +2979,13 @@ function translateMissing(chatId, target, texts, { max = TRANSLATE_MAX_PER_RUN }
       part.forEach((src, i) => {
         if (out[i]) {
           data.items[T.key(target, src)] = out[i];
+          if (data.failed) delete data.failed[T.key(target, src)];
           done++;
         }
       });
-      saveTranslations(chatId, data);
+      saveTranslationsLater(chatId);
       const missing = part.filter((_, i) => !out[i]);
-      if (missing.length === 1 && part.length === 1) failed.push(Error('번역 응답에 누락되거나 유효하지 않은 항목이 있습니다.'));
+      if (missing.length === 1 && part.length === 1) { failed.push(Error('번역 응답에 누락되거나 유효하지 않은 항목이 있습니다.')); noteTranslationFailure(data, T.key(target, part[0])); }
       else if (missing.length === 1) await translatePart(missing);
       else if (missing.length > 1) {
         const middle = Math.floor(missing.length / 2);
@@ -2939,7 +2997,7 @@ function translateMissing(chatId, target, texts, { max = TRANSLATE_MAX_PER_RUN }
     if (done) log(`chat ${chatId}: translated ${done} memory line(s) into ${target}`);
     if (failed.length) throw Error(`${failed.length}개 항목을 개별로 다시 시도했지만 번역하지 못했습니다. 모델의 내용 제한이나 응답 오류를 확인해 주세요. 나머지 번역은 저장했습니다. (${String(failed[0]?.message || failed[0]).slice(0, 180)})`);
     return done;
-  })().finally(() => translating.delete(runKey));
+  })().finally(() => { translating.delete(runKey); flushTranslations(chatId); });
   translating.set(runKey, run);
   return run;
 }
@@ -3045,7 +3103,8 @@ function translateDisplayLater(chatId) {
   try {
     if (settings().autoTranslate === false || !settings().connection) return false;
     const lookup = translationLookup(chatId, 'ko');
-    const missing = displayTranslationTexts(chatId).filter((t) => lookup(t) == null);
+    const stored = loadTranslations(chatId);
+    const missing = displayTranslationTexts(chatId).filter((t) => lookup(t) == null && !translationGaveUp(stored, T.key('ko', t)));
     return missing.length ? startDisplayTranslation(chatId, missing) : false;
   } catch (error) {
     log(`chat ${chatId}: display translation not started (${error?.message || error})`);
@@ -3786,7 +3845,9 @@ async function routes(app) {
     }
     // 자동 번역을 끄면 보여 줄 번역은 [지금 번역]을 누를 때만 만듭니다(답변에 넣을 번역은 그대로).
     const auto = settings().autoTranslate !== false;
-    if (auto && missing.length && settings().connection) startDisplayTranslation(chatId, missing);
+    const stored = loadTranslations(chatId);
+    const retryable = missing.filter((t) => !translationGaveUp(stored, T.key('ko', t)));
+    if (auto && retryable.length && settings().connection) startDisplayTranslation(chatId, retryable);
     // Name fields (who, toward, who does not know) are names, not sentences: written in Korean from the name table and
     // the glossary, with no model call.
     const names = roomKoreanNames(chatId);
@@ -3803,7 +3864,7 @@ async function routes(app) {
     }
     const glossary = loadTranslations(chatId).glossary;
     const status = displayTranslationStatus.get(chatId);
-    return { chatLang: chatLangs.get(chatId) || 'ko', items, auto, glossary: glossary ? { count: glossary.pairs?.length || 0, source: glossary.source || null, at: glossary.at || null, hash: glossary.hash || null } : null, missing: missing.length, working: translating.has(`${chatId}:ko`), error: missing.length ? (status?.error || (!settings().connection ? '기억 정리 연결을 설정해 주세요.' : null)) : null };
+    return { chatLang: chatLangs.get(chatId) || 'ko', items, auto, glossary: glossary ? { count: glossary.pairs?.length || 0, source: glossary.source || null, at: glossary.at || null, hash: glossary.hash || null } : null, missing: missing.length, gaveUp: missing.length - retryable.length, working: translating.has(`${chatId}:ko`), error: missing.length ? (status?.error || (!settings().connection ? '기억 정리 연결을 설정해 주세요.' : null)) : null };
   }));
   app.post('/chats/:id/translations/retry', guard(async (req) => {
     const chatId = safeChatId(req.params.id);
@@ -3812,8 +3873,10 @@ async function routes(app) {
     const missing = displayTranslationTexts(chatId).filter((t) => lookup(t) == null);
     if (!missing.length) return { working: false, missing: 0 };
     if (!settings().connection) throw Error('기억 정리 연결을 설정해 주세요.');
+    // A manual 다시 번역 gives the lines that were given up on their tries back.
+    const cleared = clearTranslationFailures(chatId, missing, 'ko');
     startDisplayTranslation(chatId, missing, true);
-    return { working: true, missing: missing.length };
+    return { working: true, missing: missing.length, retriedFailed: cleared };
   }));
   // The library sends the room's glossary from the 번역 프리셋·단어장 extension (when it is installed). Names in it are
   // written that way in Korean memory text, and become other names of the people they name. Same text again: nothing.
@@ -5214,7 +5277,7 @@ function attach(app) {
   log('admin API ready at /api/memory-module');
 }
 
-module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { loadAddress, saveAddress, refreshAddress, presentPeople, Addr, loadState, saveState, loadPlaces, savePlaces, loadKeepsakes, saveKeepsakes, loadTrackers, saveTrackers, Tk, loadConflicts, saveConflicts, refreshConflicts, refreshWorld, Cf, Ks, organizeFor, sceneTokens, lastScenePeople, St, Pl, listRooms, purgeChatMemory, purgeIfGone, deleteOnSend, deletePrepare, listOrphans, deleteOrphans, goneChats, loadNames, saveNames, enqueue, foldScenes, reviewAttributions, loadAttributionLog, sceneJobs, selectedForView, loadSelected, recalls, windows, loadRecallPrefs, saveRecallPrefs, recallReport, recallCandidates, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, loadTranslations, saveTranslations, chatLangs, langRecords, loadLang, noteLanguage, LANG_REFRESH_EVERY, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, jobs, writeLanguage, roomWriteLanguage, memoryCallOptions, routineSetting, routineEnabled, attributionSetting, featureOn, featureSetting, F, B, clearRoomCaches, promptLanguage, translateDisplayLater, loadNotebook, saveNotebook, Nb, fixNoteLanguages, rebuildNotebook, notebookJobStatus, notebookLanguageOf, notebookLanguageSetting, planAnswersOn, tidySteps, tidyLedger, noteUsage, usageSummary, RESTORE_UNDO_DIR, notebookRunning: (id) => notebookJobs.get(id)?.state === 'running' } };
+module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { loadAddress, saveAddress, refreshAddress, presentPeople, Addr, loadState, saveState, loadPlaces, savePlaces, loadKeepsakes, saveKeepsakes, loadTrackers, saveTrackers, Tk, loadConflicts, saveConflicts, refreshConflicts, refreshWorld, Cf, Ks, organizeFor, sceneTokens, lastScenePeople, St, Pl, listRooms, purgeChatMemory, purgeIfGone, deleteOnSend, deletePrepare, listOrphans, deleteOrphans, goneChats, loadNames, saveNames, enqueue, foldScenes, reviewAttributions, loadAttributionLog, sceneJobs, selectedForView, loadSelected, recalls, windows, loadRecallPrefs, saveRecallPrefs, recallReport, recallCandidates, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, loadTranslations, saveTranslations, chatLangs, langRecords, loadLang, noteLanguage, LANG_REFRESH_EVERY, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, jobs, writeLanguage, roomWriteLanguage, memoryCallOptions, routineSetting, routineEnabled, attributionSetting, featureOn, featureSetting, F, B, clearRoomCaches, promptLanguage, translateDisplayLater, loadNotebook, saveNotebook, Nb, fixNoteLanguages, rebuildNotebook, notebookJobStatus, notebookLanguageOf, notebookLanguageSetting, planAnswersOn, tidySteps, tidyLedger, noteUsage, usageSummary, RESTORE_UNDO_DIR, notebookRunning: (id) => notebookJobs.get(id)?.state === 'running', translationRun: (id, texts) => translateMissing(id, "ko", texts), flushTranslations, clearTranslationFailures, translationGaveUp } };
 
 
 
