@@ -68,3 +68,30 @@ test('a quoted line is shown with the Korean the chat already has (paragraph tra
   assert.deepEqual(X.sourceQuoteItems(room), { 'Sera opened the door.': '세라가 문을 열었다.' });
   assert.equal(X.translationLookup(room, 'ko')('Sera opened the door.'), '세라가 문을 열었다.');
 });
+
+test('story lines for older scenes come from their summaries, only where a scene has none, asked once', () => {
+  const S = require('../memory-module/lib/scenes.cjs');
+  const store = { ...S.emptyStore(), scenes: [
+    { id: 'S1', start: 1, end: 2, title: 'Key', summary: 'Sera hides the shed key.', present: [], events: [] },
+    { id: 'S2', start: 3, end: 4, title: 'Search', summary: 'Doyun looks for the key.', present: [], events: [] },
+    { id: 'S3', start: 5, end: 6, title: 'Found', summary: 'The key turns up.', present: [], events: [], lines: [{ name: 'Shed key', now: 'Found.' }] },
+  ] };
+  assert.deepEqual(S.lineFillTargets(store).map((s) => s.id), ['S1', 'S2']);
+  const prompt = S.buildLineFillPrompt(store, S.lineFillTargets(store))[1].content;
+  assert.match(prompt, /## 이미 있는 줄기\n- Shed key: Found\./);
+  assert.match(prompt, /S1 Key: Sera hides the shed key\./);
+  const filled = S.applyLineFill(store, { scenes: [{ id: 's1', lines: [{ name: 'Shed key', now: 'Hidden.' }] }, { id: 'S3', lines: [{ name: 'Other' }] }] }, S.lineFillTargets(store));
+  assert.equal(filled, 1);
+  assert.deepEqual(store.scenes[0].lines, [{ name: 'Shed key', now: 'Hidden.' }]);
+  assert.deepEqual(store.scenes[2].lines, [{ name: 'Shed key', now: 'Found.' }], 'a scene that had lines keeps them');
+  assert.deepEqual(S.lineFillTargets(store), [], 'S2 was asked and got none: not asked again');
+});
+
+test('a feeling filed for a habit moves to a state; the review prompt knows a feeling can fade', () => {
+  const ledger = L.emptyLedger();
+  ledger.threads.push({ id: 'T1', kind: 'emotion', status: 'open', title: 'Calls him by a nickname', who: '세라', toward: '도윤', detail: '', need: 'x', unaware: [], guess: [], evidence: [], clues: [] });
+  const stats = L.applyFeelingReview(ledger, { resolved: [], misfiled: [{ id: 'T1', kind: 'state' }] }, []);
+  assert.equal(stats.moved, 1);
+  assert.equal(ledger.threads[0].kind, 'state');
+  assert.match(fs.readFileSync(path.join(__dirname, '../memory-module/lib/ledger.cjs'), 'utf8'), /가라앉음도 풀림이야/);
+});
