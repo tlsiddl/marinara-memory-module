@@ -417,6 +417,23 @@ function voiceFromScenes(store, people, max = 3) {
 
 const idOf = (sceneId, who, text) => `nb_${crypto.createHash('sha1').update(`${sceneId}|${who}|${tidy(text)}`).digest('hex').slice(0, 10)}`;
 
+/** A note's id: the one pinned on it (it survives the note being reworded), else the one its first text gives. */
+const noteId = (scene, n) => n?.id || idOf(scene.id, n.who, n.text);
+/**
+ * Pins every note's id (from its text as it is now) before anything rewrites the text, so the user's edits, stars and
+ * deletions (kept by id) still find the note afterwards. Returns how many were pinned.
+ */
+function pinIds(store) {
+  let pinned = 0;
+  for (const scene of store?.scenes || []) for (const n of Array.isArray(scene.charNotes) ? scene.charNotes : []) if (n?.who && n.text && !n.id) { n.id = idOf(scene.id, n.who, n.text); pinned++; }
+  return pinned;
+}
+/** Whether the user has touched this note (edited, starred or deleted it): its wording is not for the module to rewrite. */
+function userTouched(file, scene, n) {
+  const id = noteId(scene, n);
+  return Boolean((file?.stars || []).includes(id) || (file?.hidden || []).includes(id) || file?.edits?.[id] != null || file?.whenEdits?.[id] != null);
+}
+
 /** Character pairs of a note, for telling the same thought written twice from a new one. */
 function pairs(text) {
   const flat = String(text || '').replace(/[\s.,!?·()'"“”‘’…~]/g, '');
@@ -465,7 +482,7 @@ function fold(store, previous) {
   for (const scene of store?.scenes || []) {
     for (const n of Array.isArray(scene.charNotes) ? scene.charNotes : []) {
       if (!n?.who || !n.text) continue;
-      const id = idOf(scene.id, n.who, n.text);
+      const id = noteId(scene, n);
       if (hidden.has(id)) {
         // A deleted note takes the older wording of the same thought with it (it had replaced that one).
         const older = notes.findIndex((x) => x.who === n.who && !x.star && sameNote(x.text, n.text));
@@ -496,7 +513,7 @@ function userKept(file, scene) {
   const stars = new Set(file?.stars || []);
   const edits = file?.edits || {};
   const whenEdits = file?.whenEdits || {};
-  return (scene?.charNotes || []).filter((n) => { const id = idOf(scene.id, n.who, n.text); return stars.has(id) || edits[id] != null || whenEdits[id] != null; });
+  return (scene?.charNotes || []).filter((n) => { const id = noteId(scene, n); return stars.has(id) || edits[id] != null || whenEdits[id] != null; });
 }
 
 const need = (cond, message) => { if (!cond) throw Error(message); };
@@ -622,6 +639,6 @@ function view(file) {
 
 module.exports = {
   NOTEBOOK_VERSION, KINDS, KIND_LABEL, TEXT_MAX, PER_PERSON_SCENE, PER_SCENE, PER_PERSON_KEPT, INJECT_CORE, INJECT_RELATED, INJECT_CHARS, PROMPT, WHEN_MAX, NOTE_LEN, NOTE_LEN_LATIN, INJECT_CHARS_LATIN, WHEN_LEN, WHEN_LEN_LATIN, noteLine, shorten,
-  COPIED, languagesOf, langsFor, vague, timesNamed, needsNames, nameIn, namesInLanguage, isFact, noteLanguage, priorNotes, sameNote, NOTE_LANG_PROMPT, buildNoteLanguagePrompt, readNoteLanguage, voiceFromScenes, buildRebuildPrompt, userKept,
+  COPIED, languagesOf, langsFor, vague, timesNamed, needsNames, nameIn, namesInLanguage, isFact, noteLanguage, priorNotes, sameNote, NOTE_LANG_PROMPT, buildNoteLanguagePrompt, readNoteLanguage, voiceFromScenes, buildRebuildPrompt, userKept, pinIds, userTouched, noteId,
   emptyNotebook, isNotebook, voiceSamples, voiceBlock, cleanNote, fold, editNote, starNote, deleteNote, injectionBlock, view, alike,
 };
