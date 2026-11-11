@@ -1124,6 +1124,7 @@
       <div class="event-body">
         <div class="form-grid" data-thread="${esc(t.id)}">
           <label class="full">제목<input data-f="title" value="${esc(t.title)}"></label>${trEdit(t.title)}
+          ${t.plan ? '' : `<label>누구의 일 (여럿이면 쉼표)<input data-f="who" value="${esc(String(t.who || '').split('·').join(', '))}"></label><label>누구에게 (여럿이면 쉼표)<input data-f="toward" value="${esc(String(t.toward || '').split('·').join(', '))}" placeholder="없으면 비워 두세요"></label>`}
           <label class="full">설명<textarea class="event-field" data-f="detail">${esc(t.detail || '')}</textarea></label>${trEdit(t.detail)}
           ${t.plan ? `<label class="full">감추는 것 (답 없이 · 답변에 기본으로 들어가는 줄)<input data-f="mystery" value="${esc(t.mystery || '')}" placeholder="다음 장부 정리 때 저절로 적힙니다"></label>` : ''}
           ${t.kind === 'emotion' ? `<label class="full">풀리려면<input data-f="need" value="${esc(t.need || '')}"></label>${trEdit(t.need)}` : ''}
@@ -2857,7 +2858,7 @@
         const box = root.querySelector(`[data-thread="${CSS.escape(id)}"]`);
         const fixes = koreanEditsIn(box);
         const body = {};
-        for (const f of ['title', 'detail', 'need', 'mystery', 'unaware', 'guess', 'dueDate', 'dueTime']) {
+        for (const f of ['title', 'who', 'toward', 'detail', 'need', 'mystery', 'unaware', 'guess', 'dueDate', 'dueTime']) {
           const el = box?.querySelector(`[data-f="${f}"]`);
           if (el) body[f] = el.value;
         }
