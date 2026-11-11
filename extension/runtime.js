@@ -2052,7 +2052,7 @@
     const titleOf = (id) => (store.scenes || []).find((x) => x.id === id);
     return `<div class="eyebrow">STORY LINES · ${lines.length}</div><h1>줄기</h1>
       <p class="intro">떨어진 장면이라도 같은 일을 따라가면 한 줄기로 묶고, 줄기마다 지금 어디까지 왔는지 한 줄을 둡니다. 장면을 정리할 때 함께 적고(호출이 따로 늘지 않음), 답변에는 요즘 줄기와 떠오른 장면의 줄기가 들어갑니다.</p>
-      ${(() => { const bare = (store.scenes || []).filter((x) => !x.ooc && !(x.lines || []).length && !(store.lineFillTried || []).includes(x.id)).length; return bare >= 3 ? `<div class="note">줄기가 없는 장면이 <b>${bare}개</b> 있습니다(줄기 기능이 생기기 전에 정리한 장면). 장면 요약만 읽어 채웁니다(원문은 안 읽음, 모델 호출 약 ${Math.ceil(bare / 30)}번). 다음 장면 정리 때도 저절로 채웁니다. <button data-act="fillLines">지금 채우기</button></div>` : ''; })()}
+      ${(() => { const bare = (store.scenes || []).filter((x) => !x.ooc && !(x.lines || []).length && !(store.lineFillTried || []).includes(x.id)).length; return bare >= 3 ? `<div class="note">줄기가 없는 장면이 <b>${bare}개</b> 있습니다(줄기 기능이 생기기 전에 정리한 장면). 장면 요약만 읽어 채웁니다(원문은 안 읽음, 모델 호출 약 ${Math.ceil(bare / 30)}번). 다음 장면 정리 때도 저절로 채웁니다. <button data-act="fillLines">지금 채우기</button></div>` : (store.scenes || []).some((x) => x.linesFilled) ? `<p class="hint">앞 장면의 줄기는 장면 요약만 읽어 채운 것입니다. 이상하면 <button class="ghost" data-act="refillLines">채운 줄기 다시 만들기</button></p>` : ''; })()}
       ${lines.length ? lines.map((l) => `<div class="paper"><h2>${esc(l.name)}</h2>
         <div class="record-links">${l.scenes.map((id) => sceneLink(titleOf(id) || { id, title: '' })).join('')}</div>
         ${l.now ? `<p class="tl-after"><small>지금</small> ${esc(shown(l.now))}${l.nowScene ? ` <small>(${esc(l.nowScene)} 기준)</small>` : ''}</p>` : '<p class="hint">지금 상태가 아직 없습니다.</p>'}
@@ -2390,6 +2390,10 @@
           const r = await api('POST', `/chats/${chat}/lines/fill`, {});
           if (!r.started) throw Error('채울 장면이 없습니다.');
         }, '줄기를 채우는 중입니다. 잠시 뒤 새로고침하면 보입니다.');
+      case 'refillLines':
+        return act(async () => {
+          await api('POST', `/chats/${chat}/lines/fill`, { redo: true });
+        }, '채운 줄기를 지우고 다시 만드는 중입니다. 잠시 뒤 새로고침하면 보입니다.');
       case 'tlJump': {
         const target = root.querySelector(`[data-tl="${CSS.escape(el.dataset.target || '')}"]`);
         const nav = root.querySelector('.tl-nav');

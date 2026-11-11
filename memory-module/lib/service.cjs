@@ -2521,7 +2521,7 @@ async function fillLines(chatId, store, model, job = null) {
     calls++;
     const filled = S.applyLineFill(store, parsed, list);
     saveScenes(chatId, store);
-    log(`chat ${chatId}: story lines filled for ${filled} of ${list.length} older scene(s)`);
+    log(filled < 0 ? `chat ${chatId}: story line fill answer put most of ${list.length} scene(s) on one line; not taken` : `chat ${chatId}: story lines filled for ${filled} of ${list.length} older scene(s)`);
   }
   if (job) job.stage = null;
   return calls;
@@ -4482,7 +4482,9 @@ async function routes(app) {
     if (sceneJobs.get(chatId)?.state === 'running') throw Error('지금 장면을 정리하는 중입니다. 끝난 뒤에 다시 시도해 주세요.');
     const store = loadScenes(chatId);
     if (!store?.scenes.length) throw Error('아직 장면이 없습니다.');
-    if (req.body?.again === true) { delete store.lineFillTried; saveScenes(chatId, store); }
+    // redo: the lines a fill put in are taken back first (the scene call's own lines stay), then made again.
+    if (req.body?.redo === true) { const undone = S.undoLineFill(store); saveScenes(chatId, store); log(`chat ${chatId}: took back ${undone} filled story line(s) to make them again`); }
+    else if (req.body?.again === true) { delete store.lineFillTried; saveScenes(chatId, store); }
     const left = S.lineFillTargets(store).length;
     if (!left) return { started: false, left: 0 };
     const model = await memoryModel();
