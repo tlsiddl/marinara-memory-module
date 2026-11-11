@@ -1745,8 +1745,9 @@ function subjectOf(text, names, sentences) {
  * The speaker that narration right next to the line names: "직원의 말이 끊겼다" after it, "니코가 말했다" after
  * it, or "렌조가 입을 열었다" just before it (only when that narration does not follow another line).
  */
-// Narration with a speech word that still says nothing was said by its subject ("대답 대신 고개를 끄덕였다").
-const NOT_SAID = /대답\s?(?:대신|하지|도\s?(?:하지|않|없)|은\s?없|없이)|대답하기도\s?전|말없이|말하지\s?(?:않|못)|말을\s?잇지\s?못|아무\s?말도/;
+// Narration with a speech word that still says nothing was said by its subject ("대답 대신 고개를 끄덕였다",
+// "Viktor said nothing": the one who did not answer, so not the speaker of the line before it).
+const NOT_SAID = /대답\s?(?:대신|하지|도\s?(?:하지|않|없)|은\s?없|없이)|대답하기도\s?전|말없이|말하지\s?(?:않|못)|말을\s?잇지\s?못|아무\s?말도|\b(?:said|asked|replied|answered)\s+nothing\b|\b(?:did\s?n[o']t|never|could\s?n[o']t|would\s?n[o']t)\s+(?:say|answer|reply|ask)\b|\bwithout\s+(?:a\s+word|answering|replying|saying)\b|\bmade\s+no\s+(?:reply|answer)\b|\bno\s+answer\b/i;
 function narrationSpeaker(sentences, at, names, scope = sentences) {
   const plain = (i) => { const s = sentences[i]; return s != null && !isSpoken(parseLine(s).text) && !isTranslation(s); };
   // Someone the line calls by name is spoken to, so narration that seems to give them the line is about another
