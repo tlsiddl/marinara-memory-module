@@ -138,3 +138,16 @@ test('a story line is renamed in every scene and its now corrected; a filled lin
   const T = require('../memory-module/lib/translate.cjs');
   assert.ok(T.displayTexts(saved, null).includes('Trip'), 'line names are shown in Korean');
 });
+
+test('a long line name is cut at a word; a filled line on one scene only is taken off', () => {
+  const S = require('../memory-module/lib/scenes.cjs');
+  assert.equal(S.lineEntries([{ name: "Irina's arrival at the VIP terrace above the bay" }])[0].name, "Irina's arrival at the VIP");
+  const store = { ...S.emptyStore(), scenes: [
+    { id: 'S1', lines: [{ name: 'Gold bars' }, { name: 'Trip' }], linesFilled: true },
+    { id: 'S2', lines: [{ name: 'Trip' }], linesFilled: true },
+    { id: 'S3', lines: [{ name: 'Alone' }], linesFilled: true },
+    { id: 'S4', lines: [{ name: 'Own' }] },
+  ] };
+  assert.equal(S.pruneLoneFilledLines(store), 2);
+  assert.deepEqual(store.scenes.map((s) => (s.lines || []).map((l) => l.name)), [['Trip'], ['Trip'], [], ['Own']]);
+});
