@@ -97,7 +97,8 @@ test('MARINARA_CONTAINER picks by hand (kept even when the server file is not se
 });
 
 test('the installer stops (does not install or restart anything) when the container is unsure', () => {
-  const src = require('node:fs').readFileSync(script, 'utf8');
+  // A Windows checkout (core.autocrlf) has CRLF in the working copy; the repo's own copy is LF.
+  const src = require('node:fs').readFileSync(script, 'utf8').replace(/\r\n/g, '\n');
   assert.equal((src.match(/RC=0; C="\$\(find_container\)" \|\| RC=\$\?\n\s*\[ "\$RC" = 2 \] && fail /g) || []).length, 2, 'install and rollback both');
-  assert.ok(!/\r/.test(src), 'LF line endings (curl | sh)');
+  assert.ok(!/\r/.test(src), 'no stray carriage returns (curl | sh)');
 });

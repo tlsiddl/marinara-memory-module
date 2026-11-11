@@ -350,7 +350,8 @@ function translateText(text, target, lookup, { names = [] } = {}) {
   const lines = planLines(text, target).map((p) => {
     if (p.kind === 'static') return p.text;
     if (p.kind === 'keep') {
-      if (p.frame) return worldWords(p.line, target, true);
+      // The memory's own instructions: section names in quotes, and the labels they explain ("… 줄임").
+      if (p.frame) return fallbackLabels(worldWords(p.line, target, true), target);
       if (p.world) return latinizeNames(worldWords(p.line, target), latin);
       // Labels inside kept story lines, in the language the memory goes in.
       const [narration, guess] = { en: ['(narration) ', '(guess)'], zh: ['(叙述) ', '(推测)'] }[target] || [];
