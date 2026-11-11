@@ -3079,8 +3079,38 @@ function noteSourceKo(chatId, rows) {
       else if (en.length > 1 && ko.length <= SOURCE_PARA_MAX) en.forEach((sentence) => { const n = srcNorm(sentence); if (n && !out.has(n)) out.set(n, ko); });
     }
   }
+  // A spoken line written with its own Korean ("Original." (한국어)): the original words and their Korean.
+  const spoken = new Map();
+  for (const row of rows || []) {
+    const text = String(row.content || '').replace(/<[^>]*>/g, '');
+    for (const m of text.matchAll(/["“]([^"”\n]{8,600})["”]\s*\(([^()\n]{2,600})\)/g)) {
+      const orig = srcNorm(m[1]);
+      if (/[가-힣]/.test(orig) || !/[가-힣]/.test(m[2])) continue;
+      if (!spoken.has(orig)) spoken.set(orig, m[2].trim());
+    }
+  }
+  if (spoken.size) sourceSpoken.set(chatId, spoken); else sourceSpoken.delete(chatId);
   if (out.size) sourceKo.set(chatId, out); else sourceKo.delete(chatId);
   return out;
+}
+const sourceSpoken = new Map();
+const QUOTE_HINT_MIN = 12;
+/**
+ * For lines to translate into Korean: the ones that quote the chat's spoken lines (a scene title taken from what
+ * someone said), each with that spoken line and the Korean the chat already has for it.
+ */
+function quoteHints(chatId, texts) {
+  const spoken = sourceSpoken.get(chatId);
+  if (!spoken?.size) return null;
+  const entries = [...spoken].map(([orig, ko]) => [orig.toLowerCase().replace(/[^\p{L}\p{N}\s']/gu, ' ').replace(/\s+/g, ' ').trim(), orig, ko]);
+  const out = {};
+  for (const text of texts) {
+    const key = String(text || '').toLowerCase().replace(/[^\p{L}\p{N}\s']/gu, ' ').replace(/\s+/g, ' ').trim();
+    if (key.length < QUOTE_HINT_MIN || /[가-힣]/.test(key)) continue;
+    const hit = entries.find(([low]) => low.includes(key));
+    if (hit) out[text] = `"${hit[1]}" → ${hit[2]}`;
+  }
+  return Object.keys(out).length ? out : null;
 }
 /** The chat's own Korean, read from the messages when this start has not read them yet. */
 async function sourceKoFor(chatId) {
@@ -3130,12 +3160,15 @@ function translateMissing(chatId, target, texts, { max = TRANSLATE_MAX_PER_RUN }
     const model = await translateModel();
     const names = target === 'ko' ? roomKoreanNames(chatId) : [];
     const glossary = target === 'ko' ? [] : roomGlossary(chatId);
+    // Lines that quote what someone said get that line's own Korean beside them.
+    if (target === 'ko') await sourceKoFor(chatId);
+    const quoted = target === 'ko' ? quoteHints(chatId, todo) : null;
     let done = 0;
     const failed = [];
     async function translatePart(part) {
       let out;
       try {
-        const parsed = L.parseJsonObject(await askModel(model, T.buildTranslatePrompt(part, target, { names, glossary }), { maxTokens: 6000 }));
+        const parsed = L.parseJsonObject(await askModel(model, T.buildTranslatePrompt(part, target, { names, glossary, quoted }), { maxTokens: 6000 }));
         out = T.readTranslation(parsed, part);
         if (!out) throw Error('번역 응답의 형식이 올바르지 않습니다.');
       } catch (error) {
@@ -4076,6 +4109,15 @@ async function routes(app) {
   app.post('/chats/:id/translations/retry', guard(async (req) => {
     const chatId = safeChatId(req.params.id);
     if (translating.has(`${chatId}:ko`)) return { working: true, alreadyWorking: true };
+    if (req.body?.quoted === true) {
+      await sourceKoFor(chatId);
+      const hints = quoteHints(chatId, displayTranslationTexts(chatId)) || {};
+      const stored = loadTranslations(chatId);
+      let dropped = 0;
+      for (const text of Object.keys(hints)) if (stored.items[T.key('ko', text)] != null) { delete stored.items[T.key('ko', text)]; dropped++; }
+      if (dropped) saveTranslations(chatId, stored);
+      log(`chat ${chatId}: ${dropped} translation(s) of lines quoting the chat made again with the chat's own Korean`);
+    }
     const lookup = translationLookup(chatId, 'ko');
     const missing = displayTranslationTexts(chatId).filter((t) => lookup(t) == null);
     if (!missing.length) return { working: false, missing: 0 };
@@ -5574,7 +5616,7 @@ function attach(app) {
   log('admin API ready at /api/memory-module');
 }
 
-module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { loadAddress, saveAddress, refreshAddress, presentPeople, Addr, loadState, saveState, loadPlaces, savePlaces, loadKeepsakes, saveKeepsakes, loadTrackers, saveTrackers, Tk, loadConflicts, saveConflicts, refreshConflicts, refreshWorld, Cf, Ks, organizeFor, sceneTokens, lastScenePeople, St, Pl, listRooms, purgeChatMemory, purgeIfGone, deleteOnSend, deletePrepare, listOrphans, deleteOrphans, goneChats, loadNames, saveNames, enqueue, foldScenes, reviewAttributions, loadAttributionLog, sceneJobs, selectedForView, loadSelected, recalls, windows, loadRecallPrefs, saveRecallPrefs, recallReport, recallCandidates, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, loadTranslations, saveTranslations, chatLangs, langRecords, loadLang, noteLanguage, LANG_REFRESH_EVERY, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, noteSourceKo, sourceKo, sourceQuoteItems, roomSetup, setupNote, withSetup, nameInstructions, jobs, writeLanguage, roomWriteLanguage, memoryCallOptions, routineSetting, routineEnabled, attributionSetting, featureOn, featureSetting, F, B, clearRoomCaches, promptLanguage, translateDisplayLater, loadNotebook, saveNotebook, Nb, fixNoteLanguages, rebuildNotebook, notebookJobStatus, notebookLanguageOf, notebookLanguageSetting, planAnswersOn, tidySteps, tidyLedger, noteUsage, usageSummary, RESTORE_UNDO_DIR, notebookRunning: (id) => notebookJobs.get(id)?.state === 'running', translationRun: (id, texts) => translateMissing(id, "ko", texts), flushTranslations, clearTranslationFailures, translationGaveUp } };
+module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { loadAddress, saveAddress, refreshAddress, presentPeople, Addr, loadState, saveState, loadPlaces, savePlaces, loadKeepsakes, saveKeepsakes, loadTrackers, saveTrackers, Tk, loadConflicts, saveConflicts, refreshConflicts, refreshWorld, Cf, Ks, organizeFor, sceneTokens, lastScenePeople, St, Pl, listRooms, purgeChatMemory, purgeIfGone, deleteOnSend, deletePrepare, listOrphans, deleteOrphans, goneChats, loadNames, saveNames, enqueue, foldScenes, reviewAttributions, loadAttributionLog, sceneJobs, selectedForView, loadSelected, recalls, windows, loadRecallPrefs, saveRecallPrefs, recallReport, recallCandidates, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, loadTranslations, saveTranslations, chatLangs, langRecords, loadLang, noteLanguage, LANG_REFRESH_EVERY, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, noteSourceKo, sourceKo, sourceQuoteItems, quoteHints, roomSetup, setupNote, withSetup, nameInstructions, jobs, writeLanguage, roomWriteLanguage, memoryCallOptions, routineSetting, routineEnabled, attributionSetting, featureOn, featureSetting, F, B, clearRoomCaches, promptLanguage, translateDisplayLater, loadNotebook, saveNotebook, Nb, fixNoteLanguages, rebuildNotebook, notebookJobStatus, notebookLanguageOf, notebookLanguageSetting, planAnswersOn, tidySteps, tidyLedger, noteUsage, usageSummary, RESTORE_UNDO_DIR, notebookRunning: (id) => notebookJobs.get(id)?.state === 'running', translationRun: (id, texts) => translateMissing(id, "ko", texts), flushTranslations, clearTranslationFailures, translationGaveUp } };
 
 
 
