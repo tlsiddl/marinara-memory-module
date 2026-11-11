@@ -2902,12 +2902,13 @@ function translateMissing(chatId, target, texts, { max = TRANSLATE_MAX_PER_RUN }
     if (!todo.length) return 0;
     const model = await translateModel();
     const names = target === 'ko' ? roomKoreanNames(chatId) : [];
+    const glossary = target === 'ko' ? [] : roomGlossary(chatId);
     let done = 0;
     const failed = [];
     async function translatePart(part) {
       let out;
       try {
-        const parsed = L.parseJsonObject(await askModel(model, T.buildTranslatePrompt(part, target, { names }), { maxTokens: 6000 }));
+        const parsed = L.parseJsonObject(await askModel(model, T.buildTranslatePrompt(part, target, { names, glossary }), { maxTokens: 6000 }));
         out = T.readTranslation(parsed, part);
         if (!out) throw Error('번역 응답의 형식이 올바르지 않습니다.');
       } catch (error) {
@@ -3178,7 +3179,7 @@ function renderLedger(chatId) {
   const lookup = translationLookup(chatId, target);
   // People named as the memory's lines name them (Latin names in an English memory).
   let names = [];
-  try { names = target === 'ko' ? [] : T.latinNames(loadNames(chatId)); } catch {}
+  try { names = target === 'ko' ? [] : T.latinNames(loadNames(chatId), roomGlossary(chatId)); } catch {}
   let { text } = T.translateText(source, target, lookup, { names });
   // Translated text can come out longer than the original (English takes more letters than Korean): the memory is
   // chosen again with less room so the translation still fits the same limit, instead of being cut at the end.
