@@ -241,3 +241,4 @@ details.paper>summary{font-size:13px;font-weight:600;color:var(--im-ink)}
 .tr-inline{display:block;color:var(--im-muted);font-size:10px;margin-top:2px}h3 .tr-inline{display:inline}
 .promise-row{display:flex;flex-direction:column;gap:4px;margin-bottom:6px}.promise-row>.pill{align-self:flex-start}
 .notebook-note{border-top:1px solid var(--im-line);padding:8px 0}.notebook-head{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:4px}
+.event-main small.thread-now-line{font-size:10.5px;color:#6f63a6;margin-top:4px;white-space:normal}.thread-now{border-left:2px solid #c3bde2;padding:2px 12px;margin:0 0 14px}.thread-now small{font-size:9px;color:#9993ac}.thread-now b{font-weight:600;color:#4f4868}
