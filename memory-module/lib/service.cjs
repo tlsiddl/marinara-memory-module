@@ -1962,6 +1962,16 @@ function processChat(chatId, { rebuild = false, reason = 'auto' } = {}) {
         recalls.delete(chatId);
         log(`chat ${chatId}: ${fromOoc.planned} thread(s) from OOC talk made author's plans, ${fromOoc.closed} closed`);
       }
+      if (reason === 'resume' && !rebuild) {
+        const seen = new Map((ledger.processed || []).map((m) => [m.id, m.h]));
+        const unchanged = messages.filter((m) => seen.get(m.id) === m.h);
+        const restored = S.attachLedgerTranslations(ledger, unchanged);
+        if (restored) {
+          saveLedger(chatId, ledger);
+          recalls.delete(chatId);
+          log(`chat ${chatId}: restored ${restored} ledger quote translation(s)`);
+        }
+      }
       const remaining = messages.slice(state.from);
       const batches = remaining.length ? L.planBatches(remaining, REBUILD_BATCH_CHARS) : [];
       job.total = batches.length;
@@ -1991,6 +2001,7 @@ function processChat(chatId, { rebuild = false, reason = 'auto' } = {}) {
           L.beginBatch(ledger, messages.indexOf(part.batch[0]));
           const stats = L.applyResult(ledger, part.parsed, part.batch, undefined, { strictCloseEvidence: true, routine });
           if (!routine) L.markRoutineGap(ledger, part.batch);
+          S.attachLedgerTranslations(ledger, part.batch);
           L.commitBatch(ledger, part.batch);
           if (stats.dropped) log(`chat ${chatId}: dropped ${stats.dropped} ungrounded item(s)`);
         }

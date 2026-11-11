@@ -1309,6 +1309,28 @@ function repairFragmentQuotes(store, messages) {
   return result;
 }
 
+/** Restore original adjacent translations in ledger evidence, without changing sentence numbering. */
+function attachLedgerTranslations(ledger, messages) {
+  const byId = new Map(messages.map((m) => [m.id, m]));
+  const index = L.indexBatch(messages);
+  let changed = 0;
+  for (const thread of ledger.threads || []) {
+    for (const pointers of [thread.evidence, thread.clues, thread.closed?.evidence]) {
+      for (const q of Array.isArray(pointers) ? pointers : []) {
+        const message = byId.get(q.messageId);
+        if (!message || message.number !== q.number) continue;
+        const original = index.get(`${q.number}.${q.sentence}`);
+        if (!original || original.text !== q.text) continue;
+        const paired = bilingualQuote(original, index);
+        if (paired.text === original.text || paired.sentence !== original.sentence) continue;
+        q.text = paired.text;
+        changed++;
+      }
+    }
+  }
+  return changed;
+}
+
 /* ---------- deterministic attribution rules ---------- */
 // Checks that do not depend on the model: who is called by name inside a line, who is only mentioned as someone to
 // pass a message on to, which narration names the speaker, and a reply to the line right before it.
@@ -3803,6 +3825,7 @@ module.exports = {
   applyLearned,
   parseScenesReply,
   attachTranslations,
+  attachLedgerTranslations,
   repairFragmentQuotes,
   applySpeechMarks,
   orderSceneEvents,
