@@ -29,3 +29,10 @@ test('home: version notice, things to fix, day counts, recent changes, cost; sea
   assert.match(source, /id="searchKind"/);
   assert.match(source, /optgroup label="최근 연 방"/);
 });
+
+test('the person page shows a foreign term with its Korean translation as one, like the names tab', () => {
+  const person = source.slice(source.indexOf('  function viewPerson() {'), source.indexOf('\n  }\n', source.indexOf('  function viewPerson() {')));
+  assert.match(person, /x\.id === e\.pairWith\); return t \? `\$\{e\.term\}\(\$\{t\.term\}\)` : e\.term;/);
+  assert.match(person, /!\(e\.pairOf && allCalls\.some\(\(x\) => x\.id === e\.pairOf\)\)/);
+  assert.match(person, /“\$\{esc\(callLabel\(e\)\)\}”/);
+});
