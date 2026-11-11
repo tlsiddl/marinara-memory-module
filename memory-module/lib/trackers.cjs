@@ -366,13 +366,14 @@ const PROMPT = `날짜 트래커 후보 (이 방에서 켠 기능):
 - count: 그날부터 며칠째인지 셀 일. 두 사람이 처음 만남, 사귀기 시작함, 함께 살기 시작함, 결혼처럼 관계의 시작.
 - until: 정해진 날까지 남은 날을 셀 일. 시험·마감·출국·결혼식처럼 날짜가 정해진 미래의 일. 날짜가 원문에 없으면 적지 마.
 - cycle: 되풀이되는 주기의 시작. 생리·발정기·정기 검진처럼 주기가 원문에 나오거나 분명한 일. every(주기 일수)와 length(이어지는 일수)를 원문에 맞게 적고, 모르면 적지 마.
-한 번 지나가고 마는 일, 이미 끝난 일, 원문에 없는 날짜는 적지 마.
+한 번 지나가고 마는 일, 이미 끝난 일, 원문에 없는 날짜는 적지 마. 회상이나 지난 이야기 속의 일(태어남, 예전에 처음 만남 등)은 지금 장면에서 시작한 일이 아니니, 그 일이 일어난 작중 날짜가 원문에 있을 때만 date에 그 날짜를 적고 없으면 적지 마. 태어남·생일은 count로 적지 마.
 - label: 짧은 이름. "~ 만난 지", "~ 사귄 지", "시험", "발정기"처럼. 사람 이름은 넣지 마.
 - people: 관련된 사람(한두 명). 방 전체의 일이면 [].
 - date: count는 시작한 날, until은 그날, cycle은 이번 주기가 시작한 날. 본문 머리말의 작중 날짜 형식(예: "24-10-18")으로. 이 장면의 날짜면 null.
 - evidence: 그렇게 판단한 문장 번호(예: ["23.4"]). 번호가 없으면 적지 마.
 형식: "dates":[{"type":"count","label":"만난 지","people":["인물"],"date":null,"every":null,"length":null,"evidence":["23.4"]}]`;
 
+const BORN = /태어|출생|생일|탄생|\bborn\b|\bbirth/i;
 /** One date hint from the model, cleaned, or null. `person` matches a name to the story's people ('' for a stranger). */
 function cleanHint(raw, { person = (n) => tidy(n) } = {}) {
   if (!raw || typeof raw !== 'object' || !TYPES.includes(raw.type)) return null;
@@ -383,6 +384,8 @@ function cleanHint(raw, { person = (n) => tidy(n) } = {}) {
     const p = person(tidy(n).slice(0, 40));
     if (p && !people.includes(p)) people.push(p);
   }
+  // A birth is not a day count (it would start on the day it was told); a birthday is a yearly cycle or nothing.
+  if (raw.type === 'count' && BORN.test(label)) return null;
   const out = { type: raw.type, label, people: people.slice(0, 2) };
   const date = parseDate(raw.date);
   if (date) out.date = date;

@@ -165,14 +165,18 @@ test('cards: a field the user edited is never overwritten, giving it back restor
   assert.equal(card.outfit, '젖은 셔츠');
   assert.equal(card.source, 'user');
   assert.deepEqual(card.sources, { location: 'user', carrying: 'user' });
-  // A new scene changes the other fields and leaves the locked ones.
+  // The same scenes folded again keep the hand-set location.
+  assert.equal(St.fold(store, file).cards[0].location, '지하 주차장');
+  // A new scene changes the other fields and leaves the locked ones; a location set by hand gives way to a later
+  // scene that moves the person (where someone is changes with the story).
   const later = storeOf(...store.scenes, sc('S2', 6, { state: [st(HARIN, { location: '복도', outfit: '마른 셔츠', carrying: { gain: ['열쇠'] } }, ev(5.1))] }));
   file = St.fold(later, file);
   card = file.cards[0];
-  assert.equal(card.location, '지하 주차장');
+  assert.equal(card.location, '복도');
   assert.equal(card.outfit, '마른 셔츠');
   assert.deepEqual(card.carrying, ['서류 가방', '우산']);
-  // Giving the lock back.
+  assert.deepEqual(card.sources, { carrying: 'user' });
+  // Giving a lock back that already went changes nothing.
   file = St.fold(later, St.unlockField(file, HARIN, 'location'));
   assert.equal(file.cards[0].location, '복도');
   assert.deepEqual(file.cards[0].sources, { carrying: 'user' });
@@ -576,4 +580,19 @@ test('screen: the tab, its loading and every action are wired', () => {
   assert.match(source, /dataset\?\.stateField/);
   assert.match(source, /dataset\?\.placeField/);
   assert.match(source, /dataset\?\.placeMerge/);
+});
+
+test('cards: someone in a scene with no location of their own is where the scene is', () => {
+  const s1 = sc('S1', 3, { state: [st(HARIN, { location: '차 뒷좌석' })] });
+  const s2 = { ...sc('S2', 6), place: '벽화 방', present: [HARIN] };
+  const file = St.fold(storeOf(s1, s2), null);
+  assert.equal(file.cards[0].location, '벽화 방');
+  // Not for someone who is not in the scene.
+  const s3 = { ...sc('S3', 9), place: '부두', present: [] };
+  assert.equal(St.fold(storeOf(s1, s2, s3), null).cards[0].location, '벽화 방');
+  // A hand-set location made after the scene stays until a later scene moves the person.
+  const edited = St.fold(storeOf(s1, s2), St.setField(file, HARIN, 'location', '계단'));
+  assert.equal(edited.cards[0].location, '계단');
+  const s4 = { ...sc('S4', 12), place: '정원', present: [HARIN] };
+  assert.equal(St.fold(storeOf(s1, s2, s4), edited).cards[0].location, '정원');
 });

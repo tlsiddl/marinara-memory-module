@@ -11,7 +11,10 @@
 //             user: { field: value }, updatedAt }]
 //
 // A field the user edited (user[field], source 'user') is never replaced by what the scenes say until the user
-// gives it back to the automatic value. Pure logic; the service loads and saves the file and checks the switch.
+// gives it back to the automatic value, except the location: where someone is changes with the story, so a scene
+// after the edit (userAt.location, the scene the card had reached when it was made) that moves them takes over.
+// A person in a scene whose state names no location for them is where the scene is (scene.place).
+// Pure logic; the service loads and saves the file and checks the switch.
 
 const A = require('./aliases.cjs');
 
@@ -133,7 +136,9 @@ function fold(store, previous) {
     if (!auto.has(name)) auto.set(name, { name, injuries: [], carrying: [], evidence: [], asOf: null, injuryAt: new Map(), entries: 0, day: null });
     return auto.get(name);
   };
+  const sceneOrder = new Map((store?.scenes || []).map((x, i) => [x.id, i]));
   for (const scene of store?.scenes || []) {
+    const order = sceneOrder.get(scene.id);
     for (const entry of Array.isArray(scene.state) ? scene.state : []) {
       const name = A.canonical(entry?.who);
       if (!name) continue;
@@ -147,6 +152,19 @@ function fold(store, previous) {
       const marks = (entry.evidence || []).filter((e) => Number.isFinite(e?.number)).map((e) => ({ scene: scene.id, number: e.number, sentence: e.sentence }));
       card.evidence = [...card.evidence, ...marks].slice(-EVIDENCE_KEEP);
       card.asOf = { scene: scene.id, number: marks.length ? Math.max(...marks.map((m) => m.number)) : Number.isFinite(scene.end) ? scene.end : 0 };
+      if (entry.location) card.locAt = order;
+    }
+    // Someone who is in the scene, with no location of their own in it, is where the scene takes place.
+    const told = new Set((Array.isArray(scene.state) ? scene.state : []).filter((e) => e?.location).map((e) => A.canonical(e.who)));
+    const place = clip(scene.place, SCALAR_MAX.location);
+    if (place) {
+      for (const who of scene.present || []) {
+        const name = A.canonical(who);
+        if (!name || told.has(name) || !auto.has(name)) continue;
+        const card = auto.get(name);
+        if (card.location !== place) card.location = place;
+        card.locAt = order;
+      }
     }
   }
   // Injuries that are not recent any more are left off (lasting ones stay until healed).
@@ -162,11 +180,28 @@ function fold(store, previous) {
     delete card.entries;
     delete card.day;
   }
+  const locAtOf = new Map([...auto].map(([n, c]) => [n, c.locAt]));
+  for (const card of auto.values()) delete card.locAt;
   const users = new Map();
+  const userAt = new Map();
   for (const c of old.cards) {
     const name = A.canonical(c?.name);
     if (!name || !c.user || !Object.keys(c.user).length) continue;
     users.set(name, { ...(users.get(name) || {}), ...c.user });
+    // When the hand edit was made: recorded with it, or (an older edit) the scene the card had reached by then.
+    userAt.set(name, { ...(c.userAt || {}), ...(has(c.user, 'location') && !c.userAt?.location ? { location: c.locScene || c.asOf?.scene || null } : {}) });
+  }
+  // A location set by hand gives way once a later scene puts the person somewhere.
+  for (const [name, user] of users) {
+    const at = userAt.get(name)?.location;
+    const moved = locAtOf.get(name);
+    if (has(user, 'location') && at && sceneOrder.has(at) && Number.isFinite(moved) && moved > sceneOrder.get(at)) {
+      const { location: _gone, ...rest } = user;
+      users.set(name, rest);
+      const times = { ...(userAt.get(name) || {}) };
+      delete times.location;
+      userAt.set(name, times);
+    }
   }
   for (const name of users.keys()) touch(name);
   const oldBy = new Map();
@@ -184,10 +219,15 @@ function fold(store, previous) {
     const filled = FIELDS.some((f) => (Array.isArray(card[f]) ? card[f].length : card[f]));
     if (!filled && !Object.keys(user).length) continue;
     card.asOf = a.asOf;
+    // The scene the location was last taken from: a hand edit is dated by it.
+    const locScene = Number.isFinite(locAtOf.get(name)) ? store.scenes[locAtOf.get(name)]?.id : null;
+    if (locScene) card.locScene = locScene;
     card.evidence = a.evidence;
     card.source = Object.keys(sources).length ? 'user' : 'auto';
     card.sources = sources;
     if (Object.keys(user).length) card.user = user;
+    const times = Object.fromEntries(Object.entries(userAt.get(name) || {}).filter(([k]) => has(user, k)));
+    if (Object.keys(times).length) card.userAt = times;
     const before = oldBy.get(name);
     card.updatedAt = before && same({ ...before, updatedAt: null }, { ...card, updatedAt: null }) ? before.updatedAt : now;
     cards.push(card);
@@ -217,6 +257,7 @@ function setField(file, name, field, value) {
   const { at } = cardOf(next, key);
   const base = at >= 0 ? next.cards[at] : { name: key, injuries: [], carrying: [], location: '', outfit: '', mood: '' };
   base.user = { ...(base.user || {}), [field]: cleanUser(field, value) };
+  base.userAt = { ...(base.userAt || {}), [field]: base.locScene || base.asOf?.scene || null };
   if (at >= 0) next.cards[at] = base; else next.cards.push(base);
   return next;
 }
@@ -229,6 +270,11 @@ function unlockField(file, name, field) {
   const user = { ...next.cards[at].user };
   delete user[field];
   if (Object.keys(user).length) next.cards[at].user = user; else delete next.cards[at].user;
+  if (next.cards[at].userAt) {
+    const times = { ...next.cards[at].userAt };
+    delete times[field];
+    if (Object.keys(times).length) next.cards[at].userAt = times; else delete next.cards[at].userAt;
+  }
   return next;
 }
 /** A person who has no card yet (so that the user can fill one in by hand). */

@@ -566,7 +566,7 @@ const SYSTEM_PROMPT = `너는 장기 롤플레이의 기억 관리자야. 새 �
 2. 장부에 있는 바로 그 일에 변화가 생기면 update해. now에는 새로 생긴 일만 한 문장으로 적어.
    같은 인물이 같은 상대에게 같은 원인으로 느끼는 감정은 하나야. 이미 있으면 새로 열지 말고 update해.
    같은 약속을 다시 확인하는 말도 update야. 정말 다른 일일 때만 새로 open해.
-3. 각 열린 항목을 새 메시지의 실제 행동과 대조해 상태를 갱신해. 초대를 수락하고 합석했다면 그 초대는 close해. 숙소 마련처럼 일부만 진행됐으면 update에 완료된 부분과 남은 일을 구분해 적고, 전부 해결됐을 때 close해. 체류 중 계속 유효한 조건이나 약속은 도착만으로 닫지 마. 근거가 불확실하면 열린 채로 둬.
+3. 각 열린 항목을 새 메시지의 실제 행동과 대조해 상태를 갱신해. 초대를 수락하고 합석했다면 그 초대는 close해. 숙소 마련처럼 일부만 진행됐으면 update에 완료된 부분과 남은 일을 구분해 적고, 전부 해결됐을 때 close해. 체류 중 계속 유효한 조건이나 약속은 도착만으로 닫지 마. 다만 누군가를 부르거나 데려오겠다는 약속은 그 사람이 도착하면 close하고, 이유·했던 말·정체를 묻는 미해결이나 비밀은 원문에서 그 답이 밝혀지면(본인이 털어놓았거나 서술에 나오면) close해. 근거가 불확실하면 열린 채로 둬.
    장부의 일이 끝나면 close해. 약속을 실행했거나 취소함, 감정이 풀림(사과, 화해), 문제가 해결됨.
    비밀은 숨긴 상대가 그 사실을 실제로 알게 됐을 때만 닫아. "아직 모름", "거의 알아냄"이면 닫지 마.
 4. "최근에 닫힌 항목" 중 아직 끝나지 않았다는 게 새 메시지에서 드러나면 reopen해. 예) 취소된 줄 알았던 약속이 다시 언급됨.
@@ -612,7 +612,7 @@ OOC(이야기 밖 대화):
 - 이건 장부 항목이 아니라 '언제 했는지' 기록이야. 없으면 [].
 
 출력 형식:
-{"open":[{"kind":"promise|emotion|secret|pending|state","title":"한 줄 제목","who":"주체 인물","toward":"대상 인물 또는 null","detail":"짧은 설명","cause":"감정의 원인 또는 null","need":"감정이 풀리려면 필요한 것(감정일 때 필수) 또는 null","since":"작중 시간 또는 null","period":{"from":"24-10-18","days":3},"due":null,"unaware":[{"who":"인물","why":"이유"}],"evidence":[{"n":"12.3","q":"핵심 구절"}]}],
+{"open":[{"kind":"promise|emotion|secret|pending|state","title":"한 줄 제목","who":"주체 인물","toward":"대상 인물(여럿이면 ·로 이어서) 또는 null","detail":"짧은 설명","cause":"감정의 원인 또는 null","need":"감정이 풀리려면 필요한 것(감정일 때 필수) 또는 null","since":"작중 시간 또는 null","period":{"from":"24-10-18","days":3},"due":null,"unaware":[{"who":"인물","why":"이유"}],"evidence":[{"n":"12.3","q":"핵심 구절"}]}],
  "update":[{"id":"T3","now":"새로 생긴 일 한 문장","at":"작중 시간 또는 null","detail":"지금 남은 내용으로 고쳐 쓴 설명 또는 null","period":null,"due":null,"learned":[],"evidence":[{"n":"15.2","q":"핵심 구절"}]}],
  "close":[{"id":"T3","how":"어떻게 끝났는지","at":"작중 시간 또는 null","evidence":[{"n":"20.1","q":"핵심 구절"}]}],
  "reopen":[{"id":"T7","why":"아직 끝나지 않은 이유","evidence":[{"n":"21.4","q":"핵심 구절"}]}],
@@ -1194,8 +1194,8 @@ function applyResult(ledger, result, batch, now = new Date().toISOString(), { st
       kind,
       status: 'open',
       title,
-      who: plan ? null : canonNames(cleanText(item.who, 40), [...(ledger.cast || []), ...personaNames(batch)]),
-      toward: plan ? null : canonNames(cleanText(item.toward, 40), [...(ledger.cast || []), ...personaNames(batch)]),
+      who: plan ? null : canonNames(cleanText(item.who, 80), [...(ledger.cast || []), ...personaNames(batch)]),
+      toward: plan ? null : canonNames(cleanText(item.toward, 80), [...(ledger.cast || []), ...personaNames(batch)]),
       detail: cleanText(item.detail, 300),
       cause: kind === 'emotion' ? cleanText(item.cause, 200) : null,
       need: kind === 'emotion' ? need : null,

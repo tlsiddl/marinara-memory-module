@@ -3683,6 +3683,14 @@ async function routes(app) {
         }
         if (req.body?.unaware !== undefined) thread.unaware = nameList(req.body.unaware);
         if (req.body?.guess !== undefined) thread.guess = nameList(req.body.guess);
+        // Who it is about and toward whom, by hand: several people joined with "·" (commas are taken too); empty clears it.
+        if (!thread.plan) {
+          for (const field of ['who', 'toward']) {
+            if (typeof req.body?.[field] !== 'string') continue;
+            const names = nameList(req.body[field].replace(/[·、/]/g, ','));
+            thread[field] = names.length ? names.join('·').slice(0, 80) : null;
+          }
+        }
         // The date to meet, set by hand: "24-10-20", "10월 20일", with an optional time. Both empty clears it.
         if (typeof req.body?.dueDate === 'string' || typeof req.body?.dueTime === 'string') {
           const dateText = String(req.body.dueDate || '').trim();
