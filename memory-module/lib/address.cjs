@@ -77,6 +77,11 @@ function normalize(book) {
 /** The other half of an entry's pair (in a normalized list), or null. */
 const partnerOf = (list, e) => list.find((x) => x.id === (e.pairWith || e.pairOf)) || null;
 const hasKo = (t) => /[가-힣]/.test(t);
+/** Greek and Cyrillic letters in Latin ones, by sound (enough to hear a name: "Μαρτσέλο" → "martselo"). */
+const TRANSLIT = { α: 'a', ά: 'a', β: 'v', γ: 'g', δ: 'd', ε: 'e', έ: 'e', ζ: 'z', η: 'i', ή: 'i', θ: 'th', ι: 'i', ί: 'i', ϊ: 'i', κ: 'k', λ: 'l', μ: 'm', ν: 'n', ξ: 'x', ο: 'o', ό: 'o', π: 'p', ρ: 'r', σ: 's', ς: 's', τ: 't', υ: 'y', ύ: 'y', φ: 'f', χ: 'ch', ψ: 'ps', ω: 'o', ώ: 'o', а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', ё: 'yo', ж: 'zh', з: 'z', и: 'i', й: 'y', к: 'k', л: 'l', м: 'm', н: 'n', о: 'o', п: 'p', р: 'r', с: 's', т: 't', у: 'u', ф: 'f', х: 'kh', ц: 'ts', ч: 'ch', ш: 'sh', щ: 'shch', ы: 'y', э: 'e', ю: 'yu', я: 'ya' };
+const translit = (t) => [...String(t).toLowerCase()].map((ch) => TRANSLIT[ch] ?? ch).join('');
+/** A call in another alphabet that is a person's name said in it ("Μαρτσέλο" for 마르첼로). */
+const soundsLikeName = (term, name) => /[\p{Script=Greek}\p{Script=Cyrillic}]/u.test(term) && hasKo(name) && sameSound(translit(term).replace(/^\w/, (x) => x.toUpperCase()), name);
 const pairKey = (o, k) => `${entryKey(o)}~${entryKey(k)}`;
 
 /** A listener share that counts as "the" listener of a term one speaker uses toward several people. */
@@ -122,7 +127,7 @@ function tally(store) {
         const lk = `${from}|${listeners[0]}|`;
         const theirs = S.vocativeTerms(translated, names, { mid: true }).filter((t) => hasKo(t.term));
         for (const k of theirs) add(bi, `${lk}${keyOfTerm(k.term)}`, id);
-        if (theirs.length) lines.push({ lk, id, orig: String(q.text || ''), ks: theirs.map((k) => keyOfTerm(k.term)) });
+        if (theirs.length) lines.push({ lk, id, orig: String(q.text || ''), ks: theirs.map((k) => keyOfTerm(k.term)), edge: S.vocativeTerms(S.quoteText(q), names, { mid: true, anyCase: true }).filter((t) => !hasKo(t.term)), at });
       }
       for (const { term, at: where } of S.vocativeTerms(S.quoteText(q), names, { mid: true })) {
         if (listeners.length > 1) { multi.push({ from, listeners, term, at, id }); continue; }
@@ -163,7 +168,7 @@ function tally(store) {
   const lookAlike = require('./names.cjs').lookAlike;
   for (const [key, row] of rows) {
     const t = tidy(row.term);
-    if (words.some((w) => keyOfTerm(w) === keyOfTerm(t) || lookAlike(t, w))) rows.delete(key);
+    if (words.some((w) => keyOfTerm(w) === keyOfTerm(t) || lookAlike(t, w) || soundsLikeName(t, w))) rows.delete(key);
   }
   // Two-word terms need one more use. Non-endearment terms that open lines to two or more listeners are discourse words.
   for (const [key, row] of rows) {
@@ -174,7 +179,7 @@ function tally(store) {
   // Which foreign terms stand in the original of the lines whose translation holds a Korean term: the foreign terms
   // collected here for this pair of people, or a known endearment or title, in any case and position, as whole words.
   const calls = S.callWords();
-  const wordRe = (w) => new RegExp(`(?<![\p{L}\p{N}])${w.replace(/[.*+?^${}()|[]\]/g, '\$&').replace(/s+/g, '\s+')}(?![\p{L}\p{N}])`, 'iu');
+  const wordRe = (w) => new RegExp(String.raw`(?<![\p{L}\p{N}])` + w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, String.raw`\s+`) + String.raw`(?![\p{L}\p{N}])`, 'iu');
   const candidates = new Map(); // from|listener| -> Map(key -> RegExp)
   const candidatesOf = (lk) => {
     if (candidates.has(lk)) return candidates.get(lk);
@@ -184,11 +189,31 @@ function tally(store) {
     candidates.set(lk, m);
     return m;
   };
+  const edgeTerms = new Map(); // from|listener|foreign -> { term, at } (a call read at an edge in any case)
   for (const ln of lines) {
+    const seen = new Set();
     for (const [fk, re] of candidatesOf(ln.lk)) {
       if (!re.test(ln.orig)) continue;
+      seen.add(fk);
       for (const kk of ln.ks) add(cooc, `${ln.lk}${fk}|${kk}`, ln.id);
     }
+    for (const t of ln.edge || []) {
+      const fk = keyOfTerm(t.term);
+      if (seen.has(fk) || words.some((w) => keyOfTerm(w) === fk || lookAlike(t.term, w) || soundsLikeName(t.term, w))) continue;
+      seen.add(fk);
+      if (!edgeTerms.has(`${ln.lk}${fk}`)) edgeTerms.set(`${ln.lk}${fk}`, { term: t.term, at: ln.at });
+      for (const kk of ln.ks) add(cooc, `${ln.lk}${fk}|${kk}`, ln.id);
+    }
+  }
+  // An edge call with no entry yet that stands with one Korean call in enough of its lines gets one (pairUp links them).
+  for (const [ck, ids] of cooc) {
+    const [from, to, fk, kk] = ck.split('|');
+    const lk = `${from}|${to}|`;
+    const edge = edgeTerms.get(`${lk}${fk}`);
+    if (!edge || rows.has(`${lk}${fk}`)) continue;
+    const total = bi.get(`${lk}${kk}`)?.size || 0;
+    if (ids.size < PAIR_MIN || !total || ids.size / total < PAIR_SHARE) continue;
+    rows.set(`${lk}${fk}`, { from, to, term: edge.term, count: ids.size, firstSeen: edge.at, lastSeen: edge.at, ids: new Set(ids), forms: new Map([[edge.term, { n: ids.size, opens: 0, order: 0 }]]) });
   }
   // The spelling shown for a term: the one most used (an opening capital counts only when nothing else was seen).
   for (const row of rows.values()) {

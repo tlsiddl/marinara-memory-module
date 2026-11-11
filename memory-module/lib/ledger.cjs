@@ -2257,15 +2257,19 @@ function drugName(text) {
   return String(text || '약').replace(/\s*(한|두|세|네|\d+)\s*(알|정|캡슐|포|봉|번|mg|ml).*$/i, '').replace(/\s+/g, '').slice(0, 20) || '약';
 }
 
-function renderRoutine(ledger, now = null) {
+function renderRoutine(ledger, now = null, { only = null } = {}) {
   // Nothing that happens after "now" (an older prompt preview, or a reroll further back) is counted.
   // A hand-added entry always counts: the person put it there on purpose.
-  const all = sortRoutine((ledger?.routine || []).filter((r) => !now || !r.at || r.at <= now || r.edited));
-  if (!all.length) return '';
+  // only: the people the room chose for daily life (an entry for several people counts for each chosen one in it).
+  const chosen = Array.isArray(only) && only.length ? only : null;
+  const all = sortRoutine((ledger?.routine || []).filter((r) => (!now || !r.at || r.at <= now || r.edited) && (!chosen || chosen.includes(r.who))));
+  if (!all.length && !chosen) return '';
   const today = now ? now.slice(0, 10) : null;
-  const people = [...new Set(all.map((r) => r.who))].sort();
+  const people = chosen ? [...chosen] : [...new Set(all.map((r) => r.who))].sort();
   const lines = [];
   for (const who of people) {
+    // A picked person with nothing recorded yet: said so plainly (not as a row of "no record" notes).
+    if (chosen && !all.some((r) => r.who === who)) { lines.push(`- ${who}: 기록 없음`); continue; }
     const of = (what) => all.filter((r) => r.who === who && r.what === what);
     // Times they were plainly up: a sleep can't have run through these.
     const awake = all.filter((r) => r.who === who && ['meal', 'wash', 'groom', 'medicine'].includes(r.what) && r.at).map((r) => r.at);
@@ -2329,6 +2333,7 @@ function renderRoutine(ledger, now = null) {
     const drugs = [...byDrug.values()].sort((a, b) => (b.at || '').localeCompare(a.at || '')).slice(0, 4);
     if (drugs.length) parts.push(`약 마지막: ${drugs.map((r) => `${r.text || '약'} ${clock(r.at, today)}${ago(r.at, now) ? `(${ago(r.at, now)})` : ''}`).join(', ')}`);
     if (parts.length) lines.push(`- ${who}: ${parts.join(' · ')}`);
+    else if (chosen) lines.push(`- ${who}: 기록 없음`);
   }
   if (!lines.length) return '';
   // The heading alone on its line (a fixed heading in every language), the time below it.

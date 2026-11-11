@@ -166,3 +166,36 @@ test('people only in events of their own, never with the user\'s character\'s gr
   assert.equal(S.fixSeparatedPresence(store), 0, 'each scene once');
   assert.equal(S.lineEntries([{ name: 'The Vane freighter and the hidden gold' }])[0].name, 'The Vane freighter');
 });
+
+test('calls in Greek, Chinese and Japanese are read; a name said in Greek is not a call', () => {
+  const S = require('../memory-module/lib/scenes.cjs');
+  const terms = (t, o = {}) => S.vocativeTerms(t, [], { mid: true, ...o }).map((x) => x.term);
+  assert.deepEqual(terms('"Κύπρι, έλα."'), ['Κύπρι']);
+  assert.deepEqual(terms('"ψαρά, σταμάτα."', { anyCase: true }).slice(0, 1), ['ψαρά'], 'lower case only for pairing');
+  assert.deepEqual(terms('"师父，你去哪儿？"'), ['师父']);
+  assert.deepEqual(terms('"好的，我知道。"'), []);
+  assert.deepEqual(terms('"美咲ちゃん、行こう。"'), ['美咲ちゃん']);
+  const Addr = require('../memory-module/lib/address.cjs');
+  const q = (n, text, translation) => ({ number: n, sentence: 1, text, translation, by: '도윤', to: '세라', kind: 'dialogue' });
+  const store = { cast: ['도윤', '세라', '마르코'], personas: ['세라'], scenes: [{ id: 'S1', present: ['도윤', '세라'], events: [{ text: 'e', quotes: [
+    q(1, '"Κύπρι, έλα εδώ." (키프리, 이리 와.)', '키프리, 이리 와.'), q(2, '"Μην φεύγεις, Κύπρι." (가지 마, 키프리.)', '가지 마, 키프리.'),
+    q(3, '"ψαρά, σταμάτα." (어부 양반, 그만해.)', '어부 양반, 그만해.'), q(4, '"Άκου, ψαρά." (들어 봐, 어부 양반.)', '들어 봐, 어부 양반.'), q(7, '"ψαρά, φτάνει." (어부 양반, 됐어.)', '어부 양반, 됐어.'),
+    q(5, '"Μάρκο, έλα." (마르코, 와.)', '마르코, 와.'), q(6, '"Έλα, Μάρκο." (와, 마르코.)', '와, 마르코.'),
+  ] }] }] };
+  const book = Addr.emptyBook();
+  Addr.refresh(book, store);
+  const by = new Map(book.entries.map((e) => [e.id, e]));
+  const shown = book.entries.filter((e) => !e.pairOf).map((e) => `${e.term}${e.pairWith ? `(${by.get(e.pairWith).term})` : ''}`).sort();
+  assert.ok(shown.includes('Κύπρι(키프리)'), shown.join(' '));
+  assert.ok(shown.includes('ψαρά(어부 양반)'), shown.join(' '));
+  assert.ok(!shown.some((t) => /Μάρκο/.test(t)), 'a name in Greek is a name');
+});
+
+test('daily life shows only the people the room picked, with "기록 없음" for one with no record', () => {
+  const ledger = { ...L.emptyLedger(), routine: [{ who: '세라', what: 'meal', text: 'soup', at: '2025-03-01T12:00' }, { who: '하준', what: 'meal', text: 'rice', at: '2025-03-01T12:00' }] };
+  const out = L.renderRoutine(ledger, '2025-03-01T13:00', { only: ['세라', '도윤'] });
+  assert.match(out, /- 세라: /);
+  assert.match(out, /- 도윤: 기록 없음/);
+  assert.doesNotMatch(out, /하준/);
+  assert.match(L.renderRoutine(ledger, '2025-03-01T13:00'), /하준/, 'nobody picked: everyone with a record');
+});
