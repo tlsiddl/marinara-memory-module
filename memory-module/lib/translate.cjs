@@ -297,7 +297,7 @@ function planLines(text, target) {
     // Lines quoted from the story ("하준 → 서아: "…"", narration, a passage) are the story's own words.
     const quoted = inQuoted || /^\s{2,}(?:\(서술\) |\(narration\) |["“「『]|[^:\n]{1,40}(?: → [^:\n]{1,60})?: ["“「『])/.test(line);
     if (quoted) {
-      out.push({ line, kind: 'keep', narration: /^\s{2,}\(서술\) /.test(line) });
+      out.push({ line, kind: 'keep', quoted: true, narration: /^\s{2,}\(서술\) /.test(line) });
       continue;
     }
     const lang = textLanguage(line);
@@ -336,7 +336,8 @@ function translateText(text, target, lookup, { names = [] } = {}) {
       // Labels inside kept story lines, in the language the memory goes in.
       const [narration, guess] = { en: ['(narration) ', '(guess)'], zh: ['(叙述) ', '(推测)'] }[target] || [];
       if (!narration) return p.line;
-      const story = /^\s{2,}/.test(p.line);
+      // A line quoted from the story (not every indented line: a fact's "  · …" is the module's own words).
+      const story = Boolean(p.quoted);
       // A line kept because it is already in the target language may still carry the module's Korean labels.
       if (!story && !p.narration) return latinizeNames(fallbackLabels(p.line, target), latin);
       const line = p.narration ? p.line.replace('(서술) ', narration) : dropGloss(p.line.replace(/\(추정\)(?=: ["“「『])/, guess));
