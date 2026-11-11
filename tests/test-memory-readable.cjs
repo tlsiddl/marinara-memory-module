@@ -115,3 +115,10 @@ test('the first word of a full Korean name is mapped too (how lines mostly call 
   assert.equal(T.latinizeNames("Main room of 빅터's boat · 빅터 and 세라 talk.", names), "Main room of Viktor's boat · Viktor and Sera talk.");
   assert.match(T.TRANSLATE_PROMPT.en, /A name already in Latin letters stays in Latin letters/);
 });
+
+test('an indented fact line ("  · …") gets its labels and names in English; a quoted story line keeps its words', () => {
+  const names = [{ from: '세라', to: 'Sera' }];
+  const out = T.translateText('[알게 된 사실]\n- 빅터:\n  · Keeps the harbor key in his coat. [모름: 세라]\n\n[지난 장면들]\n  빅터 → 세라: "세라, 모름: 이건 대사야."', 'en', () => null, { names }).text;
+  assert.match(out, /  · Keeps the harbor key in his coat\. \[unaware: Sera\]/);
+  assert.match(out, /"세라, 모름: 이건 대사야\."/);
+});
