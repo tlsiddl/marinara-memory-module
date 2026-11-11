@@ -172,7 +172,7 @@ const LINE_FILL_PROMPT = `너는 장기 롤플레이의 기억 관리자야. 장
 - now는 그 장면이 끝난 때 그 줄기가 어디까지 왔는지 한 문장. 끝났으면 끝났다고 써. 요약에 있는 것만 쓰고 지어내지 마.
 - 한 장면에서 끝나는 잡담이나 한 번뿐인 일은 줄기로 만들지 마. 줄기가 없는 장면은 적지 않아도 돼.
 - 줄기는 이야기 전체가 아니라 그 안의 한 가지 일이야. 모든 장면을 한 줄기에 몰아넣지 말고, 장소나 사건이 바뀌면 그 일에 맞는 다른 줄기를 써.
-- 이름과 now는 요약과 같은 언어로 써.
+- 이름과 now는 요약과 같은 언어로 써.{LANG}
 출력 형식: {"scenes":[{"id":"S3","lines":[{"name":"줄기 이름","now":"지금 어디까지 왔는지"}]}]}`;
 const LINE_FILL_BATCH = 30;
 const LINE_FILL_ONE_MIN = 8; // a stretch this long…
@@ -183,6 +183,8 @@ function undoLineFill(store) {
   const tried = new Set(store.lineFillTried || []);
   for (const s of store.scenes || []) {
     if (!s.linesFilled && !tried.has(s.id)) continue;
+    // A line the user fixed by hand stays.
+    if ((s.lines || []).some((l) => l.edited)) continue;
     if (s.linesFilled || tried.has(s.id)) { if ((s.lines || []).length) undone++; delete s.lines; delete s.linesFilled; }
   }
   delete store.lineFillTried;
@@ -192,7 +194,8 @@ function undoLineFill(store) {
 function lineFillTargets(store) {
   return (store?.scenes || []).filter((s) => isStoryScene(s) && !(s.lines || []).length && !(store.lineFillTried || []).includes(s.id));
 }
-function buildLineFillPrompt(store, list) {
+const LINE_LANGS = { en: '영어', zh: '중국어(간체)', ko: '한국어' };
+function buildLineFillPrompt(store, list, { lang = null } = {}) {
   const parts = [];
   // Only lines that had begun before the first scene asked about: one that starts later cannot be where they went.
   const firstAt = Math.min(...list.map((s) => sceneOrder(store, s.id)));
@@ -200,7 +203,8 @@ function buildLineFillPrompt(store, list) {
   if (known.length) parts.push('## 이미 있는 줄기', ...known.map((l) => `- ${l.name}${l.now ? `: ${l.now}` : ''}`), '');
   parts.push('## 장면 (오래된 순)');
   for (const s of list) parts.push(`${s.id} ${[s.time, s.place].filter(Boolean).join(' · ')} ${s.title || ''}: ${s.summary || ''}`.replace(/\s+/g, ' ').trim());
-  return [{ role: 'system', content: LINE_FILL_PROMPT }, { role: 'user', content: parts.join('\n') }];
+  const system = LINE_FILL_PROMPT.replace('{LANG}', LINE_LANGS[lang] ? ` 지금 기억은 ${LINE_LANGS[lang]}로 정리하고 있으니 ${LINE_LANGS[lang]}로 써.` : '');
+  return [{ role: 'system', content: system }, { role: 'user', content: parts.join('\n') }];
 }
 /** Lines from a fill answer go only on the scenes that were asked about and have none; the asked ones are marked. */
 function applyLineFill(store, result, list) {
@@ -3873,6 +3877,7 @@ module.exports = {
   undoCutMerges,
   storyLines,
   lineFillTargets,
+  lineKey,
   buildLineFillPrompt,
   applyLineFill,
   undoLineFill,

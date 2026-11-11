@@ -2499,7 +2499,7 @@ async function fillLines(chatId, store, model, job = null) {
     const list = S.lineFillTargets(store).slice(0, S.LINE_FILL_BATCH);
     if (!list.length || job?.cancel) break;
     if (job) job.stage = `줄기 채우기 (${list[0].id}부터)`;
-    const parsed = L.parseJsonObject(await askModel(model, withSetup(note, S.buildLineFillPrompt(store, list)), { maxTokens: 4000 }));
+    const parsed = L.parseJsonObject(await askModel(model, withSetup(note, S.buildLineFillPrompt(store, list, { lang: writeLanguage(chatId) })), { maxTokens: 4000 }));
     calls++;
     const filled = S.applyLineFill(store, parsed, list);
     saveScenes(chatId, store);
@@ -4453,6 +4453,30 @@ async function routes(app) {
       scene.editedAt = new Date().toISOString();
       learnFromEdit(chatId, wasStore, wasScene, scene);
       return scene;
+    });
+  }));
+  app.post('/chats/:id/lines/edit', guard(async (req) => {
+    const chatId = safeChatId(req.params.id);
+    const from = typeof req.body?.from === 'string' ? req.body.from.trim() : '';
+    const name = typeof req.body?.name === 'string' ? req.body.name.trim().slice(0, 30) : '';
+    const now = typeof req.body?.now === 'string' ? req.body.now.trim().slice(0, 300) : null;
+    if (!from || !name) throw Error('줄기 이름을 적어 주세요.');
+    return editScenes(chatId, (store) => {
+      const key = S.lineKey(from);
+      const on = store.scenes.filter((s) => (s.lines || []).some((l) => S.lineKey(l.name) === key));
+      if (!on.length) throw Error('그 줄기를 찾지 못했습니다.');
+      const target = S.lineKey(name);
+      if (target !== key && store.scenes.some((s) => (s.lines || []).some((l) => S.lineKey(l.name) === target))) throw Error('같은 이름의 줄기가 이미 있습니다. 다른 이름을 써 주세요.');
+      for (const s of on) {
+        s.lines = s.lines.map((l) => (S.lineKey(l.name) === key ? { ...l, name, edited: true } : l));
+        // A line fixed by hand stays when the filled lines are made again.
+        delete s.linesFilled;
+      }
+      if (now !== null) {
+        const last = [...on].reverse().find((s) => s.lines.some((l) => S.lineKey(l.name) === target && l.now)) || on.at(-1);
+        last.lines = last.lines.map((l) => (S.lineKey(l.name) === target ? (now ? { ...l, now } : (({ now: _n, ...rest }) => rest)(l)) : l));
+      }
+      return { name, scenes: on.map((s) => s.id) };
     });
   }));
   app.post('/chats/:id/lines/fill', guard(async (req) => {

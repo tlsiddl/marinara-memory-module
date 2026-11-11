@@ -113,3 +113,28 @@ test('a line fill that puts a long stretch on one line is refused; filled lines 
   assert.equal(store.scenes.filter((s) => s.lines).length, 1, 'the scene call\'s own lines stay');
   assert.equal(S.lineFillTargets(store).length, 9);
 });
+
+test('a story line is renamed in every scene and its now corrected; a filled line fixed by hand stays on redo', async () => {
+  const S = require('../memory-module/lib/scenes.cjs');
+  const room = 'line-edit';
+  X.saveSettings({ connection: null, chats: { [room]: { enabled: false } } });
+  const scenes = [
+    { id: 'S1', start: 1, end: 2, title: 'a', summary: 'a', present: [], events: [], lines: [{ name: 'Shed key', now: 'Hidden.' }], linesFilled: true },
+    { id: 'S2', start: 3, end: 4, title: 'b', summary: 'b', present: [], events: [], lines: [{ name: 'shed key', now: 'Found.' }] },
+    { id: 'S3', start: 5, end: 6, title: 'c', summary: 'c', present: [], events: [], lines: [{ name: 'Trip' }] },
+  ];
+  X.saveScenes(room, { ...S.emptyStore(), scenes, lineFillTried: ['S1'] });
+  const edit = (body) => handlers['POST /chats/:id/lines/edit']({ params: { id: room }, body }, reply);
+  const out = await edit({ from: 'Shed key', name: 'The shed key', now: 'Found under the step.' });
+  assert.deepEqual(out.scenes, ['S1', 'S2']);
+  const saved = X.loadScenes(room);
+  assert.deepEqual(saved.scenes.map((s) => s.lines[0].name), ['The shed key', 'The shed key', 'Trip']);
+  assert.equal(saved.scenes[1].lines[0].now, 'Found under the step.', 'the newest now is the one corrected');
+  assert.equal(saved.scenes[0].lines[0].now, 'Hidden.');
+  assert.match(JSON.stringify(await edit({ from: 'The shed key', name: 'Trip' })), /이미 있습니다/);
+  S.undoLineFill(saved);
+  assert.equal(saved.scenes[0].lines[0].name, 'The shed key', 'fixed by hand: not taken back');
+  assert.match(S.buildLineFillPrompt(saved, [saved.scenes[0]], { lang: 'en' })[0].content, /영어로 써/);
+  const T = require('../memory-module/lib/translate.cjs');
+  assert.ok(T.displayTexts(saved, null).includes('Trip'), 'line names are shown in Korean');
+});

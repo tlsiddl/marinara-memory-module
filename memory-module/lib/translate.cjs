@@ -519,6 +519,10 @@ function displayTexts(store, ledger, { quotes = false, world = null } = {}) {
   for (const s of [...(store?.scenes || [])].reverse()) {
     add(s.title);
     add(s.summary);
+    for (const l of s.lines || []) {
+      add(l.name);
+      add(l.now);
+    }
     for (const e of s.events || []) {
       add(e.text);
       add(e.why);
