@@ -1929,6 +1929,10 @@ function checkFiles(chatId) {
   }
 }
 
+/** The last try at writing the plans' hidden lines, per room: { at, last message }. */
+const mysteryRuns = new Map();
+const MYSTERY_BACKOFF_MS = 10 * 60 * 1000;
+
 function processChat(chatId, { rebuild = false, reason = 'auto' } = {}) {
   if (goneChats.has(chatId)) return Promise.resolve();
   const run = enqueue(chatId, async () => {
@@ -1962,12 +1966,19 @@ function processChat(chatId, { rebuild = false, reason = 'auto' } = {}) {
       const fromOoc = L.tidyOocThreads(ledger, messages);
       const doneAlready = L.closeDoneThreads(ledger);
       // Plans made before they had a hidden line: one call writes it (until then they stay out of the reply).
-      const bare = ledger.threads.filter((t) => t.status === 'open' && t.plan && !t.mystery);
-      if (bare.length && settings().connection) {
+      // Not on a pass that only resumes, not twice within MYSTERY_BACKOFF_MS in one room, not when no message is new since
+      // the last try, and no plan more than MYSTERY_TRIES times unless its text changed.
+      const bare = ledger.threads.filter((t) => t.status === 'open' && t.plan && !t.mystery && (t.mysteryTriedFor !== L.planKey(t) || (t.mysteryTries || 0) < L.MYSTERY_TRIES));
+      const lastMessage = messages.at(-1)?.id ?? null;
+      const mysteryLast = mysteryRuns.get(chatId);
+      const mysteryDue = reason !== 'resume' && !(mysteryLast && (Date.now() - mysteryLast.at < MYSTERY_BACKOFF_MS || mysteryLast.last === lastMessage));
+      if (bare.length && mysteryDue && settings().connection) {
+        mysteryRuns.set(chatId, { at: Date.now(), last: lastMessage });
         try {
           const model = { ...(await memoryModel()), signal: job.abort.signal };
-          const set = L.applyPlanMysteries(ledger, L.parseJsonObject(await askModel(model, L.buildPlanMysteryPrompt(bare), { maxTokens: 1500 })));
+          const set = L.applyPlanMysteries(ledger, L.parseJsonObject(await askModel(model, L.buildPlanMysteryPrompt(bare), { maxTokens: 1500 })), undefined, bare);
           job.calls = (job.calls || 0) + 1;
+          saveLedger(chatId, ledger);
           if (set) { saveLedger(chatId, ledger); recalls.delete(chatId); log(`chat ${chatId}: wrote what ${set} author's plan(s) keep hidden`); }
         } catch (error) {
           if (job.cancel) throw error;
@@ -3549,7 +3560,12 @@ async function routes(app) {
         for (const field of ['title', 'detail', 'need']) {
           if (typeof req.body?.[field] === 'string' && req.body[field].trim()) thread[field] = req.body[field].trim().slice(0, 300);
         }
-        if (thread.plan && typeof req.body?.mystery === 'string' && req.body.mystery.trim()) thread.mystery = req.body.mystery.trim().slice(0, 160);
+        if (thread.plan && typeof req.body?.mystery === 'string' && req.body.mystery.trim()) {
+          const line = req.body.mystery.trim().slice(0, 160);
+          // The user's own wording is taken, but a line that carries the plan's answer would reach the reply model: asked about first.
+          if (req.body.keepAnswerInMystery !== true && L.mysteryLeaks(line, thread, ledger)) throw Error('이 줄에 계획의 답(제목·내용에 있는 말)이 들어 있는 것 같습니다. 답이 없는 한 줄로 고쳐 주세요. 그대로 쓰려면 keepAnswerInMystery를 true로 보내세요.');
+          thread.mystery = line;
+        }
         if (req.body?.unaware !== undefined) thread.unaware = nameList(req.body.unaware);
         if (req.body?.guess !== undefined) thread.guess = nameList(req.body.guess);
         // The date to meet, set by hand: "24-10-20", "10월 20일", with an optional time. Both empty clears it.

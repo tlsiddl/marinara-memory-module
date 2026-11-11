@@ -1177,13 +1177,15 @@ function applyResult(ledger, result, batch, now = new Date().toISOString(), { st
       due: kind === 'emotion' ? null : dawnFix(parseDue(item.due, storyDate(batch) || ledger.storyDate), item, evidence, batch),
       unaware: plan ? [] : reasonedNames(item.unaware, groupCast(ledger)).filter((n) => !String(item.who || '').includes(n) && !guessNames(item.unaware, groupCast(ledger)).includes(n)),
       guess: plan ? [] : guessNames(item.unaware, groupCast(ledger)).filter((n) => !String(item.who || '').includes(n)),
-      ...(plan ? { plan: true, mystery: cleanText(item.mystery, 160) || null } : {}),
+      ...(plan ? { plan: true, mystery: null } : {}),
       evidence,
       clues: [],
       openedAt: { messageId: evidence[0].messageId, number: evidence[0].number ?? firstNumber },
       closed: null,
       updatedAt: now,
     };
+    // The hidden line goes in only when it does not carry the plan's answer.
+    if (plan) { const line = cleanText(item.mystery, 160); thread.mystery = line && !mysteryLeaks(line, thread, ledger) ? line : null; }
     ledger.threads.push(thread);
     byId.set(thread.id, thread);
     stats.opened++;
@@ -1203,7 +1205,7 @@ function applyResult(ledger, result, batch, now = new Date().toISOString(), { st
     }
     addEvidence(thread, evidence, news, now, at);
     // An author's plan may get its hidden part rewritten (never its answer: that stays in title and detail).
-    if (thread.plan && typeof item?.mystery === 'string' && cleanText(item.mystery, 160)) thread.mystery = cleanText(item.mystery, 160);
+    if (thread.plan && typeof item?.mystery === 'string' && cleanText(item.mystery, 160) && !mysteryLeaks(cleanText(item.mystery, 160), thread, ledger)) thread.mystery = cleanText(item.mystery, 160);
     // A description that no longer holds (part of it is over) is rewritten to what still does.
     const rewritten = cleanText(item?.detail, 300);
     if (rewritten && item?.now && thread.kind !== 'emotion' && !thread.edited) thread.detail = rewritten;
@@ -2668,19 +2670,75 @@ Output: {"items":[{"id":"T3","mystery":"…"}]} — for each plan, one short lin
 function buildPlanMysteryPrompt(plans) {
   return [{ role: 'system', content: PLAN_MYSTERY_PROMPT }, { role: 'user', content: JSON.stringify({ plans: plans.map((t) => ({ id: t.id, title: t.title, detail: t.detail || '' })) }) }];
 }
-/** Sets each plan's hidden line from the answer; a line that names words of the plan's answer (title) is not taken. */
-function applyPlanMysteries(ledger, parsed, now = new Date().toISOString()) {
+// Words that make a hidden line read as a question without saying anything about the answer.
+const MYSTERY_GENERIC = new Set(('real reason truth secret identity cause behind true actual hidden unexplained mystery who whom what why how true '
+  + '진짜 이유 까닭 비밀 정체 이야기 사실 진실 원인 숨겨진 무엇 누구 어떻게 왜 알 수 없는 아직 정말 그날 그때').split(' '));
+const KO_PARTICLE = /(?:으로|에서|에게|까지|부터|처럼|보다|이라|라는|은|는|이|가|을|를|의|에|로|와|과|도|만)$/;
+/** Content words of a text for the leak check: lowercase English stems and Korean words without a particle; people's names, generic words and little words left out. */
+function mysteryWords(text, names = []) {
+  let rest = String(text || '');
+  for (const name of names) if (name && name.length >= 2) rest = rest.split(name).join(' ');
+  const out = new Set();
+  for (const w of englishWords(rest)) if (!MYSTERY_GENERIC.has(w)) out.add(w);
+  for (const raw of rest.match(/[가-힣]{2,}/g) || []) {
+    const w = raw.length >= 3 ? raw.replace(KO_PARTICLE, '') : raw;
+    if (w.length >= 2 && !MYSTERY_GENERIC.has(w)) out.add(w);
+  }
+  return out;
+}
+/**
+ * Whether a plan's hidden line gives away the plan's answer: it names a capitalized word the plan names (that is not one of the
+ * story's people), or shares a good part of its content words with the plan's title and detail. The topic itself
+ * ("wrist scar") may appear in both, so a word or two shared is allowed; a line that is mostly (or only) the plan's own words is not.
+ */
+function mysteryLeaks(line, thread, ledger = null) {
+  const names = [...(ledger?.cast || []), ...(ledger?.personas || [])].filter(Boolean);
+  const answer = `${thread?.title || ''} ${thread?.detail || ''}`;
+  let bare = String(line || '');
+  for (const name of names) if (name && name.length >= 2) bare = bare.split(name).join(' ');
+  let answerBare = answer;
+  for (const name of names) if (name && name.length >= 2) answerBare = answerBare.split(name).join(' ');
+  // A capitalized word (a place, an object, someone) the line shares with the plan, besides the story's people.
+  const proper = (t) => new Set((t.match(/\b[A-Z][a-z]{2,}\b/g) || []).map((w) => w.toLowerCase()).filter((w) => !MYSTERY_GENERIC.has(w)));
+  const answerProper = proper(answerBare);
+  for (const w of proper(bare)) if (answerProper.has(w) && !/^(?:the|why|what|who|how|when|where)$/.test(w)) return true;
+  const mine = mysteryWords(bare);
+  const theirs = mysteryWords(answerBare);
+  if (!mine.size || !theirs.size) return false;
+  let shared = 0;
+  for (const w of mine) if (theirs.has(w)) shared++;
+  return shared >= 3 || (shared >= 2 && shared / mine.size > 0.6) || (shared >= 1 && shared === mine.size);
+}
+/** Sets each plan's hidden line from the answer; a line that carries words of the plan's answer is not taken (the plan stays bare). */
+function applyPlanMysteries(ledger, parsed, now = new Date().toISOString(), asked = []) {
   let set = 0;
+  const tried = new Set();
+  const tryOf = (t) => {
+    if (tried.has(t.id)) return;
+    tried.add(t.id);
+    t.mysteryTries = (t.mysteryTriedFor === planKey(t) ? t.mysteryTries || 0 : 0) + 1;
+    t.mysteryTriedFor = planKey(t);
+  };
   for (const item of Array.isArray(parsed?.items) ? parsed.items : []) {
     const t = (ledger?.threads || []).find((x) => x.id === String(item?.id || '') && x.plan && !x.mystery);
     const line = cleanText(item?.mystery, 160);
-    if (!t || !line) continue;
+    if (!t) continue;
+    tryOf(t);
+    if (!line || mysteryLeaks(line, t, ledger)) continue;
     t.mystery = line;
+    delete t.mysteryTries;
+    delete t.mysteryTriedFor;
     t.updatedAt = now;
     set++;
   }
+  // A plan the answer did not mention counts as a try too.
+  for (const t of asked) if (t && !t.mystery) tryOf(t);
   return set;
 }
+/** What a plan's hidden line is written from: when it changes, the tries start over. */
+const planKey = (t) => `${t?.title || ''}|${t?.detail || ''}`;
+/** A plan whose hidden line could not be written this many times is left bare until its text changes. */
+const MYSTERY_TRIES = 2;
 
 function renderCompact(ledger, { maxChars = 2400, query = '', today = ledger?.storyDate || null, exclude = null, pin = null, trace = null } = {}) {
   const threads = ledger?.threads || [];
@@ -2726,7 +2784,7 @@ function renderCompact(ledger, { maxChars = 2400, query = '', today = ledger?.st
 module.exports = {
   markOoc,
   tidyOocThreads,
-  buildPlanMysteryPrompt,
+  buildPlanMysteryPrompt, mysteryLeaks, planKey, MYSTERY_TRIES,
   applyPlanMysteries,
   PLAN_MYSTERY_PROMPT,
   closeDoneThreads,
