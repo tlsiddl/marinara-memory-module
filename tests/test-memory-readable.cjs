@@ -98,3 +98,10 @@ test('a shortened old chapter keeps how it began and where it ended, and its thr
   assert.match(text, /※ The ferry leaves at 06:00\.\n  ※ Viktor owes 300 coins\.\n  ※ If the bell rings twice, they leave\./);
   assert.doesNotMatch(text, /Sera waits outside|It rains/);
 });
+
+test('a mostly English line with a Korean phrase in it (a place, a short note) is still sent to be translated', () => {
+  const kind = (l) => T.planLines(`[지난 장면들]\n${l}`, 'en')[1].kind;
+  assert.equal(kind('S5 25-03-01 (토) 06:00 · 북쪽 부두에 묶인 작은 배의 선실 — Dawn: The boat docks before sunrise with no one around.'), 'translate');
+  assert.equal(kind('- Viktor: The boat docks before sunrise with no one around. 세라 문'), 'keep', 'a name is not a phrase');
+  assert.equal(kind('- Note: "세라는 부두에서 오래 기다렸다" said Viktor, in English, as he always does.'), 'keep', 'quoted words stay as they are');
+});
