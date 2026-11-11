@@ -308,25 +308,47 @@ function speechMarksAt(rules, number) {
   return at;
 }
 
-const escRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 /**
  * The user's character's words in a room's marks, read as speech: a mark other than quotes ("[Ciao.]") becomes quotes,
  * so the line is a spoken line like any other, and each sentence gets the language its mark stands for (or null).
- * A bracket that holds an OOC note, or quotes of its own, is left as it is.
+ * Read in one pass, in the order they come:
+ * - a bracket inside quoted words ("He said [go]") is part of those words and stays;
+ * - one that runs over a line break is one line of speech (no blank line inside it);
+ * - quotes inside it ([He said "go".]) become ‘…’, so the line stays one quoted line;
+ * - one that holds an OOC note ([ooc: …]) is left as it is.
  */
 function markSpeech(content, marks) {
-  const converted = [];
-  let text = content;
+  const opens = new Map();
   for (const [mark, lang] of Object.entries(marks)) {
     const [open, close] = SPEECH_MARKS[mark];
-    if (open === '"') continue;
-    text = text.replace(new RegExp(`${escRe(open)}([^${escRe(open)}${escRe(close)}\\n]+)${escRe(close)}`, 'g'), (whole, inner) => {
-      if (/^\s*\(?\s*(?:ooc|o\.o\.c)/i.test(inner) || /["“”]/.test(inner)) return whole;
-      converted.push({ inner: inner.trim(), lang });
-      return `"${inner.trim()}"`;
-    });
+    if (open !== '"') opens.set(open, [close, lang]);
   }
-  return { text, converted };
+  const converted = [];
+  if (!opens.size) return { text: content, converted };
+  let out = '';
+  let straight = false;
+  let curly = 0;
+  for (let i = 0; i < content.length; i++) {
+    const ch = content[i];
+    if (ch === '\n') straight = false, curly = 0;
+    else if (ch === '"') straight = !straight;
+    else if (ch === '“') curly++;
+    else if (ch === '”' && curly) curly--;
+    else if (!straight && !curly && opens.has(ch)) {
+      const [close, lang] = opens.get(ch);
+      const end = content.indexOf(close, i + 1);
+      const inner = end > i ? content.slice(i + 1, end) : '';
+      if (inner.trim() && !/\n\s*\n/.test(inner) && !inner.includes(ch) && inner.length <= 1500 && !/^\s*\(?\s*(?:ooc|o\.o\.c)(?![a-z])/i.test(inner)) {
+        const said = inner.replace(/\s*\n\s*/g, ' ').replace(/"([^"\n]*)"/g, '‘$1’').replace(/“([^”\n]*)”/g, '‘$1’').trim();
+        converted.push({ inner: said, lang });
+        out += `"${said}"`;
+        i = end;
+        continue;
+      }
+    }
+    out += ch;
+  }
+  return { text: out, converted };
 }
 function speechLangs(sentences, converted, marks) {
   let next = 0;
