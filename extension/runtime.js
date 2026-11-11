@@ -742,7 +742,7 @@
   function healthNote() {
     const h = info?.health;
     if (!h) return '';
-    const NAMES = { macro: '{{기억}} 자리 채우기', app: '답변 뒤 자동 정리와 이 화면', speakers: '말풍선 태그 되살리기', speakerNamesPrompt: '대사 이름 표시 지침', speakerPrompt: '화자 태그 생성 지침', speakerPreview: '화자 태그 미리보기 지침', speakerDryRun: '화자 태그 미리 생성 지침' };
+    const NAMES = { macro: '{{기억}} 자리 채우기', app: '답변 뒤 자동 정리와 이 화면', speakers: '말풍선 태그 되살리기', speakerNamesPrompt: '대사 이름 표시 지침', speakerPrompt: '화자 태그 생성 지침', speakerPreview: '화자 태그 미리보기 지침', speakerDryRun: '화자 태그 미리 생성 지침', namesPreview: '진행 규칙·대사 이름 미리보기', namesDryRun: '진행 규칙·대사 이름 미리 생성' };
     const notes = [];
     for (const b of h.broken || []) notes.push(b.reason === 'version'
       ? `기억 파일 ${b.file}은(는) 이 버전의 기억 모듈이 모르는 형식입니다(${b.error}). 더 새 버전에서 만든 파일일 수 있습니다. 덮어쓰지 않도록 이 파일의 저장과 정리를 멈췄습니다. 기억 모듈을 그 파일을 만든 버전 이상으로 업데이트해 주세요.${b.backup ? ` 원본 복사본: ${b.backup}` : ''}`

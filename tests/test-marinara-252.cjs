@@ -111,6 +111,8 @@ const FILES = {
   speakerPrompt: 'packages/server/dist/routes/generate.routes.js',
   speakerPreview: 'packages/server/dist/routes/chats.routes.js',
   speakerDryRun: 'packages/server/dist/routes/generate/dry-run-route.js',
+  namesPreview: 'packages/server/dist/routes/chats.routes.js',
+  namesDryRun: 'packages/server/dist/routes/generate/dry-run-route.js',
 };
 for (const root of String(process.env.MARINARA_DIRS || '').split(':').filter(Boolean)) {
   test(`real build ${root}: every patch applies once, the legacy route is skipped`, () => {
