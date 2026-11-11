@@ -400,8 +400,29 @@ function looksOocReply(content) {
   if (OOC_START.test(t) || OOC_REPLY.test(t.slice(0, 300))) return true;
   return (t.match(/^(?:#{1,4}\s|---\s*$|.*📌|\s*[-*]\s+\*\*|\s*\d+[.)]\s+\*\*)/gm) || []).length >= 2;
 }
-/** A user line that goes on with an OOC talk: short, and no dialogue in it. */
-const looksOocFollowUp = (content) => { const t = String(content || '').trim(); return t.length <= 400 && !/["“”「」『』]/.test(t); };
+/**
+ * A line that reads as the story going on, not as talk about it: an action in asterisks, a Korean narration sentence
+ * ("그녀는 의자에 앉았다."), or an English one about "she/he/they" — unless it is a question or asks for something.
+ */
+function looksLikeNarration(t) {
+  if (/^[*_]/.test(t) || /\*[^*\n]{2,}\*/.test(t)) return true;
+  if (/[?？]/.test(t)) return false;
+  if (/(?:다|었다|았다|했다|였다)[.…!~]*\s*$/.test(t) && !/(?:해|줘|주세요|하자|할게|할래|바래|바랍니다|부탁)[.…!~]*\s*$/.test(t)) return true;
+  return /^(?:she|he|they)\s+\w+/i.test(t);
+}
+/** Words and marks of talk about the story itself. */
+const OOC_CUE = /\(\(|\)\)|\bOOC\b|out of character|메타|롤플|\bRP\b/i;
+/**
+ * A user line that goes on with an OOC talk: it comes right after an OOC reply (the caller checks), is short, has no
+ * dialogue in it and does not read as the story going on. A line with an OOC mark of its own ("((", "OOC", meta words)
+ * only has to be short.
+ */
+const looksOocFollowUp = (content) => {
+  const t = String(content || '').trim();
+  if (t.length > 400 || /["“”「」『』]/.test(t)) return false;
+  if (OOC_CUE.test(t)) return true;
+  return !looksLikeNarration(t);
+};
 
 /**
  * Marks messages that are talk outside the story (m.ooc = true): a user message with an OOC mark; the reply to it when
