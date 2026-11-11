@@ -403,7 +403,8 @@
   const trLine = (value) => {
     const list = Array.isArray(value) ? value : [value];
     const korean = list.map((x) => ko(x) || x);
-    return korean.some((x, i) => x !== list[i]) ? `<small class="tr-inline">한국어: ${esc(korean.join(' · '))}</small>` : '';
+    // Editable: a corrected Korean becomes the field's own language and is saved like a change of the field itself.
+    return korean.some((x, i) => x !== list[i]) ? `<label class="tr-inline ko-line">한국어<input class="ko-edit" data-ko-src="${esc(list.join(' · '))}" data-ko-old="${esc(korean.join(' · '))}" value="${esc(korean.join(' · '))}"></label>` : '';
   };
   /** A name or label with its Korean after it in brackets, when there is one. */
   const withKo = (text) => (ko(text) ? `${esc(text)} <small class="tr-inline">(${esc(ko(text))})</small>` : esc(text));
@@ -1130,6 +1131,7 @@
           <label class="full">제목<input data-f="title" value="${esc(t.title)}"></label>${trEdit(t.title)}
           ${t.plan ? '' : `<label>누구의 일 (여럿이면 쉼표)<input data-f="who" value="${esc(String(t.who || '').split('·').join(', '))}"></label><label>누구에게 (여럿이면 쉼표)<input data-f="toward" value="${esc(String(t.toward || '').split('·').join(', '))}" placeholder="없으면 비워 두세요"></label>`}
           <label class="full">설명<textarea class="event-field" data-f="detail">${esc(t.detail || '')}</textarea></label>${trEdit(t.detail)}
+          ${t.plan ? '' : `<label class="full">지금 상태 (비우면 그대로)<input data-f="latest" value="${esc(t.latest?.text || '')}"></label>${t.latest?.text ? trEdit(t.latest.text) : ''}`}
           ${t.plan ? `<label class="full">감추는 것 (답 없이 · 답변에 기본으로 들어가는 줄)<input data-f="mystery" value="${esc(t.mystery || '')}" placeholder="다음 장부 정리 때 저절로 적힙니다"></label>` : ''}
           ${t.kind === 'emotion' ? `<label class="full">풀리려면<input data-f="need" value="${esc(t.need || '')}"></label>${trEdit(t.need)}` : ''}
           ${['promise', 'pending'].includes(t.kind) ? `<label>기한 날짜 (작중)<input data-f="dueDate" value="${esc(t.due?.date || '')}" placeholder="예: 24-10-20 / 비우면 기한 없음"></label><label>기한 시각<input data-f="dueTime" value="${esc(t.due?.time || '')}" placeholder="예: 17:00"></label>` : ''}
@@ -1229,7 +1231,7 @@
     return `<div class="routine-row" data-rkey="${esc(key)}">
       <select data-f="what" aria-label="무엇">${opts}</select>
       <input data-f="at" type="datetime-local" value="${esc(r.at || '')}" aria-label="작중 시각">
-      <input data-f="text" value="${esc(r.text || '')}" placeholder="무엇을 (예: 외출 준비)" aria-label="내용">
+      <input data-f="text" value="${esc(r.text || '')}" placeholder="무엇을 (예: 외출 준비)" aria-label="내용">${key !== 'new' && ko(r.text) ? `<input data-f="textKo" data-ko-src="${esc(r.text)}" data-ko-old="${esc(ko(r.text))}" value="${esc(ko(r.text))}" aria-label="내용 (한국어)">` : ''}
       ${key !== 'new' && info.storyNow && r.at && r.at > info.storyNow ? `<small class="warn">작중 지금(${esc(info.storyNow.replace('T', ' '))})보다 뒤 시각입니다</small>` : ''}
       <label class="mini"><input data-f="substitute" type="checkbox" ${r.substitute ? 'checked' : ''}>때움</label>
       <label class="mini"><input data-f="claimed" type="checkbox" ${r.claimed ? 'checked' : ''}>본인 주장</label>
@@ -1990,6 +1992,7 @@
     return out.slice(0, 3);
   }
 
+  const elsewhereNote = (sc) => (sc.elsewhere?.length ? `<small class="hint">따로 있던 사람: ${esc(sc.elsewhere.map(nameShown).join('·'))}</small>` : '');
   function viewTimeline() {
     if (!store) return emptyRoom();
     const scenes = (store.scenes || []).filter((x) => !x.ooc);
@@ -2013,7 +2016,7 @@
       const after = afterOf(sc);
       const own = lines.filter((l) => l.scenes.includes(sc.id));
       return `${chapterHead}<div class="tl-scene" data-tl="sc-${esc(sc.id)}">
-        <div class="tl-head">${sceneLink(sc)}<small>${esc([time, sc.place].filter(Boolean).join(' · '))}</small>${star ? '<span class="pill">★ 결정적</span>' : ''}</div>
+        <div class="tl-head">${sceneLink(sc)}<small>${esc([time, sc.place].filter(Boolean).join(' · '))}</small>${star ? '<span class="pill">★ 결정적</span>' : ''}${elsewhereNote(sc)}</div>
         <p>${esc(shown(sc.summary))}</p>
         ${after.map((a) => `<p class="tl-after"><small>${a.now ? '지금' : '그 뒤'}</small> ${esc(shown(a.t.title))} — ${esc(a.text)}${a.end && a.end.id !== sc.id ? ` ${sceneLink(a.end)}` : ''}</p>`).join('')}
         ${own.length ? `<p class="tl-lines">${own.map((l) => `<span class="pill neutral">줄기 · ${esc(l.name)}</span>`).join(' ')}</p>` : ''}
@@ -2022,22 +2025,37 @@
     return `<div class="eyebrow">STORY · ${scenes.length} SCENES</div><h1>시간순</h1>
       <p class="intro">작중 날짜별로 장면을 이어 보여 줍니다. 장면에서 시작된 일이 그 뒤 어떻게 됐는지(그 뒤 · 지금)와 그 장면의 줄기도 함께 보입니다. 장면 번호를 누르면 장면·챕터 화면에서 열립니다.</p>
       ${(() => {
-        if (tlRoom !== room) { tlRoom = room; tlDay = null; tlMonth = null; }
+        if (tlRoom !== room) { tlRoom = room; tlDay = null; tlMonth = null; tlPart = null; }
         const at = days.findIndex((d) => d.day === tlDay);
         const i = at >= 0 ? at : days.length - 1;
         const d = days[i];
         // Chapter heads are drawn from the first scene of the day shown.
         lastChapter = i > 0 ? chapterOf.get(days[i - 1].list.at(-1).id) || null : null;
-        return `${timelineCalendar(days, d)}
-        <section class="tl-day"><div class="tl-stamp"><b>${esc(d.day)}</b><small>장면 ${d.list.length}</small></div><div class="tl-list">${d.list.map(card).join('')}</div></section>
+        // The time of day, when the day has many scenes: picked like the day (no scrolling to it).
+        const parts = TL_PARTS.map((p) => ({ ...p, list: d.list.filter((sc) => partOf(sc) === p.key) })).filter((p) => p.list.length);
+        const part = d.list.length > TL_PART_MIN && parts.length > 1 ? parts.find((p) => p.key === tlPart) || null : null;
+        const shownList = part ? part.list : d.list;
+        const chips = d.list.length > TL_PART_MIN && parts.length > 1 ? `<div class="tl-parts"><button class="${part ? '' : 'is-on'}" data-act="tlPart" data-part="">하루 전체 <small>${d.list.length}</small></button>${parts.map((p) => `<button class="${part === p ? 'is-on' : ''}" data-act="tlPart" data-part="${p.key}">${p.label} <small>${p.list.length}</small></button>`).join('')}</div>` : '';
+        return `${timelineCalendar(days, d)}${chips}
+        <section class="tl-day"><div class="tl-stamp"><b>${esc(d.day)}</b><small>장면 ${shownList.length}${part ? ` · ${part.label}` : ''}</small></div><div class="tl-list">${shownList.map(card).join('')}</div></section>
         <div class="buttons tl-steps">${i > 0 ? `<button data-act="tlDay" data-day="${esc(days[i - 1].day)}">‹ ${esc(days[i - 1].day)}</button>` : ''}${i < days.length - 1 ? `<button data-act="tlDay" data-day="${esc(days[i + 1].day)}">${esc(days[i + 1].day)} ›</button>` : ''}</div>`;
       })()}`;
   }
 
   /* 시간순: the story day shown (the latest by default), and the month the calendar is on. */
   let tlDay = null;
+  let tlPart = null;
   let tlMonth = null;
   let tlRoom = null;
+  const TL_PART_MIN = 8;
+  const TL_PARTS = [{ key: 'dawn', label: '새벽', from: 0, to: 5 }, { key: 'morning', label: '오전', from: 6, to: 11 }, { key: 'afternoon', label: '오후', from: 12, to: 17 }, { key: 'evening', label: '저녁', from: 18, to: 20 }, { key: 'night', label: '밤', from: 21, to: 23 }, { key: 'unknown', label: '시각 모름', from: -1, to: -1 }];
+  /** The time of day a scene starts in (its first hh:mm). */
+  const partOf = (sc) => {
+    const m = String(sc.time || '').match(/(\d{1,2}):\d{2}/);
+    if (!m) return 'unknown';
+    const h = Number(m[1]);
+    return (TL_PARTS.find((p) => h >= p.from && h <= p.to) || TL_PARTS.at(-1)).key;
+  };
   /** "25-07-18 (금)" → { y: 2025, m: 7, d: 18 }, or null. */
   const storyYmd = (day) => {
     const m = String(day || '').match(/^(\d{2,4})-(\d{1,2})-(\d{1,2})/);
@@ -2438,6 +2456,14 @@
       case 'tlDay': {
         tlDay = el.dataset.day || null;
         tlMonth = null;
+        tlPart = null;
+        render();
+        const box = root.querySelector('#content');
+        if (box) box.scrollTop = 0;
+        return;
+      }
+      case 'tlPart': {
+        tlPart = el.dataset.part || null;
         render();
         const box = root.querySelector('#content');
         if (box) box.scrollTop = 0;
@@ -2887,7 +2913,9 @@
       case 'saveRoutine': {
         const row = el.closest('.routine-row');
         const old = (info.routineItems || []).find((r) => r.key === row.dataset.rkey);
-        return act(() => api('POST', `/chats/${chat}/routine`, { action: 'edit', key: row.dataset.rkey, item: { ...readRoutineRow(row), who: old?.who } }), '생활 기록을 고쳤습니다.');
+        const koBox = row.querySelector('[data-f="textKo"]');
+        const koFix = koBox && koBox.value.trim() && koBox.value.trim() !== koBox.dataset.koOld && row.querySelector('[data-f="text"]').value === koBox.dataset.koSrc ? [{ en: koBox.dataset.koSrc, ko: koBox.value.trim() }] : [];
+        return act(async () => api('POST', `/chats/${chat}/routine`, { action: 'edit', key: row.dataset.rkey, item: { ...(await applyKoreanEdits(koFix, readRoutineRow(row))), who: old?.who } }), '생활 기록을 고쳤습니다.');
       }
       case 'deleteRoutine': {
         const key = el.closest('.routine-row').dataset.rkey;
@@ -2946,7 +2974,7 @@
         const box = root.querySelector(`[data-thread="${CSS.escape(id)}"]`);
         const fixes = koreanEditsIn(box);
         const body = {};
-        for (const f of ['title', 'who', 'toward', 'detail', 'need', 'mystery', 'unaware', 'guess', 'dueDate', 'dueTime']) {
+        for (const f of ['title', 'who', 'toward', 'detail', 'latest', 'need', 'mystery', 'unaware', 'guess', 'dueDate', 'dueTime']) {
           const el = box?.querySelector(`[data-f="${f}"]`);
           if (el) body[f] = el.value;
         }
@@ -3575,6 +3603,26 @@
         const mode = e.target.value;
         const label = (info?.features || []).find((f) => f.key === key)?.label || key;
         void act(() => api('POST', `/chats/${encodeURIComponent(room)}/feature-mode`, { key, mode }), `이 방의 ${label} 설정을 저장했습니다.`);
+      }
+      if (e.target.classList?.contains('ko-edit')) {
+        // A Korean correction of a state / place / keepsake field: made into the field's language, then saved as the field.
+        const box = e.target;
+        const field = box.closest('.world-field')?.querySelector('input[data-state-field], input[data-place-field], input[data-keep-field]');
+        const after = box.value.trim();
+        if (!field || !after || after === box.dataset.koOld) return;
+        void (async () => {
+          try {
+            const r = await api('POST', `/chats/${encodeURIComponent(room)}/translations/back`, { items: [{ en: box.dataset.koSrc, ko: after }] });
+            const next = r?.items?.[0]?.en;
+            if (!next) throw Error('원래 언어로 옮기지 못했습니다. 잠시 뒤 다시 해 주세요.');
+            field.value = next;
+            field.dispatchEvent(new Event('change', { bubbles: true }));
+          } catch (error) {
+            lastError = error?.message || String(error);
+            render();
+          }
+        })();
+        return;
       }
       if (e.target.dataset?.stateField) {
         const body = { action: 'set', name: e.target.dataset.stateName, field: e.target.dataset.stateField, value: e.target.value };

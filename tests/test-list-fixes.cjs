@@ -151,3 +151,18 @@ test('a long line name is cut at a word; a filled line on one scene only is take
   assert.equal(S.pruneLoneFilledLines(store), 2);
   assert.deepEqual(store.scenes.map((s) => (s.lines || []).map((l) => l.name)), [['Trip'], ['Trip'], [], ['Own']]);
 });
+
+test('people only in events of their own, never with the user\'s character\'s group, were elsewhere', () => {
+  const S = require('../memory-module/lib/scenes.cjs');
+  const scene = { id: 'S2', present: ['세라', '도윤', '하준', '민호'], events: [
+    { text: 'a', with: ['세라', '도윤'] }, { text: 'b', with: ['하준', '민호'] }, { text: 'c', with: ['도윤', '세라'] },
+  ] };
+  assert.deepEqual(S.separatedPresence(scene, ['세라']), { present: ['세라', '도윤'], elsewhere: ['하준', '민호'] });
+  assert.equal(S.separatedPresence({ ...scene, events: [...scene.events, { text: 'd', with: ['하준', '도윤'] }] }, ['세라']), null, 'they met: all present');
+  assert.equal(S.separatedPresence({ id: 'S5', present: ['도윤', '하준'], events: [{ text: 'a', with: ['도윤'] }, { text: 'b', with: ['하준'] }] }, ['세라']), null, 'no user character: left alone');
+  assert.equal(S.separatedPresence({ ...scene, edited: true }, ['세라']), null);
+  const store = { personas: ['세라'], scenes: [scene] };
+  assert.equal(S.fixSeparatedPresence(store), 1);
+  assert.equal(S.fixSeparatedPresence(store), 0, 'each scene once');
+  assert.equal(S.lineEntries([{ name: 'The Vane freighter and the hidden gold' }])[0].name, 'The Vane freighter');
+});

@@ -2610,6 +2610,9 @@ function processScenes(chatId, { rebuild = false, reason = 'auto' } = {}) {
         if (recut) { saveScenes(chatId, store); log(`chat ${chatId}: ${recut} chapter/arc summary(ies) were cut off, to be made again`); }
         // A long story: old scenes become chapters, and facts that piled up about one person are merged.
         if (S.nextRedo(store) || S.nextChapter(store) || S.nextArc(store) || S.nextFactMerge(store)) job.calls += await condense(chatId, store, await getModel(), job);
+        // People who were somewhere else in a scene that follows two places (no model call; each scene once).
+        const split = S.fixSeparatedPresence(store);
+        if (split) { saveScenes(chatId, store); log(`chat ${chatId}: ${split} scene(s): people only in events of their own moved to elsewhere`); }
         // Scenes from before story lines existed get theirs from their summaries (a few calls, once per scene).
         if (S.lineFillTargets(store).length >= LINE_FILL_MIN) job.calls += await fillLines(chatId, store, await getModel(), job);
         await indexScenes(chatId, store, job);
@@ -3839,6 +3842,11 @@ async function routes(app) {
         }
         if (req.body?.unaware !== undefined) thread.unaware = nameList(req.body.unaware);
         if (req.body?.guess !== undefined) thread.guess = nameList(req.body.guess);
+        // How it stands now, by hand (kept as the newest line until the story moves it on).
+        if (!thread.plan && typeof req.body?.latest === 'string' && req.body.latest.trim() && req.body.latest.trim() !== thread.latest?.text) {
+          thread.latest = { ...(thread.latest || {}), text: req.body.latest.trim().slice(0, 300), by: 'hand' };
+          delete thread.latest.scene;
+        }
         // Who it is about and toward whom, by hand: several people joined with "·" (commas are taken too); empty clears it.
         if (!thread.plan) {
           for (const field of ['who', 'toward']) {
