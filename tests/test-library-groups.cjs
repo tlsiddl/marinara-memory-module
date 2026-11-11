@@ -20,7 +20,7 @@ test('open items: filters, pick boxes, bulk close with undo; facts picked severa
   for (const act of ['ledgerFilter', 'openOld', 'bulkClear', 'bulkClose', 'undoAction', 'factPickClear', 'factBulkExclude', 'factBulkDelete']) assert.match(source, new RegExp(`case '${act}':`));
   assert.match(source, /data-pick-thread=/);
   assert.match(source, /data-pick-fact=/);
-  assert.match(source, /logAction\(`\$\{ids\.join\(', '\)\} 닫음`, \{ act: 'reopen', ids \}\)/);
+  assert.match(source, /logAction\(`\$\{closed\.join\(', '\)\} 닫음`, \{ act: 'reopen', ids: closed \}, closeRoom\)/);
 });
 
 test('home: version notice, things to fix, day counts, recent changes, cost; search filters; recent rooms', () => {

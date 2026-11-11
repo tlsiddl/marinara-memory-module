@@ -376,9 +376,13 @@
       }
       if (!glossaryExtensionId) return;
       const stored = await api('GET', `/api/personal-extensions/${encodeURIComponent(glossaryExtensionId)}/storage`);
+      // A missing or unreadable config is not an empty glossary: send nothing. Only a glossary the person saved
+      // (even an empty one) is sent.
       const config = stored?.value?.config;
-      const scope = config?.chats?.[id] || config?.defaults;
-      const text = typeof scope?.glossary === 'string' ? scope.glossary : '';
+      if (!config || typeof config !== 'object') return;
+      const scope = config.chats?.[id] || config.defaults;
+      if (typeof scope?.glossary !== 'string') return;
+      const text = scope.glossary;
       if (glossarySent.get(id) === text) return;
       await api('POST', `/chats/${encodeURIComponent(id)}/glossary`, { glossary: text, source: GLOSSARY_EXTENSION });
       glossarySent.set(id, text);
@@ -1127,7 +1131,7 @@
     return `<div class="eyebrow">LEDGER · ${open.length} OPEN</div><h1>아직 끝나지 않은 일</h1>
       <p class="intro">약속·감정·상태·비밀·미해결 일입니다. 항목을 누르면 제목과 설명을 고치실 수 있고, 잘못 닫힌 항목은 다시 열고 끝난 일은 닫으실 수 있습니다. 직접 고친 내용은 리롤해도 유지됩니다.</p>
       ${plans.length ? `<div class="paper"><h2>작가 계획 · ${plans.length}</h2><p class="hint">OOC(이야기 밖 대화)에서 정한 앞으로의 전개입니다. 답변에는 기본으로 <b>감추는 것</b>(답 없는 한 줄, 예: "손목 흉터가 생긴 진짜 이유")만 "아직 밝히지 말 것"으로 들어갑니다. 롤플 모델이 답을 모르면 인물이 미리 알아채는 일이 없습니다. 이야기에서 다 드러나면 닫힙니다.</p><div class="buttons"><button class="ghost ${info.planAnswers ? 'mark-button is-on' : ''}" data-act="planAnswers">${info.planAnswers ? '답까지 넣는 중 · 끄기' : '답은 넣지 않는 중 · 답까지 넣기'}</button></div>${info.planAnswers ? '<p class="hint">답까지 넣으면 복선을 맞춰 깔기는 쉬워지지만, 롤플 모델이 인물 생각이나 서술에 답을 흘릴 수 있습니다.</p>' : ''}${plans.map(threadRow).join('')}</div>` : ''}
-      ${ledgerTools(open)}${actionLog[0]?.undo ? `<div class="note" role="status">${esc(actionLog[0].text)} <button data-act="undoAction" data-id="0">되돌리기</button></div>` : ''}
+      ${ledgerTools(open)}${roomLog()[0]?.a.undo ? `<div class="note" role="status">${esc(roomLog()[0].a.text)} <button data-act="undoAction" data-id="${roomLog()[0].i}">되돌리기</button></div>` : ''}
       ${groups.length ? groups.map(([k, l]) => `<div class="paper"><h2>${KIND[k]} · ${l.length}</h2>${l.map(pickRow).join('')}</div>`).join('') : (plans.length ? '' : '<div class="empty">열린 항목이 없습니다.</div>')}
       ${closed.length ? `<details class="paper"><summary>닫힌 항목 ${closed.length}개</summary>${closed.map(threadRow).join('')}</details>` : ''}
       ${oocPaper()}`;
@@ -1482,7 +1486,7 @@
       ? `<div class="note" role="status"><b>이야기에서 찾은 시작일</b>${t.suggestions.map((s) => `<div>${esc(s.text)}${sceneRefs(sceneRef(s.sceneId, '에서 찾음', w.sceneTitles))} <button class="primary" data-act="trackerAnswer" data-sid="${esc(s.id)}" data-answer="accept">기록</button> <button class="ghost" data-act="trackerAnswer" data-sid="${esc(s.id)}" data-answer="ignore">무시</button></div>`).join('')}</div>`
       : '';
     const applied = (t.applied || []).length
-      ? `<div class="note" role="status"><b>자동으로 적용함</b>${t.applied.map((x) => `<div>자동으로 적용함: ${esc(x.text)}${sceneRefs(sceneRef(x.sceneId, '에서 받음', w.sceneTitles))} <button class="ghost" data-act="trackerUndoApplied" data-aid="${esc(x.id)}">되돌리기</button></div>`).join('')}</div>`
+      ? `<div class="note" role="status"><b>자동으로 적용함</b>${t.applied.map((x) => `<div>자동으로 적용함: ${esc(x.text)}${sceneRefs(sceneRef(x.sceneId, '에서 받음', w.sceneTitles))} <button class="ghost" data-act="trackerUndoApplied" data-aid="${esc(x.id)}">${armedNow === `trackerUndoApplied:${x.id}` ? '한 번 더 누르면 되돌립니다. 그 뒤로 고치거나 더한 시작일도 함께 사라집니다' : '되돌리기'}</button></div>`).join('')}</div>`
       : '';
     return `<div class="paper"><h2>날짜·주기 트래커 · ${t.items.length}개</h2>
       <p class="hint">직접 만든 날짜 기록입니다(모델 호출 없음). 오늘은 ${t.storyDate ? `이야기 속 ${esc(t.storyDate)}` : '이야기 날짜를 아직 모름'} · 실제 ${esc(t.realDate)}. 답변에는 \`[기록] …\` 한 줄(200자 이내)만 들어가고, 주기의 시작이 이야기에 나오면 ‘제안 자동 적용’(설정 → 추가 기능)이 켜져 있을 때는 바로 기록하고 ‘자동으로 적용함’에서 되돌릴 수 있으며, 꺼져 있으면 제안만 합니다.</p>
@@ -2086,9 +2090,30 @@
   }
   /** One open item with its pick box (the box sits outside the folding row, so ticking it does not open the row). */
   const pickRow = (t) => (t.status === 'open' && !t.plan ? `<div class="pick-row"><input type="checkbox" data-pick-thread="${esc(t.id)}" ${pickedThreads.has(t.id) ? 'checked' : ''} aria-label="${esc(t.id)} 고르기">${threadRow(t)}</div>` : threadRow(t));
-  function logAction(text, undo) {
-    actionLog.unshift({ at: new Date(), text, undo });
+  function logAction(text, undo, roomId = room) {
+    actionLog.unshift({ at: new Date(), text, undo, room: roomId });
     actionLog.length = Math.min(actionLog.length, 8);
+  }
+  /** The log entries of the room on screen, each with its place in actionLog (the undo button points at that place). */
+  const roomLog = () => actionLog.map((a, i) => ({ a, i })).filter(({ a }) => a.room === room);
+  /**
+   * Everything the person picked, armed or typed for the room they were in. Called wherever `room` changes, so a
+   * one-click bulk delete, close or undo can never reach the same ids in another room.
+   */
+  function resetRoomUi() {
+    pickedFacts.clear();
+    pickedThreads.clear();
+    actionLog.length = 0;
+    armed = '';
+    speechRows = null;
+    speechRowsRoom = null;
+    scenePicker = null;
+    trackerDraft = null;
+    namePreview = null;
+    restorePreview = null;
+    worldForm = { person: '', place: '', keep: '', keepOwner: '' };
+    nameForm = { source: '', target: '', display: '', text: true };
+    addressForm = { id: '', from: '', to: '', term: '', note: '' };
   }
 
   /* ---------- 한눈에: 버전 · 세고 있는 것 · 손볼 것 · 최근 바뀐 것 · 기억 비용 ---------- */
@@ -2129,10 +2154,11 @@
   function recentCard() {
     const day = Date.now() - 86400000;
     const auto = threadList().filter((t) => t.status !== 'open' && t.updatedAt && Date.parse(t.updatedAt) > day && !/직접/.test(t.closed?.how || '')).slice(0, 5);
-    if (!actionLog.length && !auto.length) return '';
+    const logged = roomLog();
+    if (!logged.length && !auto.length) return '';
     const time = (d) => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
     return `<div class="paper"><h2>최근 바뀐 것</h2>
-      ${actionLog.map((a, i) => `<div class="recent-row"><small>${time(a.at)}</small><span>${esc(a.text)}</span>${a.undo ? `<button class="ghost" data-act="undoAction" data-id="${i}">되돌리기</button>` : '<span></span>'}</div>`).join('')}
+      ${logged.map(({ a, i }) => `<div class="recent-row"><small>${time(a.at)}</small><span>${esc(a.text)}</span>${a.undo ? `<button class="ghost" data-act="undoAction" data-id="${i}">되돌리기</button>` : '<span></span>'}</div>`).join('')}
       ${auto.map((t) => `<div class="recent-row"><small>자동</small><span>${esc(t.id)} ${esc(shown(t.title))} 닫힘 — ${esc(shown(t.closed?.how || ''))}</span><button class="ghost" data-act="reopen" data-id="${esc(t.id)}">다시 열기</button></div>`).join('')}
     </div>`;
   }
@@ -2236,7 +2262,7 @@
   async function handle(actName, el) {
     const id = el?.dataset?.id;
     const chat = encodeURIComponent(room);
-    if (actName !== 'fresh' && !actName.startsWith('deleteFact') && actName !== 'closeThread' && actName !== 'factBulkDelete' && actName !== 'rebuildChapters' && actName !== 'deleteRoutine' && !['nameApply', 'mergeApply', 'aliasApply', 'nameUndo', 'backupDownload', 'restoreApply', 'restoreUndo', 'addressDelete', 'stateReset', 'placeDelete', 'keepDelete', 'noteDelete', 'noteRebuildAll', 'trackerDelete', 'trackerDropStart'].includes(actName)) armed = '';
+    if (actName !== 'fresh' && !actName.startsWith('deleteFact') && actName !== 'closeThread' && actName !== 'factBulkDelete' && actName !== 'rebuildChapters' && actName !== 'deleteRoutine' && !['trackerUndoApplied', 'nameApply', 'mergeApply', 'aliasApply', 'nameUndo', 'backupDownload', 'restoreApply', 'restoreUndo', 'addressDelete', 'stateReset', 'placeDelete', 'keepDelete', 'noteDelete', 'noteRebuildAll', 'trackerDelete', 'trackerDropStart'].includes(actName)) armed = '';
     switch (actName) {
       case 'factPickClear':
         pickedFacts.clear();
@@ -2272,15 +2298,27 @@
       case 'bulkClose': {
         const ids = [...pickedThreads];
         if (!ids.length) return;
+        const closeRoom = room;
         return act(async () => {
-          for (const t of ids) await api('POST', `/chats/${chat}/threads/${encodeURIComponent(t)}/close`, { how: '직접 닫음' });
-          pickedThreads.clear();
-          logAction(`${ids.join(', ')} 닫음`, { act: 'reopen', ids });
+          const closed = [];
+          try {
+            for (const t of ids) {
+              await api('POST', `/chats/${chat}/threads/${encodeURIComponent(t)}/close`, { how: '직접 닫음' });
+              closed.push(t);
+            }
+          } finally {
+            // Whatever did get closed can be undone; only the ones not closed yet stay picked.
+            if (closed.length) {
+              if (room === closeRoom) for (const t of closed) pickedThreads.delete(t);
+              logAction(`${closed.join(', ')} 닫음`, { act: 'reopen', ids: closed }, closeRoom);
+            }
+          }
         }, `${ids.length}개를 닫았습니다. 되돌리려면 위의 '되돌리기'를 눌러 주세요.`);
       }
       case 'undoAction': {
         const entry = actionLog[Number(id)];
         if (!entry?.undo) return;
+        if (entry.room !== room) { lastError = '다른 방에서 한 작업이라 되돌릴 수 없습니다.'; return render(); }
         const { act: kind, ids } = entry.undo;
         return act(async () => {
           for (const t of ids) await api('POST', `/chats/${chat}/threads/${encodeURIComponent(t)}/${kind}`, kind === 'close' ? { how: '직접 닫음' } : undefined);
@@ -2558,6 +2596,8 @@
         }, answer === 'accept' ? '시작일로 기록했습니다.' : '제안을 무시했습니다. 다시 묻지 않습니다.');
       }
       case 'trackerUndoApplied':
+        if (armed !== `trackerUndoApplied:${el.dataset.aid}`) { armed = `trackerUndoApplied:${el.dataset.aid}`; return render(); }
+        armed = '';
         return act(async () => {
           await api('POST', `/chats/${chat}/trackers`, { action: 'undoApplied', aid: el.dataset.aid });
           world = null;
@@ -3140,6 +3180,7 @@
     const current = activeChatId();
     if (current && current !== room) {
       room = current;
+      resetRoomUi();
       store = null;
       storeRoom = '';
       trMap = {};
@@ -3292,6 +3333,7 @@
     root.querySelector('#roomSelect').onchange = (e) => {
       rememberRoomTab(room, tab);
       room = e.target.value;
+      resetRoomUi();
       noteRecentRoom(room);
       tab = roomTab(room) || tab;
       store = null;
