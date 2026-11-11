@@ -1991,7 +1991,10 @@
     const scenes = (store.scenes || []).filter((x) => !x.ooc && (x.present || []).includes(p));
     const quotes = [];
     for (const sc of [...(store.scenes || [])].reverse()) for (const e of sc.events || []) for (const q of e.quotes || []) if ((q.by === p || q.to === p) && quotes.length < 12) quotes.push({ sc, q });
-    const calls = (names?.address?.entries || []).filter((e) => e.from === p || e.to === p);
+    // As on the names tab: a foreign term and its Korean translation are one "원어(번역)", the Korean half not again.
+    const allCalls = names?.address?.entries || [];
+    const callLabel = (e) => { const t = allCalls.find((x) => x.id === e.pairWith); return t ? `${e.term}(${t.term})` : e.term; };
+    const calls = allCalls.filter((e) => (e.from === p || e.to === p) && !(e.pairOf && allCalls.some((x) => x.id === e.pairOf)));
     const field = (label, v) => (v && (!Array.isArray(v) || v.length) ? `<dt>${label}</dt><dd>${esc(Array.isArray(v) ? v.join(' · ') : v)}</dd>` : '');
     const section = (key, title, count, body, openNow = false) => `<details class="paper person-sec" data-list="person:${esc(key)}" ${openLists.has(`person:${key}`) || openNow ? 'open' : ''}><summary><b>${title}</b> · ${count}</summary>${body}</details>`;
     return `<div class="eyebrow">PEOPLE · ${people.length}</div><h1>인물별</h1>
@@ -1999,7 +2002,7 @@
       <div class="person-chips">${people.map((n) => `<button class="${n === p ? 'selected' : ''}" data-act="selectPerson" data-id="${esc(n)}">${esc(nameShown(n))}</button>`).join('')}</div>
       <div class="paper"><h2>${esc(nameShown(p))}</h2>
         ${card ? `<dl class="person-now">${field('있는 곳', card.location)}${field('차림', card.outfit)}${field('다친 곳', card.injuries)}${field('가진 것', card.carrying)}${field('기분', card.mood)}${field('그 밖', card.other)}</dl>` : '<p class="hint">지금 상태 기록이 없습니다(상태·장소·물건에서 켜고 고칠 수 있음).</p>'}
-        ${calls.length ? `<p class="hint">부르는 말: ${calls.map((e) => `${esc(nameShown(e.from))} → ${esc(nameShown(e.to))} “${esc(e.term)}”`).join(' · ')}</p>` : ''}
+        ${calls.length ? `<p class="hint">부르는 말: ${calls.map((e) => `${esc(nameShown(e.from))} → ${esc(nameShown(e.to))} “${esc(callLabel(e))}”`).join(' · ')}</p>` : ''}
         <div class="buttons"><button class="ghost" data-tab="world">상태 고치기</button><button class="ghost" data-tab="names">이름·호칭 고치기</button></div>
       </div>
       ${section('facts', '알게 된 사실', facts.length, facts.length ? facts.map((f) => `<p class="person-row">${esc(shown(f.text))}${f.state ? ` <small>(${esc(f.sceneId || '')} 기준)</small>` : ''} <a href="#" class="record-link chip" data-goto-fact="${esc(f.id)}"><span class="chip-id">${esc(f.id)}</span></a></p>`).join('') : '<p class="hint">없습니다.</p>', true)}
