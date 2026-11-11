@@ -205,8 +205,10 @@ function fallbackLabels(line, target) {
  * Latin name (a full name for a full name, the short one for a short one), from the room's name table.
  * Returns [{ from: Korean, to: Latin }], longest first.
  */
-function latinNames(table = null) {
+function latinNames(table = null, glossary = []) {
   const out = new Map();
+  // The room's glossary ("Marco = 마르코", "Sea lion = 물개") first: the user's own words for them.
+  for (const p of glossary || []) if (p?.from && p?.to && hangulOnly(p.to) && !out.has(p.to)) out.set(p.to, { from: p.to, to: p.from });
   for (const [canon, entry] of Object.entries(table?.people || {})) {
     const forms = [canon, tidyName(entry?.display), ...(entry?.aliases || []).map(tidyName)].filter(Boolean);
     const latin = forms.filter(foreignOnly).filter((f) => /[A-Za-z]/.test(f)).sort((a, b) => b.length - a.length);
@@ -369,6 +371,7 @@ const TRANSLATE_PROMPT = {
 Input: a JSON object {"lines":[...]}. Output: a JSON object {"lines":[...]} with exactly one English line for each input line, in the same order.
 - Keep every name exactly as written (do not romanize or change names), and keep every number, date, time, amount, ID (S12, C3, A1, T5, F9) and mark (★ ※ · → ① …) as it is.
 - A name already in Latin letters stays in Latin letters: never write "Viktor" as "빅터".
+- When the input has "terms" (the user's glossary), write each of those Korean words exactly as the term on its right, every time.
 - Weekdays in dates become English: "25-07-19 (토)" → "25-07-19 (Sat)".
 - Use these labels: "(A·B는 모름)" → "(A·B do not know)", "(A는 모름)" → "(A does not know)", 모름 → unaware, 짐작만 → suspects only, 그때 → then, 남은 기억 → remembers, 계기 → because, 원인 → cause, 풀리려면 → resolves if, 약속한 때 → due, 기한 → deadline, N일 뒤 → in N days, N일 지남 → N days overdue, 오늘 → today, 내일 → tomorrow, 있던 사람 → present, 최근 → latest, 기간 → period, 날씨 → weather, (서술) → (narration), "→ 그 뒤:" → "→ later:", "→ 지금:" → "→ now:", "(C3 시기)" → "(during C3)", "(S12 기준)" → "(as of S12)".
 - Quoted words inside a line ("…") stay as they are.
@@ -401,11 +404,13 @@ Input: a JSON object {"lines":[...]}. Output: a JSON object {"lines":[...]} with
 };
 
 /** `names`: [{ from, to }] (koreanNames), sent along when translating into Korean. Only names that appear are sent. */
-function buildTranslatePrompt(lines, target, { names = [] } = {}) {
+function buildTranslatePrompt(lines, target, { names = [], glossary = [] } = {}) {
   const text = lines.join('\n');
   const used = target === 'ko' ? names.filter((n) => text.includes(n.from)) : [];
-  // "names" goes first so the model reads it before the lines.
-  const input = used.length ? { names: Object.fromEntries(used.map((n) => [n.from, n.to])), lines } : { lines };
+  // Into English or Chinese: the glossary's words that appear, to be written the glossary's way.
+  const terms = target === 'ko' ? [] : (glossary || []).filter((p) => p?.to && text.includes(p.to));
+  // "names" (and "terms") go first so the model reads them before the lines.
+  const input = used.length ? { names: Object.fromEntries(used.map((n) => [n.from, n.to])), lines } : terms.length ? { terms: Object.fromEntries(terms.map((p) => [p.to, p.from])), lines } : { lines };
   return [
     { role: 'system', content: TRANSLATE_PROMPT[target] },
     { role: 'user', content: JSON.stringify(input) },

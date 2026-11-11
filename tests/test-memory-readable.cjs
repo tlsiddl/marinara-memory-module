@@ -138,3 +138,16 @@ test('the remembering notes after a scene line ("※ 빅터는 흐릿하게만 �
   const out = T.translateText('[지난 장면들]\nS3 25-03-01 · same place — Dawn: They talk. ※ 빅터는 흐릿하게만 기억함(saw only the swell), 세라는 기억 못 함, 마르코: 자리에 없어 모름, 세라: 나중에 빅터에게 들음', 'en', () => null, { names }).text;
   assert.match(out, /※ Viktor remembers it only dimly\(saw only the swell\), Sera does not remember it, 마르코: not there, unaware, Sera: heard later from Viktor$/);
 });
+
+test('the room glossary (번역 프리셋·단어장) is used for the English memory: in the translation and for what is left in Korean', () => {
+  const glossary = T.parseGlossary('Marco = 마르코\nSea lion = 물개\nViktor = 빅토르');
+  const names = T.latinNames({ people: { '빅터 문': { aliases: ['Viktor'] } } }, glossary);
+  const map = Object.fromEntries(names.map((n) => [n.from, n.to]));
+  assert.equal(map['마르코'], 'Marco', 'someone not in the name table');
+  assert.equal(map['물개'], 'Sea lion', 'a word, not only names');
+  assert.equal(T.latinizeNames('- 마르코: Saw the 물개 cub. 마르코는 몰랐다.', names), '- Marco: Saw the Sea lion cub. 마르코는 몰랐다.');
+  const user = JSON.parse(T.buildTranslatePrompt(['마르코가 물개를 봤다.'], 'en', { glossary })[1].content);
+  assert.deepEqual(user.terms, { 마르코: 'Marco', 물개: 'Sea lion' });
+  assert.match(T.TRANSLATE_PROMPT.en, /When the input has "terms" \(the user's glossary\)/);
+  assert.equal(JSON.parse(T.buildTranslatePrompt(['마르코'], 'ko', { glossary })[1].content).terms, undefined, 'into Korean: the names list as before');
+});
