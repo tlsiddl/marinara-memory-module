@@ -105,3 +105,13 @@ test('a mostly English line with a Korean phrase in it (a place, a short note) i
   assert.equal(kind('- Viktor: The boat docks before sunrise with no one around. 세라 문'), 'keep', 'a name is not a phrase');
   assert.equal(kind('- Note: "세라는 부두에서 오래 기다렸다" said Viktor, in English, as he always does.'), 'keep', 'quoted words stay as they are');
 });
+
+test('the first word of a full Korean name is mapped too (how lines mostly call people), unless two people share it', () => {
+  const names = T.latinNames({ people: { '빅터 문': { aliases: ['Viktor'] }, '세라 문': { aliases: ['Sera'] }, '마르코 벨': { aliases: ['Marco'] }, '마르코 린': { aliases: ['Marko'] } } });
+  const map = Object.fromEntries(names.map((n) => [n.from, n.to]));
+  assert.equal(map['빅터'], 'Viktor');
+  assert.equal(map['세라'], 'Sera');
+  assert.equal(map['마르코'], undefined, 'shared by two people');
+  assert.equal(T.latinizeNames("Main room of 빅터's boat · 빅터 and 세라 talk.", names), "Main room of Viktor's boat · Viktor and Sera talk.");
+  assert.match(T.TRANSLATE_PROMPT.en, /A name already in Latin letters stays in Latin letters/);
+});
