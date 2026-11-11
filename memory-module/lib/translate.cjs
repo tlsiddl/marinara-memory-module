@@ -185,6 +185,9 @@ const LABELS = {
     [/\(최근: /g, '(latest: '], [/원인: /g, 'cause: '], [/풀리려면: /g, 'resolves if: '], [/약속한 때: /g, 'due: '], [/기한: /g, 'deadline: '],
     [/, 오늘, 지남\]/g, ', today, overdue]'], [/, 오늘\]/g, ', today]'], [/, 내일\]/g, ', tomorrow]'], [/, (\d+)일 뒤\]/g, ', in $1 days]'], [/, (\d+)일 지남\]/g, ', $1 days overdue]'],
     [/→ 그 뒤: /g, '→ later: '], [/\((S\d+) 기준\)/g, '(as of $1)'], [/→ 지금: /g, '→ now: '], [/→ 줄기 「([^」]+)」 지금: /g, '→ story line "$1" now: '], [/^\((C\d+) 시기\)$/, '(during $1)'],
+    // Who remembers a scene, who missed it (the "※" note after a scene line).
+    [/([^\s,※(·]+?)(?:은|는) 기억 못 함/g, '$1 does not remember it'], [/([^\s,※(·]+?)(?:은|는) 흐릿하게만 기억함/g, '$1 remembers it only dimly'],
+    [/: 자리에 없어 모름/g, ': not there, unaware'], [/: 나중에 ([^,※]+?)에게 들음/g, ': heard later from $1'], [/: 나중에 들음/g, ': heard later'], [/나중에 밝혀짐: /g, 'found out later: '],
     [/모름: /g, 'unaware: '], [/짐작만: /g, 'suspects only: '], [/있던 사람: /g, 'present: '], [/ · 같은 곳/g, ' · same place'],
     [/ · 맑음(?= —| ·|$)/g, ' · Clear'], [/ · 흐림(?= —| ·|$)/g, ' · Cloudy'], [/ · 구름 (?:조금|많음)(?= —| ·|$)/g, ' · Partly cloudy'], [/ · 비(?= —| ·|$)/g, ' · Rain'], [/ · 소나기(?= —| ·|$)/g, ' · Showers'], [/ · 눈(?= —| ·|$)/g, ' · Snow'], [/ · 안개(?= —| ·|$)/g, ' · Fog'], [/ · 바람(?= —| ·|$)/g, ' · Windy'], [/ · 더움(?= —| ·|$)/g, ' · Hot'], [/ · 추움(?= —| ·|$)/g, ' · Cold'],
     [/\) 새벽(?=\s)/g, ') dawn'], [/\) 아침(?=\s)/g, ') morning'], [/\) 오전(?=\s)/g, ') morning'], [/\) 오후(?=\s)/g, ') afternoon'], [/\) 저녁(?=\s)/g, ') evening'], [/\) 밤(?=\s)/g, ') night'],

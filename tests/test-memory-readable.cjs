@@ -132,3 +132,9 @@ test('a place cut at the old 60 letters ends at its last whole part; weather, cl
   const raw = T.translateText('[원문에서 떠오른 대목]\n- (98번) "Stay here." (여기 있어.) / 그 뒤로 낯선 얼굴. / "Fine." (좋아.)', 'en', () => null).text;
   assert.match(raw, /^\[Passages from the story\]\n- \(#98\) "Stay here\." \/ 그 뒤로 낯선 얼굴\. \/ "Fine\."$/);
 });
+
+test('the remembering notes after a scene line ("※ 빅터는 흐릿하게만 기억함") read in English', () => {
+  const names = [{ from: '빅터', to: 'Viktor' }, { from: '세라', to: 'Sera' }];
+  const out = T.translateText('[지난 장면들]\nS3 25-03-01 · same place — Dawn: They talk. ※ 빅터는 흐릿하게만 기억함(saw only the swell), 세라는 기억 못 함, 마르코: 자리에 없어 모름, 세라: 나중에 빅터에게 들음', 'en', () => null, { names }).text;
+  assert.match(out, /※ Viktor remembers it only dimly\(saw only the swell\), Sera does not remember it, 마르코: not there, unaware, Sera: heard later from Viktor$/);
+});
