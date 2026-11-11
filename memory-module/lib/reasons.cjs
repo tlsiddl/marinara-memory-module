@@ -96,7 +96,9 @@ function hiddenScenes(store, excluded) {
 function termsIn(text, query, stems, max = 3) {
   const body = String(text || '').toLowerCase();
   if (!body || !query) return [];
-  return [...stems(query)].filter((w) => body.includes(w)).slice(0, max);
+  // An English word counts where a word starts ("lock" in "locked", not in "block"; "time" not in "sometimes").
+  const found = (w) => (/^[a-z']+$/.test(w) ? new RegExp(`(^|[^a-z])${w}`).test(body) : body.includes(w));
+  return [...stems(query)].filter(found).slice(0, max);
 }
 
 const joinNames = (names) => (names || []).slice(0, 3).join('·');

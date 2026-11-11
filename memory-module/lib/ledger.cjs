@@ -1243,7 +1243,11 @@ const ENGLISH_STOP = new Set(('a an the and or but nor of to in on at for from b
   + 'is was were be been being are am it its he him his himself she her hers herself they them their themselves you your i me my we us our '
   + 'this that these those then than so not no just only also even very what whether who whom which when where why how '
   + 'can could would should will shall may might must do does did done have has had having let make made get got up down out off '
-  + 'again still any some all each every both either one two').split(' '));
+  + 'again still any some all each every both either one two '
+  // Words in almost any English sentence: shared, they say nothing about which scene is meant.
+  + 'more most less while other others another such same own too much many few like well back way here there now '
+  + 'time times thing things something nothing anything everything someone anyone everyone around through until since '
+  + 'because though although yet ever never always once already almost really quite enough first last next earlier later').split(' '));
 
 /** Content words of an English text, lowercased and with a plain ending (bites/bitten/biting → bit…), names left out. */
 function englishWords(text, names = []) {

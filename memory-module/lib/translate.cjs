@@ -191,6 +191,8 @@ const LABELS = {
     [/모름: /g, 'unaware: '], [/짐작만: /g, 'suspects only: '], [/있던 사람: /g, 'present: '], [/ · 같은 곳/g, ' · same place'],
     [/ · 맑음(?= —| ·|$)/g, ' · Clear'], [/ · 흐림(?= —| ·|$)/g, ' · Cloudy'], [/ · 구름 (?:조금|많음)(?= —| ·|$)/g, ' · Partly cloudy'], [/ · 비(?= —| ·|$)/g, ' · Rain'], [/ · 소나기(?= —| ·|$)/g, ' · Showers'], [/ · 눈(?= —| ·|$)/g, ' · Snow'], [/ · 안개(?= —| ·|$)/g, ' · Fog'], [/ · 바람(?= —| ·|$)/g, ' · Windy'], [/ · 더움(?= —| ·|$)/g, ' · Hot'], [/ · 추움(?= —| ·|$)/g, ' · Cold'],
     [/\) 새벽(?=\s)/g, ') dawn'], [/\) 아침(?=\s)/g, ') morning'], [/\) 오전(?=\s)/g, ') morning'], [/\) 오후(?=\s)/g, ') afternoon'], [/\) 저녁(?=\s)/g, ') evening'], [/\) 밤(?=\s)/g, ') night'],
+    // A stretch of the story left out of the overview, and the note that explains it.
+    [/"… 줄임" stands for a stretch left out\./g, '"… left out" marks a stretch of it not shown.'], [/ — 챕터 (\d+)개 줄임/g, ' — $1 chapters left out'], [/ — 큰 흐름 (\d+)개 줄임/g, ' — $1 arcs left out'],
     [/\(월\)/g, '(Mon)'], [/\(화\)/g, '(Tue)'], [/\(수\)/g, '(Wed)'], [/\(목\)/g, '(Thu)'], [/\(금\)/g, '(Fri)'], [/\(토\)/g, '(Sat)'], [/\(일\)/g, '(Sun)'],
   ],
 };
