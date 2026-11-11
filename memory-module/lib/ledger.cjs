@@ -441,12 +441,16 @@ function tidyOocThreads(ledger, messages, now = new Date().toISOString()) {
   const out = { planned: 0, closed: 0 };
   if (!ooc.size) return out;
   for (const t of ledger?.threads || []) {
+    // What the user fixed by hand (edited, or opened again by hand) is not for this pass to turn over.
+    if (t.edited || t.reopened?.by === 'hand') continue;
     // A plan made before plans had no person: its leftover owner or target goes.
     if (t.status === 'open' && t.plan && (t.who || t.toward)) { t.who = null; t.toward = null; t.updatedAt = now; out.planned++; continue; }
     if (t.status !== 'open' || t.plan) continue;
     const points = [...(t.evidence || []), ...(t.clues || [])];
     if (!points.length || !points.every((p) => ooc.has(p.messageId))) continue;
     if (t.kind === 'secret') {
+      // What it was before (who knew, who it was about) is kept, so the change can be told and undone.
+      t.wasSecret = { who: t.who ?? null, toward: t.toward ?? null, unaware: [...(t.unaware || [])], guess: [...(t.guess || [])] };
       t.plan = true;
       t.who = null;
       t.toward = null;
@@ -863,11 +867,13 @@ function afterLines(ledger, scene, sceneAt = () => null) {
   const out = [];
   for (const t of (ledger.threads || []).filter((x) => !x.plan && !x.mergedInto && began(x))) {
     if (t.status !== 'open') {
-      const how = String(t.closed?.how || '').replace(/s*(Sd+)$/, '');
+      // The reason may end with the scene it was said in ("… (S10)"); the line says where on its own.
+      const how = String(t.closed?.how || '').replace(/\s*\(S\d+\)\s*$/, '');
       if (!how || /에 합침/.test(how)) continue;
-      out.push(`→ 그 뒤: ${t.title} — ${how}${where(t.closed?.at?.number)}`);
+      out.push(`→ 그 뒤: ${t.title} — ${how}${where(t.closed?.at?.number)}${unawareNote(t)}`);
     } else if (t.latest?.text && (t.latest.number ?? 0) > scene.end) {
-      out.push(`→ 지금: ${t.title} — ${t.latest.text}${where(t.latest.number)}`);
+      // Who does not know, or only guesses, goes with the line: this one is recalled with an old scene, away from the item itself.
+      out.push(`→ 지금: ${t.title} — ${t.latest.text}${where(t.latest.number)}${unawareNote(t)}`);
     }
     if (out.length >= AFTER_LINES) break;
   }
@@ -1626,7 +1632,9 @@ function closeDoneThreads(ledger, now = new Date().toISOString()) {
   let closed = 0;
   for (const t of ledger?.threads || []) {
     if (t.status !== 'open' || t.plan || !['promise', 'pending', 'state'].includes(t.kind) || t.edited) continue;
-    const line = [t.latest?.text, t.detail].find((x) => soundsDone(t, x));
+    // The latest news decides when there is any (the description is the older line and may mention an ending as a plan or
+    // a worry); the description alone counts only for an item with no news yet.
+    const line = [t.latest?.text || t.detail].find((x) => soundsDone(t, x));
     if (!line) continue;
     closeThread(t, line, [], { messageId: t.latest?.messageId ?? null, number: t.latest?.number ?? null, time: t.latest?.at ?? null }, now);
     closed++;
