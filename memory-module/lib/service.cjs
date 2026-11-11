@@ -5050,6 +5050,20 @@ async function recallBeforeReply(chatId, view, userMessage) {
   if (entry.picks.length || entry.error) log(`chat ${chatId}: recall ${entry.used} → ${entry.picks.map((p) => p.id).join(', ') || 'none'} (${entry.ms} ms)${entry.error ? `; ${entry.error}` : ''}`);
 }
 
+/**
+ * The everyday words of a chat (R.commonWords), worked out again only once 20 more messages have come: they change
+ * slowly, and reading a long chat for them every turn would slow every reply.
+ */
+const commonWordsCache = new Map();
+function chatCommonWords(chatId, view) {
+  const story = view.filter((m) => !m.ooc);
+  const cached = commonWordsCache.get(chatId);
+  if (cached && Math.abs(story.length - cached.count) < 20) return cached.words;
+  const words = R.commonWords(story);
+  commonWordsCache.set(chatId, { count: story.length, words });
+  return words;
+}
+
 /** The recall itself: which old scenes come up for this turn, and why. Used before a reply and by the test. */
 async function computeRecall(chatId, store, view, userMessage, { mode, firstInside, list }) {
   const recent = view.slice(-6);
@@ -5108,10 +5122,12 @@ async function computeRecall(chatId, store, view, userMessage, { mode, firstInsi
     for (const x of [...(entry.pointed || [])].reverse()) {
       entry.picks = [{ id: x.id, why: `예전 일을 가리키는 말: "${x.text.slice(0, 40)}${x.text.length > 40 ? '…' : ''}"` }, ...entry.picks.filter((p) => p.id !== x.id)].slice(0, R.MAX_PICKS);
     }
-    const wordHit = R.directHit(list, latest, { tr });
+    // The chat's everyday words (word endings, a name said every turn) are no reason for either of these.
+    const common = chatCommonWords(chatId, view);
+    const wordHit = R.directHit(list, latest, { tr, common });
     if (wordHit && entry.picks.length < R.MAX_PICKS && !entry.picks.some((p) => p.id === wordHit.id)) entry.picks.push({ id: wordHit.id, why: `방금 메시지의 낱말(${wordHit.hits.slice(0, 3).join(', ')})이 이 장면에 있음` });
     // Lines from old messages (outside the window) that the newest message names, for details a summary dropped.
-    entry.raw = R.rawHits(view.filter((m) => !m.ooc && firstInside != null && m.number < firstInside), latest);
+    entry.raw = R.rawHits(view.filter((m) => !m.ooc && firstInside != null && m.number < firstInside), latest, { common });
     if (wordHit) entry.direct = { id: wordHit.id, hits: wordHit.hits.slice(0, 5) };
     // What came of a recalled scene later (its real reason, who heard of it) comes along with it.
     entry.picks = R.withFollowUps(store, entry.picks, list);

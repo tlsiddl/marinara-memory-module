@@ -111,15 +111,17 @@ function latestUser(recent, userMessage) {
  * The scene the newest user message points at by its rare words (e.g. a name or thing said once long ago).
  * Kept even when the model chose others, so a direct question is never left without its scene.
  */
-/** A whole English word counts as much as the two letter pairs a short Korean word gives, so one limit fits both. */
-const wordWeight = (w) => (w.length > 2 && /^[a-z']+$/.test(w) ? 2 : 1);
+/** A whole English (or Greek …) word counts as much as the two letter pairs a short Korean word gives, so one limit fits both. */
+const wordWeight = (w) => (w.length > 2 && (/^[a-z']+$/.test(w) || otherAlphabet(w)) ? 2 : 1);
 
-function directHit(list, text, { tr = null } = {}) {
+function directHit(list, text, { tr = null, common = null } = {}) {
   if (!list.length || !text) return null;
   const now = words(text);
+  if (common) for (const w of common) now.delete(w);
   const bags = list.map((s) => words(sceneText(s, tr)));
   const df = new Map();
   for (const bag of bags) for (const w of bag) df.set(w, (df.get(w) || 0) + 1);
+  const said = saidWords(text);
   let best = null;
   list.forEach((scene, i) => {
     let score = 0;
@@ -131,9 +133,29 @@ function directHit(list, text, { tr = null } = {}) {
       score += weight * wordWeight(w);
       hits.push(w);
     }
-    if (score >= 2.2 && (!best || score > best.score)) best = { id: scene.id, score, hits };
+    if (score >= 2.2 && (!best || score > best.score) && enoughWords(said, hits, 2)) best = { id: scene.id, score, hits };
   });
   return best;
+}
+
+/** The message's own words, lowercased, each once. */
+const saidWords = (text) => [...new Set(String(text || '').toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean))];
+const holds = (x, w) => (latinWord(x) ? x.startsWith(w) : otherAlphabet(x) ? plainLetters(x).startsWith(w) : x.includes(w));
+
+/**
+ * Whether the words a message shares with a scene or an old passage say which one it means: two of its words, or one
+ * solid word (an English or Greek word, a long number, a Korean word of three letters or more found along its length,
+ * `pieces` of its pieces: "오로라" both of 오로·로라). A short Korean word alone ("타고", "보면", "팔을") is mostly
+ * a verb form or a word with its ending, and pulled up an unrelated scene or passage nearly every turn.
+ */
+function enoughWords(said, hits, pieces = 1) {
+  const found = said.filter((x) => hits.some((w) => holds(x, w)));
+  if (found.length >= 2) return true;
+  const x = found[0];
+  if (!x) return false;
+  if (latinWord(x) || otherAlphabet(x)) return true;
+  if (/^\d+$/.test(x)) return x.length >= 3;
+  return x.length >= 3 && hits.filter((w) => x.includes(w)).length >= pieces;
 }
 
 /**
@@ -145,6 +167,33 @@ const COMMON = new Set(['있어', '없어', '있다', '없다', '이제', '아�
 const latinWord = (w) => /[a-z]/.test(w) && !/[가-힣㐀-䶿一-鿿]/.test(w);
 const HAN_RUN = /[㐀-䶿一-鿿]{2}/;
 const HAN_RUNS = /[㐀-䶿一-鿿]{2,}/g;
+/**
+ * A word in another spaced alphabet (Greek, Cyrillic, …): its first letters, accents left off, when it is long enough
+ * to mean something. Cut into two-letter pieces like Korean, "τί" and "δε" were in every Greek line and pulled up
+ * unrelated scenes and passages. Short ones (articles, particles) say nothing.
+ */
+const otherAlphabet = (w) => /\p{L}/u.test(w) && !/[a-z가-힣ㄱ-ㅎㅏ-ㅣ㐀-䶿一-鿿぀-ヿ]/.test(w);
+const plainLetters = (w) => w.normalize('NFD').replace(/\p{M}/gu, '').replace(/ς/g, 'σ');
+// Greek's everyday words (ancient and modern: pronouns, "to be", particles, prepositions), as alphabetStem cuts them.
+const GREEK_LITTLE = new Set(('αὐτός αὐτή αὐτό αὐτόν αὐτήν αὐτοῦ αὐτῆς αὐτῷ αὐτοῖς αὐτῶν ἐκεῖνος ἐκείνη ἐκεῖνο ἐκεῖνον ἐκείνην ἐκείνου ἐκείνῳ '
+  + 'οὗτος τοῦτο τούτου τούτῳ τοῦτον ταῦτα ταύτην ταύτης εἰμί ἐστίν ἐστί εἰσίν εἰσί ἦσαν εἶναι ἔσται ἐγώ ἔγωγε ἡμεῖς ὑμεῖς ἡμῖν ὑμῖν '
+  + 'ἡμῶν ὑμῶν ἡμᾶς ὑμᾶς ἐμαυτήν ἐμαυτόν σεαυτόν ἑαυτόν ἀλλά οὐδέ οὐδέν μηδέν μηδέ οὕτως ὥσπερ ὥστε ἐπεί ἐπειδή ὅπως ὅταν μέχρι '
+  + 'περί μετά διά κατά παρά πρός ὑπέρ ὑπό ἀπό ἀμφότεροι ἀμφοτέρων ἐπί οἶμαι οἶδα οἶσθα πάνυ μάλα μᾶλλον μάλιστα τοίνυν τοιοῦτος πότερον ποῖος '
+  + 'πολύ πολλά πολλοί πάντα πάντες πᾶσι πᾶσιν τινά τινός ἄρα ἐνταῦθα ἤδη ἔτι ὅμως οὔπω δήπου τοῖς ταῖς τούς τρόπον '
+  + 'εσύ αυτοί αυτές στον στην στους στις όμως επειδή τώρα εδώ εκεί ποτέ πάντα κάτι τίποτα κάποιος έχω έχει έχουν ήταν θέλω ξέρω '
+  + 'μπορώ πρέπει ακόμα μόνο τόσο λοιπόν').split(' ').map((w) => plainLetters(w.toLowerCase()).slice(0, 6)));
+function alphabetStem(w) {
+  const plain = plainLetters(w);
+  if (plain.length < 4) return null;
+  const stem = plain.slice(0, 6);
+  return GREEK_LITTLE.has(stem) ? null : stem;
+}
+/** A number is a word of its own: "2024" whole, not "20" of every year; one or two digits ("25" of a date) say nothing. */
+function addNumber(out, w) {
+  if (!/^\d+$/.test(w)) return false;
+  if (w.length >= 3) out.add(w);
+  return true;
+}
 
 /**
  * The first two letters of each Korean word (its stem start), minus everyday words: names and things, not endings.
@@ -153,7 +202,12 @@ const HAN_RUNS = /[㐀-䶿一-鿿]{2,}/g;
 function stems(text) {
   const out = new Set();
   for (const raw of String(text || '').toLowerCase().split(/[^\p{L}\p{N}]+/u)) {
-    if (latinWord(raw)) continue;
+    if (latinWord(raw) || addNumber(out, raw)) continue;
+    if (otherAlphabet(raw)) {
+      const stem = alphabetStem(raw);
+      if (stem) out.add(stem);
+      continue;
+    }
     // Chinese has no spaces: a whole sentence is one "word". Its character pairs stand in for words.
     if (HAN_RUN.test(raw)) {
       for (const run of raw.match(HAN_RUNS) || []) for (let i = 0; i + 2 <= run.length; i++) out.add(run.slice(i, i + 2));
@@ -166,9 +220,29 @@ function stems(text) {
   return out;
 }
 
-function rawHits(messages, text, { max = 2, maxChars = 1400 } = {}) {
+/**
+ * The everyday words of one chat: those in at least `share` of its messages ("었다", "그런", a name said every turn).
+ * Shared with the message now, they say nothing about which old scene or passage it means.
+ */
+function commonWords(messages, share = 0.05) {
+  // Counted among the messages written in the word's own letters: in a chat of Korean messages and English replies,
+  // a Korean word in a tenth of the Korean messages is everyday, though it is in only a twentieth of all of them.
+  const script = (w) => (/[가-힣]/.test(w) ? 'ko' : /[㐀-䶿一-鿿]/.test(w) ? 'zh' : /^[a-z'\d]+$/.test(w) ? 'en' : 'other');
+  const df = new Map();
+  const total = new Map();
+  for (const m of messages) {
+    const bag = new Set([...words(m.content), ...stems(m.content)]);
+    for (const s of new Set([...bag].map(script))) total.set(s, (total.get(s) || 0) + 1);
+    for (const w of bag) df.set(w, (df.get(w) || 0) + 1);
+  }
+  // A word in two or three messages is never everyday, however few messages are written in its letters.
+  return new Set([...df].filter(([w, n]) => n >= 4 && (total.get(script(w)) || 0) >= 20 && n / total.get(script(w)) >= share).map(([w]) => w));
+}
+
+function rawHits(messages, text, { max = 2, maxChars = 1400, common = null } = {}) {
   if (!messages.length || !text) return [];
   const now = stems(text);
+  if (common) for (const w of common) now.delete(w);
   // `m.tr`: the message's saved Korean translation (a chat translated for display), so Korean words find English text.
   const bags = messages.map((m) => stems(m.tr ? `${m.content}\n${m.tr}` : m.content));
   const df = new Map();
@@ -180,7 +254,10 @@ function rawHits(messages, text, { max = 2, maxChars = 1400 } = {}) {
   });
   const out = [];
   let used = 0;
-  for (const { m, hits } of scored.filter((x) => x.score >= Math.min(2.5, 0.9 * Math.log(messages.length + 1))).sort((a, b) => b.score - a.score).slice(0, max)) {
+  const said = saidWords(text);
+  // One word alone is enough only when it is in a few old messages at most ("오로라"; not "편하게", "하더라").
+  const enough = (hits) => enoughWords(said, hits) && (hits.length >= 2 || df.get(hits[0]) <= 3);
+  for (const { m, hits } of scored.filter((x) => enough(x.hits) && x.score >= Math.min(2.5, 0.9 * Math.log(messages.length + 1))).sort((a, b) => b.score - a.score).slice(0, max)) {
     const isTranslation = (i) => /^\(.*[가-힣]/.test(S.parseLine(m.sentences[i] || '').text);
     const picked = [];
     m.sentences.forEach((sentence, i) => {
@@ -263,7 +340,12 @@ function bestIn(scenes, text, tr = null) {
 function words(text) {
   const out = new Set();
   for (const raw of String(text || '').toLowerCase().split(/[^\p{L}\p{N}]+/u)) {
-    if (raw.length < 2 || latinWord(raw)) continue;
+    if (raw.length < 2 || latinWord(raw) || addNumber(out, raw)) continue;
+    if (otherAlphabet(raw)) {
+      const stem = alphabetStem(raw);
+      if (stem) out.add(stem);
+      continue;
+    }
     for (let i = 0; i + 2 <= raw.length; i++) out.add(raw.slice(i, i + 2));
   }
   for (const w of L.englishWords(text)) out.add(w);
@@ -405,4 +487,4 @@ function renderNearEvents(store, semantic, picks, { max = 6, maxChars = 5000, tr
   return blocks.length ? `[뜻이 가까운 지난 사건]\n${blocks.join('\n')}` : '';
 }
 
-module.exports = { stems, MAX_PICKS, renderNearEvents, buildToc, rawHits, renderRaw, latestUser, directHit, withDirectHit, MAX_RECALL, RECALL_PROMPT, candidates, buildRecallPrompt, applyRecall, fastRecall, renderRecalled, words, withFollowUps, shownPicks };
+module.exports = { stems, commonWords, MAX_PICKS, renderNearEvents, buildToc, rawHits, renderRaw, latestUser, directHit, withDirectHit, MAX_RECALL, RECALL_PROMPT, candidates, buildRecallPrompt, applyRecall, fastRecall, renderRecalled, words, withFollowUps, shownPicks };
