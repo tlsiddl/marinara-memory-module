@@ -2965,12 +2965,18 @@ async function fixNoteLanguages(chatId, store, job) {
   // Notes saved before situation lines were checked can still have one in another language than the note itself
   // ("세라가 … 때" on an English note): rewritten the same way (the text's language wins), until it fails twice.
   const whenOff = (n) => n.when && !n.langGaveUp && Nb.noteLanguage(n.when) !== Nb.noteLanguage(n.text);
-  for (const scene of store?.scenes || []) for (const n of scene.charNotes || []) if (n.wantLang || n.vague || whenOff(n)) todo.push(n);
+  // The user's edits, stars and deletions are kept by note id: the id is pinned on each note (from its text as it is
+  // now) before any wording is rewritten, and a note the user touched is left as it is.
+  const book = loadNotebook(chatId);
+  const pinned = Nb.pinIds(store);
+  if (pinned) saveScenes(chatId, store);
+  for (const scene of store?.scenes || []) for (const n of scene.charNotes || []) if ((n.wantLang || n.vague || whenOff(n)) && !Nb.userTouched(book, scene, n)) todo.push(n);
   const people = [...new Set([...S.castOf(store || {}), ...(store?.personas || [])])];
   // Names left in another script in notes already saved ("세라" in an English note): written the note's way, no call.
   let renamed = 0;
   for (const scene of store?.scenes || []) {
     for (const n of scene.charNotes || []) {
+      if (Nb.userTouched(book, scene, n)) continue;
       const text = Nb.namesInLanguage(n.text, people, Nb.noteLanguage(n.text));
       const when = n.when ? Nb.namesInLanguage(n.when, people, Nb.noteLanguage(n.when)) : n.when;
       if (text !== n.text || when !== n.when) { n.text = text; n.when = when; renamed++; }
@@ -4634,7 +4640,11 @@ async function routes(app) {
     A.using(chatId, () => {
       if (key === 'state') saveState(chatId, St.fold(store, fn(structuredClone(loadState(chatId)))));
       else if (key === 'keeps') saveKeepsakes(chatId, Ks.fold(store, fn(structuredClone(loadKeepsakes(chatId)))));
-      else if (key === 'notebook') saveNotebook(chatId, Nb.fold(store, fn(structuredClone(loadNotebook(chatId)))));
+      else if (key === 'notebook') {
+        // Notes get their ids pinned before the user's edit is recorded under one.
+        if (Nb.pinIds(store)) saveScenes(chatId, store);
+        saveNotebook(chatId, Nb.fold(store, fn(structuredClone(loadNotebook(chatId)))));
+      }
       else savePlaces(chatId, Pl.fold(store, fn(structuredClone(loadPlaces(chatId)))));
     });
     recalls.delete(chatId);
