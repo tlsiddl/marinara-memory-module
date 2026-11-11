@@ -2505,6 +2505,10 @@ async function fillLines(chatId, store, model, job = null) {
     saveScenes(chatId, store);
     log(filled < 0 ? `chat ${chatId}: story line fill answer put most of ${list.length} scene(s) on one line; not taken` : `chat ${chatId}: story lines filled for ${filled} of ${list.length} older scene(s)`);
   }
+  if (calls) {
+    const pruned = S.pruneLoneFilledLines(store);
+    if (pruned) { saveScenes(chatId, store); log(`chat ${chatId}: took off ${pruned} filled story line(s) that were on one scene only`); }
+  }
   if (job) job.stage = null;
   return calls;
 }
