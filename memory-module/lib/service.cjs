@@ -1238,6 +1238,7 @@ async function characterName(e, id) {
 async function chatMessages(chatId) {
   const e = await engine();
   const rows = await e.chats.listMessages(chatId);
+  try { noteSourceKo(chatId, rows); } catch {}
   // Marinara's chat summary can hide the messages it summarized. Those are still the story: keep reading them,
   // or they would look deleted and the memory would be thrown away.
   let summarized = new Set();
@@ -2991,10 +2992,81 @@ function translationLookup(chatId, target) {
   // A name the model still left in Latin (or one added to the glossary after the line was translated) is written in
   // Korean when the line is read, with its particle fitted.
   const names = roomKoreanNames(chatId);
+  const source = sourceKo.get(chatId);
   return (text) => {
     const done = items[T.key(target, text)];
-    return done == null ? null : T.koreanizeNames(done, names, A.replaceName);
+    if (done != null) return T.koreanizeNames(done, names, A.replaceName);
+    // A line quoted from the chat: the Korean the chat already has for it.
+    return source?.get(srcNorm(text)) ?? null;
   };
+}
+
+/*
+ * Korean the chat already has for its own text: a translation tool's paragraph translations kept on each message
+ * (extra.paraTranslate.map, the FNV-1a key of a paragraph's normalized text → its Korean). A quoted paragraph, line
+ * or sentence is shown with it, so it needs no model call. Sentences get their own Korean only when the paragraph and
+ * its translation split into the same number of sentences; otherwise a short paragraph's whole Korean stands for each
+ * of its sentences (a longer one is left to the translation model).
+ */
+const sourceKo = new Map();
+const SOURCE_PARA_MAX = 400;
+const srcNorm = (text) => String(text ?? '').replace(/<[^>]*>/g, '').replace(/[“”„‟«»＂]/g, '"').replace(/[‘’‚‛]/g, "'").replace(/[*_~`#>]/g, '').replace(/\s+/g, ' ').trim();
+function srcKey(text) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(36);
+}
+function noteSourceKo(chatId, rows) {
+  const out = new Map();
+  for (const row of rows || []) {
+    const keys = parseExtra(row.extra)?.paraTranslate?.map;
+    if (!keys || typeof keys !== 'object') continue;
+    const text = String(row.content || '').replace(/\r\n?/g, '\n').replace(/<[^>]*>/g, '');
+    const put = (piece) => {
+      const norm = srcNorm(piece);
+      if (!norm) return null;
+      const ko = keys[srcKey(norm)];
+      if (typeof ko !== 'string' || !ko.trim()) return null;
+      const clean = ko.replace(/<\/?x\d+>/g, '').trim();
+      out.set(norm, clean);
+      return clean;
+    };
+    for (const block of text.split(/\n[ \t]*\n/)) {
+      if (!block.trim()) continue;
+      const ko = put(block);
+      for (const line of block.split('\n')) if (line.trim() && line.trim() !== block.trim()) put(line);
+      if (!ko) continue;
+      const en = L.splitSentences(block.replace(/\s*\n\s*/g, ' '));
+      const kr = L.splitSentences(ko.replace(/\s*\n\s*/g, ' '));
+      if (en.length > 1 && en.length === kr.length) en.forEach((sentence, i) => { const n = srcNorm(sentence); if (n && !out.has(n)) out.set(n, kr[i].trim()); });
+      // Sentences the translation joined or split differently: a short paragraph's whole Korean stands for each.
+      else if (en.length > 1 && ko.length <= SOURCE_PARA_MAX) en.forEach((sentence) => { const n = srcNorm(sentence); if (n && !out.has(n)) out.set(n, ko); });
+    }
+  }
+  if (out.size) sourceKo.set(chatId, out); else sourceKo.delete(chatId);
+  return out;
+}
+/** The chat's own Korean, read from the messages when this start has not read them yet. */
+async function sourceKoFor(chatId) {
+  if (sourceKo.has(chatId)) return sourceKo.get(chatId);
+  try { return noteSourceKo(chatId, await (await engine()).chats.listMessages(chatId)); } catch { return null; }
+}
+/** Quoted lines the chat has Korean for: shown with it even when quotes are not sent for translation. */
+function sourceQuoteItems(chatId) {
+  const source = sourceKo.get(chatId);
+  const items = {};
+  if (!source?.size) return items;
+  for (const scene of loadScenes(chatId)?.scenes || []) {
+    for (const q of [...(scene.events || []).flatMap((e) => e.quotes || []), ...(scene.loose || [])]) {
+      if (q.translation || !q.text) continue;
+      const ko = source.get(srcNorm(q.text));
+      if (ko) items[q.text] = ko;
+    }
+  }
+  return items;
 }
 
 const translating = new Map();
@@ -3938,9 +4010,11 @@ async function routes(app) {
   app.get('/chats/:id/translations', guard(async (req) => {
     const chatId = safeChatId(req.params.id);
     await chatLanguage(chatId);
+    await sourceKoFor(chatId);
     const texts = displayTranslationTexts(chatId);
     const lookup = translationLookup(chatId, 'ko');
-    const items = {};
+    // Quoted lines the chat already has Korean for (no model call, whether or not quotes are translated).
+    const items = sourceQuoteItems(chatId);
     const missing = [];
     for (const t of texts) {
       const done = lookup(t);
@@ -5433,7 +5507,7 @@ function attach(app) {
   log('admin API ready at /api/memory-module');
 }
 
-module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { loadAddress, saveAddress, refreshAddress, presentPeople, Addr, loadState, saveState, loadPlaces, savePlaces, loadKeepsakes, saveKeepsakes, loadNotebook, saveNotebook, Nb, loadTrackers, saveTrackers, Tk, loadConflicts, saveConflicts, refreshConflicts, refreshWorld, Cf, Ks, organizeFor, sceneTokens, lastScenePeople, St, Pl, listRooms, purgeChatMemory, purgeIfGone, deleteOnSend, deletePrepare, listOrphans, deleteOrphans, goneChats, loadNames, saveNames, enqueue, foldScenes, reviewAttributions, loadAttributionLog, sceneJobs, selectedForView, loadSelected, recalls, windows, loadRecallPrefs, saveRecallPrefs, recallReport, recallCandidates, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, translateDisplayLater, fixNoteLanguages, tidySteps, tidyLedger, noteUsage, usageSummary, planAnswersOn, notebookLanguageOf, notebookLanguageSetting, rebuildNotebook, notebookJobStatus, notebookRunning: (id) => notebookJobs.get(id)?.state === 'running', loadTranslations, saveTranslations, translationRun: (id, texts) => translateMissing(id, "ko", texts), flushTranslations, clearTranslationFailures, translationGaveUp, chatLangs, langRecords, loadLang, noteLanguage, LANG_REFRESH_EVERY, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, roomSetup, setupNote, withSetup, nameInstructions, jobs, writeLanguage, roomWriteLanguage, promptLanguage, memoryCallOptions, routineSetting, routineEnabled, attributionSetting, featureOn, featureSetting, F, B, clearRoomCaches, RESTORE_UNDO_DIR, connectionWithKey, memoryModel, startTrial, trials } };
+module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { loadAddress, saveAddress, refreshAddress, presentPeople, Addr, loadState, saveState, loadPlaces, savePlaces, loadKeepsakes, saveKeepsakes, loadNotebook, saveNotebook, Nb, loadTrackers, saveTrackers, Tk, loadConflicts, saveConflicts, refreshConflicts, refreshWorld, Cf, Ks, organizeFor, sceneTokens, lastScenePeople, St, Pl, listRooms, purgeChatMemory, purgeIfGone, deleteOnSend, deletePrepare, listOrphans, deleteOrphans, goneChats, loadNames, saveNames, enqueue, foldScenes, reviewAttributions, loadAttributionLog, sceneJobs, selectedForView, loadSelected, recalls, windows, loadRecallPrefs, saveRecallPrefs, recallReport, recallCandidates, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, translateDisplayLater, fixNoteLanguages, tidySteps, tidyLedger, noteUsage, usageSummary, planAnswersOn, notebookLanguageOf, notebookLanguageSetting, rebuildNotebook, notebookJobStatus, notebookRunning: (id) => notebookJobs.get(id)?.state === 'running', loadTranslations, saveTranslations, translationRun: (id, texts) => translateMissing(id, "ko", texts), flushTranslations, clearTranslationFailures, translationGaveUp, chatLangs, langRecords, loadLang, noteLanguage, LANG_REFRESH_EVERY, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, noteSourceKo, sourceKo, sourceQuoteItems, roomSetup, setupNote, withSetup, nameInstructions, jobs, writeLanguage, roomWriteLanguage, promptLanguage, memoryCallOptions, routineSetting, routineEnabled, attributionSetting, featureOn, featureSetting, F, B, clearRoomCaches, RESTORE_UNDO_DIR, connectionWithKey, memoryModel, startTrial, trials } };
 
 
 

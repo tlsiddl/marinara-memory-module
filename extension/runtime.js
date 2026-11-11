@@ -1123,8 +1123,9 @@
     const who = [t.who, t.toward].filter(Boolean).map(nameShown).join(' → ');
     const when = t.due ? `약속한 때 ${[t.due.date, t.due.time].filter(Boolean).join(' ')}` : t.period ? `기간 ${day(t.period.from)}~${day(t.period.to)}` : '';
     const closed = t.status !== 'open';
-    return `<details class="event-row" data-tid="${esc(t.id)}"><summary><span class="event-no">${esc(t.id)}</span><span class="event-main"><b title="${esc(t.title)}">${esc(shown(t.title))}</b><small>${esc(who)}${when ? ` · ${esc(when)}` : ''}${t.unaware?.length ? ` · 모름: ${esc(t.unaware.map(nameShown).join('·'))}` : ''}${t.guess?.length ? ` · 짐작만: ${esc(t.guess.map(nameShown).join('·'))}` : ''}${closed ? ` · 닫힘: ${esc(shown(t.closed?.how))}` : ''}</small></span><span class="pill ${closed ? 'neutral' : ''}">${t.plan ? '작가 계획' : KIND[t.kind] || t.kind}</span></summary>
+    return `<details class="event-row" data-tid="${esc(t.id)}"><summary><span class="event-no">${esc(t.id)}</span><span class="event-main"><b title="${esc(t.title)}">${esc(shown(t.title))}</b>${t.latest && !closed ? `<small class="thread-now-line">지금: ${esc(shown(t.latest.text))}</small>` : ''}<small>${esc(who)}${when ? ` · ${esc(when)}` : ''}${t.unaware?.length ? ` · 모름: ${esc(t.unaware.map(nameShown).join('·'))}` : ''}${t.guess?.length ? ` · 짐작만: ${esc(t.guess.map(nameShown).join('·'))}` : ''}${closed ? ` · 닫힘: ${esc(shown(t.closed?.how))}` : ''}</small></span><span class="pill ${closed ? 'neutral' : ''}">${t.plan ? '작가 계획' : KIND[t.kind] || t.kind}</span></summary>
       <div class="event-body">
+        ${t.latest ? `<p class="thread-now"><small>지금${t.latest.at ? ` · ${esc(t.latest.at)}` : ''}</small><br><b>${esc(shown(t.latest.text))}</b></p>` : ''}
         <div class="form-grid" data-thread="${esc(t.id)}">
           <label class="full">제목<input data-f="title" value="${esc(t.title)}"></label>${trEdit(t.title)}
           ${t.plan ? '' : `<label>누구의 일 (여럿이면 쉼표)<input data-f="who" value="${esc(String(t.who || '').split('·').join(', '))}"></label><label>누구에게 (여럿이면 쉼표)<input data-f="toward" value="${esc(String(t.toward || '').split('·').join(', '))}" placeholder="없으면 비워 두세요"></label>`}
@@ -1142,7 +1143,7 @@
           return links.length ? `<p class="record-links">${links.join('')}</p>` : '';
         })()}
         ${t.cause ? `<p><small>원인</small><br>${esc(shown(t.cause))}</p>` : ''}
-        ${t.latest ? `<p><small>최근</small><br>${esc(shown(t.latest.text))}</p>` : ''}
+
         ${t.evidence?.[0] ? `<div class="quote-card"><small>처음 원문 · #${t.evidence[0].number}</small><blockquote>${esc(quoteLine(t.evidence[0]).text)}</blockquote></div>` : ''}
         <div class="buttons"><button data-act="editThread" data-id="${esc(t.id)}">고친 내용 저장</button>${closed ? `<button data-act="reopen" data-id="${esc(t.id)}">다시 열기</button>` : `<button data-act="closeThread" data-id="${esc(t.id)}">${armed === `close:${t.id}` ? '한 번 더 누르면 닫힙니다' : '끝난 일로 닫기'}</button>`}${closed ? '' : markButtons(t.id, info?.recallPrefs)}</div>
       </div></details>`;

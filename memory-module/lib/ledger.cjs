@@ -2649,21 +2649,20 @@ function sharedPairs(a, b) {
 
 function compactLine(ledger, t, kind, today = ledger.storyDate) {
   const who = [t.who, t.toward].filter(Boolean).join('→');
+  // How it stands now comes right after the title: the title is how it began, and the newest line is what holds.
+  const now = !t.plan && t.latest?.text ? ` — 지금: ${shortQuote(t.latest.text, 140)}` : '';
   // A feeling reads with its cause, so "what was hidden" is never left to guessing.
-  const tail =
-    t.kind === 'emotion' && t.need
-      ? ` (${t.cause ? `원인: ${shortQuote(t.cause, 90)} / ` : ''}풀리려면: ${t.need})`
-      : t.latest?.text
-        ? ` (최근: ${shortQuote(t.latest.text, 80)})`
-        : '';
-  // A promise reads as what was said, and when.
-  const said = t.kind === 'promise' && t.detail ? ` — ${shortQuote(t.detail, 100)}` : '';
+  const tail = t.kind === 'emotion' && t.need ? ` (${t.cause ? `원인: ${shortQuote(t.cause, 90)} / ` : ''}풀리려면: ${t.need})` : '';
+  // A promise reads as what was said, and when (once it has moved on, what was first said is kept short).
+  const first = (t.kind === 'promise' || t.kind === 'state') && t.detail ? (now ? ` (처음: ${shortQuote(t.detail, 70)})` : ` — ${shortQuote(t.detail, 100)}`) : '';
+  const said = t.kind === 'promise' && !now ? first : '';
   const when = t.kind === 'emotion' ? '' : t.due ? ` [${t.kind === 'pending' ? '기한' : '약속한 때'}: ${formatDue(t.due, today, ledger?.storyTime)}]` : t.period ? ` [${formatPeriod(t.period, today)}]` : t.kind === 'promise' && t.since ? ` [${t.since}]` : '';
-  const said2 = t.kind === 'state' && t.detail ? ` — ${shortQuote(t.detail, 100)}` : '';
+  const said2 = t.kind === 'state' && !now ? first : '';
+  const then = now ? first : '';
   const marks = groupCast(ledger).length ? [t.unaware?.length ? `모름: ${t.unaware.join('·')}` : null, t.guess?.length ? `짐작만: ${t.guess.join('·')}` : null].filter(Boolean) : [];
   const unaware = marks.length ? ` [${marks.join(' / ')}]` : '';
   const plan = t.plan && t.detail ? ` — ${shortQuote(t.detail, 140)}` : '';
-  const line = `- ${t.plan ? PLAN_LABEL : COMPACT_LABEL[kind]} ${who ? `${who}: ` : ''}${t.title}${said}${said2}${plan}${when}${tail}${unaware}`;
+  const line = `- ${t.plan ? PLAN_LABEL : COMPACT_LABEL[kind]} ${who ? `${who}: ` : ''}${t.title}${now}${said}${said2}${plan}${when}${then}${tail}${unaware}`;
   return line;
 }
 

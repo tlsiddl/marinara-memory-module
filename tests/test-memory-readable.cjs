@@ -40,6 +40,7 @@ test('English memory: Korean glosses after English lines go, headings and labels
     '',
     '[아직 끝나지 않은 일]',
     '- 약속 빅터→세라: Walk her home [기한: 25-03-01 (토) 06:00, 오늘, 지남] (최근: Halfway done.)',
+    '- 약속 빅터→세라: Carry the bag — 지금: Halfway there. [25-03-01] (처음: She asked him to.)',
     '',
     '[지난 장면들]',
     '  빅터 → 세라: "Stay here." (여기 있어.)',
@@ -52,6 +53,7 @@ test('English memory: Korean glosses after English lines go, headings and labels
   assert.match(out, /\n\[Notebook\] \(What each character privately decided/);
   assert.match(out, /\n- Viktor: \(At the pier\) I will wait for her\.\n  coming to mind now: \(Rain\)/);
   assert.match(out, /\n- Promise Viktor→Sera: Walk her home \[deadline: 25-03-01 \(Sat\) 06:00, today, overdue\] \(latest: Halfway done\.\)/);
+  assert.match(out, /\n- Promise Viktor→Sera: Carry the bag — now: Halfway there\. \[25-03-01\] \(at first: She asked him to\.\)/);
   assert.match(out, /\n  Viktor → Sera: "Stay here\."\n/);
   assert.match(out, /\n  Sera → Viktor: "싫어\."$/, 'a Korean line keeps its words');
   // A Korean memory is left as it was.
