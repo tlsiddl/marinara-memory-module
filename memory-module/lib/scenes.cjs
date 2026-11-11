@@ -2994,7 +2994,10 @@ function applySpeechMarks(store, messages) {
   const byId = new Map(messages.map((m) => [m.id, m]));
   let changed = 0;
   for (const scene of store.scenes || []) {
+    // A scene the user rewrote, and a quote they set by hand, are not for the speech marks to change.
+    if (scene.edited) continue;
     for (const q of [...(scene.events || []).flatMap((e) => e.quotes || []), ...(scene.loose || [])]) {
+      if (q.manual) continue;
       const found = quoteSource(q, byNumber, byId);
       if (found.stale) continue;
       const lang = found.m.speechLangs?.[found.sentence - 1] || null;

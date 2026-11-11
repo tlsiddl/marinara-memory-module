@@ -496,7 +496,7 @@ function undoApplied(file, id, now = new Date().toISOString()) {
 }
 
 /** What the screen lists under "자동으로 적용함": the ones not undone, newest first. */
-const appliedView = (file) => (file?.applied || []).filter((a) => !a.undone).map((a) => ({ id: a.id, kind: a.kind, label: a.label, date: a.date, sceneId: a.sceneId, appliedAt: a.appliedAt, ...(a.kind === 'newTracker' ? { trackerId: a.trackerId } : {}), text: a.kind === 'newTracker' ? a.text : `${a.label} 시작일 ${shortDate(a.date)} 기록` })).reverse();
+const appliedView = (file) => (file?.applied || []).filter((a) => !a.undone).map((a) => ({ id: a.id, kind: a.kind, label: a.label, date: a.date, sceneId: a.sceneId, appliedAt: a.appliedAt, ...(a.kind === 'newTracker' ? { trackerId: a.trackerId, starts: (file.items || []).find((t) => t.id === a.trackerId)?.cycle?.starts?.length || 0 } : {}), text: a.kind === 'newTracker' ? a.text : `${a.label} 시작일 ${shortDate(a.date)} 기록` })).reverse();
 
 /** accept: the date becomes a start; ignore: it is marked and never asked again. */
 function answerSuggestion(file, sid, action, now = new Date().toISOString()) {

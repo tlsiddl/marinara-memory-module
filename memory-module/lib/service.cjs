@@ -4694,6 +4694,11 @@ async function routes(app) {
     if (b.ooc === null) delete marks[m.id]; else marks[m.id] = b.ooc;
     if (Object.keys(marks).length) own.ooc = marks; else delete own.ooc;
     saveSettings({ ...all, chats: { ...(all.chats || {}), [chatId]: own } });
+    // What counts as story changes what a reply may recall: the picked memory and the held views are made again.
+    recalls.delete(chatId);
+    replyViews.delete(chatId);
+    replyLedgers.delete(chatId);
+    selectedViews.delete(chatId);
     return oocView(chatId);
   }));
   app.get('/chats/:id/trackers', guard(async (req) => {
@@ -4710,9 +4715,18 @@ async function routes(app) {
     const ACTIONS = ['add', 'edit', 'delete', 'start', 'addStart', 'removeStart', 'editStart', 'fromScene', 'accept', 'ignore', 'undoApplied'];
     if (!ACTIONS.includes(action)) throw Error(`${ACTIONS.join(', ')} 중 하나여야 합니다.`);
     // Read, change and save with no await in between, so a scan cannot overwrite the change.
+    let undone = null;
     A.using(chatId, () => {
       const file = loadTrackers(chatId);
       let next;
+      if (action === 'undoApplied') {
+        // What an undo removes, told back to the screen (a recommended tracker goes with the start dates it has now).
+        const rec = (file.applied || []).find((a) => a.id === String(b.aid || id));
+        if (rec?.kind === 'newTracker') {
+          const gone = file.items.find((t) => t.id === rec.trackerId);
+          undone = { kind: 'newTracker', trackerId: rec.trackerId, label: gone?.label || rec.label || null, starts: gone?.cycle?.starts?.length || 0 };
+        }
+      }
       if (action === 'add') next = Tk.addItem(file, b.item);
       else if (action === 'edit') next = Tk.editItem(file, id, b.item);
       else if (action === 'delete') next = Tk.deleteItem(file, id);
@@ -4735,7 +4749,7 @@ async function routes(app) {
       else next = Tk.answerSuggestion(file, String(b.sid || id), action);
       saveTrackers(chatId, next);
     });
-    return trackersView(chatId);
+    return undone ? { ...trackersView(chatId), undone } : trackersView(chatId);
   }));
   /* ---------- 인물 상태 and 장소 ---------- */
   const worldView = (chatId) => {
