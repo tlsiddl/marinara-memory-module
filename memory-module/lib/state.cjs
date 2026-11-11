@@ -60,6 +60,32 @@ const alike = (a, b) => {
   return x === y || (Math.min(x.length, y.length) >= 2 && (x.includes(y) || y.includes(x)));
 };
 
+/** The words of an item that say what it is ("Irina's unlit Sobranie cigarette" → irina, unlit, sobranie, cigarette). */
+const ITEM_STOP = new Set(['a', 'an', 'the', 'of', 'and', 'with', 'in', 'on', 'his', 'her', 'their', 'its', 'my', 'your', 'one', 'two', 'some', 's']);
+const itemWords = (s) => tidy(s).toLowerCase().replace(/[’']s\b/g, '').split(/[^\p{L}\p{N}]+/u).filter((w) => w && !ITEM_STOP.has(w));
+/**
+ * Things carried, without the same thing twice: one whose words are all in another ("Irina's sunglasses" in "Irina's
+ * sunglasses and unlit Sobranie cigarette"), the same kind of thing with a word in common ("black UV parasol" /
+ * "folded black parasol"), or the same thing in two languages (koOf gives an item's Korean, when it has one). The
+ * newer of two stays (lists are oldest first).
+ */
+function dedupeItems(list, koOf = null) {
+  const out = [];
+  const same = (a, b) => {
+    if (alike(a, b)) return true;
+    const ko = (x) => (/[가-힣]/.test(x) ? x : koOf?.(x) || null);
+    const ka = ko(a), kb = ko(b);
+    if (ka && kb && (ka === kb || alike(ka, kb)) && (ka !== a || kb !== b)) return true;
+    const wa = itemWords(a), wb = itemWords(b);
+    if (!wa.length || !wb.length || /[가-힣]/.test(a + b)) return false;
+    const [short, long] = wa.length <= wb.length ? [wa, wb] : [wb, wa];
+    if (short.every((w) => long.includes(w))) return true;
+    return wa.at(-1) === wb.at(-1) && wa.slice(0, -1).some((w) => wb.includes(w));
+  };
+  for (const item of [...list].reverse()) if (!out.some((x) => same(x, item))) out.unshift(item);
+  return out;
+}
+
 /* ---------- the prompt part (added only while the feature is on) ---------- */
 
 const PROMPT = `인물 상태 기록 (이 방에서 켠 기능):
@@ -129,7 +155,7 @@ const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
  * off), then the user's own edits laid over them. `previous` supplies those edits and the time stamps. Returns
  * the new file; the caller compares and saves.
  */
-function fold(store, previous) {
+function fold(store, previous, { koOf = null } = {}) {
   const old = isState(previous) ? previous : emptyState();
   const auto = new Map();
   const touch = (name) => {
@@ -215,6 +241,8 @@ function fold(store, previous) {
     for (const f of FIELDS) {
       if (has(user, f)) { card[f] = user[f]; sources[f] = 'user'; } else if (a[f] !== undefined) card[f] = a[f];
     }
+    // The same thing carried twice (in other words, or in two languages) is listed once.
+    if (!sources.carrying && card.carrying.length > 1) card.carrying = dedupeItems(card.carrying, koOf);
     if (!card.other) delete card.other;
     const filled = FIELDS.some((f) => (Array.isArray(card[f]) ? card[f].length : card[f]));
     if (!filled && !Object.keys(user).length) continue;
@@ -374,5 +402,5 @@ function view(file) {
 
 module.exports = {
   STATE_VERSION, FIELDS, SCALARS, LISTS, PROMPT, INJECT_CHARS, LIST_CAP, MAX_CARDS,
-  keyOf, alike, cleanEntry, emptyState, isState, fold, setField, unlockField, addCard, deleteCard, injectionBlock, awayFrom, view,
+  keyOf, alike, dedupeItems, cleanEntry, emptyState, isState, fold, setField, unlockField, addCard, deleteCard, injectionBlock, awayFrom, view,
 };

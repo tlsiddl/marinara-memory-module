@@ -408,6 +408,15 @@
   const withKo = (text) => (ko(text) ? `${esc(text)} <small class="tr-inline">(${esc(ko(text))})</small>` : esc(text));
   /** A name field ("Daniel", "A·B") with each name written the Korean way the module gave. */
   const nameShown = (field) => String(field ?? '').split(/(\s*[·,、]\s*)/).map((part, i) => (i % 2 ? part : trMap[part] || part)).join('');
+  /**
+   * A Korean particle fitted to the word before it: josa('마르첼로 디 마르스', '이', '가') → '가', josa('이리나', '을', '를')
+   * → '를'. A word in Latin letters goes by its last letter (a vowel has no final consonant).
+   */
+  const josa = (word, withFinal, without) => {
+    const ch = String(word || '').trim().slice(-1);
+    if (/[가-힣]/.test(ch)) return (ch.charCodeAt(0) - 0xac00) % 28 ? withFinal : without;
+    return /[aeiouy]$/i.test(ch) ? without : /[a-z]$/i.test(ch) ? withFinal : `${withFinal}(${without})`;
+  };
   const trNote = (text) => (ko(text) ? `<p class="tr-note full"><span>한국어</span>${esc(ko(text))}</p>` : '');
   const shown = (text) => ko(text) || text || '';
   /**
@@ -1256,7 +1265,15 @@
       .map((who) => {
         const list = items.filter((r) => r.who === who).slice().reverse();
         if (!list.length) return '';
-        return `<details class="paper" data-list="life:${esc(who)}" ${openLists.has(`life:${who}`) ? 'open' : ''}><summary>${esc(who)} · 기록 ${list.length}개</summary>${list.map((r) => routineRow(r, r.key)).join('')}</details>`;
+        // Meals within two hours of the one before are one sitting (the memory counts them as one meal): marked so.
+        const minutes = (a, b) => (Date.parse(`${a}:00Z`) - Date.parse(`${b}:00Z`)) / 60000;
+        const sitting = (r, i) => {
+          const older = list.slice(i + 1).find((x) => x.what === 'meal' && !x.substitute);
+          return r.what === 'meal' && !r.substitute && older?.at && r.at && minutes(r.at, older.at) >= 0 && minutes(r.at, older.at) < 120;
+        };
+        const meals = list.filter((r) => r.what === 'meal' && !r.substitute).length;
+        const sittings = meals - list.filter((r, i) => sitting(r, i)).length;
+        return `<details class="paper" data-list="life:${esc(who)}" ${openLists.has(`life:${who}`) ? 'open' : ''}><summary>${esc(nameShown(who))} · 기록 ${list.length}개${meals > sittings ? ` · 식사 ${meals}개는 ${sittings}끼로 셈` : ''}</summary>${list.map((r, i) => `${sitting(r, i) ? '<small class="hint sitting">↳ 아래 식사와 같은 끼니 (한 끼로 셈)</small>' : ''}${routineRow(r, r.key)}`).join('')}</details>`;
       })
       .join('');
     const lastAt = info.storyNow || items.map((r) => r.at).filter(Boolean).sort().at(-1) || '';
@@ -2158,7 +2175,8 @@
           const own = calls.filter((e) => e.from === p);
           const theirs = calls.filter((e) => e.to === p && e.from !== p);
           const list = (xs, side) => xs.map((e) => `${esc(nameShown(side === 'to' ? e.to : e.from))}: “${esc(callLabel(e))}”`).join(' · ');
-          return `${own.length ? `<p class="hint"><b>${esc(nameShown(p))}이(가) 부르는 말</b> — ${list(own, 'to')}</p>` : ''}${theirs.length ? `<p class="hint"><b>${esc(nameShown(p))}을(를) 부르는 말</b> — ${list(theirs, 'from')}</p>` : ''}`;
+          const who = nameShown(p);
+          return `${own.length ? `<p class="hint"><b>${esc(who)}${josa(who, '이', '가')} 부르는 말</b> — ${list(own, 'to')}</p>` : ''}${theirs.length ? `<p class="hint"><b>${esc(who)}${josa(who, '을', '를')} 부르는 말</b> — ${list(theirs, 'from')}</p>` : ''}`;
         })()}
         <div class="buttons"><button class="ghost" data-tab="world">상태 고치기</button><button class="ghost" data-tab="names">이름·호칭 고치기</button></div>
       </div>

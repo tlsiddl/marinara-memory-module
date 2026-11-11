@@ -472,7 +472,8 @@ function refreshWorld(chatId, store) {
     A.using(chatId, () => {
       if (featureOn(chatId, 'characterState')) {
         const old = loadState(chatId);
-        const next = St.fold(store, old);
+        const lookup = translationLookup(chatId, 'ko');
+        const next = St.fold(store, old, { koOf: (t) => lookup(t) });
         if (JSON.stringify(next) !== JSON.stringify(old)) { saveState(chatId, next); changed = true; }
       }
       if (featureOn(chatId, 'places')) {

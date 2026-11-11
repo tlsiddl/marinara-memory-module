@@ -1524,6 +1524,11 @@ const hasHangul = (s) => /[가-힣]/.test(s);
 const hasLatin = (s) => /[A-Za-zÀ-ÿ]/.test(s);
 /** Letters of another alphabet a call may be written in (Greek, Cyrillic). */
 const hasOtherScript = (s) => /[\p{Script=Greek}\p{Script=Cyrillic}]/u.test(s);
+/** A Greek word without its accents, in lower case ("Ἄχ" → "αχ"), to look up in NOT_A_TERM_EL. */
+const bareGreek = (w) => String(w).normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+/** Everyday Greek words (modern and ancient) that open or close a line without calling anyone. */
+const NOT_A_TERM_EL = new Set(('ενταξει ναι ναι οχι ελα ελατε ακου ακουσε κοιτα κοιταξε περιμενε ευχαριστω συγγνωμη λοιπον καλα καλως τι γιατι που πως ποτε ποιος ποια εδω εκει αχ ω ε μα και αλλα ομως ισως σιγουρα βεβαια αληθεια σωστα αρκει φτανει σταματα παμε θεε μου ' +
+  'ου μη ουκ ουχι δη γε μεν δε αρα πως νυν ιδου φευ οιμοι ναι μα τους θεους χαιρε διασκεδαστικον').split(/\s+/));
 /** Chinese or Japanese letters. */
 const hasCjk = (s) => /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u.test(s);
 /** Everyday Chinese and Japanese words that open or close a line without calling anyone. */
@@ -1741,7 +1746,7 @@ function vocativeTerms(text, names, opts = {}) {
       } else if (hasLatin(rest) || hasOtherScript(rest)) {
         const words = rest.split(/\s+/);
         const cased = opts.anyCase ? /^\p{L}[\p{L}'’-]+$/u : /^\p{Lu}[\p{L}'’-]+$/u;
-        if (words.length <= 2 && words.every((w) => cased.test(w) && !NOT_A_TERM.has(w.toLowerCase())) && plausibleTerm(rest) && !matchAlias(rest, names) && !words.some((w) => matchAlias(w, names))) term = rest;
+        if (words.length <= 2 && words.every((w) => cased.test(w) && !NOT_A_TERM.has(w.toLowerCase()) && !NOT_A_TERM_EL.has(bareGreek(w))) && plausibleTerm(rest) && !matchAlias(rest, names) && !words.some((w) => matchAlias(w, names))) term = rest;
       } else if (hasCjk(rest)) {
         // Chinese or Japanese: no capitals to go by, so a short call (2–6 characters) that is not an everyday word.
         const t = rest.replace(/\s+/g, '');

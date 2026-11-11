@@ -199,3 +199,22 @@ test('daily life shows only the people the room picked, with "기록 없음" for
   assert.doesNotMatch(out, /하준/);
   assert.match(L.renderRoutine(ledger, '2025-03-01T13:00'), /하준/, 'nobody picked: everyone with a record');
 });
+
+test('things carried twice in other words or languages are listed once; a guessed listener only adds to a call already seen', () => {
+  const St = require('../memory-module/lib/state.cjs');
+  const ko = { "Irina's sunglasses and unlit Sobranie cigarette": '이리나의 선글라스와 불붙이지 않은 소브라니 담배' };
+  assert.deepEqual(St.dedupeItems(['이리나의 선글라스', 'black UV parasol', "Irina's unlit Sobranie cigarette", 'folded black parasol', "Irina's sunglasses and unlit Sobranie cigarette", 'white towel'], (t) => ko[t]),
+    ['folded black parasol', "Irina's sunglasses and unlit Sobranie cigarette", 'white towel']);
+  const Addr = require('../memory-module/lib/address.cjs');
+  const q = (n, text, to, extra = {}) => ({ number: n, sentence: 1, text, by: '세라', to, kind: 'dialogue', ...extra });
+  const store = { cast: ['도윤', '세라'], personas: ['세라'], scenes: [{ id: 'S1', present: ['도윤', '세라'], events: [{ text: 'e', quotes: [
+    q(1, '"아리, 괜찮아?"', '도윤'), q(2, '"Ἄρι, ἔλθε."', '도윤', { toGuess: true }),
+    q(3, '"보리, 와."', '도윤', { toGuess: true }), q(4, '"보리, 가."', '도윤', { toGuess: true }),
+  ] }] }] };
+  const book = Addr.emptyBook();
+  Addr.refresh(book, store);
+  const by = new Map(book.entries.map((e) => [e.id, e]));
+  const shown = book.entries.filter((e) => !e.pairOf).map((e) => `${e.term}${e.pairWith ? `(${by.get(e.pairWith).term})` : ''}`);
+  assert.ok(shown.includes('Ἄρι(아리)'), shown.join(' '));
+  assert.ok(!shown.some((t) => /보리/.test(t)), 'guesses alone make no call');
+});
