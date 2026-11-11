@@ -9,7 +9,7 @@ const source = fs.readFileSync(path.join(__dirname, '../extension/runtime.js'), 
 test('seven tabs hold every screen; the new ones are in VIEWS', () => {
   const groups = source.slice(source.indexOf('  const GROUPS = ['), source.indexOf('  ];', source.indexOf('  const GROUPS = [')));
   assert.equal((groups.match(/^\s+\['[a-z]+', '/gm) || []).length, 7);
-  for (const view of ['home', 'timeline', 'lines', 'scenes', 'person', 'facts', 'notebook', 'world', 'names', 'ledger', 'promises', 'life', 'search', 'inject', 'settings']) {
+  for (const view of ['home', 'timeline', 'lines', 'scenes', 'setup', 'person', 'facts', 'notebook', 'world', 'names', 'ledger', 'promises', 'life', 'search', 'inject', 'settings']) {
     assert.match(groups, new RegExp(`'${view}'`), `${view} is in a tab`);
   }
   assert.match(source, /const VIEWS = \{ timeline: viewTimeline, lines: viewLines, person: viewPerson,/);
