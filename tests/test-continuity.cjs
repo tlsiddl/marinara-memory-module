@@ -159,6 +159,18 @@ test('old items are asked about one at a time, oldest first, and not again until
   assert.deepEqual(L.oldItemsToReview(ledger, 110).map((t) => t.id), ['T1', 'T4'], '20 more messages: asked again');
 });
 
+test('a state is asked about sooner; an item past its deadline in the story is asked about however lately it came up', () => {
+  const ledger = { storyDate: '2025-03-02', storyTime: '2025-03-02T13:40', threads: [
+    thread('T1', 'state', 'Sera asleep on the sofa', 85),
+    thread('T2', 'pending', 'Mina to send the letter by eight', 95, { due: { date: '2025-03-02', time: '08:00' } }),
+    thread('T3', 'promise', 'Walk Sera home tonight', 95, { due: { date: '2025-03-02', time: '21:00' } }),
+    thread('T4', 'pending', 'Viktor checks the harbor ledger', 85),
+  ] };
+  assert.deepEqual(L.oldItemsToReview(ledger, 100).map((t) => t.id), ['T1', 'T2'], 'a state after 10 messages, a passed deadline at once; not one still to come, not a pending item after 15');
+  ledger.threads[1].reviewedUpTo = 100;
+  assert.deepEqual(L.oldItemsToReview(ledger, 101).map((t) => t.id), ['T1'], 'a passed deadline is asked once, until it comes up again');
+});
+
 test('one old item: closed on a line that shows it is over now; changed gets a "최근" line that is not a mention', () => {
   const messages = [msg(5, 'Sera', ['I am nobody.']), msg(98, 'Viktor', ['"Sera, come here."', 'He held the door.']), msg(99, 'Sera', ['"Fine."']), msg(100, 'Mina', ['OOC: 잠깐'], { ooc: true })];
   const ledger = { threads: [thread('T1', 'secret', 'Sera hides her name from Viktor', 5), thread('T4', 'promise', 'Walk Sera home', 30)] };

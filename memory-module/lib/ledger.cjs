@@ -648,16 +648,32 @@ const OLD_ITEM_KINDS = ['pending', 'secret', 'state', 'promise'];
 // Not brought up for this many messages: asked about on its own. Asked again once this many more have come.
 const OLD_ITEM_AFTER = 40;
 const OLD_ITEM_AGAIN = 20;
+// A state ("asleep on the sofa", "out at the market") passes within a scene or two: asked about much sooner, and again sooner.
+const OLD_STATE_AFTER = 10;
+const OLD_STATE_AGAIN = 10;
 // The latest messages shown with it: long replies run to thousands of letters each, and the line that settles an item
 // (someone calling her by name) may be in any of the last few.
 const OLD_ITEM_TAIL_CHARS = 20000;
 
-/** Open items (not feelings or plans) the story has not brought up for a while, oldest first, not asked lately. */
+/**
+ * Open items (not feelings or plans) the story has not brought up for a while, oldest first, not asked lately. A state
+ * is asked about after fewer messages, and an item whose time to be met has gone by in the story is asked about
+ * however lately it came up: "the letter by eight" at ten at night is sent or not by now.
+ */
 function oldItemsToReview(ledger, lastNumber) {
   if (typeof lastNumber !== 'number') return [];
+  // The story's clock ("2025-07-19T13:40"), or just its day; a deadline with no time runs to the end of its day.
+  const now = ledger?.storyTime || ledger?.storyDate || null;
+  const pastDue = (t) => !!(now && t.due?.date && `${t.due.date}T${t.due.time || '23:59'}` < (now.includes('T') ? now : `${now}T00:00`));
+  const due = (t) => {
+    const asked = t.reviewedUpTo ?? -Infinity;
+    if (pastDue(t) && asked < lastMentioned(t)) return true;
+    const [after, again] = t.kind === 'state' ? [OLD_STATE_AFTER, OLD_STATE_AGAIN] : [OLD_ITEM_AFTER, OLD_ITEM_AGAIN];
+    return lastMentioned(t) <= lastNumber - after && asked <= lastNumber - again;
+  };
   return (ledger?.threads || [])
     .filter((t) => t.status === 'open' && !t.plan && OLD_ITEM_KINDS.includes(t.kind))
-    .filter((t) => lastMentioned(t) <= lastNumber - OLD_ITEM_AFTER && (t.reviewedUpTo ?? -Infinity) <= lastNumber - OLD_ITEM_AGAIN)
+    .filter(due)
     .sort((a, b) => lastMentioned(a) - lastMentioned(b));
 }
 
