@@ -227,6 +227,13 @@ function latinizeNames(line, names, quotedLine = false) {
   return line.split(/("[^"]*"|“[^”]*”)/).map((part, i) => (i % 2 ? part : swap(part))).join('');
 }
 
+/** Four or more Korean words in a row outside quoted words ("북쪽 부두에 묶인 작은 배의 …"). */
+const KOREAN_PHRASE = /(?:^|[^가-힣\w])(?:[가-힣0-9]*[가-힣][가-힣0-9]*\s+){3}[가-힣0-9]*[가-힣]/;
+function koreanPhrase(line) {
+  const outside = String(line).replace(/"[^"]*"|“[^”]*”|「[^」]*」|『[^』]*』/g, ' ');
+  return KOREAN_PHRASE.test(outside);
+}
+
 /** A heading line that opens a block of lines quoted from the story, kept as written. */
 const QUOTED_BLOCKS = ['[원문에서 떠오른 대목]', '[Passages from the story]', '[原文片段]'];
 
@@ -286,7 +293,10 @@ function planLines(text, target) {
       continue;
     }
     const lang = textLanguage(line);
-    out.push({ line, kind: !lang || lang === target ? 'keep' : 'translate' });
+    // Mostly English, but with a Korean phrase in it (a scene's place, a short note): still translated, or that part
+    // would stay Korean for good. A name (at most three words) is not such a phrase.
+    const mixed = target !== 'ko' && lang === target && koreanPhrase(line);
+    out.push({ line, kind: (!lang || lang === target) && !mixed ? 'keep' : 'translate' });
   }
   return out;
 }

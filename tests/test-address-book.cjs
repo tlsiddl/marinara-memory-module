@@ -427,3 +427,10 @@ test('injection: spellings of one word count once (Korean shown), the cap is 220
   const counts = line.split(' · ').map((p) => p.split('/').length);
   assert.ok(Math.max(...counts) - Math.min(...counts) <= 1, 'terms are spread evenly: ' + line);
 });
+
+test('a reply at the start of a line ("Ricevuto, signore.") is not a term of address; the title after it is', () => {
+  const S = require('../memory-module/lib/scenes.cjs');
+  const got = S.vocativeTerms('"Ricevuto, signore."', ['아델', '비토']).map((t) => t.term);
+  assert.ok(!got.includes('Ricevuto'), JSON.stringify(got));
+  assert.ok(!S.vocativeTerms('"Roger, I am on it."', ['아델']).map((t) => t.term).includes('Roger'));
+});
