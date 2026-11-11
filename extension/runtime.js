@@ -2009,7 +2009,7 @@
       const star = (sc.events || []).some((e) => e.importance === 'critical');
       const after = afterOf(sc);
       const own = lines.filter((l) => l.scenes.includes(sc.id));
-      return `${chapterHead}<div class="tl-scene">
+      return `${chapterHead}<div class="tl-scene" data-tl="sc-${esc(sc.id)}">
         <div class="tl-head">${sceneLink(sc)}<small>${esc([time, sc.place].filter(Boolean).join(' · '))}</small>${star ? '<span class="pill">★ 결정적</span>' : ''}</div>
         <p>${esc(shown(sc.summary))}</p>
         ${after.map((a) => `<p class="tl-after"><small>${a.now ? '지금' : '그 뒤'}</small> ${esc(shown(a.t.title))} — ${esc(a.text)}${a.end && a.end.id !== sc.id ? ` ${sceneLink(a.end)}` : ''}</p>`).join('')}
@@ -2018,7 +2018,29 @@
     };
     return `<div class="eyebrow">STORY · ${scenes.length} SCENES</div><h1>시간순</h1>
       <p class="intro">작중 날짜별로 장면을 이어 보여 줍니다. 장면에서 시작된 일이 그 뒤 어떻게 됐는지(그 뒤 · 지금)와 그 장면의 줄기도 함께 보입니다. 장면 번호를 누르면 장면·챕터 화면에서 열립니다.</p>
-      ${days.map((d) => `<section class="tl-day"><div class="tl-stamp"><b>${esc(d.day)}</b><small>장면 ${d.list.length}</small></div><div class="tl-list">${d.list.map(card).join('')}</div></section>`).join('')}`;
+      ${timelineNav(days)}
+      ${days.map((d, i) => `<section class="tl-day" data-tl="day-${i}"><div class="tl-stamp"><b>${esc(d.day)}</b><small>장면 ${d.list.length}</small></div><div class="tl-list">${d.list.map(card).join('')}</div></section>`).join('')}`;
+  }
+
+  /**
+   * The bar over 시간순 that stays at the top while it scrolls: every story day, and under the day the hours its
+   * scenes start at; a press scrolls to it. A long story (many days) shows the days only.
+   */
+  function timelineNav(days) {
+    if (!days.length) return '';
+    const hourOf = (sc) => { const m = String(sc.time || '').match(/(\d{1,2}):\d{2}/); return m ? Number(m[1]) : null; };
+    const hoursOf = (d) => {
+      const seen = new Map();
+      for (const sc of d.list) { const h = hourOf(sc); if (h != null && !seen.has(h)) seen.set(h, sc.id); }
+      return [...seen];
+    };
+    const many = days.length > 12;
+    const rows = days.map((d, i) => {
+      const hours = many ? [] : hoursOf(d);
+      return `<div class="tl-nav-day"><button data-act="tlJump" data-target="day-${i}"><b>${esc(d.day)}</b> <small>${d.list.length}</small></button>${hours.length > 1 ? hours.map(([h, id]) => `<button class="tl-nav-hour" data-act="tlJump" data-target="sc-${esc(id)}">${h}시</button>`).join('') : ''}</div>`;
+    }).join('');
+    const last = days.at(-1).list.at(-1);
+    return `<nav class="tl-nav" aria-label="날짜로 이동">${rows}<div class="tl-nav-day"><button class="tl-nav-hour" data-act="tlJump" data-target="sc-${esc(last.id)}">최근 장면으로</button></div></nav>`;
   }
 
   function viewLines() {
@@ -2358,6 +2380,13 @@
         const last = speechRows?.at(-1);
         speechRows = [...(speechRows || []), { from: last?.from || 1, mark: last ? '[' : '"', lang: last?.lang === 'en' ? 'it' : 'en' }];
         return render();
+      }
+      case 'tlJump': {
+        const target = root.querySelector(`[data-tl="${CSS.escape(el.dataset.target || '')}"]`);
+        const nav = root.querySelector('.tl-nav');
+        const box = root.querySelector('#content');
+        if (target && box) box.scrollTo({ top: box.scrollTop + target.getBoundingClientRect().top - box.getBoundingClientRect().top - (nav?.offsetHeight || 0) - 8, behavior: 'smooth' });
+        return;
       }
       case 'speechRowRemove':
         speechRows = (speechRows || []).filter((_, i) => i !== Number(el.dataset.i));
