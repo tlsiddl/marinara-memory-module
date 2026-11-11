@@ -417,6 +417,27 @@ function summaryText(value, max) {
   return end >= room / 3 ? text.slice(0, end).trim() : `${text.slice(0, room - 1).trim()}…`;
 }
 
+/**
+ * A scene's place, whole: 60 letters for Korean, more for English, and never cut in the middle of a word
+ * ("…, Port of Ha"); a long one ends at the last whole part.
+ */
+/** A place saved under the old 60-letter cut ("…, Port of Ha"): shown up to its last whole part. */
+function oldPlace(place) {
+  const t = String(place || '');
+  if (t.length !== 60 || /[가-힣]/.test(t) || /[.)]$/.test(t)) return place;
+  const at = Math.max(t.lastIndexOf(', '), t.lastIndexOf(' / '));
+  return at > 20 ? t.slice(0, at) : t.slice(0, t.lastIndexOf(' ')).replace(/[s,/·-]+$/, '');
+}
+function placeText(value) {
+  const text = cleanText(value, 400);
+  if (!text) return null;
+  const room = /[가-힣]/.test(text) ? 60 : 100;
+  if (text.length <= room) return text;
+  const cut = text.slice(0, room);
+  const at = Math.max(cut.lastIndexOf(', '), cut.lastIndexOf(' / '), cut.lastIndexOf(' · '));
+  return (at > room / 3 ? cut.slice(0, at) : cut.slice(0, Math.max(cut.lastIndexOf(' '), room / 2))).replace(/[s,/·-]+$/, '');
+}
+
 /** A saved summary that was cut in the middle of a sentence (before summaries were kept whole). */
 function cutSummary(text) {
   const t = String(text || '').trim();
@@ -936,7 +957,7 @@ function applyScenes(store, result, slice, required, now = new Date().toISOStrin
       ...(messages.every((m) => m.ooc) ? { ooc: true } : {}),
       messages: messages.map((m) => ({ id: m.id, h: m.h, ...(m.c ? { c: m.c } : {}) })),
       time: cleanText(item.time, 60),
-      place: cleanText(item.place, 60),
+      place: placeText(item.place),
       weather: cleanText(item.weather, 30) || mostOften(messages.map((m) => m.weather), Math.ceil(messages.length / 2)),
       title: cleanText(item.title, 60) || '(제목 없음)',
       summary: summaryText(item.summary, 600) || '',
@@ -2933,7 +2954,7 @@ function sceneHead(scene, n, prev = null) {
   // A line right after one of the same day and place says only what changed ("같은 곳"), not the long place again.
   const day = (t) => String(t || '').match(/^\s*\d{2,4}-\d{1,2}-\d{1,2}(?:\s*\([^)]*\))?/)?.[0]?.trim() || null;
   const time = prev && scene.time && day(scene.time) && day(scene.time) === day(prev.time) ? scene.time.replace(day(scene.time), '').trim() || scene.time : scene.time;
-  const place = prev && scene.place && scene.place === prev.place ? '같은 곳' : scene.place;
+  const place = prev && scene.place && scene.place === prev.place ? '같은 곳' : oldPlace(scene.place);
   const weather = prev && scene.weather && scene.weather === prev.weather && day(scene.time) === day(prev.time) ? null : scene.weather;
   const where = [time, place, weather].filter(Boolean).join(' · ');
   // Its own id (S12), the same one chapters, turning points and recalled scenes use, so the reply model can tell
@@ -3746,6 +3767,7 @@ module.exports = {
   LINES_PROMPT,
   markCutSummaries,
   summaryText,
+  placeText,
   MERGED_MAX,
   liveFacts,
   castOf,

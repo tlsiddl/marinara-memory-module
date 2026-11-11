@@ -52,7 +52,7 @@ test('memory text is translated line by line; headings are fixed, quoted story l
   assert.equal(lines[7], '  하준 → 서아: "토요일 열 시, 버스 타고 가자."', 'a quoted line is the story\'s own words');
   assert.equal(lines[8], '  (narration) 서아는 대답 대신 고개를 끄덕였다.');
   assert.equal(lines[10], '[Passages from the story]');
-  assert.equal(lines[11], '- (68번) 서아: 일곱 살 때 파도에 휩쓸릴 뻔했어.', 'a passage from the story stays');
+  assert.equal(lines[11], '- (#68) 서아: 일곱 살 때 파도에 휩쓸릴 뻔했어.', 'a passage from the story stays (only its number label is in English)');
   assert.equal(lines[0], '[Memory: what the characters remember …]');
   assert.deepEqual(missing, ['- ★ 하준이 토요일 10시에 버스로 가자고 함']);
   // Lines already in the target language are left alone.

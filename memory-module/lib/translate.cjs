@@ -186,6 +186,7 @@ const LABELS = {
     [/, 오늘, 지남\]/g, ', today, overdue]'], [/, 오늘\]/g, ', today]'], [/, 내일\]/g, ', tomorrow]'], [/, (\d+)일 뒤\]/g, ', in $1 days]'], [/, (\d+)일 지남\]/g, ', $1 days overdue]'],
     [/→ 그 뒤: /g, '→ later: '], [/\((S\d+) 기준\)/g, '(as of $1)'], [/→ 지금: /g, '→ now: '], [/→ 줄기 「([^」]+)」 지금: /g, '→ story line "$1" now: '], [/^\((C\d+) 시기\)$/, '(during $1)'],
     [/모름: /g, 'unaware: '], [/짐작만: /g, 'suspects only: '], [/있던 사람: /g, 'present: '], [/ · 같은 곳/g, ' · same place'],
+    [/ · 맑음(?= —| ·|$)/g, ' · Clear'], [/ · 흐림(?= —| ·|$)/g, ' · Cloudy'], [/ · 구름 (?:조금|많음)(?= —| ·|$)/g, ' · Partly cloudy'], [/ · 비(?= —| ·|$)/g, ' · Rain'], [/ · 소나기(?= —| ·|$)/g, ' · Showers'], [/ · 눈(?= —| ·|$)/g, ' · Snow'], [/ · 안개(?= —| ·|$)/g, ' · Fog'], [/ · 바람(?= —| ·|$)/g, ' · Windy'], [/ · 더움(?= —| ·|$)/g, ' · Hot'], [/ · 추움(?= —| ·|$)/g, ' · Cold'],
     [/\) 새벽(?=\s)/g, ') dawn'], [/\) 아침(?=\s)/g, ') morning'], [/\) 오전(?=\s)/g, ') morning'], [/\) 오후(?=\s)/g, ') afternoon'], [/\) 저녁(?=\s)/g, ') evening'], [/\) 밤(?=\s)/g, ') night'],
     [/\(월\)/g, '(Mon)'], [/\(화\)/g, '(Tue)'], [/\(수\)/g, '(Wed)'], [/\(목\)/g, '(Thu)'], [/\(금\)/g, '(Fri)'], [/\(토\)/g, '(Sat)'], [/\(일\)/g, '(Sun)'],
   ],
@@ -303,7 +304,8 @@ function planLines(text, target) {
     const lang = textLanguage(line);
     // Mostly English, but with a Korean phrase in it (a scene's place, a short note): still translated, or that part
     // would stay Korean for good. A name (at most three words) is not such a phrase.
-    const mixed = target !== 'ko' && lang === target && koreanPhrase(line);
+    // A "→ later:" line ends in how an item was closed, often typed by hand in Korean.
+    const mixed = target !== 'ko' && lang === target && (koreanPhrase(line) || (/^\s*→ /.test(line) && /[가-힣]{2}/.test(line.replace(/"[^"]*"/g, ''))));
     out.push({ line, kind: (!lang || lang === target) && !mixed ? 'keep' : 'translate' });
   }
   return out;
@@ -338,6 +340,9 @@ function translateText(text, target, lookup, { names = [] } = {}) {
       if (!narration) return p.line;
       // A line quoted from the story (not every indented line: a fact's "  · …" is the module's own words).
       const story = Boolean(p.quoted);
+      // A passage from the story ("- (98번) "…" (번역) / "…" (번역)"): each English line without its Korean gloss.
+      const passage = p.line.match(/^- \((\d+)번\) (.*)$/);
+      if (passage) return `- (#${passage[1]}) ${passage[2].split(' / ').map(dropGloss).join(' / ')}`;
       // A line kept because it is already in the target language may still carry the module's Korean labels.
       if (!story && !p.narration) return latinizeNames(fallbackLabels(p.line, target), latin);
       const line = p.narration ? p.line.replace('(서술) ', narration) : dropGloss(p.line.replace(/\(추정\)(?=: ["“「『])/, guess));

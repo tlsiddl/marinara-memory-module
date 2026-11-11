@@ -122,3 +122,13 @@ test('an indented fact line ("  · …") gets its labels and names in English; a
   assert.match(out, /  · Keeps the harbor key in his coat\. \[unaware: Sera\]/);
   assert.match(out, /"세라, 모름: 이건 대사야\."/);
 });
+
+test('a place cut at the old 60 letters ends at its last whole part; weather, close notes and passages read in English', () => {
+  const scene = { id: 'S9', time: '25-03-01', place: "Viktor's boat, lower master cabin, North Pier, Port of Harbo", title: 't', summary: 's', events: [], recollections: [] };
+  assert.equal(scene.place.length, 60);
+  assert.match(S.renderExpanded(scene, 0), /^S9 25-03-01 · Viktor's boat, lower master cabin, North Pier — t/);
+  assert.match(T.translateText("[지난 장면들]\nS9 25-03-01 (토) 06:00 · Viktor's boat · 맑음 — Dawn: They talk.", 'en', () => null).text, /· Clear — Dawn/);
+  assert.equal(T.planLines('[지난 장면들]\n→ later: Walk her home — 데려다줌 (직접 닫음)', 'en')[1].kind, 'translate');
+  const raw = T.translateText('[원문에서 떠오른 대목]\n- (98번) "Stay here." (여기 있어.) / 그 뒤로 낯선 얼굴. / "Fine." (좋아.)', 'en', () => null).text;
+  assert.match(raw, /^\[Passages from the story\]\n- \(#98\) "Stay here\." \/ 그 뒤로 낯선 얼굴\. \/ "Fine\."$/);
+});
