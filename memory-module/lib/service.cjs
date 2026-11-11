@@ -1171,6 +1171,11 @@ function setSpeakerTags(chatId, on) {
 }
 
 function speakerNamesOn(chatId) { return settings().chats?.[chatId]?.speakerNames === true; }
+/** The people the room chose for 최근 생활 (none chosen: everyone with a record). */
+function routinePeople(chatId) {
+  const list = settings().chats?.[chatId]?.routinePeople;
+  return Array.isArray(list) ? [...new Set(list.map((n) => String(n || '').trim().slice(0, 40)).filter(Boolean))].slice(0, 20) : [];
+}
 
 /*
  * 배경 설정 · 진행 규칙: what the user set for the room from the start (moved here from the author's note, say).
@@ -3514,7 +3519,7 @@ function renderMemorySource(chatId, maxChars = MEMORY_MAX_CHARS, trace = null) {
   const answers = planAnswersOn(chatId);
   const plans = ledger ? L.renderPlans(ledger, { exclude: prefs.excluded, answers }) : '';
   const routineOn = routineEnabled(chatId);
-  const routine = ledger && routineOn ? L.renderRoutine(ledger, storyNow.get(chatId) || ledger.storyTime || null) : '';
+  const routine = ledger && routineOn ? L.renderRoutine(ledger, storyNow.get(chatId) || ledger.storyTime || null, { only: routinePeople(chatId) }) : '';
   const fixed = [open ? `[아직 끝나지 않은 일]\n${open}` : '', plans ? `[작가 계획]\n${plans}` : '', routine].filter(Boolean);
   const style = settings().recallStyle;
   // The full header (every section note) is what the room is planned against; the one sent names only what is there.
@@ -4300,6 +4305,7 @@ async function routes(app) {
       roomWriteLanguage: roomWriteLanguage(chatId),
       speechMarks: L.cleanSpeechMarks(settings().chats?.[chatId]?.speechMarks),
       setup: roomSetup(chatId),
+      routinePeople: routinePeople(chatId),
       // How many Korean lines the library could show, and whether more are being made: the library reloads them when it changes.
       translationStamp: Object.keys(loadTranslations(chatId).items || {}).length,
       displayTranslating: translating.has(`${chatId}:ko`),
@@ -4317,7 +4323,7 @@ async function routes(app) {
       selectedStamp: fileStamp(selectedFile(chatId)),
       speakerNames: speakerNamesOn(chatId),
       organize: settings().chats?.[chatId]?.organize || { npcCoverage: 'standard', quoteMode: 'dialogue', detailLevel: 'standard' },
-      routine: ledger ? L.renderRoutine(ledger, storyNow.get(chatId) || ledger.storyTime || null) : '',
+      routine: ledger ? L.renderRoutine(ledger, storyNow.get(chatId) || ledger.storyTime || null, { only: routinePeople(chatId) }) : '',
       routineItems: (ledger?.routine || []).map((r) => ({ ...r, displayWhat: L.routineDisplayKind(r), key: L.routineKey(r) })),
       routineSetting: routineSetting(chatId),
       features: F.view(settings(), chatId),
@@ -4508,6 +4514,17 @@ async function routes(app) {
       learnFromEdit(chatId, wasStore, wasScene, scene);
       return scene;
     });
+  }));
+  // 최근 생활: whose daily life is shown and goes into replies ([] = everyone with a record).
+  app.post('/chats/:id/routine-people', guard(async (req) => {
+    const chatId = safeChatId(req.params.id);
+    if (!Array.isArray(req.body?.people)) throw Error('people는 목록이어야 합니다.');
+    const all = settings();
+    const own = { ...(all.chats?.[chatId] || {}) };
+    const people = [...new Set(req.body.people.map((n) => String(n || '').trim().slice(0, 40)).filter(Boolean))].slice(0, 20);
+    if (people.length) own.routinePeople = people; else delete own.routinePeople;
+    saveSettings({ ...all, chats: { ...(all.chats || {}), [chatId]: own } });
+    return { routinePeople: routinePeople(chatId) };
   }));
   app.post('/chats/:id/lines/edit', guard(async (req) => {
     const chatId = safeChatId(req.params.id);
@@ -5624,7 +5641,7 @@ function attach(app) {
   log('admin API ready at /api/memory-module');
 }
 
-module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { loadAddress, saveAddress, refreshAddress, presentPeople, Addr, loadState, saveState, loadPlaces, savePlaces, loadKeepsakes, saveKeepsakes, loadTrackers, saveTrackers, Tk, loadConflicts, saveConflicts, refreshConflicts, refreshWorld, Cf, Ks, organizeFor, sceneTokens, lastScenePeople, St, Pl, listRooms, purgeChatMemory, purgeIfGone, deleteOnSend, deletePrepare, listOrphans, deleteOrphans, goneChats, loadNames, saveNames, enqueue, foldScenes, reviewAttributions, loadAttributionLog, sceneJobs, selectedForView, loadSelected, recalls, windows, loadRecallPrefs, saveRecallPrefs, recallReport, recallCandidates, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, loadTranslations, saveTranslations, chatLangs, langRecords, loadLang, noteLanguage, LANG_REFRESH_EVERY, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, noteSourceKo, sourceKo, sourceQuoteItems, quoteHints, roomSetup, setupNote, withSetup, nameInstructions, jobs, writeLanguage, roomWriteLanguage, memoryCallOptions, routineSetting, routineEnabled, attributionSetting, featureOn, featureSetting, F, B, clearRoomCaches, promptLanguage, translateDisplayLater, loadNotebook, saveNotebook, Nb, fixNoteLanguages, rebuildNotebook, notebookJobStatus, notebookLanguageOf, notebookLanguageSetting, planAnswersOn, tidySteps, tidyLedger, noteUsage, usageSummary, RESTORE_UNDO_DIR, notebookRunning: (id) => notebookJobs.get(id)?.state === 'running', translationRun: (id, texts) => translateMissing(id, "ko", texts), flushTranslations, clearTranslationFailures, translationGaveUp } };
+module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { loadAddress, saveAddress, refreshAddress, presentPeople, Addr, loadState, saveState, loadPlaces, savePlaces, loadKeepsakes, saveKeepsakes, loadTrackers, saveTrackers, Tk, loadConflicts, saveConflicts, refreshConflicts, refreshWorld, Cf, Ks, organizeFor, sceneTokens, lastScenePeople, St, Pl, listRooms, purgeChatMemory, purgeIfGone, deleteOnSend, deletePrepare, listOrphans, deleteOrphans, goneChats, loadNames, saveNames, enqueue, foldScenes, reviewAttributions, loadAttributionLog, sceneJobs, selectedForView, loadSelected, recalls, windows, loadRecallPrefs, saveRecallPrefs, recallReport, recallCandidates, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, loadTranslations, saveTranslations, chatLangs, langRecords, loadLang, noteLanguage, LANG_REFRESH_EVERY, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, routinePeople, noteSourceKo, sourceKo, sourceQuoteItems, quoteHints, roomSetup, setupNote, withSetup, nameInstructions, jobs, writeLanguage, roomWriteLanguage, memoryCallOptions, routineSetting, routineEnabled, attributionSetting, featureOn, featureSetting, F, B, clearRoomCaches, promptLanguage, translateDisplayLater, loadNotebook, saveNotebook, Nb, fixNoteLanguages, rebuildNotebook, notebookJobStatus, notebookLanguageOf, notebookLanguageSetting, planAnswersOn, tidySteps, tidyLedger, noteUsage, usageSummary, RESTORE_UNDO_DIR, notebookRunning: (id) => notebookJobs.get(id)?.state === 'running', translationRun: (id, texts) => translateMissing(id, "ko", texts), flushTranslations, clearTranslationFailures, translationGaveUp } };
 
 
 

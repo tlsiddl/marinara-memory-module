@@ -1203,9 +1203,21 @@
     return `<div class="eyebrow">DAILY LIFE</div><h1>최근 생활</h1>
       <p class="intro">인물마다 마지막 식사·씻기·꾸밈·잠·약을 보여 드립니다. 몇 끼째인지, 몇 시간 잤는지는 지문의 작중 시각으로 프로그램이 계산합니다.</p>
       ${routineNote()}
+      ${routinePeoplePicker()}
       ${namesNote()}
       ${info.routine ? `<pre>${esc(info.routine)}</pre>` : '<div class="empty">아직 기록이 없습니다.</div>'}
       ${routineEditor()}`;
+  }
+
+  /** Whose daily life is shown and goes into replies: everyone with a record, or the people picked here. */
+  function routinePeoplePicker() {
+    const people = [...new Set([...(info?.personas || []).map((p) => p?.name ?? p), ...(info?.cast || [])].filter((n) => n && n !== 'User'))];
+    if (people.length < 2) return '';
+    const chosen = new Set(info?.routinePeople || []);
+    return `<details class="paper" data-list="routinePeople" ${openLists.has('routinePeople') ? 'open' : ''}><summary>기록할 인물 · ${chosen.size ? esc([...chosen].map(nameShown).join('·')) : '모두'}</summary>
+      <p class="hint">고른 사람만 이 화면과 답변 기억에 나옵니다. 고른 사람이 아직 먹거나 씻거나 잔 적이 없으면 '기록 없음'으로 보입니다. 아무도 고르지 않으면 기록이 있는 모든 사람이 나옵니다.</p>
+      <div class="routine-people">${people.map((n) => `<label class="mini"><input type="checkbox" data-routine-person="${esc(n)}" ${chosen.has(n) ? 'checked' : ''}>${esc(nameShown(n))}</label>`).join('')}</div>
+      <div class="buttons"><button data-act="routinePeopleSave">저장</button></div></details>`;
   }
 
   /** Whether daily life is recorded in this room, and the messages read while it was off. */
@@ -2141,7 +2153,13 @@
       <div class="person-chips">${people.map((n) => `<button class="${n === p ? 'selected' : ''}" data-act="selectPerson" data-id="${esc(n)}">${esc(nameShown(n))}</button>`).join('')}</div>
       <div class="paper"><h2>${esc(nameShown(p))}</h2>
         ${card ? `<dl class="person-now">${field('있는 곳', card.location)}${field('차림', card.outfit)}${field('다친 곳', card.injuries)}${field('가진 것', card.carrying)}${field('기분', card.mood)}${field('그 밖', card.other)}</dl>` : '<p class="hint">지금 상태 기록이 없습니다(상태·장소·물건에서 켜고 고칠 수 있음).</p>'}
-        ${calls.length ? `<p class="hint">부르는 말: ${calls.map((e) => `${esc(nameShown(e.from))} → ${esc(nameShown(e.to))} “${esc(callLabel(e))}”`).join(' · ')}</p>` : ''}
+        ${(() => {
+          // What this person calls others, apart from what others call them.
+          const own = calls.filter((e) => e.from === p);
+          const theirs = calls.filter((e) => e.to === p && e.from !== p);
+          const list = (xs, side) => xs.map((e) => `${esc(nameShown(side === 'to' ? e.to : e.from))}: “${esc(callLabel(e))}”`).join(' · ');
+          return `${own.length ? `<p class="hint"><b>${esc(nameShown(p))}이(가) 부르는 말</b> — ${list(own, 'to')}</p>` : ''}${theirs.length ? `<p class="hint"><b>${esc(nameShown(p))}을(를) 부르는 말</b> — ${list(theirs, 'from')}</p>` : ''}`;
+        })()}
         <div class="buttons"><button class="ghost" data-tab="world">상태 고치기</button><button class="ghost" data-tab="names">이름·호칭 고치기</button></div>
       </div>
       ${section('facts', '알게 된 사실', facts.length, facts.length ? facts.map((f) => `<p class="person-row">${esc(shown(f.text))}${f.state ? ` <small>(${esc(f.sceneId || '')} 기준)</small>` : ''} <a href="#" class="record-link chip" data-goto-fact="${esc(f.id)}"><span class="chip-id">${esc(f.id)}</span></a></p>`).join('') : '<p class="hint">없습니다.</p>', true)}
@@ -2445,6 +2463,10 @@
         const from = box.dataset.line;
         const fields = { name: box.querySelector('[data-line-name]').value, now: box.querySelector('[data-line-now]').value };
         return act(async () => api('POST', `/chats/${chat}/lines/edit`, { ...(await applyKoreanEdits(fixes, fields)), from }), '줄기를 저장했습니다.');
+      }
+      case 'routinePeopleSave': {
+        const people = [...root.querySelectorAll('[data-routine-person]')].filter((x) => x.checked).map((x) => x.dataset.routinePerson);
+        return act(() => api('POST', `/chats/${chat}/routine-people`, { people }), people.length ? `기록할 인물을 ${people.length}명으로 정했습니다.` : '기록이 있는 모든 사람을 보여 줍니다.');
       }
       case 'refillLines':
         return act(async () => {

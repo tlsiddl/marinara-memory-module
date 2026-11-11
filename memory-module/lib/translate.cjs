@@ -183,7 +183,7 @@ function worldWords(line, target, frame = false) {
 const LABELS = {
   en: [
     [/^(\s*- )약속 /, '$1Promise '], [/^(\s*- )미해결 /, '$1Pending '], [/^(\s*- )감정 /, '$1Feeling '], [/^(\s*- )상태 /, '$1State '], [/^(\s*- )비밀 /, '$1Secret '],
-    [/\(최근: /g, '(latest: '], [/ — 지금: /g, ' — now: '], [/\(처음: /g, '(at first: '], [/원인: /g, 'cause: '], [/풀리려면: /g, 'resolves if: '], [/약속한 때: /g, 'due: '], [/기한: /g, 'deadline: '],
+    [/\(최근: /g, '(latest: '], [/^(- .+): 기록 없음$/, '$1: no record'], [/ — 지금: /g, ' — now: '], [/\(처음: /g, '(at first: '], [/원인: /g, 'cause: '], [/풀리려면: /g, 'resolves if: '], [/약속한 때: /g, 'due: '], [/기한: /g, 'deadline: '],
     [/, 오늘, 지남\]/g, ', today, overdue]'], [/, 오늘\]/g, ', today]'], [/, 내일\]/g, ', tomorrow]'], [/, (\d+)일 뒤\]/g, ', in $1 days]'], [/, (\d+)일 지남\]/g, ', $1 days overdue]'],
     [/→ 그 뒤: /g, '→ later: '], [/\((S\d+) 기준\)/g, '(as of $1)'], [/→ 지금: /g, '→ now: '], [/→ 줄기 「([^」]+)」 지금: /g, '→ story line "$1" now: '], [/^\((C\d+) 시기\)$/, '(during $1)'],
     // Who remembers a scene, who missed it (the "※" note after a scene line).

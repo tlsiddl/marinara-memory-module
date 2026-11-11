@@ -1522,6 +1522,12 @@ function nameAliasesOf(name) {
 
 const hasHangul = (s) => /[가-힣]/.test(s);
 const hasLatin = (s) => /[A-Za-zÀ-ÿ]/.test(s);
+/** Letters of another alphabet a call may be written in (Greek, Cyrillic). */
+const hasOtherScript = (s) => /[\p{Script=Greek}\p{Script=Cyrillic}]/u.test(s);
+/** Chinese or Japanese letters. */
+const hasCjk = (s) => /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u.test(s);
+/** Everyday Chinese and Japanese words that open or close a line without calling anyone. */
+const CJK_NOT_A_TERM = /^(?:好的?|好吧|是的?|不是|当然|什么|怎么了?|没事|没关系|谢谢|对不起|等等|真的|不要|可是|但是|所以|然后|还有|那个|这个|我们|你们|他们|知道了|そう(?:だ|です)?|はい|いいえ|ええ|うん|でも|だから|ちょっと|すみません|ありがとう|ごめん(?:ね|なさい)?|ほら|なに|何|本当|まあ|あの|えっと|それ|これ)$/;
 /** A written name or alias matched to one known person; null when unknown or when it could be more than one. */
 function matchAlias(phrase, names) {
   const p = String(phrase || '').trim().replace(/\s+/g, ' ');
@@ -1706,7 +1712,8 @@ function vocativeTerms(text, names, opts = {}) {
   const pieces = line.split(/(?=\([^()]*\)\s*$)/);
   const found = new Map();
   for (const piece of pieces) {
-    const body = piece.replace(/^[\s"“'‘「『(]+|[\s"”'’」』)]+$/g, '');
+    // Chinese and Japanese punctuation read as their Latin kin ("师父，" "先輩、").
+    const body = piece.replace(/^[\s"“'‘「『(]+|[\s"”'’」』)]+$/g, '').replace(/[，、]/g, ',').replace(/！/g, '!').replace(/？/g, '?').replace(/。/g, '.').replace(/；/g, ';').replace(/：/g, ':');
     const parts = body.split(/([,!?.…;:—–]+)/);
     let last = -2;
     for (let i = 0; i < parts.length; i += 2) if (parts[i].trim()) last = i;
@@ -1726,13 +1733,23 @@ function vocativeTerms(text, names, opts = {}) {
       let term = null;
       if (GENERIC.test(rest) || ENDEARMENTS.has(normWord(rest))) term = rest;
       else if (hasHangul(rest)) {
-        const stem = /아가씨$/.test(rest) ? rest : rest.replace(KO_CALL, '').trim();
+        const bare = rest.replace(/\s*\([^()]*\)\s*$/, '').trim() || rest;
+        const stem = /아가씨$/.test(bare) ? bare : bare.replace(KO_CALL, '').trim();
         // With mid on, a two-word nickname ("고양이 아가씨") is read too.
         const two = mid && /^[가-힣]{2,6} [가-힣]{2,6}$/.test(stem) && !KO_DETERMINER.test(stem.split(' ')[0]);
         if ((/^[가-힣]{2,8}$/.test(stem) || two) && plausibleTerm(stem) && plausibleTerm(rest) && !NOT_A_TERM.has(stem) && !KO_VERBISH.test(stem) && !matchAlias(stem, names) && !matchAlias(rest, names)) term = stem;
-      } else if (hasLatin(rest)) {
+      } else if (hasLatin(rest) || hasOtherScript(rest)) {
         const words = rest.split(/\s+/);
-        if (words.length <= 2 && words.every((w) => /^\p{Lu}[\p{L}'’-]+$/u.test(w) && !NOT_A_TERM.has(w.toLowerCase())) && plausibleTerm(rest) && !matchAlias(rest, names) && !words.some((w) => matchAlias(w, names))) term = rest;
+        const cased = opts.anyCase ? /^\p{L}[\p{L}'’-]+$/u : /^\p{Lu}[\p{L}'’-]+$/u;
+        if (words.length <= 2 && words.every((w) => cased.test(w) && !NOT_A_TERM.has(w.toLowerCase())) && plausibleTerm(rest) && !matchAlias(rest, names) && !words.some((w) => matchAlias(w, names))) term = rest;
+      } else if (hasCjk(rest)) {
+        // Chinese or Japanese: no capitals to go by, so a short call (2–6 characters) that is not an everyday word.
+        const t = rest.replace(/\s+/g, '');
+        // No pronoun, particle or everyday verb (a line's own words: "你去哪儿", "我知道"); kana only as a call ending.
+        const zhWords = /[我你您他她它们的了吗呢吧啊呀哦嗯去来是在有不没要想知道看说做吃喝走给让把被就都也还又很太]/;
+        const jaShape = /^[\p{Script=Han}\p{Script=Katakana}ー]{1,5}(?:さん|くん|ちゃん|さま|様|せんぱい|せんせい)?$/u;
+        const kana = /\p{Script=Hiragana}/u.test(t);
+        if (/^[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}ー]{2,6}$/u.test(t) && !CJK_NOT_A_TERM.test(t) && !(kana ? !jaShape.test(t) : zhWords.test(t)) && !matchAlias(t, names)) term = t;
       }
       if (!term) continue;
       if (titles.length && !GENERIC.test(term)) term = `${titles.join(' ')} ${term}`;
