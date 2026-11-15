@@ -1008,7 +1008,10 @@ async function manualEmbedding() {
   if (viaId && src === conn) throw Error('마리나라에 설정한 임베딩 전용 연결을 찾지 못했습니다. 연결 설정을 확인해 주세요.');
   const baseUrl = trimmed(src.embeddingBaseUrl) || (src === conn ? trimmed(conn.embeddingBaseUrl) : '') || e.resolveBaseUrl(src);
   if (!baseUrl) throw Error(`임베딩 연결 "${src.name}"에 주소(base URL)가 없습니다.`);
-  return { model: trimmed(settings().embedding.model), provider: connectionProvider(e, src, baseUrl), label: src === conn ? `연결 "${row.name}"` : `연결 "${row.name}" → 임베딩 연결 "${src.name}"` };
+  const supplied = trimmed(settings().embedding.model);
+  // Vertex uses Google's native model ID; OpenRouter-style proxies may require the prefix.
+  const model = /vertex/i.test(String(src.provider || '')) ? supplied.replace(/^google\\/(gemini-embedding-001)$/i, '$1') : supplied;
+  return { model, provider: connectionProvider(e, src, baseUrl), label: src === conn ? `연결 "${row.name}"` : `연결 "${row.name}" → 임베딩 연결 "${src.name}"` };
 }
 
 /** The current embedding source (cached for a minute); null when meaning search is off or not set up. */
@@ -1091,7 +1094,7 @@ async function indexScenes(chatId, store, job) {
   const stale = V.staleDocs(index, store.scenes).slice(0, EMBED_MAX_PER_RUN);
   // Vertex Gemini embedding-001 accepts a single text per prediction.
   // Other embedding providers retain normal batching.
-  const batchSize = /(?:^|\\/)gemini-embedding-001$/i.test(embeddingModel() || '') ? 1 : EMBED_BATCH;
+  const batchSize = /(?:^|[/])gemini-embedding-001$/i.test(embeddingModel() || '') ? 1 : EMBED_BATCH;
   let done = 0;
   for (let i = 0; i < stale.length && !job?.cancel; i += batchSize) {
     const part = stale.slice(i, i + batchSize);
@@ -1120,7 +1123,6 @@ async function indexScenes(chatId, store, job) {
         V.putVectors(index, part, await embedTexts(part.map((d) => d.text), 'doc', job?.abort?.signal));
         done += part.length;
         saveVectors(chatId, index);
-        vectorFailures.delete(chatId);
       } catch (error) {
         const reason = String(error?.message || error);
         vectorFailures.set(chatId, reason);
