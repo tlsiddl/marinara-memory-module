@@ -944,6 +944,8 @@ async function deleteOrphans(ids) {
 
 const vectorsFile = (chatId) => path.join(CHAT_DIR, `${safeChatId(chatId)}.vectors.json`);
 const vectorCache = new Map();
+// Indexing failures are diagnostic only; existing scenes remain available without vectors.
+const vectorFailures = new Map();
 const EMBED_BATCH = 32;
 const EMBED_MAX_PER_RUN = 800;
 const QUERY_TIMEOUT_MS = 8000;
@@ -988,6 +990,30 @@ async function connectionEmbedding() {
   return { model, provider, label: src === conn ? `연결 "${row.name}"` : `연결 "${row.name}" → 임베딩 연결 "${src.name}"` };
 }
 
+/** Use the memory connection's dedicated embedding account in manual-model mode as well.
+ * The model name is overridden, but credentials, endpoint and provider must come
+ * from the embedding account when one is selected (Marinara 2.5.2 behavior).
+ */
+async function manualEmbedding() {
+  const e = await engine();
+  const wanted = settings().connection;
+  if (!wanted) throw Error('기억 정리에 쓸 연결이 정해지지 않았습니다.');
+  const list = await e.connections.list();
+  const row = list.find((c) => c.id === wanted) || list.find((c) => c.name === wanted);
+  if (!row) throw Error(`연결 "${wanted}"을(를) 찾지 못했습니다.`);
+  const conn = await connectionWithKey(e, row);
+  const viaId = trimmed(conn.embeddingConnectionId);
+  if (viaId === LOCAL_SIDECAR) throw Error('선택한 연결의 임베딩 제공업체가 내장 로컬 모델입니다. 직접 입력한 모델을 사용하려면 API 임베딩 연결을 선택해 주세요.');
+  const src = (viaId && (await e.connections.getWithKey(viaId).catch(() => null))) || conn;
+  if (viaId && src === conn) throw Error('마리나라에 설정한 임베딩 전용 연결을 찾지 못했습니다. 연결 설정을 확인해 주세요.');
+  const baseUrl = trimmed(src.embeddingBaseUrl) || (src === conn ? trimmed(conn.embeddingBaseUrl) : '') || e.resolveBaseUrl(src);
+  if (!baseUrl) throw Error(`임베딩 연결 "${src.name}"에 주소(base URL)가 없습니다.`);
+  const supplied = trimmed(settings().embedding.model);
+  // Vertex uses Google's native model ID; OpenRouter-style proxies may require the prefix.
+  const model = /vertex/i.test(String(src.provider || '')) ? supplied.replace(/^google[/](gemini-embedding-001)$/i, '$1') : supplied;
+  return { model, provider: connectionProvider(e, src, baseUrl), label: src === conn ? `연결 "${row.name}"` : `연결 "${row.name}" → 임베딩 연결 "${src.name}"` };
+}
+
 /** The current embedding source (cached for a minute); null when meaning search is off or not set up. */
 let embedPending = null;
 async function embeddingSource(force = false) {
@@ -1001,10 +1027,8 @@ async function embeddingSource(force = false) {
     let value = null;
     let error = null;
     try {
-      if (mode === 'manual') {
-        const m = await memoryModel();
-        value = { model: trimmed(settings().embedding.model), provider: m.provider, label: `연결 "${m.name}"` };
-      } else if (mode === 'connection') value = await connectionEmbedding();
+      if (mode === 'manual') value = await manualEmbedding();
+      else if (mode === 'connection') value = await connectionEmbedding();
     } catch (e) {
       error = String(e?.message || e);
     }
@@ -1068,16 +1092,22 @@ async function indexScenes(chatId, store, job) {
   if (!index || !store?.scenes.length) return 0;
   V.prune(index, store.scenes);
   const stale = V.staleDocs(index, store.scenes).slice(0, EMBED_MAX_PER_RUN);
+  // Vertex Gemini embedding-001 accepts a single text per prediction.
+  // Other embedding providers retain normal batching.
+  const batchSize = /(?:^|[/])gemini-embedding-001$/i.test(embeddingModel() || '') ? 1 : EMBED_BATCH;
   let done = 0;
-  for (let i = 0; i < stale.length && !job?.cancel; i += EMBED_BATCH) {
-    const part = stale.slice(i, i + EMBED_BATCH);
+  for (let i = 0; i < stale.length && !job?.cancel; i += batchSize) {
+    const part = stale.slice(i, i + batchSize);
     if (job) job.stage = `뜻 찾기 색인 (${done + part.length}/${stale.length})`;
     try {
       V.putVectors(index, part, await embedTexts(part.map((d) => d.text), 'doc', job?.abort?.signal));
       done += part.length;
       saveVectors(chatId, index);
+      vectorFailures.delete(chatId);
     } catch (error) {
-      log(`chat ${chatId}: embedding failed, will try again later (${error?.message || error})`);
+      const reason = String(error?.message || error);
+      vectorFailures.set(chatId, reason);
+      log(`chat ${chatId}: embedding failed, will try again later (${reason})`);
       break;
     }
   }
@@ -1086,15 +1116,17 @@ async function indexScenes(chatId, store, job) {
     const notes = loadNotebook(chatId).notes || [];
     V.pruneNotes(index, notes);
     const staleNotes = V.staleNotes(index, notes).slice(0, EMBED_MAX_PER_RUN);
-    for (let i = 0; i < staleNotes.length && !job?.cancel; i += EMBED_BATCH) {
-      const part = staleNotes.slice(i, i + EMBED_BATCH);
+    for (let i = 0; i < staleNotes.length && !job?.cancel; i += batchSize) {
+      const part = staleNotes.slice(i, i + batchSize);
       if (job) job.stage = `수첩 색인 (${i + part.length}/${staleNotes.length})`;
       try {
         V.putVectors(index, part, await embedTexts(part.map((d) => d.text), 'doc', job?.abort?.signal));
         done += part.length;
         saveVectors(chatId, index);
       } catch (error) {
-        log(`chat ${chatId}: notebook embedding failed, will try again later (${error?.message || error})`);
+        const reason = String(error?.message || error);
+        vectorFailures.set(chatId, reason);
+        log(`chat ${chatId}: notebook embedding failed, will try again later (${reason})`);
         break;
       }
     }
@@ -3992,6 +4024,7 @@ async function routes(app) {
     const before = settings().embedding;
     saveSettings({ ...settings(), embedding: mode === 'off' ? null : mode === 'manual' ? { model } : { source: 'connection' } });
     vectorCache.clear();
+    vectorFailures.clear();
     if (mode === 'off') return { mode, model: null };
     try {
       const src = await embeddingSource(true);
@@ -4358,7 +4391,7 @@ async function routes(app) {
       cast: (scenes?.cast || ledger?.cast || []).filter((n) => !(scenes?.personas || []).includes(n)),
       vectors: (() => {
         const index = loadVectors(chatId);
-        return index ? { model: index.model, indexed: V.indexedScenes(index, scenes?.scenes || []), total: scenes?.scenes.length || 0 } : null;
+        return index ? { model: index.model, indexed: V.indexedScenes(index, scenes?.scenes || []), total: scenes?.scenes.length || 0, error: vectorFailures.get(chatId) || null } : null;
       })(),
       recall: (() => {
         const r = recalls.get(chatId);
