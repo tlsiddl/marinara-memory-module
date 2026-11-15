@@ -1010,7 +1010,7 @@ async function manualEmbedding() {
   if (!baseUrl) throw Error(`임베딩 연결 "${src.name}"에 주소(base URL)가 없습니다.`);
   const supplied = trimmed(settings().embedding.model);
   // Vertex uses Google's native model ID; OpenRouter-style proxies may require the prefix.
-  const model = /vertex/i.test(String(src.provider || '')) ? supplied.replace(/^google\\/(gemini-embedding-001)$/i, '$1') : supplied;
+  const model = /vertex/i.test(String(src.provider || '')) ? supplied.replace(/^google[/](gemini-embedding-001)$/i, '$1') : supplied;
   return { model, provider: connectionProvider(e, src, baseUrl), label: src === conn ? `연결 "${row.name}"` : `연결 "${row.name}" → 임베딩 연결 "${src.name}"` };
 }
 
