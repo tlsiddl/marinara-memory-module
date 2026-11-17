@@ -126,6 +126,18 @@ test('folding starts before messages leave the window, waits for a batch, and ne
   assert.equal(S.nextSlice(store, many, 20, { minPending: 8 }), null, 'only 2 waiting');
 });
 
+test('short windows fold as soon as a message leaves the context', () => {
+  for (const window of [1, 2, 6, 8, 9, 10, 14, 15, 20, 30]) {
+    const many = Array.from({ length: 50 }, (_, i) => ({ id: `m${i}`, number: i + 1, role: 'assistant', content: 'test' }));
+    const store = S.emptyStore();
+    store.covered = many.slice(0, many.length - window - 1).map((m) => ({ id: m.id }));
+    const result = S.nextSlice(store, many, window, { minPending: S.sceneMinPending(window) });
+    assert.ok(result, `window ${window} left a message unprocessed`);
+    assert.ok(result.slice[0].number <= many.length - window, `window ${window} skipped the oldest message`);
+    assert.ok(result.slice.at(-1).number <= many.length - Math.min(8, window), `window ${window} touched a protected message`);
+  }
+});
+
 test('who-forgets notes use the right particle and summaries sit on adjacent lines', () => {
   const store = S.emptyStore();
   const { slice } = S.nextSlice(store, chat, 2, { lead: 0, minVisible: 0 });

@@ -50,7 +50,6 @@ const CONTEXT_MESSAGES = 2;
 const MODEL_TIMEOUT_MS = 5 * 60_000;
 // Chats without a message limit still have one in practice (the token budget); fold past this many.
 const DEFAULT_WINDOW = Number(process.env.MEMORY_MODULE_DEFAULT_WINDOW) || 30;
-const SCENE_MIN_PENDING = 8;
 /** The whole recall before a reply (meaning search + the model's pick) gets this long; then the fast pick is used. */
 const RECALL_TIMEOUT_MS = Number(process.env.MEMORY_MODULE_RECALL_TIMEOUT_MS) || 20_000;
 /** Less than this left for the model's pick: do not start it, use the fast pick. */
@@ -2621,8 +2620,9 @@ function processScenes(chatId, { rebuild = false, reason = 'auto' } = {}) {
         }
         let model = null;
         const getModel = async () => (model ||= { ...(await memoryModel()), signal: job.abort.signal, lang: await promptLanguageOf(chatId) });
-        if (S.nextSlice(store, messages, window, { minPending: rebuild ? 1 : SCENE_MIN_PENDING })) {
-          job.calls += await foldScenes(chatId, store, messages, window, await getModel(), job, { minPending: rebuild ? 1 : SCENE_MIN_PENDING });
+        const minPending = rebuild ? 1 : S.sceneMinPending(window);
+        if (S.nextSlice(store, messages, window, { minPending })) {
+          job.calls += await foldScenes(chatId, store, messages, window, await getModel(), job, { minPending });
         }
         if (reason !== 'edit') {
           const reordered = S.orderSceneEvents(store, messages);

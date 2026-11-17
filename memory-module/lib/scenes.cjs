@@ -25,6 +25,11 @@ function emptyStore() {
   return { version: SCENES_VERSION, nextScene: 1, nextFact: 1, nextChapter: 1, nextArc: 1, scenes: [], facts: [], chapters: [], arcs: [], covered: [], window: null, updatedAt: null };
 }
 
+// The early-fold margin shrinks for small windows, so its batch must shrink too.
+function sceneMinPending(window) {
+  return Math.max(1, Math.min(8, window - 7));
+}
+
 /* ---------- which messages to read ---------- */
 
 /**
@@ -35,7 +40,7 @@ function emptyStore() {
  * The newest `minVisible` messages are never folded: they are the ones a reroll or edit touches.
  * Returns { slice, required }: the model must close scenes at least through message number `required`.
  */
-function nextSlice(store, messages, window, { maxChars = 20000, maxMessages = Infinity, lookahead = 6, lead = 8, minVisible = 8, minPending = 1 } = {}) {
+function nextSlice(store, messages, window, { maxChars = 20000, maxMessages = Infinity, lookahead = 6, lead = 8, minVisible = Math.min(8, Math.max(0, window)), minPending = 1 } = {}) {
   const foldLine = Math.max(0, messages.length - Math.max(window - lead, minVisible));
   const from = store.covered.length;
   if (foldLine - from < Math.max(1, minPending)) return null;
@@ -4046,6 +4051,7 @@ module.exports = {
   parseLine,
   SCENES_VERSION,
   emptyStore,
+  sceneMinPending,
   nextSlice,
   firstInsideWindow,
   buildScenePrompt,
