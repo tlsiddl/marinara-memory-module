@@ -947,6 +947,33 @@
       <div class="record-list">${results.join('') || (query ? '<p class="hint">일치하는 기억이 없습니다.</p>' : '')}</div>`;
   }
 
+  // Search-only handlers share the enclosing runtime state; navigation stays with the common link handler.
+  function searchInput(e) {
+    if (e.target.id === 'memorySearchInput') searchDraft = e.target.value;
+  }
+  function searchSubmit(e) {
+    if (e.target.id !== 'memorySearch') return;
+    e.preventDefault();
+    searchDraft = root.querySelector('#memorySearchInput').value;
+    searchQuery = searchDraft.trim();
+    render();
+  }
+  function searchFilterChange(e) {
+    if (e.target.id !== 'searchKind' && e.target.id !== 'searchWho') return false;
+    if (e.target.id === 'searchKind') searchKind = e.target.value;
+    else searchWho = e.target.value;
+    render();
+    return true;
+  }
+  function searchClear(n) {
+    if (n?.dataset.act !== 'clearSearch') return false;
+    searchDraft = searchQuery = '';
+    render();
+    root.querySelector('#memorySearchInput')?.focus();
+    return true;
+  }
+
+
   function arcEditor(a) {
     return `<div class="paper chapter-paper" id="arcEditor" data-id="${esc(a.id)}">
       <div class="paper-toolbar"><h2>${esc(a.id)} · ${esc(a.chapters[0])}~${esc(a.chapters.at(-1))}${a.time ? ` · ${esc(a.time)}` : ''}</h2>${a.edited ? '<span class="pill">직접 고침</span>' : ''}</div>
@@ -3471,7 +3498,7 @@
     // Do not preventDefault: text, IME, clipboard and native controls keep working.
     for (const type of ['keydown', 'keypress', 'keyup']) root.addEventListener(type, (e) => e.stopPropagation());
     root.addEventListener('input', (e) => {
-      if (e.target.id === 'memorySearchInput') searchDraft = e.target.value;
+      searchInput(e);
       if (e.target.dataset?.setup && setupDraft && setupDraftRoom === room) setupDraft[e.target.dataset.setup] = e.target.value;
       if (['nameSource', 'nameTarget', 'nameDisplay'].includes(e.target.id)) readNameForm();
       if (['addrFrom', 'addrTo', 'addrTerm', 'addrNote'].includes(e.target.id)) readAddressForm();
@@ -3487,13 +3514,7 @@
         for (const el of root.querySelectorAll('[data-at]')) el.hidden = attributionHidden(el.dataset.at);
       }
     });
-    root.addEventListener('submit', (e) => {
-      if (e.target.id !== 'memorySearch') return;
-      e.preventDefault();
-      searchDraft = root.querySelector('#memorySearchInput').value;
-      searchQuery = searchDraft.trim();
-      render();
-    });
+    root.addEventListener('submit', searchSubmit);
     // The launcher lives outside the shadow root, as a plain button right under <body>, so drawer extensions and
     // page scripts can find it, move it and click it (click opens and closes; Esc closes).
     launcher = makeLauncher();
@@ -3568,11 +3589,7 @@
         }
         return render();
       }
-      if (e.target.id === 'searchKind' || e.target.id === 'searchWho') {
-        if (e.target.id === 'searchKind') searchKind = e.target.value;
-        else searchWho = e.target.value;
-        return render();
-      }
+      if (searchFilterChange(e)) return;
       if (e.target.id === 'ledgerWho') {
         ledgerWho = e.target.value;
         return render();
@@ -3778,12 +3795,7 @@
         return render();
       }
       const n = e.target.closest('button');
-      if (n?.dataset.act === 'clearSearch') {
-        searchDraft = searchQuery = '';
-        render();
-        root.querySelector('#memorySearchInput')?.focus();
-        return;
-      }
+      if (searchClear(n)) return;
       if (!n || busy) return;
       if (n.dataset.act === 'selectPerson') {
         selectedPerson = n.dataset.id || '';

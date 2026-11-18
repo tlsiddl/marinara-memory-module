@@ -22,6 +22,10 @@ manifest = {
     },
 }
 js = (root / 'runtime.js').read_text(encoding="utf-8")
+marker = '  /*__SEARCH_MODULE__*/\n'
+if js.count(marker) != 1:
+    raise ValueError('expected exactly one search module marker')
+js = js.replace(marker, (root / 'search.js').read_text(encoding="utf-8"))
 js = js.replace("/*__UI_CSS__*/ ''", "/*__UI_CSS__*/ " + json.dumps((root / 'ui.css').read_text(encoding="utf-8"), ensure_ascii=False))
 js = js.replace("/*__THEME_CSS__*/ ''", "/*__THEME_CSS__*/ " + json.dumps((root / 'theme.css').read_text(encoding="utf-8"), ensure_ascii=False))
 js = js.replace("'/*__VERSION__*/'", json.dumps(version))
