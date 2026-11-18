@@ -1,6 +1,6 @@
 # 기억 서재 모듈 지도 (분석 초안)
 
-> 분석 기준: `tlsiddl/marinara-memory-module`의 `main` 브랜치, 커밋 `165d4880781ef06d24a1abdffd7785e4f607d0e8` (2026-11-18 확인). README와 런타임 로더는 v0.35.2를 가리킨다. 아래는 코드 변경 전의 현행 구조 지도다. 세부 의존성과 기능 경계는 각 모듈의 전체 호출 관계를 추적하며 검증할 것.
+> 분석 기준: `tlsiddl/marinara-memory-module`의 `main` 브랜치, 커밋 `165d4880781ef06d24a1abdffd7785e4f607d0e8` (2026-11-18 확인). README와 런타임 로더는 v0.35.2를 가리킨다. 아래는 해당 기준의 분석에 1단계 변경을 덧붙인 지도다. 세부 의존성과 기능 경계는 각 모듈의 전체 호출 관계를 추적하며 검증할 것.
 
 ## 빠른 수정 위치 색인
 
@@ -12,6 +12,7 @@
 | 상태·장소·물건·수첩 | 해당 도메인 파일 → `service.cjs` `refreshWorld`, `renderMemorySource` | 장면 프롬프트와 설정; `test-world.cjs`, `test-keepsakes.cjs`, `test-notebook.cjs` |
 | 날짜·주기 | `trackers.cjs`, `service.cjs` `refreshWorld`, `storyToday`, `trackerClock` | `ledger.cjs` 날짜 판독; `test-trackers.cjs`, `test-trackers-undo-route.cjs`, `test-compact-date.cjs` |
 | 기능 스위치 | `features.cjs` `resolve`, `withGlobal`, `withRoomMode`; `service.cjs` `featureSetting`, `organizeFor` | `refreshWorld`, `renderMemorySource` 및 UI; `test-features.cjs`, `test-routine-toggle.cjs` |
+| 기억 검색 화면 | `extension/search.js` `viewSearch`, `searchInput`, `searchSubmit`, `searchFilterChange`, `searchClear` | `runtime.js` 공통 상태·이동·방 전환; `test-library-input-search.mjs`, `test-room-switch-ui.cjs` |
 | 화면·버튼 | `extension/runtime.js` `openLibrary`, `render`, 해당 이벤트와 API 경로 | service의 해당 route; `test-panel-layout.cjs`, `test-room-switch-ui.cjs`, 기능별 UI 테스트 |
 | 백업·분기 | `backup.cjs` `build`, `validate`; service backup/restore route, `branchMemory`, `inheritBranch` | 저장 및 삭제 경로; `test-backup.cjs`, `test-branches.cjs`, `test-room-delete.cjs`, `test-safety.cjs` |
 | 이름·호칭 | `names.cjs`, `aliases.cjs`, `address.cjs`와 service의 해당 route | 장면 화자·주입; `test-names-service.cjs`, `test-address-book.cjs`, `test-speakers.cjs` |
@@ -22,7 +23,7 @@
 - **엔진 통합 진입점:** `memory-module/marinara-memory-runtime.cjs`가 Marinara 배포 파일을 메모리에서 패치하고 `memory-module/lib/service.cjs`를 붙인다. 엔진 원본 파일을 수정하지 않는다. 지원 패치가 정확히 맞지 않으면 해당 패치가 fail-closed 된다.
 - **서버 서비스 및 조정:** `memory-module/lib/service.cjs`는 5,713줄 / 331,578바이트이며 아래 20개 내부 모듈을 직접 가져온다. HTTP API, 설정·파일 I/O, 모델 작업 큐, 장면·장부 정리, 회상, 임베딩, 번역, 방 삭제·분기·백업 연결이 한 파일에 모여 있다.
 - **핵심 도메인 파일:** `memory-module/lib/scenes.cjs` (4,067줄), `ledger.cjs` (2,897줄)는 독립 파일이지만 각자 크고 여러 개념을 함께 다룬다.
-- **UI:** `extension/runtime.js`는 3,869줄 / 303,166바이트의 단일 클라이언트 번들 소스다. `extension/build.py`가 UI·테마 CSS를 JS에 삽입하고 `deliverable/extension.js` 및 zip을 만든다. 현재 화면 단위의 지연 로딩은 확인되지 않았다.
+- **UI:** `extension/runtime.js`는 공통 상태·화면을 담당하며, 기억 검색의 렌더링과 전용 이벤트는 `extension/search.js`에 있다. `extension/build.py`가 검색 소스와 UI·테마 CSS를 JS에 삽입하고 `deliverable/extension.js` 및 zip을 만든다. 현재 화면 단위의 지연 로딩은 확인되지 않았다.
 - **테스트:** `tests/`에 128개 파일이 있다. `package.json` 및 루트 `AGENTS.md`는 저장소에서 발견되지 않았다.
 
 ## 기능별 지도
@@ -55,7 +56,7 @@ Marinara 패치 로더
 개인 확장 runtime.js
   └─ /api/memory-module API ── service.cjs
 
-build.py: runtime.js + ui.css + theme.css → deliverable 단일 JS/CSS/manifest/zip
+build.py: runtime.js + search.js + ui.css + theme.css → deliverable 단일 JS/CSS/manifest/zip
 ```
 
 이 지도는 import 방향과 핵심 진입 경로만 요약하며 모든 런타임 호출·데이터 의존성을 확정한 그래프는 아니다. 특히 `service.cjs` 내부에서 기능 간 함수를 호출하는 관계는 별도 추적이 필요하다.
@@ -118,3 +119,9 @@ build.py: runtime.js + ui.css + theme.css → deliverable 단일 JS/CSS/manifest
 5. **저장·방 생명주기와 장면·장부 내부** — 난도 매우 높음, 위험 매우 높음. 파일 보호와 분기·복원·동시 작업 경로를 먼저 더 추적한 뒤 최소 단위로 분리한다. `test-safety.cjs`, `test-backup.cjs`, `test-branches.cjs`, `test-room-delete.cjs`, `test-edit-during-read.cjs`, 전체 회귀 및 실제 엔진 통합을 확인한다. 데이터 형식을 유지하고 코드 커밋 단위로 되돌린다.
 
 이번 분석은 주요 경로의 정적 추적이며 모든 간접 호출과 UI 이벤트를 열거하지 않았다. 테스트와 성능 측정, 실제 Marinara 통합은 실행하지 않았다. 구현 전 각 후보의 전체 호출자와 안전 조건을 추가 확인해야 한다.
+
+## UI 시범 분리: 기억 검색
+
+검색 화면의 검색어 추출·결과 렌더링과 입력·제출·필터·초기화 이벤트는 `extension/search.js`에서 찾는다. 빌드가 이 파일을 `runtime.js`의 단일 마커에 삽입하여 동일한 클로저와 단일 배포 JS를 만든다. 검색 상태 `searchDraft`, `searchQuery`, `searchKind`, `searchWho`, 방 데이터 및 `esc`, `threadList`, `personNames` 등 공통 함수는 런타임에서 공유한다. 결과 링크의 화면 이동, 방 전환 시 초기화, 공통 이벤트 등록은 `runtime.js`에 남아 있으므로 관련 문제일 때만 함께 조사한다. 검색은 이미 로드한 데이터를 읽으며 별도 서버 API 호출을 추가하지 않는다. `tests/test-library-input-search.mjs`는 기존/새 번들에서 검색·필터·입력 유지·이동을 확인하고, `tests/test-room-switch-ui.cjs`는 공통 방 전환 보호를 확인한다. 공식 엔진 통합은 아직 미검증이다.
+
+
