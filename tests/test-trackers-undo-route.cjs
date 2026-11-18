@@ -75,3 +75,31 @@ test('POST /ooc clears the recall cache', async () => {
   await handlers['POST /chats/:id/ooc']({ params: { id: room }, body: { id: 'a1', ooc: true } }, reply);
   assert.equal(X.recalls.has(room), false);
 });
+
+test('tracker routes preserve guards, timing and world response when enabled or disabled', async () => {
+  const call = async (key, id, body) => {
+    let status = 200, timing = '';
+    const reply = { status(n) { status = n; return this; }, send(value) { return value; }, header(name, value) { if (name === 'Server-Timing') timing = value; return this; } };
+    const result = await handlers[key]({ params: { id }, body }, reply);
+    return { status, timing, result };
+  };
+  const get = 'GET /chats/:id/trackers', post = 'POST /chats/:id/trackers';
+  const room = 'trackerGuard';
+  X.saveSettings({ connection: null, chats: { [room]: { enabled: true, features: { trackers: 'on' } } } });
+  const initial = await call(get, room);
+  assert.equal(initial.status, 200); assert.match(initial.timing, /total;dur=/); assert.deepEqual(initial.result.items, []);
+  for (const r of [await call(get, 'invalid!'), await call(get, 'disabled'), await call(post, room, { action: 'invalid' })]) {
+    assert.equal(r.status, 400); assert.equal(typeof r.result.error, 'string'); assert.match(r.timing, /total;dur=/);
+  }
+  const world = await call('GET /chats/:id/world', room);
+  assert.deepEqual(world.result.trackers, initial.result);
+  X.saveSettings({ connection: null, chats: { [room]: { enabled: true, features: { trackers: 'off' } } } });
+  assert.equal((await call(get, room)).status, 400);
+  assert.equal((await call('GET /chats/:id/world', room)).result.trackers, undefined);
+});
+
+test('both installers include the extracted tracker route module', () => {
+  for (const name of ['install.sh', 'install.ps1']) {
+    assert.match(fs.readFileSync(path.join(__dirname, '..', name), 'utf8'), /memory-module\/lib\/tracker-routes\.cjs/);
+  }
+});
