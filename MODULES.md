@@ -9,7 +9,7 @@
 | 장면 누락·잘림 | `service.cjs` `foldScenes` → `scenes.cjs` `nextSlice`, `buildScenePrompt`, `parseScenesReply`, `applyScenes`, `commitScenes` | 모델 요청·설정; `test-scenes.cjs`, `test-scene-coverage-retry.cjs` |
 | 약속·감정·생활 | `service.cjs` `processChat`, `readBatch`, `tidyLedger` → `ledger.cjs` `applyResult`, `applyTidy`, `renderRoutine` | 설정 상속; `test-ledger.cjs`, `test-deadlines.cjs`, `test-routine-toggle.cjs` |
 | 회상·주입 | `service.cjs` `recallBeforeReply`, `renderMemorySource` → `recall.cjs` `candidates`, `renderRecalled` | 벡터·충돌·제외 설정; `test-recall.cjs`, `test-recall-reasons.cjs`, `test-vectors.cjs` |
-| 상태·장소·물건·수첩 | 해당 도메인 파일 → `service.cjs` `refreshWorld`, `renderMemorySource` | 장면 프롬프트와 설정; `test-world.cjs`, `test-keepsakes.cjs`, `test-notebook.cjs` |
+| 상태·장소·물건·수첩 | 해당 도메인 파일(물건 후처리: `keepsakes.cjs` `refresh`) → `service.cjs` `refreshWorld`, `renderMemorySource` | 장면 프롬프트와 설정; `test-world.cjs`, `test-keepsakes.cjs`, `test-notebook.cjs` |
 | 날짜·주기 | `tracker-routes.cjs` 의 GET/POST, `trackers.cjs`; `service.cjs` `trackersView`, `refreshWorld`, `storyToday`, `trackerClock` | `ledger.cjs` 날짜 판독; `test-trackers.cjs`, `test-trackers-undo-route.cjs`, `test-compact-date.cjs` |
 | 기능 스위치 | `features.cjs` `resolve`, `withGlobal`, `withRoomMode`; `service.cjs` `featureSetting`, `organizeFor` | `refreshWorld`, `renderMemorySource` 및 UI; `test-features.cjs`, `test-routine-toggle.cjs` |
 | 기억 검색 화면 | `extension/search.js` `viewSearch`, `searchInput`, `searchSubmit`, `searchFilterChange`, `searchClear` | `runtime.js` 공통 상태·이동·방 전환; `test-library-input-search.mjs`, `test-room-switch-ui.cjs` |
@@ -114,8 +114,8 @@ build.py: runtime.js + search.js + ui.css + theme.css → deliverable 단일 JS/
 
 | 함수 | 호출자와 호출 대상 | 데이터 및 영향 |
 |---|---|---|
-| `service.processChat` | 답변 후 hook 및 시작 route → `readBatch`, `tidyLedger`, `foldScenes`, `refreshWorld` | 메시지, 장부, 장면과 작업 상태 조정. 취소·재개 및 편집 중 변경에 영향. `test-edit-during-read.cjs` |
-| `service.foldScenes` | `processChat` → `S.nextSlice`, `S.buildScenePrompt` → `askModel` → `S.parseScenesReply`, `S.applyScenes`, `S.commitScenes`, `saveScenes` | 원문과 설정을 읽고 장면 저장. 누락 시 재시도·분할한다. `test-scene-coverage-retry.cjs` |
+| `service.processChat` | 답변 후 hook 및 시작 route → `processChat`의 `readBatch`, `tidyLedger` → 별도 장면 큐의 `processScenes`가 `foldScenes`, `refreshWorld` 호출 | 메시지, 장부, 장면과 작업 상태 조정. 취소·재개 및 편집 중 변경에 영향. `test-edit-during-read.cjs` |
+| `service.foldScenes` | `processChat` 완료 후 별도 장면 큐의 `processScenes` → `foldScenes` → `S.nextSlice`, `S.buildScenePrompt` → `askModel` → `S.parseScenesReply`, `S.applyScenes`, `S.commitScenes`, `saveScenes` | 원문과 설정을 읽고 장면 저장. 누락 시 재시도·분할한다. `test-scene-coverage-retry.cjs` |
 | `scenes.buildScenePrompt`, `applyScenes` | 장면 정리 및 시험 경로에서 호출 | 선택 기능 결과가 같은 모델 응답에 담긴다. 검증 및 수동 편집 보호에 영향. `test-scenes.cjs`, `test-world.cjs` |
 | `service.readBatch`, `tidyLedger`; `ledger.applyResult`, `applyTidy` | 정리·시험 경로 → 모델과 장부 결과 적용 | 장부·원문 묶음을 처리한다. `readBatch`는 분할 재귀가 있어 호출 수가 고정이 아니다. `routine` 옵션은 생활 기록에 영향. `test-ledger.cjs`, `test-routine-toggle.cjs` |
 | `service.refreshWorld` | 장면 정리 및 수정 경로 → 선택 기능별 갱신·저장, `Tk.suggest` | 장면을 읽고 활성화된 상태·장소·물건·수첩·트래커 데이터를 변경. `autoApply`에도 의존. `test-world.cjs`, `test-notebook.cjs`, `test-trackers.cjs` |
@@ -150,3 +150,7 @@ build.py: runtime.js + search.js + ui.css + theme.css → deliverable 단일 JS/
 `memory-module/lib/tracker-routes.cjs`가 GET/POST `/chats/:id/trackers` 등록과 action 처리를 소유한다. `service.cjs`는 기존 `routes()`에서 `guard`, `safeChatId`, `needFeature`, 공유 `trackersView`, 별칭 컨텍스트, 도메인·저장·날짜·장면 조회를 명시적으로 전달한다. `trackersView`와 `trackerPick`은 service에 남아 world 응답과 장면 카드에서 같은 함수를 쓴다. `trackers.cjs`는 날짜 계산과 도메인 변경 규칙을 유지한다. 동기식 읽기·변경·저장 구간과 등록 위치·공통 guard를 유지한다. 설치 파일 목록은 `install.sh`와 `install.ps1`에 새 모듈을 포함한다.
 
 API 오류는 먼저 `tracker-routes.cjs`의 입력·action 분기와 `trackers.cjs`를 확인하고, 데이터·날짜·이름·world 연동이 원인일 때 service의 주입 의존성과 `trackersView`를 확인한다. 전에는 큰 `service.cjs`에서 라우트와 관련 분기를 찾아야 했다. 라우트는 54줄로 집중됐지만 12개 공유 의존성이 있어 service 확인이 항상 없어지는 것은 아니다. 실제 AI 탐색량은 측정하지 않았다. 테스트: `test-trackers-undo-route.cjs`, `test-trackers.cjs`, `test-tracker-recommend.cjs`, `test-features.cjs`, `test-world.cjs`.
+
+## 소중한 물건 장면 후처리 (3단계 시범)
+
+`service.cjs` `refreshWorld`가 기존 실행 순서와 `keepsakes` 활성화 조건을 소유하고 `keepsakes.cjs`의 `refresh(store, { load, save })`를 동기 호출한다. `refresh`는 기존 `fold` 결과를 비교해 변경 시 전달받은 저장 함수를 한 번 호출하고 변경 여부를 반환한다. 예외는 잡지 않아 기존 공통 오류 경계를 따른다. 정리·수동 편집·수첩 재구성은 같은 `refreshWorld` 경로를 사용한다. 문제 조사 시 `keepsakes.cjs`의 `refresh`, `fold`부터 확인하고 순서·설정·저장과 다른 기능 연계 문제일 때 `service.cjs` `refreshWorld`, `loadKeepsakes`, `saveKeepsakes`를 확인한다. 기존 서비스의 접기·비교·저장 세 줄이 물건 모듈의 한 함수로 옮겨졌으나 서비스의 제어·공통 의존성은 여전히 확인해야 하며 탐색 비용을 정량 측정하지 않았다. 관련 테스트는 `test-keepsakes.cjs`, `test-notebook-rebuild.cjs`, `test-world.cjs`다.
