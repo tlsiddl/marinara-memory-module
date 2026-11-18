@@ -3553,6 +3553,19 @@ function renderLedgerBody(chatId) {
   );
 }
 
+// Assemble already-rendered blocks without changing their selection or character budgets.
+function assembleMemorySource({ fixed, lead, linesText, now, calls, story, style, answers, footer }) {
+  const block = (head) => fixed.find((x) => x.startsWith(head)) || '';
+  const openBlock = block('[아직 끝나지 않은 일]');
+  const planBlock = block('[작가 계획]');
+  const routineBlock = fixed.find((x) => x !== openBlock && x !== planBlock) || '';
+  const trackersLine = now.find((x) => x?.startsWith('[기록]')) || '';
+  const parts = [...lead, planBlock, openBlock, linesText, trackersLine, calls, ...now.filter((x) => x !== trackersLine), ...story, routineBlock].filter(Boolean);
+  if (!parts.length) return '';
+  const body = parts.join('\n\n');
+  return `${memoryHeader(style, body, { planAnswers: answers })}\n\n${body}\n\n${footer}`;
+}
+
 function renderMemorySource(chatId, maxChars = MEMORY_MAX_CHARS, trace = null) {
   if (!chatEnabled(chatId)) return '';
   // A ledger that must be read again from the start (an old message changed past what can be undone) only gives
@@ -3663,15 +3676,7 @@ function renderMemorySource(chatId, maxChars = MEMORY_MAX_CHARS, trace = null) {
   if (featureOn(chatId, 'trackers')) {
     try { now.push(A.using(chatId, () => Tk.injectionBlock(loadTrackers(chatId), { present: scenes ? lastScenePeople(scenes) : [], story: today }))); } catch {}
   }
-  const block = (head) => fixed.find((x) => x.startsWith(head)) || '';
-  const openBlock = block('[아직 끝나지 않은 일]');
-  const planBlock = block('[작가 계획]');
-  const routineBlock = fixed.find((x) => x !== openBlock && x !== planBlock) || '';
-  const trackersLine = now.find((x) => x?.startsWith('[기록]')) || '';
-  const parts = [...lead, planBlock, openBlock, linesText, trackersLine, calls, ...now.filter((x) => x !== trackersLine), ...story, routineBlock].filter(Boolean);
-  if (!parts.length) return '';
-  const body = parts.join('\n\n');
-  return `${memoryHeader(style, body, { planAnswers: answers })}\n\n${body}\n\n${footer}`;
+  return assembleMemorySource({ fixed, lead, linesText, now, calls, story, style, answers, footer });
 }
 
 /**
