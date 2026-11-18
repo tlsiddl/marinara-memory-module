@@ -26,6 +26,27 @@
 - **UI:** `extension/runtime.js`는 공통 상태·화면을 담당하며, 기억 검색의 렌더링과 전용 이벤트는 `extension/search.js`에 있다. `extension/build.py`가 검색 소스와 UI·테마 CSS를 JS에 삽입하고 `deliverable/extension.js` 및 zip을 만든다. 현재 화면 단위의 지연 로딩은 확인되지 않았다.
 - **테스트:** `tests/`에 128개 파일이 있다. `package.json` 및 루트 `AGENTS.md`는 저장소에서 발견되지 않았다.
 
+## 목표 기능 영역과 현재 소유권
+
+아래는 **목표 책임을 현재 코드에 대응한 지도**다. 복수 영역에 같은 파일이나 저장 파일이 나오는 것은 현재 책임이 공유된다는 뜻이며, 데이터 이동·형식 변경이나 새 인터페이스가 이미 구현됐다는 뜻이 아니다. 경로에서 `lib/`는 `memory-module/lib/`, `tests/`는 저장소 루트 기준이다.
+
+| 목표 영역 | UI: 현재 담당 | 서버 처리: 현재 담당 | 설정 및 저장 데이터: 현재 위치 | 관련 테스트 |
+|---|---|---|---|---|
+| Core | `extension/runtime.js`의 `viewSettings`, `viewInject`, 공통 `render`·이벤트; `extension/build.py` | `memory-module/marinara-memory-runtime.cjs`, `lib/service.cjs`의 저장·설정·모델·큐·API·`renderMemorySource`; `lib/backup.cjs` | `settings.json`, 방별 설정·공통 파일/캐시; 백업·복원 및 방 생명주기는 service가 여러 도메인 파일을 조정 | `tests/test-safety.cjs`, `test-backup.cjs`, `test-branches.cjs`, `test-marinara-252.cjs` |
+| 이야기 기억 | `extension/runtime.js`의 `viewScenes`, `viewTimeline`, `viewInject`; 검색은 `extension/search.js` | `lib/scenes.cjs`, `recall.cjs`, `vectors.cjs`, `selected.cjs`, `reasons.cjs`; `service.cjs`의 `foldScenes`, `recallBeforeReply` | `settings.json`의 회상·임베딩 설정; `<room>.scenes.json`, `.vectors.json`, `.selected.json`, `.recall-prefs.json` | `tests/test-scenes.cjs`, `test-scene-coverage-retry.cjs`, `test-recall.cjs`, `test-vectors.cjs`, `test-library-input-search.mjs` |
+| 인물 기억 | `extension/runtime.js`의 `viewFacts`, `viewNames`, `viewNotebook` | `lib/names.cjs`, `aliases.cjs`, `address.cjs`, `knowledge.cjs`, `notebook.cjs`; 사실은 현재 `scenes.cjs`와 service에도 있음 | 사실은 `<room>.scenes.json`에 장면과 함께 있음; `.names.json`, `.address.json`, `.notebook.json`; 수첩은 `features.notebook` 및 방별 override | `tests/test-names-service.cjs`, `test-address-book.cjs`, `test-knowledge.cjs`, `test-notebook.cjs`, `test-notebook-rebuild.cjs` |
+| 사건·생활 | `extension/runtime.js`의 `viewLedger`, `viewLife` 및 약속 화면 | `lib/ledger.cjs`; 추출·정리·저장 연결은 `service.cjs` | `<room>.json` 장부에 약속·감정·생활 등 함께 저장; 최근 생활은 `settings.routine`, `chats[id].routine` 레거시 키 | `tests/test-ledger.cjs`, `test-deadlines.cjs`, `test-routine-toggle.cjs`, `test-ooc.cjs` |
+| 세계 정보 | `extension/runtime.js`의 `viewWorld` | `lib/state.cjs`, `places.cjs`, `keepsakes.cjs`; `service.cjs` `organizeFor`, `refreshWorld` | `features.characterState`, `places`, `keepsakes` 및 방별 override; `<room>.state.json`, `.places.json`, `.keepsakes.json` | `tests/test-world.cjs`, `test-keepsakes.cjs` |
+| 날짜·주기 등 선택 기능 | `extension/runtime.js`의 `trackersCard`와 관련 화면·이벤트 | `lib/trackers.cjs`, `service.cjs` `trackerClock`, `storyToday`, `refreshWorld` | `features.trackers`, 방별 override, `<room>.trackers.json`; `autoApply`는 인물 호칭 제안도 제어하는 별도 설정 | `tests/test-trackers.cjs`, `test-trackers-undo-route.cjs`, `test-compact-date.cjs`, `test-auto-apply.cjs` |
+
+### 경계와 실제 결합
+
+- **필수·기본:** Core, 이야기의 장면·회상, 인물 식별·사실·기본 호칭, 사건 장부는 현재 동작을 유지한다. `addressBook`, `knowledge` 등 `features.cjs`의 BUILTIN은 상시 기능이다. 회상용 임베딩 사용은 별도 설정이다.
+- **선택:** `recentLife` 기본 on은 기존 `routine` 키를 사용한다. `notebook`, `characterState`, `places`, `keepsakes`, `trackers`는 각각 기본 off다. `autoApply`는 기본 on이며 여러 기능에 걸친다. 방별 override와 데이터 보존·재활성화 정책을 유지한다.
+- **현재 직접 연결:** `service.cjs`는 장면 프롬프트에 선택 기능을 함께 포함하고 `refreshWorld`에서 장면을 읽어 각 도메인 데이터를 갱신한다. 사실은 이야기와 같은 scenes 파일에 있고, 사건·생활은 같은 ledger 파일에 있다. 이는 현행 결합이므로 목표 소유권만으로 파일을 나누거나 저장 형식을 바꾸지 않는다.
+- **목표 호출:** UI → Core의 공통 API → 기능의 공개 처리; 기능 → Core의 식별·저장·설정·모델·작업 계약. 기능 간 조회는 소유자의 공개 읽기 경로나 Core가 전달한 맥락으로, 변경은 소유자의 변경 경로로 요청한다. Core가 기능 기여를 수집해 기존 순서와 예산으로 단일 주입한다. 현재는 service가 직접 조정하므로 각 경계는 향후 검증하며 도입한다.
+- **생명주기:** 백업·복원·분기·삭제는 Core 조정 아래 각 데이터의 소유 규칙과 수동 편집 보호를 함께 지켜야 한다. 활성화 상태를 바꾸거나 모델 호출을 새로 분리하지 않는다.
+
 ## 기능별 지도
 
 | 영역 | 책임 및 주요 소스 | 소유 데이터 / 공통 인터페이스 | 관련 검증 | 끌 때의 현재 동작 / 주의 |
@@ -123,5 +144,3 @@ build.py: runtime.js + search.js + ui.css + theme.css → deliverable 단일 JS/
 ## UI 시범 분리: 기억 검색
 
 검색 화면의 검색어 추출·결과 렌더링과 입력·제출·필터·초기화 이벤트는 `extension/search.js`에서 찾는다. 빌드가 이 파일을 `runtime.js`의 단일 마커에 삽입하여 동일한 클로저와 단일 배포 JS를 만든다. 검색 상태 `searchDraft`, `searchQuery`, `searchKind`, `searchWho`, 방 데이터 및 `esc`, `threadList`, `personNames` 등 공통 함수는 런타임에서 공유한다. 결과 링크의 화면 이동, 방 전환 시 초기화, 공통 이벤트 등록은 `runtime.js`에 남아 있으므로 관련 문제일 때만 함께 조사한다. 검색은 이미 로드한 데이터를 읽으며 별도 서버 API 호출을 추가하지 않는다. `tests/test-library-input-search.mjs`는 기존/새 번들에서 검색·필터·입력 유지·이동을 확인하고, `tests/test-room-switch-ui.cjs`는 공통 방 전환 보호를 확인한다. 공식 엔진 통합은 아직 미검증이다.
-
-
