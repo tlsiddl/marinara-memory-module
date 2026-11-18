@@ -463,17 +463,17 @@ test('manual scene edit refreshes existing keepsakes through the shared scene ed
 });
 
 test('shared refresh stops later features on state, place or keepsake errors', () => {
-  const original = { state: St.fold, places: Pl.fold, notebook: X.Nb.fold, recommend: X.Tk.recommend, rename: fs.renameSync, stderr: process.stderr.write };
+  const original = { state: St.fold, places: Pl.refresh, notebook: X.Nb.fold, recommend: X.Tk.recommend, rename: fs.renameSync, stderr: process.stderr.write };
   try {
     for (const fail of ['none', 'state', 'places', 'keepsakes']) {
       const room = `keep-error-${fail}`; settingsFor(room, { characterState: 'on', places: 'on', keepsakes: 'on', notebook: 'on', trackers: 'on' });
-      const store = storeOf(sc('S1', 3, { keepsakes: [k('은반지', { owner: RAON }, ev(2.1))] }));
+      const store = storeOf(sc('S1', 3, { placeNotes: [{ place: '서재', description: '가상' }], keepsakes: [k('은반지', { owner: RAON }, ev(2.1))] }));
       const trace = [], logs = [];
       St.fold = (...args) => { trace.push('state'); if (fail === 'state') throw Error('injected state'); return { ...args[1], probe: 1 }; };
-      Pl.fold = (...args) => { trace.push('places'); if (fail === 'places') throw Error('injected places'); return { ...args[1], probe: 1 }; };
+      Pl.refresh = (...args) => { trace.push('places'); return original.places(...args); };
       X.Nb.fold = (...args) => { trace.push('notebook'); return original.notebook(...args); };
       X.Tk.recommend = (...args) => { trace.push('trackers'); return original.recommend(...args); };
-      fs.renameSync = (src, dst) => { const n = path.basename(dst); trace.push(`save:${n.split('.').slice(1).join('.')}`); if (fail === 'keepsakes' && n === `${room}.keepsakes.json`) throw Error('injected keepsakes'); return original.rename(src, dst); };
+      fs.renameSync = (src, dst) => { const n = path.basename(dst); trace.push(`save:${n.split('.').slice(1).join('.')}`); if (fail === 'places' && n === `${room}.places.json`) throw Error('injected places'); if (fail === 'keepsakes' && n === `${room}.keepsakes.json`) throw Error('injected keepsakes'); return original.rename(src, dst); };
       process.stderr.write = (message) => { logs.push(String(message)); return true; };
       const changed = X.refreshWorld(room, store);
       process.stderr.write = original.stderr; fs.renameSync = original.rename;
@@ -483,6 +483,6 @@ test('shared refresh stops later features on state, place or keepsake errors', (
       if (fail === 'state' || fail === 'places') assert.equal(trace.includes('save:keepsakes.json'), false);
     }
   } finally {
-    St.fold = original.state; Pl.fold = original.places; X.Nb.fold = original.notebook; X.Tk.recommend = original.recommend; fs.renameSync = original.rename; process.stderr.write = original.stderr;
+    St.fold = original.state; Pl.refresh = original.places; X.Nb.fold = original.notebook; X.Tk.recommend = original.recommend; fs.renameSync = original.rename; process.stderr.write = original.stderr;
   }
 });

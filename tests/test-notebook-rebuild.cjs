@@ -391,3 +391,20 @@ test('notebook rebuild refreshes keepsakes without replacing a locked user edit'
     assert.equal(X.loadKeepsakes(id).items.find((x) => x.id === item.id).meaning, '직접 고침');
   } finally { Ks.refresh = refresh; }
 });
+
+test('notebook rebuild reaches place refresh and preserves a locked place edit', async () => {
+  const id = 'nbplace-refresh';
+  X.saveSettings({ connection: 'conn', autoTranslate: false, chats: { [id]: { enabled: true, features: { notebook: 'on', places: 'on' } } } });
+  const store = S.emptyStore(); store.cast = ['Viktor', 'Mina'];
+  store.scenes = [scene('S1', 1, 2, { placeNotes: [{ place: '방', description: '밝은 방' }] })];
+  X.saveScenes(id, store); X.refreshWorld(id, store);
+  const Pl = X.Pl, old = X.loadPlaces(id), place = old.places[0]; assert.ok(place);
+  X.savePlaces(id, Pl.setField(structuredClone(old), place.id, 'description', '직접 고침'));
+  answer = () => ({ scenes: [{ id: 'S1', notebook: [{ who: 'Viktor', kind: 'heart', when: '기다렸을 때', text: '기다리기로 함', evidence: ['2.1'] }] }] });
+  const refresh = Pl.refresh; let calls = 0; Pl.refresh = (...args) => { calls++; return refresh(...args); };
+  try {
+    const job = X.rebuildNotebook(id); await job.run;
+    assert.equal(job.state, 'done', job.error || ''); assert.ok(calls > 0);
+    assert.equal(X.loadPlaces(id).places.find(p => p.id === place.id).description, '직접 고침');
+  } finally { Pl.refresh = refresh; }
+});

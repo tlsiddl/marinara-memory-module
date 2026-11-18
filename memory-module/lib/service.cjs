@@ -477,9 +477,7 @@ function refreshWorld(chatId, store) {
         if (JSON.stringify(next) !== JSON.stringify(old)) { saveState(chatId, next); changed = true; }
       }
       if (featureOn(chatId, 'places')) {
-        const old = loadPlaces(chatId);
-        const next = Pl.fold(store, old);
-        if (JSON.stringify(next) !== JSON.stringify(old)) { savePlaces(chatId, next); changed = true; }
+        if (Pl.refresh(store, { load: () => loadPlaces(chatId), save: (next) => savePlaces(chatId, next) })) changed = true;
       }
       if (featureOn(chatId, 'keepsakes')) {
         if (Ks.refresh(store, { load: () => loadKeepsakes(chatId), save: (next) => saveKeepsakes(chatId, next) })) changed = true;
