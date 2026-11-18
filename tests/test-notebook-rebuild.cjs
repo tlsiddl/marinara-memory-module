@@ -372,3 +372,22 @@ test('a notebook rebuild is a room job: stop aborts its model call, and purge ca
     assert.equal(job.error, null, 'a stop is not an error');
   } finally { provider.chatComplete = saved; }
 });
+
+test('notebook rebuild refreshes keepsakes without replacing a locked user edit', async () => {
+  const id = 'nbkeep-refresh';
+  X.saveSettings({ connection: 'conn', autoTranslate: false, chats: { [id]: { enabled: true, features: { notebook: 'on', keepsakes: 'on' } } } });
+  const store = S.emptyStore(); store.cast = ['Viktor', 'Mina'];
+  store.scenes = [scene('S1', 1, 2, { keepsakes: [{ name: '반지', owner: 'Viktor', meaning: '선물', evidence: [{ number: 2, sentence: 1 }] }] })];
+  X.saveScenes(id, store); X.refreshWorld(id, store);
+  const Ks = X.Ks, old = X.loadKeepsakes(id), item = old.items.find((x) => x.name === '반지');
+  assert.ok(item); X.saveKeepsakes(id, Ks.setField(structuredClone(old), item.id, 'meaning', '직접 고침'));
+  answer = () => ({ scenes: [{ id: 'S1', notebook: [{ who: 'Viktor', kind: 'heart', when: '기다렸을 때', text: '기다리기로 함', evidence: ['2.1'] }] }] });
+  const refresh = Ks.refresh; let refreshCalls = 0;
+  Ks.refresh = (...args) => { refreshCalls++; return refresh(...args); };
+  try {
+    const job = X.rebuildNotebook(id); await job.run;
+    assert.equal(job.state, 'done', job.error || '');
+    assert.ok(refreshCalls > 0, 'notebook rebuild reaches the keepsake post-processing');
+    assert.equal(X.loadKeepsakes(id).items.find((x) => x.id === item.id).meaning, '직접 고침');
+  } finally { Ks.refresh = refresh; }
+});

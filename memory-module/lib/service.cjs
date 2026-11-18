@@ -482,9 +482,7 @@ function refreshWorld(chatId, store) {
         if (JSON.stringify(next) !== JSON.stringify(old)) { savePlaces(chatId, next); changed = true; }
       }
       if (featureOn(chatId, 'keepsakes')) {
-        const old = loadKeepsakes(chatId);
-        const next = Ks.fold(store, old);
-        if (JSON.stringify(next) !== JSON.stringify(old)) { saveKeepsakes(chatId, next); changed = true; }
+        if (Ks.refresh(store, { load: () => loadKeepsakes(chatId), save: (next) => saveKeepsakes(chatId, next) })) changed = true;
       }
       if (featureOn(chatId, 'notebook')) {
         const old = loadNotebook(chatId);
