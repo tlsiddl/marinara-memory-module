@@ -9,7 +9,7 @@
 | 장면 누락·잘림 | `service.cjs` `foldScenes` → `scenes.cjs` `nextSlice`, `buildScenePrompt`, `parseScenesReply`, `applyScenes`, `commitScenes` | 모델 요청·설정; `test-scenes.cjs`, `test-scene-coverage-retry.cjs` |
 | 약속·감정·생활 | `service.cjs` `processChat`, `readBatch`, `tidyLedger` → `ledger.cjs` `applyResult`, `applyTidy`, `renderRoutine` | 설정 상속; `test-ledger.cjs`, `test-deadlines.cjs`, `test-routine-toggle.cjs` |
 | 회상·주입 | `service.cjs` `recallBeforeReply`, `renderMemorySource` → `recall.cjs` `candidates`, `renderRecalled` | 벡터·충돌·제외 설정; `test-recall.cjs`, `test-recall-reasons.cjs`, `test-vectors.cjs` |
-| 상태·장소·물건·수첩 | 해당 도메인 파일(물건 후처리: `keepsakes.cjs` `refresh`) → `service.cjs` `refreshWorld`, `renderMemorySource` | 장면 프롬프트와 설정; `test-world.cjs`, `test-keepsakes.cjs`, `test-notebook.cjs` |
+| 상태·장소·물건·수첩 | 해당 도메인 파일(장소 후처리: `places.cjs` `refresh`; 물건: `keepsakes.cjs` `refresh`) → `service.cjs` `refreshWorld`, `renderMemorySource` | 장면 프롬프트와 설정; `test-world.cjs`, `test-keepsakes.cjs`, `test-notebook.cjs` |
 | 날짜·주기 | `tracker-routes.cjs` 의 GET/POST, `trackers.cjs`; `service.cjs` `trackersView`, `refreshWorld`, `storyToday`, `trackerClock` | `ledger.cjs` 날짜 판독; `test-trackers.cjs`, `test-trackers-undo-route.cjs`, `test-compact-date.cjs` |
 | 기능 스위치 | `features.cjs` `resolve`, `withGlobal`, `withRoomMode`; `service.cjs` `featureSetting`, `organizeFor` | `refreshWorld`, `renderMemorySource` 및 UI; `test-features.cjs`, `test-routine-toggle.cjs` |
 | 기억 검색 화면 | `extension/search.js` `viewSearch`, `searchInput`, `searchSubmit`, `searchFilterChange`, `searchClear` | `runtime.js` 공통 상태·이동·방 전환; `test-library-input-search.mjs`, `test-room-switch-ui.cjs` |
@@ -154,3 +154,7 @@ API 오류는 먼저 `tracker-routes.cjs`의 입력·action 분기와 `trackers.
 ## 소중한 물건 장면 후처리 (3단계 시범)
 
 `service.cjs` `refreshWorld`가 기존 실행 순서와 `keepsakes` 활성화 조건을 소유하고 `keepsakes.cjs`의 `refresh(store, { load, save })`를 동기 호출한다. `refresh`는 기존 `fold` 결과를 비교해 변경 시 전달받은 저장 함수를 한 번 호출하고 변경 여부를 반환한다. 예외는 잡지 않아 기존 공통 오류 경계를 따른다. 정리·수동 편집·수첩 재구성은 같은 `refreshWorld` 경로를 사용한다. 문제 조사 시 `keepsakes.cjs`의 `refresh`, `fold`부터 확인하고 순서·설정·저장과 다른 기능 연계 문제일 때 `service.cjs` `refreshWorld`, `loadKeepsakes`, `saveKeepsakes`를 확인한다. 기존 서비스의 접기·비교·저장 세 줄이 물건 모듈의 한 함수로 옮겨졌으나 서비스의 제어·공통 의존성은 여전히 확인해야 하며 탐색 비용을 정량 측정하지 않았다. 관련 테스트는 `test-keepsakes.cjs`, `test-notebook-rebuild.cjs`, `test-world.cjs`다.
+
+## 장소 장면 후처리 (3단계 시범)
+
+`service.cjs` `refreshWorld`가 장소 활성화와 실행 순서를 제어하고 `places.cjs` `refresh(store, { load, save })`를 동기 호출한다. 함수는 기존 `fold`를 이용해 바뀐 경우에만 서비스 저장 함수를 호출하고 결과를 반환하며 예외는 기존 공통 경계로 전파한다. `S.setStateProvider`, `Pl.resolve`, `Pl.injectionBlock`, `St.awayFrom`의 호출과 장소 API·분기 처리 경로는 그대로다. 장소 처리 오류는 `places.cjs`의 `refresh`, `fold`부터 보고, 스위치·순서·저장·별칭 제공 문제는 `service.cjs`와 `scenes.cjs`를 확인한다. 관련 테스트는 `test-world.cjs`, `test-keepsakes.cjs`, `test-notebook-rebuild.cjs`다.
