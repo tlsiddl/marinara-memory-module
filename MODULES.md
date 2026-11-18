@@ -162,3 +162,36 @@ API 오류는 먼저 `tracker-routes.cjs`의 입력·action 분기와 `trackers.
 ### 4단계: 최종 주입 문자열 조합 시범 정리
 
 `service.cjs`의 `assembleMemorySource`는 이미 만들어진 블록의 순서, 빈 값 제거, 트래커 문자열 중복 처리와 헤더·구분자 결합만 담당한다. `renderMemorySource`는 선택·기능 조건·문자 예산과 각 블록 생성을 계속 소유한다. 출력 순서 오류는 작은 조합 함수에서 시작하고 항목 누락·회상·예산 문제는 기존 생성 경로도 확인한다. 별도 모듈이나 새 등록 체계는 없다. 실제 AI 탐색량은 측정하지 않았다.
+
+
+## 5단계 사전 분석: 핵심 도메인과 저장 경계 (2026-11-19)
+
+현재 구현을 기준으로 한 조사이며 코드 이동이나 저장 형식 변경을 승인한 기록이 아니다.
+
+| 책임 | 현재 함수와 경계 |
+|---|---|
+| 장면 추출·저장 | service의 `processChat` 완료 후 별도 `scenes:<id>` 큐의 `processScenes` → `foldScenes`; scenes의 `nextSlice`, `buildScenePrompt`, `parseScenesReply`, `applyScenes`, `commitScenes`. service가 재시도·부분 결과·취소·슬라이스별 저장을 조정한다. |
+| 장부 추출·갱신 | service의 `processChat`, `readBatch`, `tidyLedger`; ledger의 `planBatches`, `buildPrompt`, `applyResult`, `applyTidy`, `beginBatch`, `commitBatch`, `reconcile`. 장부와 생활 데이터는 같은 파일에 있다. |
+| 편집·원문 변경 보호 | service의 `editScenes`와 장면 PATCH가 수동 표시 후 저장·후처리·회상 무효화·재색인을 조정; scenes의 `commitScenes`, `reconcileScenes`, `undoKnowing`과 ledger의 스냅샷·`reconcile`이 각 도메인 규칙을 적용한다. 보존은 무조건이 아니며 원문 변경으로 장면이 제거될 때 수동 편집도 사라질 수 있다. |
+| 방 생명주기 | service `branchOnSend` → `inheritBranch` → `branchMemory`; `deletePrepare`, `deleteOnSend`, `purgeChatMemory`, `clearRoomCaches`. 복사·증거 재매핑·부분 실패 정리와 삭제 후 재저장 차단이 함께 필요하다. |
+| 백업·복원 | `backup.cjs`의 `FILES`, `build`, `validate`, `counts`는 목록과 문서 규칙; service routes 내부 `readRoomData`, `replaceRoom`, `makeSafetyCopy`, `restoreSafetyCopy`가 실제 다중 파일·설정·캐시와 실패 시 복구를 조정한다. |
+| 공통 저장·큐 | service의 `readJson`, `supported`, `markBroken`, `readJsonMemo`, `writeJson`, `loadScenes`/`saveScenes`, `loadLedger`/`saveLedger`, `clearRoomCaches`, `enqueue`. 임시 파일 후 rename은 개별 파일 단위이며 복수 파일 전체의 원자적 트랜잭션을 뜻하지 않는다. |
+
+도메인 검증과 단일 백업 문서 검증은 이미 각 파일에 있고 그대로 두는 편이 낫다. service에서 교차 기능 생명주기, 파일 보호, 장면·장부 작업을 함께 알아야 하는 결합은 남았다. 장면과 장부는 별도 큐이며 `selected:<id>`도 별도다. 저장·편집·삭제·복원의 기존 직렬화 및 취소 경계를 단일 큐로 통합하면 동작이 달라질 수 있다.
+
+### 대표 오류의 최소 조사 경로
+
+1. 장면 누락·반복: service `processScenes` → `foldScenes`의 재시도·저장, scenes `nextSlice` → `applyScenes` → `commitScenes`. 입력 범위와 응답 검증의 경계가 두 파일에 있다. `test-scene-coverage-retry.cjs`, `test-scenes.cjs`.
+2. 정리 중 원문 편집으로 장부가 어긋남: service `processChat`, `syncBeforeReply`와 ledger `beginBatch`/`commitBatch`/`reconcile`; 응답 시 임시 보호와 실제 롤백이 다르다. `test-edit-during-read.cjs`, `test-ledger.cjs`.
+3. 장면 수동 편집이 자동 판단에 덮임: service 장면 PATCH의 `markManual`, `editScenes`, `reviewAttributions`; scenes의 수동 표시·귀속 검증과 `reconcileScenes`. `test-learn-from-edits.cjs`, `test-attribution-retry.cjs`, `test-scenes.cjs`.
+4. 분기 후 미래 기억이 남거나 복원 뒤 예전 값이 보임: service `branchMemory`/`inheritBranch`, 복원 route의 `replaceRoom`/`clearRoomCaches`; scenes·ledger의 `reconcile`, backup의 `validate`. 여러 파일과 캐시의 생명주기가 공유된다. `test-branches.cjs`, `test-backup.cjs`, `test-safety.cjs`.
+5. 삭제 후 기억 재생성 또는 취소 후 저장: service `purgeChatMemory`, `writeJson`, `enqueue`, `processChat`, `processScenes`; 비동기 작업과 파일 쓰기 차단을 함께 확인. `test-room-delete.cjs`, `test-edit-during-read.cjs`.
+
+### 최소 개선 후보와 보류
+
+- **우선 추천: 코드 이동 없이 이 지도와 실제 오류 경로 유지.** 탐색 출발점이 줄고 런타임 변경 위험이 없다. 문서 정확성은 해당 함수와 테스트를 대조하며 롤백은 문서 커밋 단위. 실제 AI 탐색 시간은 측정하지 않았다.
+- **선택 후보: 장면 PATCH의 수동 대사 표시 계산에 이름 있는 좁은 함수 경계.** 기존 위치의 `oldQuotes`, `markManual`만 명확히 하며 저장·`learnFromEdit`·큐는 그대로 둔다. 이익은 수동 화자/상대 오류 조사에 한정되고 호출자 데이터 전달이 늘면 오히려 손해이므로 실제 필요가 생길 때만 검토한다. 위험 중간: 기존 수동 표시·추정 유지·시각 생성 조건이 바뀌면 안 된다. `test-learn-from-edits.cjs`, `test-attribution-retry.cjs`, 장면 편집·동시 작업 테스트와 고정 입력/시간의 표시·저장·후처리 순서 비교가 필수다. 독립 커밋 revert로 롤백한다.
+- **보류: `branchMemory`의 공통 접두사·참조 재매핑을 더 작은 경계로 명명.** 이미 하나의 함수로 찾을 수 있어 이익이 작고 ledger 스냅샷·장면의 번호 의미가 달라 위험 중간 이상이다. 채택 시 `test-branches.cjs`, `test-backup.cjs`와 분기별 전체 파일·ID·오류·쓰기 순서 비교, 독립 커밋 revert가 필요하다.
+- `writeJson`/손상 보호/캐시, 복원과 방 삭제, `enqueue`/취소, `foldScenes`/`readBatch` 재시도를 이동하거나 새 저장 추상화를 도입하는 것은 현재 권고하지 않는다. 저장 시점·실패 처리·호출 수에 대한 위험이 크고 이득이 입증되지 않았다.
+
+최종 목표 대비 기능 API 한 묶음, 검색 UI 한 화면, 장소·물건 후처리, 최종 주입 조합의 좁은 소유 경계는 드러났다. 공통 저장·모델·방 생명주기와 여러 기능의 교차 조정은 여전히 service에 집중돼 있고 사실·장면 및 장부·생활은 현행 파일을 공유한다. 기능별 완전한 독립 또는 계층 분리가 끝난 것은 아니다.
