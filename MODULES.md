@@ -8,7 +8,7 @@
 |---|---|---|
 | 장면 누락·잘림 | `service.cjs` `foldScenes` → `scenes.cjs` `nextSlice`, `buildScenePrompt`, `parseScenesReply`, `applyScenes`, `commitScenes` | 모델 요청·설정; `test-scenes.cjs`, `test-scene-coverage-retry.cjs` |
 | 약속·감정·생활 | `service.cjs` `processChat`, `readBatch`, `tidyLedger` → `ledger.cjs` `applyResult`, `applyTidy`, `renderRoutine` | 설정 상속; `test-ledger.cjs`, `test-deadlines.cjs`, `test-routine-toggle.cjs` |
-| 회상·주입 | `service.cjs` `recallBeforeReply`, `renderMemorySource` → `recall.cjs` `candidates`, `renderRecalled` | 벡터·충돌·제외 설정; `test-recall.cjs`, `test-recall-reasons.cjs`, `test-vectors.cjs` |
+| 회상·주입 | 출력 순서·구분자는 `service.cjs` `assembleMemorySource`; 선택·예산·기능 조건은 `renderMemorySource`, 회상은 `recallBeforeReply` → `recall.cjs` | 벡터·충돌·제외 설정; `test-memory-text.cjs`, `test-recall-reasons.cjs`, `test-language-fit.cjs` |
 | 상태·장소·물건·수첩 | 해당 도메인 파일(장소 후처리: `places.cjs` `refresh`; 물건: `keepsakes.cjs` `refresh`) → `service.cjs` `refreshWorld`, `renderMemorySource` | 장면 프롬프트와 설정; `test-world.cjs`, `test-keepsakes.cjs`, `test-notebook.cjs` |
 | 날짜·주기 | `tracker-routes.cjs` 의 GET/POST, `trackers.cjs`; `service.cjs` `trackersView`, `refreshWorld`, `storyToday`, `trackerClock` | `ledger.cjs` 날짜 판독; `test-trackers.cjs`, `test-trackers-undo-route.cjs`, `test-compact-date.cjs` |
 | 기능 스위치 | `features.cjs` `resolve`, `withGlobal`, `withRoomMode`; `service.cjs` `featureSetting`, `organizeFor` | `refreshWorld`, `renderMemorySource` 및 UI; `test-features.cjs`, `test-routine-toggle.cjs` |
@@ -158,3 +158,7 @@ API 오류는 먼저 `tracker-routes.cjs`의 입력·action 분기와 `trackers.
 ## 장소 장면 후처리 (3단계 시범)
 
 `service.cjs` `refreshWorld`가 장소 활성화와 실행 순서를 제어하고 `places.cjs` `refresh(store, { load, save })`를 동기 호출한다. 함수는 기존 `fold`를 이용해 바뀐 경우에만 서비스 저장 함수를 호출하고 결과를 반환하며 예외는 기존 공통 경계로 전파한다. `S.setStateProvider`, `Pl.resolve`, `Pl.injectionBlock`, `St.awayFrom`의 호출과 장소 API·분기 처리 경로는 그대로다. 장소 처리 오류는 `places.cjs`의 `refresh`, `fold`부터 보고, 스위치·순서·저장·별칭 제공 문제는 `service.cjs`와 `scenes.cjs`를 확인한다. 관련 테스트는 `test-world.cjs`, `test-keepsakes.cjs`, `test-notebook-rebuild.cjs`다.
+
+### 4단계: 최종 주입 문자열 조합 시범 정리
+
+`service.cjs`의 `assembleMemorySource`는 이미 만들어진 블록의 순서, 빈 값 제거, 트래커 문자열 중복 처리와 헤더·구분자 결합만 담당한다. `renderMemorySource`는 선택·기능 조건·문자 예산과 각 블록 생성을 계속 소유한다. 출력 순서 오류는 작은 조합 함수에서 시작하고 항목 누락·회상·예산 문제는 기존 생성 경로도 확인한다. 별도 모듈이나 새 등록 체계는 없다. 실제 AI 탐색량은 측정하지 않았다.
