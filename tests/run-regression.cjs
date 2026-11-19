@@ -23,9 +23,14 @@ const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'memory-regression-'));
 const files = fs.readdirSync(__dirname).filter((name) => /^test-.*\.(cjs|mjs)$/.test(name) && name !== 'test-macro.mjs').sort().map((name) => path.join(__dirname, name));
 const env = { ...process.env, TEMP: temp, TMP: temp, TMPDIR: temp, DATA_DIR: path.join(temp, 'data'), NODE_PATH: [modules, process.env.NODE_PATH].filter(Boolean).join(path.delimiter), HAPPY_DOM_MODULE: pathToFileURL(happy).href };
 try {
-  const result = spawnSync(process.execPath, ['--test', '--test-concurrency=4', ...files], { cwd: path.dirname(__dirname), env, stdio: 'inherit' });
+  const result = spawnSync(process.execPath, ['--test', '--test-concurrency=4', '--test-reporter=tap', ...files], { cwd: path.dirname(__dirname), env, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
+  if (result.stdout) process.stdout.write(result.stdout);
+  if (result.stderr) process.stderr.write(result.stderr);
   if (result.error) { console.error(result.error); process.exitCode = 1; }
-  else process.exitCode = result.status ?? 1;
+  else if (/^# skipped [1-9]\d*\s*$/m.test(result.stdout || '')) {
+    console.error('건너뛴 테스트가 있어 전체 회귀를 통과로 처리하지 않습니다.');
+    process.exitCode = 1;
+  } else process.exitCode = result.status ?? 1;
 } finally {
   fs.rmSync(temp, { recursive: true, force: true });
 }
