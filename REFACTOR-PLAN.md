@@ -1,10 +1,10 @@
 # 기억 서재 모듈화 리팩터링 실행 계획서
 
-**프로젝트:** `tlsiddl/marinara-memory-module`  
-**기준 커밋:** `165d4880781ef06d24a1abdffd7785e4f607d0e8`  
-**작업 브랜치:** `refactor/modular`  
-**기준 보호 태그:** `pre-modular-refactor-20261118`  
-**기준 자료:** `MODULES.md` 1.5단계 의존성 분석  
+**프로젝트:** `tlsiddl/marinara-memory-module`<br>
+**기준 커밋:** `165d4880781ef06d24a1abdffd7785e4f607d0e8`<br>
+**작업 브랜치:** `refactor/modular`<br>
+**기준 보호 태그:** `pre-modular-refactor-20261118`<br>
+**기준 자료:** `MODULES.md` 1.5단계 의존성 분석<br>
 **작업 상태:** 실행 계획 수립 / 리팩터링 미착수
 
 ---
