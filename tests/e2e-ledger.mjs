@@ -31,7 +31,8 @@ const status = async () => ({ ...(await api('GET', `/api/memory-module/chats/${c
 async function waitIdle(chatId) {
   for (let i = 0; i < 600; i++) {
     const r = await status();
-    if (r.job.state !== 'running') return r;
+    // Scene folding uses a separate queue and the same fake model; wait before measuring ledger calls.
+    if (r.job.state !== 'running' && r.sceneJob.state !== 'running') return r;
     await sleep(500);
   }
   throw Error('timed out');

@@ -9,6 +9,7 @@ const replyFile = process.argv[3];
 const calls = { memory: 0, rp: 0 };
 let memoryDelayMs = 0;
 const memoryPrompts = [];
+const sceneRequests = [];
 let lastRpPrompt = '';
 
 function ledgerReply(user) {
@@ -112,6 +113,10 @@ http
         res.writeHead(200, { 'content-type': 'application/json' });
         return res.end(JSON.stringify(memoryPrompts));
       }
+      if (req.url === '/__scene_requests') {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        return res.end(JSON.stringify(sceneRequests));
+      }
       if (req.url === '/__calls') {
         res.writeHead(200, { 'content-type': 'application/json' });
         return res.end(JSON.stringify(calls));
@@ -163,6 +168,7 @@ http
       } else if (isMemory && system.includes('지나간 대화를 장면으로')) {
         calls.scenes = (calls.scenes || 0) + 1;
         const user = messages.find((m) => m.role === 'user')?.content || '';
+        sceneRequests.push({ numbers: [...user.matchAll(/^\[(\d+)\] /gm)].map((m) => Number(m[1])), required: Number(user.match(/\[필수 끝 번호\] (\d+)/)?.[1]) });
         content = JSON.stringify(sceneReply(user));
       } else if (isMemory && system.includes('그 뒤 이야기에서 풀렸는지')) {
         calls.feelings = (calls.feelings || 0) + 1;
