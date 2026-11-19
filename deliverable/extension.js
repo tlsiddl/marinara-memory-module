@@ -1532,14 +1532,6 @@
     else item.cycle = { every: Number(d.every), unit: d.unit, length: Number(d.length), predict: d.predict, starts: String(d.starts || '').split(/[,\s]+/).filter(Boolean) };
     return item;
   }
-  function readTrackerForm() {
-    if (!trackerDraft) return;
-    for (const el of root.querySelectorAll('[data-tk]')) trackerDraft[el.dataset.tk] = el.value;
-  }
-  function readScenePicker() {
-    if (!scenePicker) return;
-    for (const el of root.querySelectorAll('[data-sp]')) scenePicker[el.dataset.sp] = el.value;
-  }
   function trackerForm(t) {
     const d = trackerDraft;
     if (!d) return '<div class="buttons"><button class="primary" data-act="trackerNew">트래커 추가</button></div>';
@@ -1586,6 +1578,20 @@
       ${trackerForm(t)}</div>`;
   }
 
+  function trackersCard() {
+    const items = world?.trackers?.items || [];
+    if (!items.length) return '';
+    return `<div class="paper"><div class="paper-toolbar"><h2>세고 있는 것</h2><button class="ghost" data-tab="world">고치기 · 추가</button></div>
+      <div class="tracker-tiles">${items.map((it) => `<div class="tracker-tile"><small>${withKo(it.label)}</small><b>${esc(it.status?.text || '')}</b>${it.inject && it.inject !== 'off' ? '<small>답변에 넣음</small>' : ''}</div>`).join('')}</div></div>`;
+  }
+  function readTrackerForm() {
+    if (!trackerDraft) return;
+    for (const el of root.querySelectorAll('[data-tk]')) trackerDraft[el.dataset.tk] = el.value;
+  }
+  function readScenePicker() {
+    if (!scenePicker) return;
+    for (const el of root.querySelectorAll('[data-sp]')) scenePicker[el.dataset.sp] = el.value;
+  }
   /** On a scene card: "이 장면부터" starts a tracker on the scene's story date (disabled when the scene has none). */
   function scenePickerBox(s) {
     const pick = info?.trackerPick;
@@ -2301,12 +2307,6 @@
     const extNewer = newer(VERSION, server);
     return `<div class="note" role="status"><b>${extNewer ? '기억 모듈을 업데이트해 주세요' : '기억 서재(확장)를 업데이트해 주세요'}</b> · 확장 v${esc(VERSION)} · 모듈 v${esc(server)}<br>
       ${extNewer ? '화면(확장)이 서버의 기억 모듈보다 새 버전이라 새 기능이 동작하지 않을 수 있습니다. 서버에서 설치 명령(install.sh)을 한 번 실행하면 맞춰집니다.' : '서버의 기억 모듈이 화면(확장)보다 새 버전입니다. 저장소의 deliverable 폴더에서 새 ZIP을 받아 개인 확장을 바꿔 주세요.'}</div>`;
-  }
-  function trackersCard() {
-    const items = world?.trackers?.items || [];
-    if (!items.length) return '';
-    return `<div class="paper"><div class="paper-toolbar"><h2>세고 있는 것</h2><button class="ghost" data-tab="world">고치기 · 추가</button></div>
-      <div class="tracker-tiles">${items.map((it) => `<div class="tracker-tile"><small>${withKo(it.label)}</small><b>${esc(it.status?.text || '')}</b>${it.inject && it.inject !== 'off' ? '<small>답변에 넣음</small>' : ''}</div>`).join('')}</div></div>`;
   }
   function suggestionsCard() {
     const open = threadList().filter((t) => t.status === 'open' && !t.plan);

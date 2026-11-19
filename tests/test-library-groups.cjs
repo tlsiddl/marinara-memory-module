@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const source = fs.readFileSync(path.join(__dirname, '../extension/runtime.js'), 'utf8').replace(/\r\n/g, '\n');
+const source = require('./ui-source.cjs')();
 const searchSource = fs.readFileSync(path.join(__dirname, '../extension/search.js'), 'utf8').replace(/\r\n/g, '\n');
 
 test('seven tabs hold every screen; the new ones are in VIEWS', () => {
