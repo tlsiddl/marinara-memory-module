@@ -24,7 +24,10 @@ await api('PUT', `/api/prompts/${preset.id}/sections/reorder`, { sectionIds: ord
 await api('PATCH', `/api/chats/${chatId}`, { connectionId: conn.id, promptPresetId: preset.id });
 await api('POST', '/api/memory-module/settings', { connection: conn.name });
 await api('POST', `/api/memory-module/chats/${chatId}/enable`, {});
-const status = async () => api('GET', `/api/memory-module/chats/${chatId}`);
+const status = async () => ({
+  ...(await api('GET', `/api/memory-module/chats/${chatId}`)),
+  ...(await api('GET', `/api/memory-module/chats/${chatId}/threads`)),
+});
 const idle = async () => { for (let i = 0; i < 600; i++) { const s = await status(); if (s.job.state !== 'running') return s; await sleep(300); } };
 const prompt = async () => JSON.stringify((await api('POST', '/api/generate/dryRun', { chatId, returnPrompt: true, userMessage: '금요일에 뭐 하기로 했지?' })).prompt);
 const replyPrompt = async (msg) => { await api('POST', '/api/generate', { chatId, userMessage: msg, streaming: true }); await sleep(1500); return await (await fetch(`${llm}/__lastrp`)).text(); };

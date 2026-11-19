@@ -26,9 +26,11 @@ async function api(method, url, body) {
   }
 }
 const run = (...args) => execFileSync(process.execPath, [cli, ...args], { env: { ...process.env, MEMORY_MODULE_PORT: port }, encoding: 'utf8' });
+let chatId;
+const status = async () => ({ ...(await api('GET', `/api/memory-module/chats/${chatId}`)), ...(await api('GET', `/api/memory-module/chats/${chatId}/threads`)) });
 async function waitIdle(chatId) {
   for (let i = 0; i < 600; i++) {
-    const r = await api('GET', `/api/memory-module/chats/${chatId}`);
+    const r = await status();
     if (r.job.state !== 'running') return r;
     await sleep(500);
   }
@@ -40,7 +42,7 @@ const connection = await api('POST', '/api/connections', { name: '나노딥식41
 const form = new FormData();
 form.append('file', new Blob([fs.readFileSync(jsonlPath)]), '테스트방.jsonl');
 const imported = await api('POST', '/api/import/st-chat', form);
-const chatId = imported.chatId || imported.id || imported.chat?.id;
+chatId = imported.chatId || imported.id || imported.chat?.id;
 assert.ok(chatId, `import returned ${JSON.stringify(imported).slice(0, 200)}`);
 const stock = (await api('GET', '/api/prompts')).find((p) => p.name === "Marinara's Universal Preset");
 const copy = await api('POST', `/api/prompts/${stock.id}/duplicate`, {});
@@ -89,6 +91,7 @@ const listMessages = async () => {
 };
 const hasThread = (word) => state.threads.some((t) => [t.title, t.detail, t.latest?.text].join(' ').includes(word));
 let calls0 = await memoryCalls();
+fs.writeFileSync(replyFile, '하루가 웃었다. "약속할게, 내일 같이 달빛호수 가자."');
 await api('POST', '/api/generate', { chatId, userMessage: '오늘은 좀 피곤해.', streaming: true });
 await sleep(2500);
 state = await waitIdle(chatId);
@@ -146,7 +149,7 @@ await sleep(2500);
 assert.equal((await (await fetch(`${llm}/__calls`)).json()).memory, callsOff);
 preview = JSON.stringify((await api('POST', '/api/generate/dryRun', { chatId, returnPrompt: true })).prompt);
 assert.doesNotMatch(preview, /\[아직 끝나지 않은 일\]/);
-assert.ok((await api('GET', `/api/memory-module/chats/${chatId}`)).threads.length > 0, 'the ledger is kept');
+assert.ok((await status()).threads.length > 0, 'the ledger is kept');
 console.log('ok 6: off stops updates and keeps memory out of the prompt; the ledger is kept');
 
 // 7) The tidy command on its own.
@@ -160,19 +163,19 @@ assert.ok(state.threads.some((t) => t.kind === 'emotion' && t.closed?.how === '�
 console.log('ok 7: tidy command closes and merges on the saved ledger');
 
 // 7b) Hand fixes: reopen a closed item, close it again.
-state = await api('GET', `/api/memory-module/chats/${chatId}`);
+state = await status();
 const shut = state.threads.find((t) => t.status === 'closed' && !t.mergedInto);
 assert.match(run('reopen', chatId, shut.id), /다시 열었습니다/);
-assert.equal((await api('GET', `/api/memory-module/chats/${chatId}`)).threads.find((t) => t.id === shut.id).status, 'open');
+assert.equal((await status()).threads.find((t) => t.id === shut.id).status, 'open');
 assert.match(run('close', chatId, shut.id, '테스트로', '닫음'), /닫았습니다/);
-assert.equal((await api('GET', `/api/memory-module/chats/${chatId}`)).threads.find((t) => t.id === shut.id).closed.how, '테스트로 닫음');
+assert.equal((await status()).threads.find((t) => t.id === shut.id).closed.how, '테스트로 닫음');
 console.log('ok 7b: reopen and close by hand');
 
 // 8) Trial on a slice: nothing saved.
-const saved = (await api('GET', `/api/memory-module/chats/${chatId}`)).threads.length;
+const saved = (await status()).threads.length;
 const trial = run('trial', chatId, '300', '330');
 assert.match(trial, /시험 완료: 메시지 31개/);
-assert.equal((await api('GET', `/api/memory-module/chats/${chatId}`)).threads.length, saved);
+assert.equal((await status()).threads.length, saved);
 assert.throws(() => run('trial', chatId, '1', '200'));
 console.log('ok 8: trial reads a slice without saving');
 console.log(run('status', chatId).trim());
