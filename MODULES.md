@@ -11,6 +11,7 @@
 | 회상·주입 | 출력 순서·구분자는 `service.cjs` `assembleMemorySource`; 선택·예산·기능 조건은 `renderMemorySource`, 회상은 `recallBeforeReply` → `recall.cjs` | 벡터·충돌·제외 설정; `test-memory-text.cjs`, `test-recall-reasons.cjs`, `test-language-fit.cjs` |
 | 상태·장소·물건·수첩 | 해당 도메인 파일(장소 후처리: `places.cjs` `refresh`; 물건: `keepsakes.cjs` `refresh`) → `service.cjs` `refreshWorld`, `renderMemorySource` | 장면 프롬프트와 설정; `test-world.cjs`, `test-keepsakes.cjs`, `test-notebook.cjs` |
 | 날짜·주기 | `tracker-routes.cjs` 의 GET/POST, `trackers.cjs`; `service.cjs` `trackersView`, `refreshWorld`, `storyToday`, `trackerClock` | `ledger.cjs` 날짜 판독; `test-trackers.cjs`, `test-trackers-undo-route.cjs`, `test-compact-date.cjs` |
+| 날짜·주기 화면 | `extension/tracker-ui.js`의 `trackerForm`, `trackersPaper`, `trackersCard`, `tkBody` | 공통 `runtime.js`의 `handle`, `readTrackerForm`, 방 전환 및 장면 선택기; `test-tracker-ui-dom.mjs`, `test-trackers.cjs`, `test-room-switch-ui.cjs` |
 | 기능 스위치 | `features.cjs` `resolve`, `withGlobal`, `withRoomMode`; `service.cjs` `featureSetting`, `organizeFor` | `refreshWorld`, `renderMemorySource` 및 UI; `test-features.cjs`, `test-routine-toggle.cjs` |
 | 기억 검색 화면 | `extension/search.js` `viewSearch`, `searchInput`, `searchSubmit`, `searchFilterChange`, `searchClear` | `runtime.js` 공통 상태·이동·방 전환; `test-library-input-search.mjs`, `test-room-switch-ui.cjs` |
 | 화면·버튼 | `extension/runtime.js` `openLibrary`, `render`, 해당 이벤트와 API 경로 | service의 해당 route; `test-panel-layout.cjs`, `test-room-switch-ui.cjs`, 기능별 UI 테스트 |
@@ -23,7 +24,7 @@
 - **엔진 통합 진입점:** `memory-module/marinara-memory-runtime.cjs`가 Marinara 배포 파일을 메모리에서 패치하고 `memory-module/lib/service.cjs`를 붙인다. 엔진 원본 파일을 수정하지 않는다. 지원 패치가 정확히 맞지 않으면 해당 패치가 fail-closed 된다.
 - **서버 서비스 및 조정:** `memory-module/lib/service.cjs`는 5,713줄 / 331,578바이트이며 아래 20개 내부 모듈을 직접 가져온다. HTTP API, 설정·파일 I/O, 모델 작업 큐, 장면·장부 정리, 회상, 임베딩, 번역, 방 삭제·분기·백업 연결이 한 파일에 모여 있다.
 - **핵심 도메인 파일:** `memory-module/lib/scenes.cjs` (4,067줄), `ledger.cjs` (2,897줄)는 독립 파일이지만 각자 크고 여러 개념을 함께 다룬다.
-- **UI:** `extension/runtime.js`는 공통 상태·화면을 담당하며, 기억 검색의 렌더링과 전용 이벤트는 `extension/search.js`에 있다. `extension/build.py`가 검색 소스와 UI·테마 CSS를 JS에 삽입하고 `deliverable/extension.js` 및 zip을 만든다. 현재 화면 단위의 지연 로딩은 확인되지 않았다.
+- **UI:** `extension/runtime.js`는 공통 상태·화면을 담당하며, 기억 검색의 렌더링과 전용 이벤트는 `extension/search.js`, 트래커의 표시·폼 변환은 `extension/tracker-ui.js`에 있다. `extension/build.py`가 검색 소스와 UI·테마 CSS를 JS에 삽입하고 `deliverable/extension.js` 및 zip을 만든다. 현재 화면 단위의 지연 로딩은 확인되지 않았다.
 - **테스트:** `tests/`에 128개 파일이 있다. `package.json` 및 루트 `AGENTS.md`는 저장소에서 발견되지 않았다.
 
 ## 목표 기능 영역과 현재 소유권
@@ -195,3 +196,9 @@ API 오류는 먼저 `tracker-routes.cjs`의 입력·action 분기와 `trackers.
 - `writeJson`/손상 보호/캐시, 복원과 방 삭제, `enqueue`/취소, `foldScenes`/`readBatch` 재시도를 이동하거나 새 저장 추상화를 도입하는 것은 현재 권고하지 않는다. 저장 시점·실패 처리·호출 수에 대한 위험이 크고 이득이 입증되지 않았다.
 
 최종 목표 대비 기능 API 한 묶음, 검색 UI 한 화면, 장소·물건 후처리, 최종 주입 조합의 좁은 소유 경계는 드러났다. 공통 저장·모델·방 생명주기와 여러 기능의 교차 조정은 여전히 service에 집중돼 있고 사실·장면 및 장부·생활은 현행 파일을 공유한다. 기능별 완전한 독립 또는 계층 분리가 끝난 것은 아니다.
+
+### 트래커 UI 표시·폼 변환 시범 분리
+
+`extension/tracker-ui.js`는 `TK_*`, `tkBlank`, `tkFromItem`, `tkBody`, `trackerForm`, `trackersPaper`, `trackersCard`를 소유한다. `extension/build.py`가 단일 클로저에 삽입한다. 트래커 action·DOM 리스너, `readTrackerForm`, `readScenePicker`, 장면 선택기, 방 전환·공통 `act`/`resetRoomUi`와 공유 상태는 `runtime.js`에 남는다. 따라서 표시·폼 본문 오류의 출발점은 트래커 소스로 좁아졌지만 입력 상태, 비동기 응답, 버튼·방 전환·장면 연결 오류는 여전히 runtime을 조사해야 한다. 트래커 source만으로 독립 동작하는 모듈은 아니다.
+
+관련 테스트: `tests/test-tracker-ui-dom.mjs`, `tests/test-trackers.cjs`, `tests/test-auto-apply.cjs`, `tests/test-room-switch-ui.cjs`; 정적 UI 검사는 `tests/ui-source.cjs`로 실제 조합된 트래커 소스를 확인한다. 테스트 환경은 `tests/README.md`의 고정 lockfile과 사전 확인 실행기를 사용한다.
