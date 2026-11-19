@@ -1,0 +1,13 @@
+{
+  "name": "marinara-memory-module-tests",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Isolated test dependencies; not used by the memory module at runtime.",
+  "scripts": {
+    "regression": "node run-regression.cjs"
+  },
+  "devDependencies": {
+    "fastify": "5.12.8",
+    "happy-dom": "21.0.4"
+  }
+}

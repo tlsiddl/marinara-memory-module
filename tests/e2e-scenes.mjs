@@ -97,16 +97,31 @@ assert.doesNotMatch(prompt, /<speaker/, 'speaker tags are taken off');
 assert.match(prompt, /\(서술\) /, 'narration lines are marked; spoken lines get who → whom (unit tests)');
 console.log('ok 3: scenes outside the window are in the prompt, newest expanded');
 
-// 4) One reply does not fold (only 2 new messages); five replies do, in one call (scenes reach 55, so the
-// 8 waiting messages are 56~63; the fold reaches 64, the last message before the window).
+// 4) The deterministic fixture and fake model need two bounded slices. Other model responses can end scenes differently.
 const before = (await calls()).scenes;
+const requestsBefore = (await (await fetch(`${llm}/__scene_requests`)).json()).length;
+const coveredBefore = store.covered.map((m) => m.id);
 state = await reply(chatId, '오늘 뭐 해?');
 assert.equal((await calls()).scenes, before, 'no fold for 2 messages');
 for (const t of ['응', '그래', '좋아', '그럼']) state = await reply(chatId, t);
-assert.equal((await calls()).scenes, before + 1, 'one fold once 8 have gathered');
-assert.equal(state.scenes.coveredThrough, 64);
+assert.equal((await calls()).scenes, before + 2, 'the fake model returns two bounded slices');
+const requests = (await (await fetch(`${llm}/__scene_requests`)).json()).slice(requestsBefore);
+assert.deepEqual(requests, [
+  { numbers: [56, 57, 58, 59, 60, 61, 62, 63], required: 60 },
+  { numbers: [62, 63, 64, 65, 66, 67, 68], required: 64 },
+]);
+store = await api('GET', `/api/memory-module/chats/${chatId}/scenes`);
+assert.deepEqual(store.scenes.slice(-2).map(({ start, end }) => [start, end]), [[56, 61], [62, 65]]);
+const coveredAfter = store.covered.map((m) => m.id);
+assert.deepEqual(coveredAfter.slice(0, coveredBefore.length), coveredBefore, 'the previously saved prefix stays intact');
+assert.equal(coveredAfter.length, 65);
+assert.equal(new Set(coveredAfter).size, coveredAfter.length, 'no message is committed twice');
+const rawMessages = await api('GET', `/api/chats/${chatId}/messages`);
+const orderedMessages = Array.isArray(rawMessages) ? rawMessages : rawMessages.messages || rawMessages.items;
+assert.deepEqual(coveredAfter, orderedMessages.slice(0, 65).map((m) => m.id), 'saved coverage follows the actual chat without gaps');
+assert.equal(state.scenes.coveredThrough, 65);
 const through = state.scenes.coveredThrough;
-console.log(`ok 4: folded again after 8 new messages, now through ${state.scenes.coveredThrough}`);
+console.log(`ok 4: two distinct fixture slices committed without duplication, now through ${through}`);
 
 // 5) A hand edit sticks and shows in the prompt.
 store = await api('GET', `/api/memory-module/chats/${chatId}/scenes`);
@@ -134,7 +149,7 @@ let info = await api('GET', `/api/memory-module/chats/${chatId}`);
 assert.equal(info.recall.used, 'model', JSON.stringify(info.recall));
 assert.deepEqual(info.recall.picks.map((p) => p.id), ['S1'], 'unknown scene ids are dropped');
 prompt = await preview(chatId);
-assert.match(prompt, /\[지금 떠오르는 지난 장면\]\\n\s*① 장면 1\\n/);
+assert.match(prompt, /\[지금 떠오르는 지난 장면\]\\n\s*S1 장면 1\\n/);
 assert.match(run('status', chatId), /최근 회상 \(기억 모델, [\d.]+초\): S1 장면 1 — 테스트 회상/);
 const recallCalls = (await calls()).recall;
 await api('POST', '/api/generate', { chatId, regenerateMessageId: (await api('GET', `/api/chats/${chatId}/messages?limit=5`)).filter?.((m) => m.role === 'assistant').at(-1)?.id ?? list.at(-1).id, streaming: true });

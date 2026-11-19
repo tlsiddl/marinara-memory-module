@@ -885,66 +885,7 @@
       <div class="file-shelf" id="shelf">${shelf || '<p class="hint">이 묶음에는 장면이 없습니다.</p>'}</div>${s ? sceneEditor(s) : ''}`;
   }
 
-  /** Search the room's loaded records literally; punctuation is not a pattern. */
-  // Only what a person wrote or reads: titles, summaries, events, lines, names, places. Ids, message numbers,
-  // fingerprints and internal marks ("critical", "m12") are not searched or shown.
-  const SEARCH_TEXT = new Set(['title', 'summary', 'text', 'why', 'time', 'place', 'weather', 'what', 'kept', 'detail', 'cause', 'need', 'about', 'who', 'toward', 'by', 'to', 'how', 'turns', 'keep', 'present']);
-  const SEARCH_NESTED = new Set(['events', 'quotes', 'loose', 'recollections', 'later', 'learned', 'latest', 'closed', 'evidence', 'clues']);
-  function searchableText(value) {
-    if (value == null) return '';
-    if (Array.isArray(value)) return value.map(searchableText).filter(Boolean).join(' ');
-    if (typeof value !== 'object') return String(value);
-    const parts = [];
-    for (const [k, v] of Object.entries(value)) {
-      if (v == null) continue;
-      if (SEARCH_TEXT.has(k)) parts.push(Array.isArray(v) ? v.filter((x) => typeof x === 'string').join(' ') : typeof v === 'string' ? v : '');
-      else if (SEARCH_NESTED.has(k)) parts.push(searchableText(v));
-    }
-    return parts.filter(Boolean).join(' ').replace(/\s+/g, ' ');
-  }
-
-  /** Every quoted line of the room, as a record of its own (it opens its scene). */
-  function quoteRecords() {
-    const out = [];
-    for (const sc of store?.scenes || []) for (const e of sc.events || []) for (const q of e.quotes || []) {
-      const l = quoteLine(q);
-      out.push({ id: sc.id, title: `${sc.id} · ${l.who}`, text: l.text, people: [q.by, q.to].filter(Boolean) });
-    }
-    return out;
-  }
-  /** Whether a record is about a person: named as who/toward/about/present/speaker, or in its text. */
-  function mentions(record, who) {
-    const fields = [record.who, record.toward, record.about, ...(record.present || []), ...(record.people || [])].filter(Boolean).map(String);
-    return fields.some((f) => f.includes(who)) || searchableText(record).includes(who);
-  }
-  function viewSearch() {
-    if (!store) return emptyRoom();
-    const query = searchQuery.toLocaleLowerCase();
-    const groups = [
-      ['장면', 'scene', store.scenes || []],
-      ['대사', 'quote', quoteRecords()],
-      ['챕터', 'chapter', store.chapters || []],
-      ['큰 흐름', 'arc', store.arcs || []],
-      ['사실', 'fact', store.facts || []],
-      ['미해결·닫힌 기록', 'thread', threadList()],
-    ].filter(([, kind]) => searchKind === 'all' || kind === searchKind);
-    const results = [];
-    if (query) for (const [label, kind, records] of groups) for (const record of records) {
-      if (searchWho !== 'all' && !mentions(record, searchWho)) continue;
-      const text = kind === 'quote' ? record.text : searchableText(record);
-      const at = text.toLocaleLowerCase().indexOf(query);
-      if (at < 0) continue;
-      const start = Math.max(0, at - 45);
-      const excerpt = `${start ? '…' : ''}${text.slice(start, at + query.length + 110)}${text.length > at + query.length + 110 ? '…' : ''}`;
-      results.push(`<a href="#" class="record-link record-row" data-goto-${kind === 'quote' ? 'scene' : kind}="${esc(record.id)}"><span class="pill neutral">${label}</span><span class="row-main"><b>${esc(record.title || record.about || record.id)}</b><small>${esc(excerpt)}</small></span><span class="chip-arrow">›</span></a>`);
-    }
-    return `<h1>기억 검색</h1><p class="intro">이 방의 장면·대사·챕터·큰 흐름·사실·미해결 기록과 닫힌 기록에서 입력한 글자를 찾습니다. 종류와 인물로 거를 수 있습니다. 결과를 누르면 해당 기록으로 이동합니다.</p>
-      <form id="memorySearch" class="memory-search"><label for="memorySearchInput">검색어</label><div class="buttons"><input id="memorySearchInput" type="search" value="${esc(searchDraft)}" placeholder="이름, 대사, 장소 등" autocomplete="off"><button class="primary" type="submit">${icon('search')}검색</button><button type="button" data-act="clearSearch">초기화</button></div>
-        <div class="buttons search-filters"><select id="searchKind" aria-label="종류로 거르기"><option value="all">모든 종류</option>${[['scene', '장면'], ['quote', '대사'], ['chapter', '챕터'], ['arc', '큰 흐름'], ['fact', '사실'], ['thread', '미해결·닫힌 기록']].map(([k, l]) => `<option value="${k}" ${searchKind === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
-        <select id="searchWho" aria-label="인물로 거르기"><option value="all">모든 인물</option>${personNames().map((n) => `<option value="${esc(n)}" ${searchWho === n ? 'selected' : ''}>${esc(nameShown(n))}</option>`).join('')}</select></div></form>
-      <div role="status">${query ? `${results.length}개 검색 결과` : '검색어를 입력하고 검색 버튼이나 Enter를 눌러 주세요.'}</div>
-      <div class="record-list">${results.join('') || (query ? '<p class="hint">일치하는 기억이 없습니다.</p>' : '')}</div>`;
-  }
+  /*__SEARCH_MODULE__*/
 
   function arcEditor(a) {
     return `<div class="paper chapter-paper" id="arcEditor" data-id="${esc(a.id)}">
@@ -1486,24 +1427,7 @@
   }
 
   /* ---------- 날짜·주기 트래커 ---------- */
-  const TK_TYPES = { count: '며칠째 (시작일부터 센다)', until: 'D-day (목표일까지 센다)', cycle: '주기 (반복되는 일)' };
-  const TK_INJECT = { present: '관련된 사람이 지금 장면에 있을 때', always: '항상', never: '넣지 않음' };
-  const TK_CLOCK = { story: '이야기 속 날짜', real: '실제 오늘 날짜' };
-  const tkBlank = () => ({ id: '', type: 'count', label: '', scope: 'room', p1: '', p2: '', clock: 'story', inject: 'present', start: '', firstDay: '1', target: '', every: '28', unit: 'day', length: '5', predict: 'fixed', starts: '' });
-  const tkFromItem = (it) => ({
-    id: it.id, type: it.type, label: it.label, scope: it.scope, p1: it.people?.[0] || '', p2: it.people?.[1] || '', clock: it.clock, inject: it.inject,
-    start: it.count?.start || '', firstDay: String(it.count?.firstDay ?? 1), target: it.until?.target || '',
-    every: String(it.cycle?.every ?? 28), unit: it.cycle?.unit || 'day', length: String(it.cycle?.length ?? 5), predict: it.cycle?.predict || 'fixed', starts: (it.cycle?.starts || []).join(', '),
-  });
-  /** The request body for a form: the people follow the scope, the type decides which dates are sent. */
-  function tkBody(d) {
-    const people = [d.p1, d.p2].map((s) => String(s || '').trim()).filter(Boolean);
-    const item = { type: d.type, label: d.label, scope: d.scope, people: d.scope === 'room' ? [] : d.scope === 'person' ? people.slice(0, 1) : people.slice(0, 2), clock: d.clock, inject: d.inject };
-    if (d.type === 'count') item.count = { start: d.start, firstDay: Number(d.firstDay) === 0 ? 0 : 1 };
-    else if (d.type === 'until') item.until = { target: d.target };
-    else item.cycle = { every: Number(d.every), unit: d.unit, length: Number(d.length), predict: d.predict, starts: String(d.starts || '').split(/[,\s]+/).filter(Boolean) };
-    return item;
-  }
+  /*__TRACKER_MODULE__*/
   function readTrackerForm() {
     if (!trackerDraft) return;
     for (const el of root.querySelectorAll('[data-tk]')) trackerDraft[el.dataset.tk] = el.value;
@@ -1512,52 +1436,6 @@
     if (!scenePicker) return;
     for (const el of root.querySelectorAll('[data-sp]')) scenePicker[el.dataset.sp] = el.value;
   }
-  function trackerForm(t) {
-    const d = trackerDraft;
-    if (!d) return '<div class="buttons"><button class="primary" data-act="trackerNew">트래커 추가</button></div>';
-    const sel = (key, options, label) => `<label class="world-field"><span>${label}</span><select data-tk="${key}" aria-label="${label}">${Object.entries(options).map(([v, text]) => `<option value="${esc(v)}" ${String(d[key]) === v ? 'selected' : ''}>${esc(text)}</option>`).join('')}</select></label>`;
-    const txt = (key, label, hint) => `<label class="world-field"><span>${label}</span><input data-tk="${key}" ${key === 'p1' || key === 'p2' ? 'list="trackerPeople" ' : ''}value="${esc(d[key])}" placeholder="${esc(hint || '')}" aria-label="${label}"></label>`;
-    const people = d.scope === 'person' ? txt('p1', '사람', '이름') : d.scope === 'pair' ? txt('p1', '첫째 사람', '이름') + txt('p2', '둘째 사람', '이름') : '';
-    const fields = d.type === 'count'
-      ? txt('start', '시작일', '예: 24-07-16') + sel('firstDay', { 1: '시작한 날을 1일째로', 0: '시작한 날을 0일째로' }, '세는 법')
-      : d.type === 'until'
-      ? txt('target', '목표일', '예: 24-08-01')
-      : txt('every', '주기', '예: 28') + sel('unit', { day: '일마다', month: '개월마다' }, '단위') + txt('length', '기간(일)', '예: 5') + sel('predict', { fixed: '늘 같은 주기로', average: '지난 간격의 평균으로' }, '다음 날짜') + txt('starts', '지난 시작일', '쉼표로 나눠 적기 (선택)');
-    return `<h3>${d.id ? '트래커 고치기' : '트래커 추가'}</h3>
-      ${d.id ? '' : sel('type', TK_TYPES, '종류')}
-      ${txt('label', '이름', d.type === 'cycle' ? '예: 발정기' : d.type === 'until' ? '예: 시험' : '예: 만난 지')}
-      ${sel('scope', { room: '방 전체', person: '한 사람', pair: '두 사람' }, '대상')}${people}
-      ${fields}
-      ${sel('clock', TK_CLOCK, '날짜 기준')}${sel('inject', TK_INJECT, '기억 칸에 넣기')}
-      <div class="buttons"><button class="primary" data-act="trackerSave">${d.id ? '저장' : '추가'}</button><button class="ghost" data-act="trackerCancel">닫기</button></div>`;
-  }
-  function trackersPaper(w, armedNow) {
-    const t = w?.trackers;
-    if (!t) return '';
-    const card = (it) => {
-      const meta = [TK_TYPES[it.type], it.scope === 'room' ? '방 전체' : (it.people || []).join('·'), TK_CLOCK[it.clock], `기억 칸: ${TK_INJECT[it.inject]}`].join(' · ');
-      const cycle = it.type === 'cycle'
-        ? `<div class="world-field"><span>시작일</span>${(it.cycle.starts || []).length ? it.cycle.starts.map((s) => `<input data-tk-start="${esc(it.id)}" data-from="${esc(s)}" value="${esc(s)}" aria-label="${esc(it.label)} 시작일 ${esc(s)}"><button class="ghost" data-act="trackerDropStart" data-id="${esc(it.id)}" data-date="${esc(s)}">${armedNow === `trackerDropStart:${it.id}:${s}` ? '한 번 더 누르면 지웁니다' : '지우기'}</button>`).join('') : '<small>아직 기록이 없습니다</small>'}</div>
-          <div class="routine-row"><input data-tk-new="${esc(it.id)}" placeholder="시작일 직접 추가 (예: 24-07-16)" aria-label="${esc(it.label)} 시작일 추가"><button data-act="trackerAddStart" data-id="${esc(it.id)}">시작일 추가</button><button class="primary" data-act="trackerStart" data-id="${esc(it.id)}">오늘 시작</button></div>`
-        : '';
-      return `<div class="world-card" data-tracker="${esc(it.id)}"><h3>${withKo(it.label)} <span class="pill ${it.status.ok ? '' : 'neutral'}">${esc(it.status.text)}</span></h3>
-        <p class="hint">${esc(meta)}${it.status.today ? ` · 기준일 ${esc(it.status.today)}` : ''}</p>${cycle}
-        <div class="buttons"><button class="ghost" data-act="trackerEdit" data-id="${esc(it.id)}">고치기</button><button class="ghost" data-act="trackerDelete" data-id="${esc(it.id)}">${armedNow === `trackerDelete:${it.id}` ? '한 번 더 누르면 지웁니다' : '지우기'}</button></div></div>`;
-    };
-    const suggestions = (t.suggestions || []).length
-      ? `<div class="note" role="status"><b>이야기에서 찾은 시작일</b>${t.suggestions.map((s) => `<div>${esc(s.text)}${sceneRefs(sceneRef(s.sceneId, '에서 찾음', w.sceneTitles))} <button class="primary" data-act="trackerAnswer" data-sid="${esc(s.id)}" data-answer="accept">기록</button> <button class="ghost" data-act="trackerAnswer" data-sid="${esc(s.id)}" data-answer="ignore">무시</button></div>`).join('')}</div>`
-      : '';
-    const applied = (t.applied || []).length
-      ? `<div class="note" role="status"><b>자동으로 적용함</b>${t.applied.map((x) => `<div>자동으로 적용함: ${esc(x.text)}${sceneRefs(sceneRef(x.sceneId, '에서 받음', w.sceneTitles))} <button class="ghost" data-act="trackerUndoApplied" data-aid="${esc(x.id)}">${armedNow === `trackerUndoApplied:${x.id}` ? '한 번 더 누르면 되돌립니다. 그 뒤로 고치거나 더한 시작일도 함께 사라집니다' : '되돌리기'}</button></div>`).join('')}</div>`
-      : '';
-    return `<div class="paper"><h2>날짜·주기 트래커 · ${t.items.length}개</h2>
-      <p class="hint">직접 만든 날짜 기록입니다(모델 호출 없음). 오늘은 ${t.storyDate ? `이야기 속 ${esc(t.storyDate)}` : '이야기 날짜를 아직 모름'} · 실제 ${esc(t.realDate)}. 답변에는 \`[기록] …\` 한 줄(200자 이내)만 들어가고, 주기의 시작이 이야기에 나오면 ‘제안 자동 적용’(설정 → 추가 기능)이 켜져 있을 때는 바로 기록하고 ‘자동으로 적용함’에서 되돌릴 수 있으며, 꺼져 있으면 제안만 합니다.</p>
-      ${applied}${suggestions}
-      ${t.items.length ? t.items.map(card).join('') : '<p class="hint">아직 없습니다.</p>'}
-      <datalist id="trackerPeople">${(t.people || []).map((n) => `<option value="${esc(n)}">`).join('')}</datalist>
-      ${trackerForm(t)}</div>`;
-  }
-
   /** On a scene card: "이 장면부터" starts a tracker on the scene's story date (disabled when the scene has none). */
   function scenePickerBox(s) {
     const pick = info?.trackerPick;
@@ -2273,12 +2151,6 @@
     const extNewer = newer(VERSION, server);
     return `<div class="note" role="status"><b>${extNewer ? '기억 모듈을 업데이트해 주세요' : '기억 서재(확장)를 업데이트해 주세요'}</b> · 확장 v${esc(VERSION)} · 모듈 v${esc(server)}<br>
       ${extNewer ? '화면(확장)이 서버의 기억 모듈보다 새 버전이라 새 기능이 동작하지 않을 수 있습니다. 서버에서 설치 명령(install.sh)을 한 번 실행하면 맞춰집니다.' : '서버의 기억 모듈이 화면(확장)보다 새 버전입니다. 저장소의 deliverable 폴더에서 새 ZIP을 받아 개인 확장을 바꿔 주세요.'}</div>`;
-  }
-  function trackersCard() {
-    const items = world?.trackers?.items || [];
-    if (!items.length) return '';
-    return `<div class="paper"><div class="paper-toolbar"><h2>세고 있는 것</h2><button class="ghost" data-tab="world">고치기 · 추가</button></div>
-      <div class="tracker-tiles">${items.map((it) => `<div class="tracker-tile"><small>${withKo(it.label)}</small><b>${esc(it.status?.text || '')}</b>${it.inject && it.inject !== 'off' ? '<small>답변에 넣음</small>' : ''}</div>`).join('')}</div></div>`;
   }
   function suggestionsCard() {
     const open = threadList().filter((t) => t.status === 'open' && !t.plan);
@@ -3470,7 +3342,7 @@
     // Do not preventDefault: text, IME, clipboard and native controls keep working.
     for (const type of ['keydown', 'keypress', 'keyup']) root.addEventListener(type, (e) => e.stopPropagation());
     root.addEventListener('input', (e) => {
-      if (e.target.id === 'memorySearchInput') searchDraft = e.target.value;
+      searchInput(e);
       if (e.target.dataset?.setup && setupDraft && setupDraftRoom === room) setupDraft[e.target.dataset.setup] = e.target.value;
       if (['nameSource', 'nameTarget', 'nameDisplay'].includes(e.target.id)) readNameForm();
       if (['addrFrom', 'addrTo', 'addrTerm', 'addrNote'].includes(e.target.id)) readAddressForm();
@@ -3486,13 +3358,7 @@
         for (const el of root.querySelectorAll('[data-at]')) el.hidden = attributionHidden(el.dataset.at);
       }
     });
-    root.addEventListener('submit', (e) => {
-      if (e.target.id !== 'memorySearch') return;
-      e.preventDefault();
-      searchDraft = root.querySelector('#memorySearchInput').value;
-      searchQuery = searchDraft.trim();
-      render();
-    });
+    root.addEventListener('submit', searchSubmit);
     // The launcher lives outside the shadow root, as a plain button right under <body>, so drawer extensions and
     // page scripts can find it, move it and click it (click opens and closes; Esc closes).
     launcher = makeLauncher();
@@ -3567,11 +3433,7 @@
         }
         return render();
       }
-      if (e.target.id === 'searchKind' || e.target.id === 'searchWho') {
-        if (e.target.id === 'searchKind') searchKind = e.target.value;
-        else searchWho = e.target.value;
-        return render();
-      }
+      if (searchFilterChange(e)) return;
       if (e.target.id === 'ledgerWho') {
         ledgerWho = e.target.value;
         return render();
@@ -3777,12 +3639,7 @@
         return render();
       }
       const n = e.target.closest('button');
-      if (n?.dataset.act === 'clearSearch') {
-        searchDraft = searchQuery = '';
-        render();
-        root.querySelector('#memorySearchInput')?.focus();
-        return;
-      }
+      if (searchClear(n)) return;
       if (!n || busy) return;
       if (n.dataset.act === 'selectPerson') {
         selectedPerson = n.dataset.id || '';

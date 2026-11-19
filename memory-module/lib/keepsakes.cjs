@@ -321,11 +321,20 @@ function injectionBlock(file, present, max = INJECT_CHARS) {
   return used ? line : '';
 }
 
+/** Fold a saved scene store and persist only a real change. Errors propagate to the service's shared boundary. */
+function refresh(store, { load, save }) {
+  const old = load();
+  const next = fold(store, old);
+  if (JSON.stringify(next) === JSON.stringify(old)) return false;
+  save(next);
+  return true;
+}
+
 /** The items in the shape the screen shows. */
 function view(file) {
   return (isKeepsakes(file) ? file.items : []).map((it) => ({ ...it }));
 }
 
 module.exports = {
-  KEEPSAKES_VERSION, STATUSES, STATUS_LABEL, FIELDS, INJECT_CHARS, PER_SCENE, PROMPT, keyOf, cleanEntry, emptyKeepsakes, isKeepsakes, fold, setField, unlockField, setAliases, addItem, mergeItems, deleteItem, injectionBlock, view,
+  KEEPSAKES_VERSION, STATUSES, STATUS_LABEL, FIELDS, INJECT_CHARS, PER_SCENE, PROMPT, keyOf, cleanEntry, emptyKeepsakes, isKeepsakes, fold, refresh, setField, unlockField, setAliases, addItem, mergeItems, deleteItem, injectionBlock, view,
 };

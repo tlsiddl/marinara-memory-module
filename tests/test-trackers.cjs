@@ -463,7 +463,7 @@ test('installers list the new file', () => {
 });
 
 // ---- the screen ----
-const source = fs.readFileSync(path.join(__dirname, '../extension/runtime.js'), 'utf8').replace(/\r\n/g, '\n');
+const source = require('./ui-source.cjs')();
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const fn = (name, globals = {}) => {
   const start = source.indexOf(`  function ${name}(`);

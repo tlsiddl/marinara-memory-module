@@ -441,3 +441,48 @@ test('the scene call: asked only while on, answered keepsakes (and a knownBy lis
   X.refreshWorld('kh', on.store);
   assert.equal(X.loadKeepsakes('kh').items[0].name, '은반지');
 });
+
+test('keepsake refresh writes only changed data and propagates load or save errors', () => {
+  const store = storeOf(sc('S1', 3, { keepsakes: [k('은반지', { owner: RAON }, ev(2.1))] }));
+  let file = Ks.emptyKeepsakes(), writes = 0;
+  const deps = { load: () => file, save: (value) => { file = value; writes++; } };
+  assert.equal(Ks.refresh(store, deps), true); assert.equal(writes, 1);
+  assert.equal(Ks.refresh(store, deps), false); assert.equal(writes, 1);
+  assert.throws(() => Ks.refresh(store, { load() { throw Error('load failed'); }, save() {} }), /load failed/);
+  assert.throws(() => Ks.refresh(store, { load: () => Ks.emptyKeepsakes(), save() { throw Error('save failed'); } }), /save failed/);
+});
+
+test('manual scene edit refreshes existing keepsakes through the shared scene edit path', async () => {
+  seedRoom('keeps-edit'); settingsFor('keeps-edit', { keepsakes: 'on' });
+  X.refreshWorld('keeps-edit', X.loadScenes('keeps-edit'));
+  const item = X.loadKeepsakes('keeps-edit').items.find((x) => x.name === '은반지');
+  X.saveKeepsakes('keeps-edit', Ks.setField(structuredClone(X.loadKeepsakes('keeps-edit')), item.id, 'meaning', '직접 고정'));
+  const result = await call('PATCH /chats/:id/scenes/:sceneId', 'keeps-edit', { summary: '직접 고친 장면' }, { sceneId: 'S1' });
+  assert.ifError(result.error);
+  assert.equal(X.loadKeepsakes('keeps-edit').items.find((x) => x.id === item.id).meaning, '직접 고정');
+});
+
+test('shared refresh stops later features on state, place or keepsake errors', () => {
+  const original = { state: St.fold, places: Pl.refresh, notebook: X.Nb.fold, recommend: X.Tk.recommend, rename: fs.renameSync, stderr: process.stderr.write };
+  try {
+    for (const fail of ['none', 'state', 'places', 'keepsakes']) {
+      const room = `keep-error-${fail}`; settingsFor(room, { characterState: 'on', places: 'on', keepsakes: 'on', notebook: 'on', trackers: 'on' });
+      const store = storeOf(sc('S1', 3, { placeNotes: [{ place: '서재', description: '가상' }], keepsakes: [k('은반지', { owner: RAON }, ev(2.1))] }));
+      const trace = [], logs = [];
+      St.fold = (...args) => { trace.push('state'); if (fail === 'state') throw Error('injected state'); return { ...args[1], probe: 1 }; };
+      Pl.refresh = (...args) => { trace.push('places'); return original.places(...args); };
+      X.Nb.fold = (...args) => { trace.push('notebook'); return original.notebook(...args); };
+      X.Tk.recommend = (...args) => { trace.push('trackers'); return original.recommend(...args); };
+      fs.renameSync = (src, dst) => { const n = path.basename(dst); trace.push(`save:${n.split('.').slice(1).join('.')}`); if (fail === 'places' && n === `${room}.places.json`) throw Error('injected places'); if (fail === 'keepsakes' && n === `${room}.keepsakes.json`) throw Error('injected keepsakes'); return original.rename(src, dst); };
+      process.stderr.write = (message) => { logs.push(String(message)); return true; };
+      const changed = X.refreshWorld(room, store);
+      process.stderr.write = original.stderr; fs.renameSync = original.rename;
+      assert.equal(changed, fail !== 'state');
+      if (fail === 'none') assert.deepEqual(trace, ['state', 'save:state.json', 'places', 'save:places.json', 'save:keepsakes.json', 'notebook', 'save:notebook.json', 'trackers']);
+      else { assert.match(logs.join(''), new RegExp(`injected ${fail}`)); assert.equal(trace.includes('notebook'), false); assert.equal(trace.includes('trackers'), false); }
+      if (fail === 'state' || fail === 'places') assert.equal(trace.includes('save:keepsakes.json'), false);
+    }
+  } finally {
+    St.fold = original.state; Pl.refresh = original.places; X.Nb.fold = original.notebook; X.Tk.recommend = original.recommend; fs.renameSync = original.rename; process.stderr.write = original.stderr;
+  }
+});

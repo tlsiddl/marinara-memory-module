@@ -6,7 +6,7 @@ import json, re, zipfile
 root = Path(__file__).resolve().parent
 out = root.parent / 'deliverable'
 out.mkdir(exist_ok=True)
-version = re.search(r"const VERSION = '([^']+)'", (root.parent / 'memory-module' / 'marinara-memory-runtime.cjs').read_text()).group(1)
+version = re.search(r"const VERSION = '([^']+)'", (root.parent / 'memory-module' / 'marinara-memory-runtime.cjs').read_text(encoding="utf-8")).group(1)
 manifest = {
     "kind": "marinara.personal-extension",
     "version": 1,
@@ -21,13 +21,21 @@ manifest = {
         "cssPath": "extension.css",
     },
 }
-js = (root / 'runtime.js').read_text()
-js = js.replace("/*__UI_CSS__*/ ''", "/*__UI_CSS__*/ " + json.dumps((root / 'ui.css').read_text(), ensure_ascii=False))
-js = js.replace("/*__THEME_CSS__*/ ''", "/*__THEME_CSS__*/ " + json.dumps((root / 'theme.css').read_text(), ensure_ascii=False))
+js = (root / 'runtime.js').read_text(encoding="utf-8")
+marker = '  /*__SEARCH_MODULE__*/\n'
+if js.count(marker) != 1:
+    raise ValueError('expected exactly one search module marker')
+js = js.replace(marker, (root / 'search.js').read_text(encoding="utf-8"))
+marker = '  /*__TRACKER_MODULE__*/\n'
+if js.count(marker) != 1:
+    raise ValueError('expected exactly one tracker module marker')
+js = js.replace(marker, (root / 'tracker-ui.js').read_text(encoding="utf-8"))
+js = js.replace("/*__UI_CSS__*/ ''", "/*__UI_CSS__*/ " + json.dumps((root / 'ui.css').read_text(encoding="utf-8"), ensure_ascii=False))
+js = js.replace("/*__THEME_CSS__*/ ''", "/*__THEME_CSS__*/ " + json.dumps((root / 'theme.css').read_text(encoding="utf-8"), ensure_ascii=False))
 js = js.replace("'/*__VERSION__*/'", json.dumps(version))
-(out / 'extension.js').write_text('/* 기억 서재 · 마리나라 엔진용 기억 모듈 (비공식) */\n' + js)
-(out / 'extension.css').write_text('/* UI styles live in an isolated ShadowRoot. */\n')
-(out / 'manifest.json').write_text(json.dumps(manifest, ensure_ascii=False, indent=2))
+(out / 'extension.js').write_text('/* 기억 서재 · 마리나라 엔진용 기억 모듈 (비공식) */\n' + js, encoding="utf-8")
+(out / 'extension.css').write_text('/* UI styles live in an isolated ShadowRoot. */\n', encoding="utf-8")
+(out / 'manifest.json').write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
 name = out / 'memory-library-module.personal-extension.zip'
 with zipfile.ZipFile(name, 'w', zipfile.ZIP_DEFLATED) as z:
     for f in ['manifest.json', 'extension.js', 'extension.css']:

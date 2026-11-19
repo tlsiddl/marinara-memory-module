@@ -4,7 +4,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const source = fs.readFileSync(path.join(__dirname, '../extension/runtime.js'), 'utf8').replace(/\r\n/g, '\n');
+const source = require('./ui-source.cjs')();
+const searchSource = fs.readFileSync(path.join(__dirname, '../extension/search.js'), 'utf8').replace(/\r\n/g, '\n');
 
 test('seven tabs hold every screen; the new ones are in VIEWS', () => {
   const groups = source.slice(source.indexOf('  const GROUPS = ['), source.indexOf('  ];', source.indexOf('  const GROUPS = [')));
@@ -24,9 +25,10 @@ test('open items: filters, pick boxes, bulk close with undo; facts picked severa
 });
 
 test('home: version notice, things to fix, day counts, recent changes, cost; search filters; recent rooms', () => {
-  for (const fn of ['versionNote', 'suggestionsCard', 'trackersCard', 'recentCard', 'costCard', 'injectBars', 'quoteRecords', 'recentRooms']) assert.ok(source.includes(`function ${fn}(`), fn);
+  for (const fn of ['versionNote', 'suggestionsCard', 'trackersCard', 'recentCard', 'costCard', 'injectBars', 'recentRooms']) assert.ok(source.includes(`function ${fn}(`), fn);
   assert.match(source, /기억 모듈을 업데이트해 주세요/);
-  assert.match(source, /id="searchKind"/);
+  assert.ok(searchSource.includes('function quoteRecords('));
+  assert.match(searchSource, /id="searchKind"/);
   assert.match(source, /optgroup label="최근 연 방"/);
 });
 

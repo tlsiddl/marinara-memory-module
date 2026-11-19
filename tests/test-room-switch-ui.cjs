@@ -6,7 +6,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
-const source = fs.readFileSync(path.join(__dirname, '../extension/runtime.js'), 'utf8').replace(/\r\n/g, '\n');
+const source = require('./ui-source.cjs')();
 const slice = (head, tail) => { const a = source.indexOf(head); assert(a >= 0, head); return source.slice(a, source.indexOf(tail, a) + tail.length); };
 
 function logHarness() {

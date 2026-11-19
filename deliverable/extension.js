@@ -947,6 +947,33 @@
       <div class="record-list">${results.join('') || (query ? '<p class="hint">일치하는 기억이 없습니다.</p>' : '')}</div>`;
   }
 
+  // Search-only handlers share the enclosing runtime state; navigation stays with the common link handler.
+  function searchInput(e) {
+    if (e.target.id === 'memorySearchInput') searchDraft = e.target.value;
+  }
+  function searchSubmit(e) {
+    if (e.target.id !== 'memorySearch') return;
+    e.preventDefault();
+    searchDraft = root.querySelector('#memorySearchInput').value;
+    searchQuery = searchDraft.trim();
+    render();
+  }
+  function searchFilterChange(e) {
+    if (e.target.id !== 'searchKind' && e.target.id !== 'searchWho') return false;
+    if (e.target.id === 'searchKind') searchKind = e.target.value;
+    else searchWho = e.target.value;
+    render();
+    return true;
+  }
+  function searchClear(n) {
+    if (n?.dataset.act !== 'clearSearch') return false;
+    searchDraft = searchQuery = '';
+    render();
+    root.querySelector('#memorySearchInput')?.focus();
+    return true;
+  }
+
+
   function arcEditor(a) {
     return `<div class="paper chapter-paper" id="arcEditor" data-id="${esc(a.id)}">
       <div class="paper-toolbar"><h2>${esc(a.id)} · ${esc(a.chapters[0])}~${esc(a.chapters.at(-1))}${a.time ? ` · ${esc(a.time)}` : ''}</h2>${a.edited ? '<span class="pill">직접 고침</span>' : ''}</div>
@@ -1505,14 +1532,6 @@
     else item.cycle = { every: Number(d.every), unit: d.unit, length: Number(d.length), predict: d.predict, starts: String(d.starts || '').split(/[,\s]+/).filter(Boolean) };
     return item;
   }
-  function readTrackerForm() {
-    if (!trackerDraft) return;
-    for (const el of root.querySelectorAll('[data-tk]')) trackerDraft[el.dataset.tk] = el.value;
-  }
-  function readScenePicker() {
-    if (!scenePicker) return;
-    for (const el of root.querySelectorAll('[data-sp]')) scenePicker[el.dataset.sp] = el.value;
-  }
   function trackerForm(t) {
     const d = trackerDraft;
     if (!d) return '<div class="buttons"><button class="primary" data-act="trackerNew">트래커 추가</button></div>';
@@ -1559,6 +1578,20 @@
       ${trackerForm(t)}</div>`;
   }
 
+  function trackersCard() {
+    const items = world?.trackers?.items || [];
+    if (!items.length) return '';
+    return `<div class="paper"><div class="paper-toolbar"><h2>세고 있는 것</h2><button class="ghost" data-tab="world">고치기 · 추가</button></div>
+      <div class="tracker-tiles">${items.map((it) => `<div class="tracker-tile"><small>${withKo(it.label)}</small><b>${esc(it.status?.text || '')}</b>${it.inject && it.inject !== 'off' ? '<small>답변에 넣음</small>' : ''}</div>`).join('')}</div></div>`;
+  }
+  function readTrackerForm() {
+    if (!trackerDraft) return;
+    for (const el of root.querySelectorAll('[data-tk]')) trackerDraft[el.dataset.tk] = el.value;
+  }
+  function readScenePicker() {
+    if (!scenePicker) return;
+    for (const el of root.querySelectorAll('[data-sp]')) scenePicker[el.dataset.sp] = el.value;
+  }
   /** On a scene card: "이 장면부터" starts a tracker on the scene's story date (disabled when the scene has none). */
   function scenePickerBox(s) {
     const pick = info?.trackerPick;
@@ -1891,11 +1924,11 @@
           <option value="connection" ${embedMode() === 'connection' ? 'selected' : ''}>마리나라 연결의 임베딩 설정 그대로 쓰기 (추천)</option>
           <option value="manual" ${embedMode() === 'manual' ? 'selected' : ''}>여기서 직접 입력</option>
           <option value="off" ${embedMode() === 'off' ? 'selected' : ''}>끄기</option></select></label>
-        <p class="hint">‘그대로 쓰기’는 위의 ‘기억 정리에 쓸 연결’에서 마리나라 연결 설정의 <b>시맨틱 검색(임베딩)</b> 모델·주소·임베딩 연결을 그대로 가져옵니다.</p>
+        <p class="hint">‘그대로 쓰기’는 위의 ‘기억 정리에 쓸 연결’에서 마리나라 연결 설정의 <b>시맨틱 검색(임베딩)</b> 모델·주소·임베딩 연결을 그대로 가져옵니다. ‘직접 입력’은 모델명만 바꾸되, 설정된 임베딩 전용 연결이 있으면 그 주소와 키로 호출합니다.</p>
         <label>직접 입력할 임베딩 모델<input id="setEmbedding" list="embeddingModels" value="${esc(serverSettings?.embedding?.model || '')}" placeholder="예: Qwen/Qwen3-Embedding-8B"></label>
         <datalist id="embeddingModels"><option value="Qwen/Qwen3-Embedding-8B"><option value="BAAI/bge-m3"><option value="Qwen/Qwen3-Embedding-0.6B"></datalist>
         <p class="hint">지금: ${serverEmbedding?.model ? `<b>${esc(serverEmbedding.model)}</b> · ${esc(serverEmbedding.label || '')}` : serverEmbedding?.error ? esc(serverEmbedding.error) : embedMode() === 'off' ? '꺼져 있습니다.' : '임베딩 모델을 찾지 못했습니다. 마리나라 연결 설정에 임베딩 모델을 넣거나 직접 입력해 주세요.'}</p>
-        ${info.vectors ? `<p class="hint">이 방: 장면 ${info.vectors.total}개 중 ${info.vectors.indexed}개 색인됨${info.vectors.indexed < info.vectors.total ? ' (다음 정리 때 이어서 만듭니다)' : ''}</p>` : ''}
+        ${info.vectors ? `<p class="hint">이 방: 장면 ${info.vectors.total}개 중 ${info.vectors.indexed}개 색인됨${info.vectors.indexed < info.vectors.total ? ' (다음 정리 때 이어서 만듭니다)' : ''}</p>${info.vectors.error ? `<p class="hint" style="color:var(--danger, #c85b5b)">최근 색인 실패: ${esc(info.vectors.error)}</p>` : ''}` : ''}
         <div class="buttons"><button data-act="saveEmbedding">임베딩 저장·연결 확인</button></div>
       </div>
       ${orphanSection()}
@@ -2274,12 +2307,6 @@
     const extNewer = newer(VERSION, server);
     return `<div class="note" role="status"><b>${extNewer ? '기억 모듈을 업데이트해 주세요' : '기억 서재(확장)를 업데이트해 주세요'}</b> · 확장 v${esc(VERSION)} · 모듈 v${esc(server)}<br>
       ${extNewer ? '화면(확장)이 서버의 기억 모듈보다 새 버전이라 새 기능이 동작하지 않을 수 있습니다. 서버에서 설치 명령(install.sh)을 한 번 실행하면 맞춰집니다.' : '서버의 기억 모듈이 화면(확장)보다 새 버전입니다. 저장소의 deliverable 폴더에서 새 ZIP을 받아 개인 확장을 바꿔 주세요.'}</div>`;
-  }
-  function trackersCard() {
-    const items = world?.trackers?.items || [];
-    if (!items.length) return '';
-    return `<div class="paper"><div class="paper-toolbar"><h2>세고 있는 것</h2><button class="ghost" data-tab="world">고치기 · 추가</button></div>
-      <div class="tracker-tiles">${items.map((it) => `<div class="tracker-tile"><small>${withKo(it.label)}</small><b>${esc(it.status?.text || '')}</b>${it.inject && it.inject !== 'off' ? '<small>답변에 넣음</small>' : ''}</div>`).join('')}</div></div>`;
   }
   function suggestionsCard() {
     const open = threadList().filter((t) => t.status === 'open' && !t.plan);
@@ -3471,7 +3498,7 @@
     // Do not preventDefault: text, IME, clipboard and native controls keep working.
     for (const type of ['keydown', 'keypress', 'keyup']) root.addEventListener(type, (e) => e.stopPropagation());
     root.addEventListener('input', (e) => {
-      if (e.target.id === 'memorySearchInput') searchDraft = e.target.value;
+      searchInput(e);
       if (e.target.dataset?.setup && setupDraft && setupDraftRoom === room) setupDraft[e.target.dataset.setup] = e.target.value;
       if (['nameSource', 'nameTarget', 'nameDisplay'].includes(e.target.id)) readNameForm();
       if (['addrFrom', 'addrTo', 'addrTerm', 'addrNote'].includes(e.target.id)) readAddressForm();
@@ -3487,13 +3514,7 @@
         for (const el of root.querySelectorAll('[data-at]')) el.hidden = attributionHidden(el.dataset.at);
       }
     });
-    root.addEventListener('submit', (e) => {
-      if (e.target.id !== 'memorySearch') return;
-      e.preventDefault();
-      searchDraft = root.querySelector('#memorySearchInput').value;
-      searchQuery = searchDraft.trim();
-      render();
-    });
+    root.addEventListener('submit', searchSubmit);
     // The launcher lives outside the shadow root, as a plain button right under <body>, so drawer extensions and
     // page scripts can find it, move it and click it (click opens and closes; Esc closes).
     launcher = makeLauncher();
@@ -3568,11 +3589,7 @@
         }
         return render();
       }
-      if (e.target.id === 'searchKind' || e.target.id === 'searchWho') {
-        if (e.target.id === 'searchKind') searchKind = e.target.value;
-        else searchWho = e.target.value;
-        return render();
-      }
+      if (searchFilterChange(e)) return;
       if (e.target.id === 'ledgerWho') {
         ledgerWho = e.target.value;
         return render();
@@ -3778,12 +3795,7 @@
         return render();
       }
       const n = e.target.closest('button');
-      if (n?.dataset.act === 'clearSearch') {
-        searchDraft = searchQuery = '';
-        render();
-        root.querySelector('#memorySearchInput')?.focus();
-        return;
-      }
+      if (searchClear(n)) return;
       if (!n || busy) return;
       if (n.dataset.act === 'selectPerson') {
         selectedPerson = n.dataset.id || '';

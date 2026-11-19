@@ -278,11 +278,20 @@ function injectionBlock(file, placeName, max = INJECT_CHARS) {
   return used ? line : '';
 }
 
+/** Fold a saved scene store and persist only a real change. Errors propagate to the service's shared boundary. */
+function refresh(store, { load, save }) {
+  const old = load();
+  const next = fold(store, old);
+  if (JSON.stringify(next) === JSON.stringify(old)) return false;
+  save(next);
+  return true;
+}
+
 /** The places in the shape the screen shows. */
 function view(file) {
   return (isPlaces(file) ? file.places : []).map((p) => ({ ...p }));
 }
 
 module.exports = {
-  PLACES_VERSION, FEATURE_CAP, INJECT_CHARS, PROMPT, keyOf, cleanNote, emptyPlaces, isPlaces, fold, setField, unlockField, setAliases, addPlace, mergePlaces, deletePlace, resolve, injectionBlock, view,
+  PLACES_VERSION, FEATURE_CAP, INJECT_CHARS, PROMPT, keyOf, cleanNote, emptyPlaces, isPlaces, fold, refresh, setField, unlockField, setAliases, addPlace, mergePlaces, deletePlace, resolve, injectionBlock, view,
 };

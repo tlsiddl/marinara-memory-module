@@ -596,3 +596,26 @@ test('cards: someone in a scene with no location of their own is where the scene
   const s4 = { ...sc('S4', 12), place: '정원', present: [HARIN] };
   assert.equal(St.fold(storeOf(s1, s2, s4), edited).cards[0].location, '정원');
 });
+
+test('place refresh saves changed folds once and propagates load and save failures', () => {
+  const store = pst(sc('S1', 3, { place: '집무실', placeNotes: [note('집무실', { description: '넓은 방' })] }));
+  let file = Pl.emptyPlaces(), writes = 0;
+  const deps = { load: () => file, save: (value) => { file = value; writes++; } };
+  assert.equal(Pl.refresh(store, deps), true); assert.equal(writes, 1);
+  assert.equal(Pl.refresh(store, deps), false); assert.equal(writes, 1);
+  assert.throws(() => Pl.refresh(store, { load() { throw Error('load failed'); }, save() {} }), /load failed/);
+  assert.throws(() => Pl.refresh(store, { load: () => Pl.emptyPlaces(), save() { throw Error('save failed'); } }), /save failed/);
+});
+
+test('manual scene edit refreshes places and preserves a locked place edit', async () => {
+  const room = 'place-edit'; seedRoom(room); settingsFor(room, { places: 'on' });
+  X.refreshWorld(room, X.loadScenes(room));
+  const place = X.loadPlaces(room).places[0]; assert.ok(place);
+  X.savePlaces(room, Pl.setField(structuredClone(X.loadPlaces(room)), place.id, 'description', '직접 고정'));
+  const refresh = Pl.refresh; let calls = 0; Pl.refresh = (...args) => { calls++; return refresh(...args); };
+  try {
+    const result = await call('PATCH /chats/:id/scenes/:sceneId', room, { summary: '수동 편집' }, { sceneId: 'S1' });
+    assert.ifError(result.error); assert.ok(calls > 0);
+    assert.equal(X.loadPlaces(room).places.find(p => p.id === place.id).description, '직접 고정');
+  } finally { Pl.refresh = refresh; }
+});
