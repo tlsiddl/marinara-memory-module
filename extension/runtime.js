@@ -1841,7 +1841,7 @@
       </div>
       <div class="paper"><h2>이 방</h2>
         <label class="setting-switch"><span>기억 사용<small>켜면 답변마다 장부와 장면을 자동으로 갱신합니다.</small></span><input type="checkbox" id="setEnabled" ${info.enabled ? 'checked' : ''}></label>
-        <label>기억 관리 모드<select id="setRoomMode"><option value="character" ${info.mode !== 'simulator' ? 'selected' : ''}>캐릭터 RP</option><option value="simulator" ${info.mode === 'simulator' ? 'selected' : ''}>세계 시뮬레이터</option></select></label><p class="hint">세계 시뮬레이터는 봇 카드를 이야기를 진행하는 내레이터로 보고, 카드가 연기하는 NPC들을 한 명씩 인물로 기억합니다(수첩·아는 사람·관계). 카드 이름으로는 인물·수첩을 만들지 않고, 대사 앞 이름도 카드 이름으로 붙이지 않습니다. 세계관 설정집이 이 방에 연결돼 있으면 그 인물 목록을 읽어 씁니다. 바꿔도 지우는 기억은 없고, 다음 정리부터 적용됩니다.</p>
+        <label>기억 관리 모드<select id="setRoomMode"><option value="character" ${info.mode !== 'simulator' ? 'selected' : ''}>캐릭터 RP</option><option value="simulator" ${info.mode === 'simulator' ? 'selected' : ''}>세계 시뮬레이터</option></select></label>${info.worldLink?.linked ? `<label class="setting-switch"><span>설정집 연동<small>이 방은 세계관 설정집에 연결돼 있습니다. 켜 두면 기억을 정리할 때 그 묶음에 나온 사람끼리의 설정집 관계(가족·친구·연인 등)를 「처음부터 아는 사이」로 알려 주고(정리 한 번에 100~170토큰쯤), 설정집의 영어·한국어 이름 쌍으로 같은 사람을 합칩니다. 끄면 둘 다 멈추고 지시문은 연동이 없을 때와 같아집니다(이미 합친 이름은 그대로, 이름 정리에서 되돌리기).</small></span><input type="checkbox" id="setWorldLink" ${info.worldLink.on ? 'checked' : ''}></label>` : ''}<p class="hint">세계 시뮬레이터는 봇 카드를 이야기를 진행하는 내레이터로 보고, 카드가 연기하는 NPC들을 한 명씩 인물로 기억합니다(수첩·아는 사람·관계). 카드 이름으로는 인물·수첩을 만들지 않고, 대사 앞 이름도 카드 이름으로 붙이지 않습니다. 세계관 설정집이 이 방에 연결돼 있으면 그 인물 목록을 읽어 씁니다. 바꿔도 지우는 기억은 없고, 다음 정리부터 적용됩니다.</p>
         <label class="setting-switch"><span>말풍선 태그 되살리기<small>화자 색상이 켜진 '합쳐서' 그룹 RP에서 모델이 원래의 숨은 화자 태그를 출력하도록 지침을 보강합니다. 보이는 이름표 없이 따옴표만 쓰는 대사에도 적용됩니다.</small></span><input type="checkbox" id="setTags" ${info.speakerTags ? 'checked' : ''}></label>
         <label class="setting-switch"><span>대사 앞에 이름 표시<small>캐릭터 대사에 '이름 | 대사'를 출력하도록 요청합니다. 말풍선 태그 기능과 독립적으로 설정할 수 있습니다.</small></span><input type="checkbox" id="setSpeakerNames" ${info.speakerNames ? 'checked' : ''}></label>
         <label>장면의 디테일<select id="setDetailLevel"><option value="standard" ${!info.organize?.detailLevel || info.organize.detailLevel === 'standard' ? 'selected' : ''}>보통</option><option value="detailed" ${info.organize?.detailLevel === 'detailed' ? 'selected' : ''}>자세히</option><option value="very_detailed" ${info.organize?.detailLevel === 'very_detailed' ? 'selected' : ''}>아주 자세히</option></select></label><p class="hint">자세할수록 행동과 반응, 사건의 앞뒤를 더 세밀하게 기록하도록 요청합니다. 정리와 회상에 쓰이는 토큰이 늘어날 수 있습니다.</p>
@@ -2583,6 +2583,10 @@
       case 'refresh':
         rooms = [];
         return act(refresh, '새로 불러왔습니다.', { reload: false });
+      case 'worldLinkRoom':
+        // 세계관 칸, a room not linked yet: link it (the chosen world, or a new one named after the room).
+        worldTab.working = true;
+        return act(async () => { try { await linkRoomToWorld(); } finally { worldTab.working = false; } }, '이 방을 세계관에 연결했습니다.');
       case 'start':
         return act(() => api('POST', `/chats/${chat}/start`, { fresh: false }), '정리를 시작했습니다.');
       case 'fresh':
@@ -3398,10 +3402,11 @@
    * server answers /status; without it (not installed, turned off) the tab is gone and nothing else changes. While the
    * tab is there, World Archive's own floating button hides (document data-memory-world-tab="on").
    */
-  const worldTab = { available: false, checkedAt: 0, instance: null, timer: null };
-  async function checkWorldTab(force = false) {
-    if (!force && Date.now() - worldTab.checkedAt < 60_000) return;
-    worldTab.checkedAt = Date.now();
+  const worldTab = { available: false, gone: false, instance: null, linked: null, linkRoom: '', worlds: null, working: false };
+  /** World Archive's /status: when the page loads, and on opening the library only while it was there. A 404 or a
+   * failure: not asked again until the page is opened anew (no requests for someone without World Archive). */
+  async function checkWorldTab() {
+    if (worldTab.gone) return;
     let ok = false;
     try {
       const r = await fetch('/api/world-archive/status', { credentials: 'same-origin', cache: 'no-store', headers: { 'x-marinara-csrf': '1' } });
@@ -3410,16 +3415,53 @@
     ok = ok && Boolean(globalThis.__memoryWorldPanel?.start);
     const was = worldTab.available;
     worldTab.available = ok;
+    if (!ok) worldTab.gone = true;
     try { if (ok) document.documentElement.dataset.memoryWorldTab = 'on'; else delete document.documentElement.dataset.memoryWorldTab; } catch {}
     if (!ok && tab === 'worldarchive') tab = 'home';
     if (was !== ok) render();
   }
+  /** Is this room linked to a world (asked when the tab is shown for another room than last time). */
+  async function loadWorldLinkState() {
+    const id = room;
+    worldTab.linkRoom = id;
+    worldTab.linked = null;
+    try {
+      const get = async (p) => { const r = await fetch(p, { credentials: 'same-origin', cache: 'no-store', headers: { 'x-marinara-csrf': '1' } }); if (!r.ok) throw Error(String(r.status)); return r.json(); };
+      const r = await get(`/api/world-archive/rooms/${encodeURIComponent(id)}`);
+      if (worldTab.linkRoom !== id) return;
+      worldTab.linked = Boolean(r?.worldId);
+      if (!worldTab.linked) worldTab.worlds = (await get('/api/world-archive/worlds')).worlds || [];
+    } catch (error) {
+      worldTab.linked = false;
+      worldTab.worlds = worldTab.worlds || [];
+    }
+    render();
+  }
+  /** The tab for a room not linked to a world: only linking it (to a world there is, or a new one named after the room). */
+  function worldLinkCard() {
+    const worlds = worldTab.worlds || [];
+    const opts = worlds.map((w) => `<option value="${esc(w.worldId)}">${esc(w.name)}</option>`).join('');
+    return `<div class="paper"><h2>세계관</h2><p class="hint">이 방은 세계관 설정집의 세계관에 연결돼 있지 않습니다. 연결하면 이 칸에서 설정집을 보고 고칠 수 있고, 기억을 정리할 때 설정집 관계를 함께 씁니다.</p>
+      ${worlds.length ? `<label>연결할 세계관<select id="worldLinkPick">${opts}</select></label>` : '<p class="hint">아직 세계관이 없습니다. 이 방 이름으로 새 세계관을 만들어 연결합니다.</p>'}
+      <div class="buttons"><button class="primary" data-act="worldLinkRoom" ${worldTab.working ? 'disabled' : ''}>이 방을 세계관에 연결하기</button></div></div>`;
+  }
+  async function linkRoomToWorld() {
+    const pick = root.querySelector('#worldLinkPick')?.value || '';
+    const send = async (method, p, body) => { const r = await fetch(p, { method, credentials: 'same-origin', cache: 'no-store', headers: { 'x-marinara-csrf': '1', 'content-type': 'application/json' }, body: JSON.stringify(body) }); const d = await r.json().catch(() => ({})); if (!r.ok) throw Error(d?.error || String(r.status)); return d; };
+    let worldId = pick;
+    if (!worldId) worldId = (await send('POST', '/api/world-archive/worlds', { name: roomLabel(rooms.find((r) => r.id === room) || { id: room }) || '새 세계관' })).worldId;
+    await send('PUT', `/api/world-archive/rooms/${encodeURIComponent(room)}`, { worldId });
+    worldTab.linked = true;
+  }
   function showWorldTab(content) {
     const box = root.querySelector('#worldMount');
     const here = tab === 'worldarchive' && worldTab.available;
-    content.hidden = here;
-    box.hidden = !here;
-    if (!here) return;
+    if (here && worldTab.linkRoom !== room) void loadWorldLinkState();
+    const panel = here && worldTab.linked === true;
+    content.hidden = panel;
+    box.hidden = !panel;
+    if (here && !panel) content.innerHTML = worldTab.linked === false ? worldLinkCard() : '<p class="hint">세계관 연결을 확인하는 중…</p>';
+    if (!panel) return;
     if (!worldTab.instance) {
       try { worldTab.instance = globalThis.__memoryWorldPanel.start(box, { theme }); } catch (error) { box.textContent = `세계관 칸을 열지 못했습니다: ${error?.message || error}`; }
     } else worldTab.instance.setTheme?.(theme);
@@ -3428,8 +3470,7 @@
   function openLibrary() {
     if (open || disposed) return;
     open = true;
-    void checkWorldTab(true);
-    if (typeof setInterval === 'function') worldTab.timer ||= setInterval(() => { if (open) void checkWorldTab(); }, 60_000);
+    if (worldTab.available) { worldTab.linkRoom = ''; void checkWorldTab(); }
     const current = activeChatId();
     if (current && current !== room) {
       room = current;
@@ -3529,8 +3570,8 @@
     installSelectionButton();
     setupPanelMove();
     // 세계관 설정집 연동 v2: whether the 「세계관」 tab is there is known from the start, so World Archive's own
-    // floating button hides even before this screen is first opened.
-    void checkWorldTab(true);
+    // floating button hides even before this screen is first opened. The one request when the page loads.
+    void checkWorldTab();
 
     // Shadow DOM retargets input events to our DIV at the page boundary. Keep
     // host shortcuts from treating typing (notably '?') as a page command.
@@ -3673,6 +3714,10 @@
       if (e.target.id === 'setRoomMode') {
         const mode = e.target.value === 'simulator' ? 'simulator' : 'character';
         void act(() => api('POST', `/chats/${encodeURIComponent(room)}/mode`, { mode }), mode === 'simulator' ? '세계 시뮬레이터로 바꿨습니다. 다음 정리부터 적용됩니다.' : '캐릭터 RP로 바꿨습니다. 다음 정리부터 적용됩니다.');
+      }
+      if (e.target.id === 'setWorldLink') {
+        const on = e.target.checked;
+        void act(() => api('POST', `/chats/${encodeURIComponent(room)}/world-link`, { on }), on ? '설정집 연동을 켰습니다. 다음 정리부터 적용됩니다.' : '설정집 연동을 껐습니다. 다음 정리부터 적용됩니다.');
       }
       if (e.target.id === 'setSpeakerNames') {
         const on = e.target.checked;
