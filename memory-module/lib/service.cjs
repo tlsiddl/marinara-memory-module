@@ -3114,7 +3114,8 @@ const replyLedgers = new Map();
 function ledgerForReply(chatId) {
   const held = replyLedgers.get(chatId);
   if (held) {
-    if (jobs.get(chatId)?.state === 'running') return held.ledger;
+    // 0.37.2: or while the check before a reply that could not wait is still in the room's queue
+    if (jobs.get(chatId)?.state === 'running' || held.queued) return held.ledger;
     replyLedgers.delete(chatId);
   }
   const stored = loadLedger(chatId);
@@ -3250,10 +3251,13 @@ function roomKoreanNames(chatId) {
  * room: the next run's end tries again. Returns how many merges were made.
  */
 const AUTO_MERGE_MAX = 20;
+const roomRunning = (chatId) => [jobs, sceneJobs, trials, notebookJobs].some((m) => m.get(chatId)?.state === 'running');
 function autoMergeByGlossary(chatId) {
+  // 0.37.2: a job writing the room — nothing now, the next run's end tries again. Looked at before taking the room's
+  // queue: holding it while the scene queue is busy would keep the check before a reply waiting (01:18 · 5 minutes).
+  if (roomRunning(chatId)) return Promise.resolve(0);
   return enqueue(chatId, () => enqueue(`scenes:${chatId}`, async () => {
-    const busy = [jobs, sceneJobs, trials, notebookJobs].some((m) => m.get(chatId)?.state === 'running');
-    if (busy) return 0;
+    if (roomRunning(chatId)) return 0;
     // The glossary's pairs, then World Archive's names (연동 v2) that the glossary does not have.
     let worldNames = [];
     try { worldNames = worldLink(chatId)?.names?.(chatId)?.names || []; } catch {}
@@ -5001,12 +5005,13 @@ async function routes(app) {
   const refuseBusy = (chatId, what = '이름을 바꿀') => {
     if (roomBusy(chatId)) throw Error(`지금 이 방의 기억을 정리하는 중이라 ${what} 수 없습니다. 정리가 끝난 뒤(또는 멈춘 뒤)에 다시 시도해 주세요.`);
   };
-  const withRoom = (chatId, fn, what) => enqueue(chatId, () => enqueue(`scenes:${chatId}`, async () => {
+  // 0.37.2: refused before taking the queues too, so a press during a job never holds the room's queue while it waits
+  const withRoom = (chatId, fn, what) => (roomBusy(chatId) ? Promise.reject(Error(`지금 이 방의 기억을 정리하는 중이라 ${what || '이름을 바꿀'} 수 없습니다. 정리가 끝난 뒤(또는 멈춘 뒤)에 다시 시도해 주세요.`)) : enqueue(chatId, () => enqueue(`scenes:${chatId}`, async () => {
     // A job that started while this waited has finished by now (it held the queue); one still marked running would
     // write over the change.
     refuseBusy(chatId, what);
     return fn();
-  }));
+  })));
 
   /* ---------- backup and restore (the whole room's memory as one file) ---------- */
   // Reading the room is always safe. Restoring replaces every memory file of the room, so it is refused while a job
@@ -5693,6 +5698,8 @@ async function routes(app) {
  * ledger (snapshots only, no model call), then pick the scenes to recall. The newest reply was never read,
  * so rerolling it needs nothing undone.
  */
+/** 0.37.2: how long the check before a reply waits for the room's queue; after that it goes on with a copy. */
+const REPLY_WAIT_MS = 3000;
 async function syncBeforeReply(chatId, body) {
   let view = await chatMessages(chatId);
   const replaced = typeof body?.regenerateMessageId === 'string' ? view.findIndex((m) => m.id === body.regenerateMessageId) : -1;
@@ -5704,7 +5711,7 @@ async function syncBeforeReply(chatId, body) {
     holdReplyLedger(chatId, view);
   } else {
     replyLedgers.delete(chatId);
-    await enqueue(chatId, async () => {
+    const check = enqueue(chatId, async () => {
       const stored = loadLedger(chatId);
       // A broken ledger file is left alone (and shown in the memory library); the reply goes on without it.
       if (!stored && brokenFiles.has(ledgerFile(chatId))) return;
@@ -5725,6 +5732,20 @@ async function syncBeforeReply(chatId, body) {
         log(`chat ${chatId}: undid message ${state.changedAt + 1} before the reply`);
       }
     });
+    // 0.37.2: something else holds the room's queue (a rename, a merge waiting for the scenes) — never more than
+    // REPLY_WAIT_MS: the reply gets the same check on a copy, and the queued check saves it when its turn comes.
+    let timer;
+    const late = await Promise.race([check.then(() => false, () => false), new Promise((resolve) => { timer = setTimeout(() => resolve(true), REPLY_WAIT_MS); })]);
+    clearTimeout(timer);
+    if (late) {
+      log(`chat ${chatId}: the room's queue is busy; the reply did not wait (${REPLY_WAIT_MS / 1000}s) and got the ledger checked on a copy`);
+      holdReplyLedger(chatId, view);
+      const held = replyLedgers.get(chatId);
+      if (held) {
+        held.queued = true;
+        check.then(() => { if (replyLedgers.get(chatId) === held) replyLedgers.delete(chatId); }, () => {});
+      }
+    }
   }
   // Which scenes the reply model can no longer see: the ones that start before its window.
   // The reply is generated after `view`, plus the new user turn when there is one.
