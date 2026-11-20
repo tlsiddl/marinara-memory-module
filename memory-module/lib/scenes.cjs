@@ -404,7 +404,9 @@ function buildScenePrompt(store, slice, required, problem = null, preferences = 
   const sim = store.mode === 'simulator';
   const cast = sim ? Sim.batchCast(castOf(store), slice, store.castAliases) : castOf(store);
   const group = cast.length >= 2;
-  const unawareNote = (f) => (group ? [f.unaware?.length ? ` (모름: ${f.unaware.join('·')})` : '', f.guess?.length ? ` (짐작만: ${f.guess.join('·')})` : ''].join('') : '');
+  // 세계 시뮬레이터: who does not know a fact is everyone else in the room (dozens); the prompt shows only this batch's people.
+  const here = (list) => (sim ? (list || []).filter((n) => cast.includes(n)) : list);
+  const unawareNote = (f) => (group ? [here(f.unaware)?.length ? ` (모름: ${here(f.unaware).join('·')})` : '', here(f.guess)?.length ? ` (짐작만: ${here(f.guess).join('·')})` : ''].join('') : '');
   parts.push('## 이미 아는 사실', known.length ? known.map((f) => `- ${f.id} ${f.about ? `${f.about}: ` : ''}${f.text}${unawareNote(f)}`).join('\n') : '(없음)');
   // Earlier scenes by number: a later reveal can point back at one, and who missed it is shown in a group story.
   const list = store.scenes.slice(-PRESENCE_SCENES);

@@ -68,6 +68,11 @@ test('simulator scene prompt: the narrator line and rules, the batch\'s people o
   assert.doesNotMatch(user.content, /\[등장인물\][^\n]*Hogwarts/);
   assert.doesNotMatch(user.content, /드레이코/, 'someone not in this batch is not listed');
   assert.ok(system.content.includes(Sim.NARRATOR_PROMPT));
+  // Who does not know a fact: only this batch's people are shown (the room may have dozens).
+  const known = simStore([HERMIONE, RON, NEVILLE, '드레이코 말포이', '빈센트 크레이브']);
+  known.facts = [{ id: 'F1', about: NEVILLE, text: '시험지를 잃어버렸다', unaware: [RON, '드레이코 말포이', '빈센트 크레이브'], guess: ['빈센트 크레이브'] }];
+  const withFacts = S.buildScenePrompt(known, C.slice(), 4, null, {})[1].content;
+  assert.ok(withFacts.includes('- F1 네빌 롱바텀: 시험지를 잃어버렸다 (모름: 론 위즐리)\n'), 'Draco and Crabbe are not in this batch');
   // The user message is the same as character mode's apart from the head: the messages themselves are not changed.
   const plain = S.buildScenePrompt(C.characterStore(), C.slice(), 4, null, {})[1].content;
   assert.equal(user.content.split('\n## 이미 아는 사실')[1], plain.split('\n## 이미 아는 사실')[1]);
