@@ -26,7 +26,7 @@ const HERMIONE = '헤르미온느 그레인저', RON = '론 위즐리', NEVILLE 
 const simStore = (cast = []) => ({ ...S.emptyStore(), mode: 'simulator', narrators: [C.NARRATOR], castAliases: {}, cast, personas: [C.USER] });
 
 // ---- character mode does not change ----
-test('character mode: the scene, notebook and ledger prompts are exactly what main built before simulator mode', () => {
+test('character mode: the scene, notebook and ledger prompts are exactly what main (425c738) builds', () => {
   const snap = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'simulator-character-snapshot.json'), 'utf8'));
   assert.deepEqual(C.characterPrompts(), snap.prompts);
 });
@@ -197,37 +197,18 @@ test('reply side: in a simulator room standalone quotes are not labelled with th
   assert.doesNotMatch(service.nameInstructions(room, [C.NARRATOR]), /Hogwarts Simulator/, 'the label example is a person, not the narrator');
 });
 
-// ---- one person, two scripts (the story's English speaker labels, the model's Korean) ----
+// ---- one person, two scripts: the story's English speaker labels, the model's Korean (0.35.3 / 0.35.4 do the names) ----
 const VANE = '에드워드 베인', VANE_EN = 'Edward Vane', MINERVA = '미네르바 맥고나걸', MINERVA_EN = 'Minerva McGonagall';
-const GLOSSARY = [{ from: 'Hogwarts', to: '호그와트' }, { from: VANE_EN, to: VANE }, { from: MINERVA_EN, to: MINERVA }, { from: 'Irina', to: C.USER }, { from: C.NARRATOR, to: '호그와트 시뮬레이터' }];
+const GLOSSARY = [{ from: VANE_EN, to: VANE }, { from: MINERVA_EN, to: MINERVA }, { from: 'Arthur Pendleton', to: '아더 펜들턴' }];
 
-test('scriptPairs / nameLinks: the glossary and World Archive pair the forms; the memory\'s language names the person, the user keeps their own name, the narrator is never linked', () => {
-  const pairs = Sim.scriptPairs(GLOSSARY, [{ name: '아서 펜들턴', aliases: ['Arthur Pendleton', '집사'] }, { name: 'Edward Vane', aliases: ['에드워드'] }]);
-  assert.deepEqual(pairs.find((p) => p.from === 'Arthur Pendleton'), { from: 'Arthur Pendleton', to: '아서 펜들턴' }, 'World Archive: a name and another name in the other script');
-  assert.equal(pairs.filter((p) => p.from === VANE_EN).length, 1, 'the glossary comes first; a form is paired once');
-  const table = A.emptyTable();
-  assert.deepEqual(Sim.nameLinks([VANE_EN, MINERVA, '호그와트', 'Irina', C.NARRATOR, '론 위즐리'], pairs, table, { narrators: [C.NARRATOR], personas: [C.USER] }), [
-    { source: VANE_EN, target: VANE },
-    { source: MINERVA_EN, target: MINERVA },
-    { source: 'Hogwarts', target: '호그와트' },
-    { source: 'Irina', target: C.USER },
-  ]);
-  assert.deepEqual(Sim.nameLinks([VANE], pairs, table, { korean: false }), [{ source: VANE, target: VANE_EN }], 'an English memory keeps the English form');
-  assert.deepEqual(Sim.nameLinks(['이리나'], pairs, table, { korean: false, personas: [C.USER] }), [{ source: 'Irina', target: C.USER }], 'the user\'s character keeps their own name');
-  A.addAlias(table, VANE_EN, VANE, { rewrite: false });
-  A.dismiss(table, MINERVA_EN, MINERVA);
-  assert.deepEqual(Sim.nameLinks([VANE_EN, MINERVA], pairs, table), [], 'already one person; told apart by the user');
-});
-
-test('simulator room: the glossary makes the two forms one person (listed under 자동으로 적용함, undone one by one, never made again); the reply is saved under one name', async () => {
-  const room = 'sim_link';
+test('simulator room, two forms the name table holds as one person (0.35.4 merged them): one entry in the cast, the reply saved under one name, nobody both knows and does not know', async () => {
+  const room = 'sim_merged';
   X.setRoomMode(room, 'simulator');
-  X.saveTranslations(room, { items: {}, glossary: { pairs: GLOSSARY, hash: 'x', source: '번역 프리셋·단어장', at: null } });
   const slice = L.prepareMessages([
     { id: 'm1', number: 1, role: 'assistant', speaker: C.NARRATOR, content: `베인 공작이 딸을 내려다보았다.\n${VANE_EN} | "그 이야기는 처음 듣는구나."\n${MINERVA_EN} | "따님은 마녀입니다."` },
     { id: 'm2', number: 2, role: 'user', speaker: C.USER, content: '"아빠, 저 마녀래요."' },
   ]);
-  const store = { ...simStore([VANE_EN]) };
+  const store = simStore([VANE_EN]);
   const reply = {
     scenes: [{
       end: 2, time: null, place: '서재', title: '입학 통지', summary: '맥고나걸이 이리나가 마녀라고 알렸다',
@@ -237,103 +218,76 @@ test('simulator room: the glossary makes the two forms one person (listed under 
       facts: [{ about: C.USER, text: '마녀이다', evidence: ['1.3'], knownBy: [MINERVA, VANE_EN, C.USER] }],
     }],
   };
-  let made;
   await X.enqueue(room, async () => {
-    made = X.linkScriptForms(room, store, reply.scenes, slice);
-  });
-  assert.equal(made, 3, 'Edward Vane (in the cast), Minerva McGonagall (the reply\'s speaker) and Irina (the user\'s character, under her own name) are linked');
-  const table = X.loadNames(room);
-  assert.equal(A.canonOf(VANE_EN, table), VANE);
-  assert.equal(A.canonOf(MINERVA_EN, table), MINERVA);
-  assert.deepEqual(store.cast, [VANE], 'the cast holds the person once, under the memory\'s form');
-  const applied = X.Addr.appliedView(X.loadAddress(room));
-  assert.deepEqual(applied.map((a) => a.text).sort(), [`‘${MINERVA_EN}’ = ${MINERVA}의 다른 이름 (단어장)`, `‘${VANE_EN}’ = ${VANE}의 다른 이름 (단어장)`, `‘Irina’ = ${C.USER}의 다른 이름 (단어장)`].sort());
-  // The reply, read and saved: every name field under one name, nobody both knowing and not knowing.
-  await X.enqueue(room, async () => {
+    const table = X.loadNames(room);
+    A.addAlias(table, VANE_EN, VANE, { rewrite: false });
+    A.addAlias(table, MINERVA_EN, MINERVA, { rewrite: false });
+    X.saveNames(room, table);
     const out = S.applyScenes(store, reply, slice, 2, undefined, {});
     assert.ifError(out.error);
+    assert.deepEqual(out.people, [MINERVA], 'the newcomer under the table\'s name; Edward Vane is the cast\'s already');
     S.commitScenes(store, out);
   });
-  assert.deepEqual(store.cast, [VANE, MINERVA]);
+  assert.deepEqual(store.cast, [VANE_EN, MINERVA], 'a person the cast has is not added again under the other form');
   const scene = store.scenes.at(-1);
   assert.deepEqual(scene.events[0].quotes.map((q) => q.by).sort(), [MINERVA, VANE].sort(), 'the speaker labels are written under the one name');
   const fact = store.facts.at(-1);
   assert.ok(fact.knownBy.includes(VANE) && !fact.knownBy.includes(VANE_EN));
   assert.ok(!(fact.unaware || []).some((n) => [VANE, VANE_EN, MINERVA, MINERVA_EN].includes(n)), 'nobody both knows and does not know');
-  // Taken back: the two forms are apart again, and the glossary does not link them again.
-  const rec = X.loadAddress(room).applied.find((a) => a.source === VANE_EN);
+  // Someone the reply names in Korean while the text has only the English label joins once the table links the two.
+  const butler = L.prepareMessages([{ id: 'b1', number: 3, role: 'assistant', speaker: C.NARRATOR, content: '집사가 문을 열었다.\nArthur Pendleton | "손님이 오셨습니다."' }]);
+  const said = [{ end: 3, present: ['아더 펜들턴'], events: [{ text: '집사가 손님을 알렸다', quotes: [{ q: '손님이 오셨습니다.', by: '아더 펜들턴', to: null }] }] }];
   await X.enqueue(room, async () => {
-    const t = X.loadNames(room);
-    const book = X.loadAddress(room);
-    X.Addr.undoApplied(book, rec.id, { table: t });
-    X.saveNames(room, t);
-    X.saveAddress(room, book);
+    assert.deepEqual(Sim.newPeople(store, said, butler), [], 'not linked: the Korean form is not in the text');
+    const table = X.loadNames(room);
+    A.addAlias(table, 'Arthur Pendleton', '아더 펜들턴', { rewrite: false });
+    X.saveNames(room, table);
+    assert.deepEqual(Sim.newPeople(store, said, butler), ['아더 펜들턴'], 'linked: the English label is his');
   });
-  assert.equal(A.canonOf(VANE_EN, X.loadNames(room)), null);
-  assert.equal(A.canonOf(MINERVA_EN, X.loadNames(room)), MINERVA, 'the other link stays');
-  const again = simStore([VANE, VANE_EN]);
-  await X.enqueue(room, async () => {
-    assert.equal(X.linkScriptForms(room, again, [], slice), 0, 'a link taken back is never made again');
-  });
-  // Character mode: nothing is linked by this.
-  X.setRoomMode(room, 'character');
-  assert.equal(X.linkScriptForms(room, { ...S.emptyStore(), cast: [VANE_EN] }, [], slice), 0);
 });
 
-test('simulator scene prompt: the glossary spellings of the English names this batch uses ([이름 표기]); none in character mode', () => {
-  const slice = L.prepareMessages([{ id: 'p1', number: 1, role: 'assistant', speaker: C.NARRATOR, content: `${VANE_EN} | "Arthur Pendleton, 차를 내오게."\n집사가 고개를 숙였다.` }]);
-  const pairs = [...GLOSSARY, { from: 'Arthur Pendleton', to: '아더 펜들턴' }];
-  const sim = S.buildScenePrompt(simStore([VANE]), slice, 1, null, { scriptNames: pairs })[1].content;
-  const line = sim.split('\n').find((l) => l.startsWith('[이름 표기]'));
-  assert.ok(line, 'the line is there');
-  assert.match(line, /Edward Vane = 에드워드 베인/);
-  assert.match(line, /Arthur Pendleton = 아더 펜들턴/);
-  assert.doesNotMatch(line, /Minerva|Hogwarts/, 'only names these messages use');
-  const plain = S.buildScenePrompt({ ...S.emptyStore(), cast: [C.NARRATOR], personas: [C.USER] }, slice, 1, null, { scriptNames: pairs })[1].content;
-  assert.doesNotMatch(plain, /\[이름 표기\]/, 'character mode: as before');
-  assert.equal(Sim.scriptLine(pairs, L.prepareMessages([{ id: 'p2', number: 1, role: 'user', speaker: C.USER, content: '"안녕."' }])), '', 'no English name: no line');
-});
-
-test('simulator room: a person the reply names in the glossary\'s Korean, while the text has only the English label, joins once the pair links them', async () => {
-  const room = 'sim_link_label';
+test('roomPeople: people the name table knows (the cast is seeded into it every run) stay in the cast; only a card of the list is a card; two forms of one person are one entry', async () => {
+  const room = 'sim_seeded';
+  X.setEngine({
+    chats: { async getById(id) { return { id, name: '방', characterIds: ['card1'] }; } },
+    characters: { async getById() { return { data: JSON.stringify({ name: C.NARRATOR }) }; } },
+  });
   X.setRoomMode(room, 'simulator');
-  X.saveTranslations(room, { items: {}, glossary: { pairs: [{ from: 'Arthur Pendleton', to: '아더 펜들턴' }], hash: 'y', source: '번역 프리셋·단어장', at: null } });
-  const slice = L.prepareMessages([{ id: 'b1', number: 1, role: 'assistant', speaker: C.NARRATOR, content: '집사가 문을 열었다.\nArthur Pendleton | "손님이 오셨습니다."' }]);
-  const store = simStore([]);
-  const scenes = [{ end: 1, present: ['아더 펜들턴'], events: [{ text: '집사가 손님을 알렸다', quotes: [{ q: '손님이 오셨습니다.', by: '아더 펜들턴', to: null }] }] }];
-  assert.deepEqual(Sim.newPeople(store, scenes, slice), [], 'not linked yet: the Korean form is not in the text');
+  X.waPeopleCache.clear();
+  let people;
   await X.enqueue(room, async () => {
-    assert.equal(X.linkScriptForms(room, store, scenes, slice), 1);
-    assert.deepEqual(Sim.newPeople(store, scenes, slice), ['아더 펜들턴'], 'linked: the English label is his');
+    const table = X.loadNames(room);
+    A.seed(table, [C.NARRATOR, HERMIONE, RON, VANE, C.USER]);
+    A.addAlias(table, VANE_EN, VANE, { rewrite: false });
+    X.saveNames(room, table);
+    people = await X.roomPeople(room, { ...S.emptyStore(), mode: 'simulator', cast: [HERMIONE, RON, VANE_EN, VANE] });
   });
+  assert.deepEqual(people.cast, [HERMIONE, RON, VANE], 'before the fix every name the table knew counted as the card: the cast came back empty');
+  assert.deepEqual(people.narrators, [C.NARRATOR]);
+  X.setRoomMode(room, 'character');
 });
 
-test('simulator scene prompt with the notebook on: a named animal of the story keeps a notebook too; not without the notebook, not in character mode', () => {
-  const slice = C.slice();
-  const withNotes = S.buildScenePrompt(simStore([HERMIONE]), slice, 4, null, { notebook: true })[0].content;
-  assert.ok(withNotes.includes(Sim.ANIMAL_NOTEBOOK_PROMPT));
-  assert.ok(!S.buildScenePrompt(simStore([HERMIONE]), slice, 4, null, {})[0].content.includes('동물 수첩'), 'notebook off: no line');
-  assert.ok(!S.buildScenePrompt({ ...S.emptyStore(), cast: [C.NARRATOR], personas: [C.USER] }, slice, 4, null, { notebook: true })[0].content.includes('동물 수첩'), 'character mode: as before');
-  // The cat keeps a note: she joins the room's people (a notebook makes one), the owl that only brought a letter does not.
-  const cat = L.prepareMessages([{ id: 'k1', number: 1, role: 'assistant', speaker: C.NARRATOR, content: '부엉이가 편지를 떨어뜨리고 날아갔다. 베아트릭스가 이리나의 무릎에 뛰어올라 낯선 손님을 노려보았다.' }]);
-  assert.deepEqual(Sim.newPeople(simStore([]), [{ present: ['부엉이', '베아트릭스', C.USER], notebook: [{ who: '베아트릭스', kind: 'heart', text: '낯선 손님은 믿지 않기로 함' }] }], cat), ['베아트릭스']);
-});
-
-test('simulator scene prompt: someone with no lines (a cat) is on the [수첩 언어] list too; character mode lists only who speaks, as before', () => {
-  const slice = L.prepareMessages([{ id: 'v1', number: 1, role: 'assistant', speaker: C.NARRATOR, content: `베아트릭스가 꼬리를 세웠다.\n${HERMIONE} | "고양이가 너를 좋아하네."` }]);
-  const sys = S.buildScenePrompt(simStore([HERMIONE, '베아트릭스']), slice, 1, null, { notebook: true })[0].content;
-  const row = sys.split('\n').find((l) => l.startsWith('[수첩 언어]'));
-  assert.ok(row && row.includes('베아트릭스'), row);
-  const plain = S.buildScenePrompt({ ...S.emptyStore(), cast: [HERMIONE, '베아트릭스'], personas: [C.USER] }, slice, 1, null, { notebook: true })[0].content;
-  assert.ok(!(plain.split('\n').find((l) => l.startsWith('[수첩 언어]')) || '').includes('베아트릭스'), 'character mode: unchanged');
-});
-
-test('simulator notebook prompt: someone of the batch with no lines, there in two saved scenes, is named for the animal notebook', () => {
-  const store = simStore([HERMIONE, '베아트릭스']);
-  store.scenes = [1, 2].map((i) => ({ id: `S${i}`, title: '저녁', summary: '', recollections: [], present: [HERMIONE, '베아트릭스', C.USER], events: [{ quotes: [{ q: '안녕', by: HERMIONE, kind: 'dialogue' }] }] }));
-  assert.deepEqual(Sim.silentPeople(store, [HERMIONE, '베아트릭스']), ['베아트릭스']);
-  assert.deepEqual(Sim.silentPeople({ ...store, scenes: store.scenes.slice(0, 1) }, [HERMIONE, '베아트릭스']), [], 'one scene is not enough');
-  const slice = L.prepareMessages([{ id: 'v2', number: 1, role: 'assistant', speaker: C.NARRATOR, content: `베아트릭스가 꼬리를 세웠다.\n${HERMIONE} | "고양이가 너를 좋아하네."` }]);
-  const sys = S.buildScenePrompt(store, slice, 1, null, { notebook: true })[0].content;
-  assert.match(sys, /대사 없이 행동으로만 나오는 인물: 베아트릭스/);
+test('simulator room: 0.35.4 merges by the glossary and 0.35.3 tells the model the glossary spellings, as in character mode', async () => {
+  const room = 'sim_glossary';
+  X.setRoomMode(room, 'simulator');
+  X.saveTranslations(room, { items: {}, glossary: { pairs: GLOSSARY, hash: 'g', source: '번역 프리셋·단어장', at: null } });
+  // 0.35.3: the "## 이름 표기" block goes with a simulator room's scene call too.
+  const slice = L.prepareMessages([{ id: 'g1', number: 1, role: 'assistant', speaker: C.NARRATOR, content: `${VANE_EN} | "Arthur Pendleton, 차를 내오게."` }]);
+  const prompt = X.withSetup('', S.buildScenePrompt(simStore([VANE]), slice, 1, null, {}), room);
+  const user = prompt.find((m) => m.role === 'user').content;
+  assert.match(user, /## 이름 표기/);
+  assert.match(user, /Arthur Pendleton = 아더 펜들턴|Arthur Pendleton → 아더 펜들턴|아더 펜들턴/);
+  // 0.35.4: names stored apart in two scripts are merged on their own after a run; the simulator's cast follows.
+  const store = { ...simStore([VANE_EN, VANE]), scenes: [{ id: 'S1', start: 1, end: 1, title: '서재', summary: '', present: [VANE_EN, VANE, C.USER], recollections: [], events: [{ text: '공작이 말했다', with: [VANE_EN], quotes: [{ q: '그래.', by: VANE_EN, to: C.USER, kind: 'dialogue' }, { q: '좋다.', by: VANE, to: C.USER, kind: 'dialogue' }] }] }] };
+  X.saveScenes(room, store);
+  const merged = await X.autoMergeByGlossary(room);
+  assert.equal(merged, 1, 'Edward Vane and 에드워드 베인 are one person now');
+  assert.equal(A.canonOf(VANE_EN, X.loadNames(room)), VANE, 'a Korean memory keeps the Korean form');
+  const saved = X.loadScenes(room);
+  assert.deepEqual([...new Set(saved.scenes[0].events[0].quotes.map((q) => q.by))], [VANE]);
+  await X.enqueue(room, async () => {
+    const people = await X.roomPeople(room, saved);
+    assert.ok(people.cast.filter((n) => A.canonical(n) === VANE).length === 1, `one entry: ${people.cast.join(', ')}`);
+  });
+  X.setRoomMode(room, 'character');
 });

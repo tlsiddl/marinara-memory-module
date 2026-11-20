@@ -80,6 +80,20 @@ function parseGlossary(raw) {
 }
 
 /**
+ * A full name from the name table, with each word the glossary names written the glossary's way: the card says
+ * "Daniel Crowe = 대니얼 크로우" and the glossary "Daniel = 다니엘" → "다니엘 크로우". Word by word only when both
+ * forms have the same number of words (otherwise which word is which cannot be told).
+ */
+function withGlossaryParts(form, korean, glossary) {
+  const latin = form.split(' ');
+  const hangul = korean.split(' ');
+  if (latin.length < 2 || latin.length !== hangul.length) return korean;
+  const byWord = new Map();
+  for (const p of glossary || []) if (p?.from && p?.to && !p.from.includes(' ') && !p.to.includes(' ')) byWord.set(p.from.toLowerCase(), p.to);
+  return hangul.map((word, i) => byWord.get(latin[i].toLowerCase()) || word).join(' ');
+}
+
+/**
  * How each Latin-written name is written in Korean, from the room's glossary pairs and its name table (a person
  * whose name is Korean, with a Latin alias). The glossary's own form wins ("Daniel = 다니엘" over the full card
  * name). Longest first, so "Daniel Crowe" is replaced before "Daniel".
@@ -91,7 +105,7 @@ function koreanNames(glossary = [], table = null) {
     const korean = [tidyName(entry?.display), tidyName(canon), ...(entry?.aliases || []).map(tidyName)].find(hangulOnly);
     if (!korean) continue;
     for (const form of [canon, ...(entry?.aliases || [])].map(tidyName)) {
-      if (foreignOnly(form) && !map.has(form.toLowerCase())) map.set(form.toLowerCase(), { from: form, to: korean });
+      if (foreignOnly(form) && !map.has(form.toLowerCase())) map.set(form.toLowerCase(), { from: form, to: withGlossaryParts(form, korean, glossary) });
     }
   }
   return [...map.values()].sort((a, b) => b.from.length - a.from.length);
@@ -106,6 +120,31 @@ function koreanizeNames(text, names, replaceName) {
   if (!out || !names?.length || typeof replaceName !== 'function' || !(/[A-Za-z]/.test(out) || HAN.test(out))) return out;
   for (const n of names) if (out.includes(n.from)) out = replaceName(out, n.from, n.to).text;
   return out;
+}
+
+/** Whether a text names `name`: a Latin name as a whole word with its own capitals ("Will", not "will"); others anywhere. */
+function hasName(text, name) {
+  const t = String(text ?? '');
+  if (!name || !t.includes(name)) return false;
+  if (!/[A-Za-z]/.test(name)) return true;
+  const esc = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(^|[^A-Za-z])${esc}(?![A-Za-z])`).test(t);
+}
+
+/**
+ * The names (koreanNames) a Korean translation of `source` should carry but does not: the source has the name, and the
+ * Korean has neither its Korean form, the first word of it, nor the name itself (left in Latin, fixed when read).
+ * Such a line was translated before the glossary had that name, or the model wrote the name its own way.
+ */
+function namesMissed(source, korean, names) {
+  const k = String(korean ?? '');
+  return (names || []).filter((n) => n?.from && n?.to && hasName(source, n.from) && !k.includes(n.to) && !k.includes(n.to.split(' ')[0]) && !k.includes(n.from));
+}
+
+/** What the names of a line are written as now: a line checked against these is not checked again until they change. */
+function namesSig(source, names) {
+  const used = (names || []).filter((n) => n?.from && n?.to && hasName(source, n.from)).map((n) => `${n.from}=${n.to}`).sort();
+  return used.length ? crypto.createHash('sha1').update(used.join('\n')).digest('hex').slice(0, 12) : '';
 }
 
 /** Fixed headings and labels of the memory text: never sent to a model. */
@@ -421,7 +460,7 @@ Input: a JSON object {"lines":[...]}. Output: a JSON object {"lines":[...]} with
 /** `names`: [{ from, to }] (koreanNames), sent along when translating into Korean. Only names that appear are sent. */
 function buildTranslatePrompt(lines, target, { names = [], glossary = [], quoted = null } = {}) {
   const text = lines.join('\n');
-  const used = target === 'ko' ? names.filter((n) => text.includes(n.from)) : [];
+  const used = target === 'ko' ? names.filter((n) => hasName(text, n.from)) : [];
   // Into English or Chinese: the glossary's words that appear, to be written the glossary's way.
   const terms = target === 'ko' ? [] : (glossary || []).filter((p) => p?.to && text.includes(p.to));
   // "names" (and "terms") go first so the model reads them before the lines.
@@ -580,4 +619,4 @@ function displayTexts(store, ledger, { quotes = false, world = null } = {}) {
   return [...out];
 }
 
-module.exports = { BACK_PROMPT, buildBackPrompt, readBack, REVISION, parseGlossary, koreanNames, koreanizeNames, latinNames, latinizeNames, dropGloss, WORLD_HEADS, LANGS, NAMES, hangulShare, textLanguage, chatLanguage, key, planLines, translateText, buildTranslatePrompt, readTranslation, batches, displayTexts, STATIC, TRANSLATE_PROMPT };
+module.exports = { hasName, namesMissed, namesSig, BACK_PROMPT, buildBackPrompt, readBack, REVISION, parseGlossary, koreanNames, koreanizeNames, latinNames, latinizeNames, dropGloss, WORLD_HEADS, LANGS, NAMES, hangulShare, textLanguage, chatLanguage, key, planLines, translateText, buildTranslatePrompt, readTranslation, batches, displayTexts, STATIC, TRANSLATE_PROMPT };

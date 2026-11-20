@@ -22,36 +22,6 @@ const NARRATOR_PROMPT = `## 세계 시뮬레이터 방
 - 내레이터의 서술(장면 묘사, 다른 곳에서 일어난 일)은 누구의 말이나 생각도 아니야. 내레이터가 알려 준 것을 인물이 안다고 적지 마. 그 자리에 있었거나 전해 들은 인물만 알아.
 - 새 인물은 본문에 이름이 나오는 사람만 적어. 「○○의 누나」처럼 설명으로만 불리는 사람은 이름으로 만들지 마(장면 present에는 본문의 호칭 그대로 둬도 돼).`;
 
-/**
- * With the notebook on, in a simulator room: a named animal the story gives a part to (a pet, a familiar) keeps a
- * notebook too, from what it does and how it reacts (it has no lines).
- */
-const ANIMAL_NOTEBOOK_PROMPT = `세계 시뮬레이터 방의 동물 수첩:
-- 이름이 있고 본문에 행동·반응이 여러 번 서술되는 동물(반려동물, 패밀리어 같은)도 수첩을 쓸 수 있어. who는 그 동물 이름.
-- 동물은 대사가 없으니, 본문에 드러난 행동과 반응(다가감, 피함, 경계, 고집, 애착)에서 그 동물이 누구를 어떻게 여기고 무엇을 좋아하거나 꺼리게 됐는지를 그 동물 시점으로 짧게 적어. 사람처럼 말로 생각하거나 계획을 세운다고 꾸미지 마.
-- 이름 없이 지나가는 동물(편지를 가져온 부엉이 같은)은 적지 마.`;
-
-/**
- * The people of this batch who have never had a line but were there in two or more saved scenes (a cat, a silent
- * servant): the notebook prompt names them, since a model told only "animals may keep a notebook too" writes none.
- */
-function silentPeople(store, batch) {
-  const canon = (n) => A.canonical(n);
-  const spoke = new Set();
-  const seen = new Map();
-  for (const sc of store?.scenes || []) {
-    for (const q of [...(sc.events || []).flatMap((e) => e.quotes || []), ...(sc.loose || [])]) if (q?.kind === 'dialogue' && q.by) spoke.add(canon(q.by));
-    for (const p of new Set((sc.present || []).map(canon))) seen.set(p, (seen.get(p) || 0) + 1);
-  }
-  return (batch || []).filter((n) => !spoke.has(canon(n)) && (seen.get(canon(n)) || 0) >= 2);
-}
-
-/** The animal-notebook rules, with the people of this batch who act without lines named. */
-function animalNotebookPrompt(silent) {
-  return silent?.length ? `${ANIMAL_NOTEBOOK_PROMPT}
-- 이번 묶음에서 대사 없이 행동으로만 나오는 인물: ${silent.join(', ')}. 이들의 행동·반응이 서술된 장면에서는 그 시점의 수첩을 적극적으로 적어.` : ANIMAL_NOTEBOOK_PROMPT;
-}
-
 const squash = (t) => String(t ?? '').toLowerCase().replace(/[\s"'“”‘’「」『』.,!?·~\-_()[\]]/g, '');
 
 /**
@@ -103,6 +73,8 @@ function inList(name, list) {
   return !!hit && (list || []).some((x) => (A.canonOf(x) || A.tidy(x)) === hit);
 }
 
+const fold = (s) => String(s ?? '').normalize('NFC').replace(/\s+/g, ' ').trim().toLowerCase();
+
 const whoOf = (v) => (v && typeof v === 'object' ? v.who : v);
 
 /** A group, not a person: 「1학년들」, 「신입생들」, 「모두」, "the first-years". */
@@ -110,7 +82,7 @@ const GROUP_WORDS = new Set(['모두', '여러분', '다들', '일행', '사람�
 function isGroup(name) {
   const n = String(name || '').trim();
   const k = squash(n);
-  return GROUP_WORDS.has(k) || /[가-힣]들$/.test(n) || /^thes+w+s$/i.test(n);
+  return GROUP_WORDS.has(k) || /[가-힣]들$/.test(n) || /^the\s+\w+s$/i.test(n);
 }
 
 /** Title words that are not a name of their own (from World Archive's NAME_FILLER, c813aeb). */
@@ -132,14 +104,6 @@ function nameInText(name, text) {
   });
 }
 
-/**
- * New people a scene reply names (store is not changed): someone who acts as a person in it — speaks a line or is
- * spoken to, keeps a notebook note, knows or does not know something, remembers the scene. What a fact is about is
- * not enough (a fact about 호그와트 or the Great Hall: a place, not a person), and neither is a group (「1학년들」).
- * Being in a scene's present list alone is not enough (an owl, "the guard": they stay the scene's extras, as in
- * character mode). The name must be its own (not a description), written in the batch's text, and not the narrator,
- * the user's character or someone the cast already has.
- */
 /** The names a scene reply uses as people (speaker, listener, notebook, knowing, recollection), in order. */
 function namedPeople(scenes) {
   return (Array.isArray(scenes) ? scenes : []).flatMap((item) => {
@@ -154,86 +118,28 @@ function namedPeople(scenes) {
   });
 }
 
+/**
+ * New people a scene reply names (store is not changed): someone who acts as a person in it — speaks a line or is
+ * spoken to, keeps a notebook note, knows or does not know something, remembers the scene. What a fact is about is
+ * not enough (a fact about 호그와트 or the Great Hall: a place, not a person), and neither is a group (「1학년들」).
+ * Being in a scene's present list alone is not enough (an owl, "the guard": they stay the scene's extras, as in
+ * character mode). The name must be its own (not a description), written in the batch's text, and not the narrator,
+ * the user's character or someone the cast already has.
+ */
 function newPeople(store, scenes, slice) {
   const narrators = store.narrators || [];
   const personas = [...(store.personas || []), ...L.personaNames(slice || [])];
   const text = batchText(slice);
   const cast = Array.isArray(store.cast) ? store.cast : [];
   const added = [];
-  {
-    for (const name of namedPeople(scenes)) {
+  for (const name of namedPeople(scenes)) {
       if (cast.length + added.length >= ROOM_CAST_MAX) return added;
       // A one-syllable name (톰) counts when the name table has a longer form of it (Tom, from the glossary).
       if (!A.formsOf(name).concat(name).some((n) => squash(n).length >= 2) || isGroup(name) || isDescribedName(name) || !A.formsOf(name).concat(name).some((n) => nameInText(n, text))) continue;
       if (inList(name, narrators) || inList(name, personas) || inList(name, cast) || inList(name, added)) continue;
       added.push(name);
-    }
   }
   return added;
-}
-
-const latinOnly = (s) => /[A-Za-z]/.test(s) && !/[가-힣]/.test(s);
-const hangulOnly = (s) => /[가-힣]/.test(s) && !/[A-Za-z]/.test(s);
-const fold = (s) => String(s ?? '').normalize('NFC').replace(/s+/g, ' ').trim().toLowerCase();
-
-/**
- * Pairs that say two written forms are one person: the room's glossary (번역 프리셋·단어장, "Edward Vane = 에드워드 베인")
- * first, then World Archive's people (a name and another name of theirs in the other script). → [{ from: Latin, to: Korean }]
- */
-function scriptPairs(glossary = [], waPeople = []) {
-  const out = [];
-  const seen = new Set();
-  const push = (a, b) => {
-    const from = latinOnly(a) ? a : latinOnly(b) ? b : null;
-    const to = hangulOnly(a) ? a : hangulOnly(b) ? b : null;
-    if (!from || !to || seen.has(fold(from)) || seen.has(fold(to))) return;
-    seen.add(fold(from)).add(fold(to));
-    out.push({ from: A.tidy(from), to: A.tidy(to) });
-  };
-  for (const p of Array.isArray(glossary) ? glossary : []) if (p?.from && p?.to) push(String(p.from), String(p.to));
-  for (const person of Array.isArray(waPeople) ? waPeople : []) for (const other of person?.aliases || []) push(String(person.name || ''), String(other || ''));
-  return out;
-}
-
-/**
- * The other names to register so one person is not two: for each name the room's people go by (or a reply just
- * brought in), the pair that writes it in the other script. Returns [{ source, target }]: source becomes another name
- * of target. The target is the form the memory is written in (the Korean one for a Korean memory), except that the
- * user's character keeps their own name. Left out: a pair whose forms are one person already, a pair the user said
- * are not the same (dismissed), and anything that names a narrator (the narrator is not a person).
- */
-function nameLinks(names, pairs, table, { korean = true, narrators = [], personas = [] } = {}) {
-  const links = [];
-  const seen = new Set();
-  const is = (n, list) => (list || []).some((x) => fold(x) === fold(n) || (A.canonOf(x, table) && A.canonOf(x, table) === A.canonOf(n, table)));
-  for (const name of Array.isArray(names) ? names : []) {
-    const key = fold(name);
-    const pair = (pairs || []).find((p) => fold(p.from) === key || fold(p.to) === key);
-    if (!pair || seen.has(fold(pair.from))) continue;
-    seen.add(fold(pair.from));
-    if (is(pair.from, narrators) || is(pair.to, narrators)) continue;
-    let [source, target] = korean ? [pair.from, pair.to] : [pair.to, pair.from];
-    if (is(source, personas) && !is(target, personas)) [source, target] = [target, source];
-    const a = A.canonOf(source, table);
-    const b = A.canonOf(target, table);
-    if (a && b && a === b) continue;
-    if (table && A.dismissed(table, source, target)) continue;
-    links.push({ source, target });
-  }
-  return links;
-}
-
-/** The most glossary spellings one batch prompt carries. */
-const SCRIPT_LINE_MAX = 30;
-/**
- * The [이름 표기] line of a batch prompt: how the English names written in these messages are written in Korean, from
- * the room's glossary, so the model writes 「아더 펜들턴」 (the user's spelling), not a spelling of its own. '' when
- * none of them is in the batch.
- */
-function scriptLine(pairs, slice) {
-  const text = batchText(slice);
-  const hits = (pairs || []).filter((p) => p?.from && p?.to && squash(p.from).length >= 2 && text.includes(squash(p.from))).slice(0, SCRIPT_LINE_MAX);
-  return hits.length ? `[이름 표기] 본문의 영어 이름은 한국어로 이렇게 적어: ${hits.map((p) => `${p.from} = ${p.to}`).join(', ')}` : '';
 }
 
 /** The cast with each person once, under the name the room's name table keeps them by. */
@@ -252,4 +158,4 @@ function narratorLine(narrators) {
   return list.length ? `[내레이터] ${list.join(', ')} (인물이 아님)` : '';
 }
 
-module.exports = { silentPeople, animalNotebookPrompt, ANIMAL_NOTEBOOK_PROMPT, isGroup, namedPeople, scriptPairs, nameLinks, canonCast, scriptLine, MODES, BATCH_CAST_MAX, ROOM_CAST_MAX, NARRATOR_PROMPT, mode, isDescribedName, nameInText, batchCast, newPeople, narratorLine, squash };
+module.exports = { inList, isGroup, namedPeople, canonCast, MODES, BATCH_CAST_MAX, ROOM_CAST_MAX, NARRATOR_PROMPT, mode, isDescribedName, nameInText, batchCast, newPeople, narratorLine, squash };

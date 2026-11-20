@@ -1248,8 +1248,10 @@ async function roomPeople(chatId, store) {
   const aliases = {};
   const cast = [];
   const add = (name, other = []) => {
-    if (!name || L.matchName(name, cards) || cast.length >= Sim.ROOM_CAST_MAX) return;
-    const have = L.matchName(name, cast);
+    // Under the name the room's name table keeps them by (one person, one entry), and only a card of the list is a card.
+    name = A.canonical(name);
+    if (!name || Sim.inList(name, cards) || cast.length >= Sim.ROOM_CAST_MAX) return;
+    const have = cast.find((c) => A.canonical(c) === name);
     if (!have) cast.push(name);
     const key = have || name;
     if (other.length) aliases[key] = [...new Set([...(aliases[key] || []), ...other])].slice(0, 20);
@@ -1308,11 +1310,26 @@ function setupNote(chatId) {
   }
   return `## 이 방의 배경 설정 (사용자가 처음부터 정해 둔 사실. 인물·관계·비밀·말투를 이해하는 데만 쓰고, 이것만 보고 새 항목·사실·인용을 만들지 마)\n${text}`;
 }
-/** The call's first user message with 배경 설정 in front (the same start every time, so it can be cached). */
-function withSetup(note, messages) {
-  if (!note) return messages;
+/**
+ * "## 이름 표기": the glossary's names and words found in a call's input, when the memory is written in Korean, so the
+ * memory model writes them the user's way instead of its own (Marcello → 마르첼로, not 마르셀로). People of
+ * [등장인물] keep the list's form: the scene is filed under that person by it.
+ */
+const GLOSSARY_NOTE_MAX = 60;
+function glossaryNote(chatId, text) {
+  if (!chatId || writeLanguage(chatId) !== 'ko') return '';
+  let pairs = [];
+  try { pairs = roomGlossary(chatId).filter((p) => T.hasName(text, p.from)).slice(0, GLOSSARY_NOTE_MAX); } catch {}
+  if (!pairs.length) return '';
+  return `## 이름 표기 (사용자의 번역 단어장. 기억을 한국어로 쓸 때 아래 이름·낱말은 오른쪽 표기 그대로 써. 한글 발음을 새로 짓지 마. [등장인물]에 있는 인물은 그 목록의 표기를 따라)\n${pairs.map((p) => `${p.from} = ${p.to}`).join('\n')}`;
+}
+/** The call's first user message with 배경 설정 in front (the same start every time, so it can be cached), and the glossary's names after it. */
+function withSetup(note, messages, chatId = null) {
   const at = messages.findIndex((m) => m.role === 'user');
-  return at < 0 ? messages : messages.map((m, i) => (i === at ? { ...m, content: `${note}\n\n${m.content}` } : m));
+  if (at < 0) return messages;
+  const names = glossaryNote(chatId, messages[at].content);
+  if (!note && !names) return messages;
+  return messages.map((m, i) => (i === at ? { ...m, content: [note, names, m.content].filter(Boolean).join('\n\n') } : m));
 }
 function setSpeakerNames(chatId, on) {
   const next = settings();
@@ -1632,7 +1649,7 @@ const LANGUAGE_NOTE = {
   en: '\n\n[기록 언어] 네가 새로 쓰는 모든 글(제목·요약·사건·사실·이유·메모·생활 기록)은 영어로 써. 채팅이 한국어여도 마찬가지야. 인용(q)은 원문에서 그대로 복사하고(번역하지 마), 이름도 쓰인 그대로 둬. 인물의 수첩(notebook)의 when과 text는 이 설정 대신 [수첩 언어]를 따라.',
   // Korean chosen on purpose for a chat that is not Korean (a Chinese or English room): without this the memory model
   // follows the chat and mixes the two languages in one note.
-  'ko-fixed': '\n\n[기록 언어] 네가 새로 쓰는 모든 글(제목·요약·사건·사실·이유·메모·생활 기록)은 한국어로만 써. 채팅이 중국어나 영어여도 마찬가지야. 한 글 안에 중국어·영어 낱말을 섞지 마. 인용(q)은 원문에서 그대로 복사하고(번역하지 마), 사람 이름은 등장인물 목록에 적힌 표기를 그대로 써.',
+  'ko-fixed': '\n\n[기록 언어] 네가 새로 쓰는 모든 글(제목·요약·사건·사실·이유·메모·생활 기록)은 한국어로만 써. 채팅이 중국어나 영어여도 마찬가지야. 한 글 안에 중국어·영어 낱말을 섞지 마. 인용(q)은 원문에서 그대로 복사하고(번역하지 마), 사람 이름은 등장인물 목록에 적힌 표기를 그대로 써. 목록에 없는 이름·낱말은 [이름 표기]가 있으면 그 표기를 따라.',
   zh: '\n\n[기록 언어] 네가 새로 쓰는 모든 글(제목·요약·사건·사실·이유·메모·생활 기록)은 중국어(간체)로 써. 채팅이 한국어여도 마찬가지야. 인용(q)은 원문에서 그대로 복사하고(번역하지 마), 이름도 쓰인 그대로 둬. 인물의 수첩(notebook)의 when과 text는 이 설정 대신 [수첩 언어]를 따라.',
 };
 
@@ -1770,7 +1787,7 @@ async function askModel(model, messages, { maxTokens = 4096 } = {}) {
 /** Read one batch; an unreadable reply is retried once, then the batch is halved. */
 async function readBatch(model, ledger, batch, context, routine = true) {
   for (let attempt = 0; attempt < 2; attempt++) {
-    const reply = await askModel(model, withSetup(model.setup, L.buildPrompt(ledger, batch, context, { routine })));
+    const reply = await askModel(model, withSetup(model.setup, L.buildPrompt(ledger, batch, context, { routine }), model.chatId));
     const parsed = L.parseJsonObject(reply);
     if (parsed) return [{ batch, parsed }];
   }
@@ -1928,60 +1945,6 @@ async function tidyLedger(model, ledger, messages, { scenes = null } = {}) {
 }
 
 /**
- * The scene call's preferences: the room's organize settings, and in a simulator room with Korean memory the glossary
- * spellings (the prompt names the ones the batch uses).
- */
-function scenePreferences(chatId, store) {
-  const prefs = organizeFor(chatId);
-  if (store?.mode !== 'simulator' || writeLanguage(chatId) !== 'ko') return prefs;
-  const scriptNames = Sim.scriptPairs(roomGlossary(chatId), worldArchivePeople(chatId));
-  return scriptNames.length ? { ...prefs, scriptNames } : prefs;
-}
-
-/**
- * 세계 시뮬레이터: one person written in two scripts (the story's English speaker labels, the model's Korean names) is
- * made one person in the room's name table, from the room's glossary (번역 프리셋·단어장) and World Archive's other
- * names. names: the cast, plus the names a reply uses as people. Each link is an automatic application of an alias
- * suggestion, so it is listed under 자동으로 적용함 and can be taken back one by one (one taken back is never made
- * again). The target is the form the memory is written in. Returns how many links were made.
- */
-function linkScriptForms(chatId, store, scenes = [], slice = []) {
-  if (store?.mode !== 'simulator') return 0;
-  try {
-    const pairs = Sim.scriptPairs(roomGlossary(chatId), worldArchivePeople(chatId));
-    if (!pairs.length) return 0;
-    const table = loadNames(chatId);
-    // The reply's own names, before they are checked against the text: 「아더 펜들턴」 is written only as
-    // 「Arthur Pendleton」 there, and is found once the pair links them.
-    const names = [...(store.cast || []), ...Sim.namedPeople(scenes)];
-    const links = Sim.nameLinks(names, pairs, table, { korean: writeLanguage(chatId) === 'ko', narrators: store.narrators || [], personas: [...(store.personas || []), ...L.personaNames(slice || [])] });
-    if (!links.length) return 0;
-    const book = loadAddress(chatId);
-    let asked = 0;
-    let made = 0;
-    for (const link of links) {
-      const sug = Addr.pushSuggestion(book, { kind: 'alias', source: link.source, target: link.target, count: 0, origin: 'glossary' });
-      if (!sug) continue; // asked before: answered, applied, or taken back
-      asked++;
-      const rec = Addr.autoApply(book, sug.id, { table });
-      if (!rec) continue;
-      rec.text = `‘${link.source}’ = ${rec.target}의 다른 이름 (단어장)`;
-      made++;
-    }
-    if (made) saveNames(chatId, table);
-    if (asked) saveAddress(chatId, book);
-    if (made) {
-      store.cast = Sim.canonCast(store.cast);
-      log(`chat ${chatId}: ${made} name(s) written in two scripts linked from the glossary`);
-    }
-    return made;
-  } catch (error) {
-    log(`chat ${chatId}: names not linked (${error?.message || error})`);
-    return 0;
-  }
-}
-
-/**
  * Fold messages that are leaving the window into scenes, one slice per call, until caught up.
  * Each slice is saved as soon as it is done, so a stopped run continues where it left off.
  */
@@ -1993,7 +1956,6 @@ async function foldScenes(chatId, store, messages, window, model, job, { minPend
     if (!next) break;
     if (job?.cancel) throw Error('중단했습니다. 다시 시작하면 이어서 정리합니다.');
     if (job) job.stage = `장면 정리 (${next.slice[0].number}번부터)`;
-    linkScriptForms(chatId, store, [], next.slice);
     let applied = null;
     let lastError = '';
     let lastReply = '';
@@ -2003,12 +1965,11 @@ async function foldScenes(chatId, store, messages, window, model, job, { minPend
       let lastParsed = null;
       let lastCode = null;
       for (let attempt = 0; attempt < 2 && !applied; attempt++) {
-        const reply = await askModel(model, withSetup(setupNote(chatId), S.buildScenePrompt(store, next.slice, next.required, lastError || null, scenePreferences(chatId, store))), { maxTokens: sceneTokens(chatId) });
+        const reply = await askModel(model, withSetup(setupNote(chatId), S.buildScenePrompt(store, next.slice, next.required, lastError || null, organizeFor(chatId)), chatId), { maxTokens: sceneTokens(chatId) });
         calls++;
         lastReply = String(reply || '');
         const { result: parsed, truncated } = S.parseScenesReply(reply);
         if (parsed) lastParsed = parsed;
-        if (parsed) linkScriptForms(chatId, store, parsed.scenes, next.slice);
         const opts = { partial: !!truncated, quoteMode: settings().chats?.[chatId]?.organize?.quoteMode, verifyAttribution: true, strictCoverage: true, ...sceneRecords(chatId), ...(job ? { notebookStats: (job.notebookStats ||= {}) } : {}) };
         const result = parsed ? S.applyScenes(store, parsed, next.slice, next.required, undefined, opts) : { error: truncated ? '응답이 너무 길어서 잘렸습니다' : '응답을 읽지 못했습니다' };
         if (!result.error) applied = result;
@@ -2266,7 +2227,7 @@ function processChat(chatId, { rebuild = false, reason = 'auto' } = {}) {
         job.state = 'done';
         return;
       }
-      const model = { ...(await memoryModel()), signal: job.abort.signal, lang: await promptLanguageOf(chatId), setup: setupNote(chatId) };
+      const model = { ...(await memoryModel()), signal: job.abort.signal, lang: await promptLanguageOf(chatId), setup: setupNote(chatId), chatId };
       for (const batch of batches) {
         if (job.cancel) throw Error('중단했습니다. 다시 시작하면 이어서 정리합니다.');
         const at = messages.indexOf(batch[0]);
@@ -2312,6 +2273,7 @@ function processChat(chatId, { rebuild = false, reason = 'auto' } = {}) {
       job.state = 'done';
       log(`chat ${chatId}: ledger up to date (${reason}, ${job.total} call(s))`);
       translateDisplayLater(chatId);
+      autoMergeLater(chatId);
     } catch (error) {
       job.state = job.cancel ? 'idle' : 'error';
       job.error = job.cancel ? null : error?.message || String(error);
@@ -2596,7 +2558,7 @@ function rebuildNotebook(chatId, { all = false } = {}) {
         const live = part.map((g) => ({ scene: store.scenes.find((sc) => sc.id === g.id), messages: g.messages })).filter((g) => g.scene);
         const sceneFacts = {};
         for (const f of S.liveFacts(store)) if (f.sceneId && live.some((g) => g.scene.id === f.sceneId)) (sceneFacts[f.sceneId] ||= []).push(f.text);
-        const parsed = L.parseJsonObject(await askModel(model, withSetup(setupNote(chatId), Nb.buildRebuildPrompt(live, { cast, personas, voice: Nb.voiceBlock(samples, Nb.priorNotes(store, speakers, undefined, { before: live[0]?.scene.id }), { langs: Nb.langsFor(samples, speakers, notebookLanguageOf(chatId)) }), facts: sceneFacts })), { maxTokens: 4000 }));
+        const parsed = L.parseJsonObject(await askModel(model, withSetup(setupNote(chatId), Nb.buildRebuildPrompt(live, { cast, personas, voice: Nb.voiceBlock(samples, Nb.priorNotes(store, speakers, undefined, { before: live[0]?.scene.id }), { langs: Nb.langsFor(samples, speakers, notebookLanguageOf(chatId)) }), facts: sceneFacts }), chatId), { maxTokens: 4000 }));
         job.calls++;
         return { answers: Array.isArray(parsed?.scenes) ? parsed.scenes : [], samples, personas, speakers };
       };
@@ -2686,7 +2648,7 @@ async function fillLines(chatId, store, model, job = null) {
     const list = S.lineFillTargets(store).slice(0, S.LINE_FILL_BATCH);
     if (!list.length || job?.cancel) break;
     if (job) job.stage = `줄기 채우기 (${list[0].id}부터)`;
-    const parsed = L.parseJsonObject(await askModel(model, withSetup(note, S.buildLineFillPrompt(store, list, { lang: writeLanguage(chatId) })), { maxTokens: 4000 }));
+    const parsed = L.parseJsonObject(await askModel(model, withSetup(note, S.buildLineFillPrompt(store, list, { lang: writeLanguage(chatId) }), chatId), { maxTokens: 4000 }));
     calls++;
     const filled = S.applyLineFill(store, parsed, list);
     saveScenes(chatId, store);
@@ -2794,6 +2756,7 @@ function processScenes(chatId, { rebuild = false, reason = 'auto' } = {}) {
       } while (job.again && !job.cancel);
       job.state = 'done';
       translateDisplayLater(chatId);
+      autoMergeLater(chatId);
     } catch (error) {
       job.state = job.cancel ? 'idle' : 'error';
       job.error = job.cancel ? null : error?.message || String(error);
@@ -3197,6 +3160,59 @@ function roomKoreanNames(chatId) {
 }
 
 /**
+ * Names of one person stored apart in two scripts ("Daniel" in the English memory, "다니엘" from the card) that the
+ * user's glossary pairs are merged on their own: the name kept is the one in the language the memory is written in.
+ * Each merge is recorded (이름 정리 → 자동으로 합친 이름) and can be taken back alone. Never while a job writes the
+ * room: the next run's end tries again. Returns how many merges were made.
+ */
+const AUTO_MERGE_MAX = 20;
+function autoMergeByGlossary(chatId) {
+  return enqueue(chatId, () => enqueue(`scenes:${chatId}`, async () => {
+    const busy = [jobs, sceneJobs, trials, notebookJobs].some((m) => m.get(chatId)?.state === 'running');
+    if (busy) return 0;
+    const pairs = roomGlossary(chatId);
+    if (!pairs.length) return 0;
+    const store = structuredClone(loadScenes(chatId) || S.emptyStore());
+    const ledger = structuredClone(loadLedger(chatId) || L.emptyLedger());
+    const table = structuredClone(loadNames(chatId));
+    const base = writeLanguage(chatId) === 'ko' ? 'ko' : 'foreign';
+    const latinForms = (canon) => [canon, ...(table.people?.[canon]?.aliases || [])].filter((n) => /[A-Za-z]/.test(n) && !/[가-힣]/.test(n)).sort((a, b) => b.length - a.length);
+    const koreanOf = (x) => {
+      const names = T.koreanNames(pairs, table);
+      const canon = A.canonOf(x, table);
+      for (const form of [x, ...(canon ? latinForms(canon) : [])]) {
+        const hit = names.find((n) => n.from.toLowerCase() === String(form).toLowerCase());
+        if (hit) return hit.to;
+      }
+      return null;
+    };
+    const latinOf = (x) => pairs.find((p) => p.to === x)?.from || latinForms(A.canonOf(x, table) || x)[0] || T.koreanNames(pairs, table).find((n) => n.to === x)?.from || null;
+    const made = [];
+    const skip = new Set();
+    for (let i = 0; i < AUTO_MERGE_MAX; i++) {
+      const group = A.using(table, () => N.glossaryMerges(store, ledger, table, pairs, { base, koreanOf, latinOf, skip }))[0];
+      if (!group) break;
+      try {
+        const planned = A.using(table, () => N.planMany(store, ledger, table, group.items));
+        made.push(N.applyAutoMerge(store, ledger, table, planned, { why: `${group.pair.from} = ${group.pair.to}` }));
+      } catch (error) {
+        skip.add(group.key);
+        log(`chat ${chatId}: glossary merge ${group.items.map((x) => x.source).join(', ')} → ${group.target} skipped (${error?.message || error})`);
+      }
+    }
+    if (!made.length) return 0;
+    if (made.some((r) => r.changes.some((c) => c.doc === 'scenes'))) saveScenes(chatId, store);
+    if (made.some((r) => r.changes.some((c) => c.doc === 'ledger'))) saveLedger(chatId, ledger);
+    saveNames(chatId, table);
+    recalls.delete(chatId);
+    enqueue(`scenes:${chatId}`, () => indexScenes(chatId, loadScenes(chatId))).catch((error) => log(`chat ${chatId}: re-index after merge failed (${error?.message || error})`));
+    for (const r of made) log(`chat ${chatId}: merged ${r.source} → ${r.target} by the glossary (${r.changes.length} change(s))`);
+    return made.length;
+  }));
+}
+const autoMergeLater = (chatId) => { autoMergeByGlossary(chatId).catch((error) => log(`chat ${chatId}: glossary merge failed (${error?.message || error})`)); };
+
+/**
  * The glossary pairs become other names of the people they name ("Daniel = 다니엘" → Daniel is 다니엘 크로우),
  * so a Latin name the memory model wrote lands on the same person. Only a Korean side that is a person's name, display
  * form, alias or the first word of their name counts; an alias that already belongs to someone else stays there.
@@ -3211,6 +3227,24 @@ function glossaryAliases(table, pairs) {
     if (A.addPerson(table, hit[0][0], [from])) added.push({ from, to: hit[0][0] });
   }
   return added;
+}
+
+/**
+ * Korean lines whose names are not written the way the glossary and name table write them now (translated before a
+ * name was added or changed, or the model wrote a name its own way): translated once more. A line already translated
+ * again with the same names is left as it is, so a model that keeps writing it its way does not loop.
+ */
+function staleNames(chatId, names = roomKoreanNames(chatId)) {
+  if (!names.length) return () => false;
+  const data = loadTranslations(chatId);
+  return (text) => {
+    const key = T.key('ko', text);
+    const done = data.items?.[key];
+    if (done == null) return false;
+    const sig = T.namesSig(text, names);
+    if (!sig || data.namesChecked?.[key] === sig) return false;
+    return T.namesMissed(text, done, names).length > 0;
+  };
 }
 
 function translationLookup(chatId, target) {
@@ -3349,10 +3383,11 @@ function translateMissing(chatId, target, texts, { max = TRANSLATE_MAX_PER_RUN }
   const run = (async () => {
     const lookup = translationLookup(chatId, target);
     const stored = loadTranslations(chatId);
-    const todo = [...new Set(texts)].filter((t) => t && lookup(t) == null && !translationGaveUp(stored, T.key(target, t))).slice(0, max);
+    const names = target === 'ko' ? roomKoreanNames(chatId) : [];
+    const stale = target === 'ko' ? staleNames(chatId, names) : () => false;
+    const todo = [...new Set(texts)].filter((t) => t && (lookup(t) == null || stale(t)) && !translationGaveUp(stored, T.key(target, t))).slice(0, max);
     if (!todo.length) return 0;
     const model = await translateModel();
-    const names = target === 'ko' ? roomKoreanNames(chatId) : [];
     const glossary = target === 'ko' ? [] : roomGlossary(chatId);
     // Lines that quote what someone said get that line's own Korean beside them.
     if (target === 'ko') await sourceKoFor(chatId);
@@ -3378,6 +3413,9 @@ function translateMissing(chatId, target, texts, { max = TRANSLATE_MAX_PER_RUN }
         if (out[i]) {
           data.items[T.key(target, src)] = out[i];
           if (data.failed) delete data.failed[T.key(target, src)];
+          // Translated with today's names: not looked at again for its names until the glossary or name table changes.
+          const sig = target === 'ko' ? T.namesSig(src, names) : '';
+          if (sig) (data.namesChecked ||= {})[T.key(target, src)] = sig;
           done++;
         }
       });
@@ -3502,7 +3540,8 @@ function translateDisplayLater(chatId) {
     if (settings().autoTranslate === false || !settings().connection) return false;
     const lookup = translationLookup(chatId, 'ko');
     const stored = loadTranslations(chatId);
-    const missing = displayTranslationTexts(chatId).filter((t) => lookup(t) == null && !translationGaveUp(stored, T.key('ko', t)));
+    const stale = staleNames(chatId);
+    const missing = displayTranslationTexts(chatId).filter((t) => (lookup(t) == null || stale(t)) && !translationGaveUp(stored, T.key('ko', t)));
     return missing.length ? startDisplayTranslation(chatId, missing) : false;
   } catch (error) {
     log(`chat ${chatId}: display translation not started (${error?.message || error})`);
@@ -4282,26 +4321,43 @@ async function routes(app) {
     // Quoted lines the chat already has Korean for (no model call, whether or not quotes are translated).
     const items = sourceQuoteItems(chatId);
     const missing = [];
+    // Shown as they are meanwhile; translated again because a name is not written the glossary's way.
+    const redo = [];
+    const stale = staleNames(chatId);
     for (const t of texts) {
       const done = lookup(t);
       if (done != null) items[t] = done;
       else missing.push(t);
+      if (done != null && stale(t)) redo.push(t);
     }
     // 자동 번역을 끄면 보여 줄 번역은 [지금 번역]을 누를 때만 만듭니다(답변에 넣을 번역은 그대로).
     const auto = settings().autoTranslate !== false;
     const stored = loadTranslations(chatId);
     const retryable = missing.filter((t) => !translationGaveUp(stored, T.key('ko', t)));
-    if (auto && retryable.length && settings().connection) startDisplayTranslation(chatId, retryable);
+    if (auto && (retryable.length || redo.length) && settings().connection) startDisplayTranslation(chatId, [...retryable, ...redo]);
     // Name fields (who, toward, who does not know) are names, not sentences: written in Korean from the name table and
     // the glossary, with no model call.
     const names = roomKoreanNames(chatId);
     const table = loadNames(chatId);
+    const glossaryKorean = new Map(roomGlossary(chatId).map((p) => [p.from.toLowerCase(), p.to]));
+    // A person's full name as the name list writes it with the glossary's words: from their longest Latin name.
+    const fullWithGlossary = (canon) => {
+      const latin = [canon, ...(table.people?.[canon]?.aliases || [])].filter((n) => /[A-Za-z]/.test(n) && !/[가-힣]/.test(n)).sort((a, b) => b.length - a.length);
+      for (const form of latin) { const hit = names.find((n) => n.from === form); if (hit) return hit.to; }
+      return null;
+    };
     for (const t of loadLedger(chatId)?.threads || []) {
       for (const field of [t.who, t.toward, ...(t.unaware || []), ...(t.guess || [])]) {
         for (const name of String(field || '').split(/\s*[·,、]\s*/)) {
           if (!name || items[name] || !/[A-Za-z\u3400-\u4dbf\u4e00-\u9fff]/.test(name) || /[가-힣]/.test(name)) continue;
+          // The person's full Korean name, unless it writes the name otherwise than the user's glossary does
+          // ("Daniel = 다니엘" but the card says 대니얼 크로우): then their full name with the glossary's words
+          // ("다니엘 크로우"), else the glossary's form alone.
+          const listed = glossaryKorean.get(name.toLowerCase());
           const canon = A.canonOf(name, table);
-          const korean = canon && /[가-힣]/.test(canon) ? canon : T.koreanizeNames(name, names, A.replaceName);
+          const full = canon && /[가-힣]/.test(canon) ? canon : null;
+          const fixed = full && listed && !full.includes(listed) ? fullWithGlossary(canon) : null;
+          const korean = full && (!listed || full.includes(listed)) ? full : (fixed && fixed.includes(listed) ? fixed : listed || T.koreanizeNames(name, names, A.replaceName));
           if (korean !== name) items[name] = korean;
         }
       }
@@ -4349,6 +4405,8 @@ async function routes(app) {
       const aliases = glossaryAliases(table, pairs);
       if (aliases.length) saveNames(chatId, table);
       if (pairs.length) log(`chat ${chatId}: glossary ${pairs.length} name(s) from ${source || 'the library'}${aliases.length ? `, ${aliases.length} new other name(s)` : ''}`);
+      // Runs after this (it waits for the room's queue): names stored apart that the new glossary pairs are merged.
+      autoMergeLater(chatId);
       return { count: pairs.length, changed: true, aliases };
     });
   }));
@@ -5042,6 +5100,7 @@ async function routes(app) {
   };
   const nameOptions = (body) => ({ source: body?.source, target: body?.target, display: body?.display, text: body?.text !== false });
   const planView = (p) => ({ source: p.source, target: p.target, display: p.display, text: p.text, items: p.items || null, counts: p.counts, areas: p.areas, total: p.total, samples: p.samples, token: L.hashText(JSON.stringify(p.changes)) });
+  const autoMergedView = (table) => (table.autoMerged || []).slice().reverse().map((r) => ({ id: r.id, at: r.at, why: r.why, source: r.source, target: r.target, counts: r.counts, changes: r.changes.length }));
   const historyView = (table) => (table.history || []).map((h) => ({ id: h.id, kind: h.kind, at: h.at, source: h.source, target: h.target, display: h.display, text: h.text, counts: h.counts, changes: h.changes.length }));
   const saveRenamed = (chatId, store, ledger, table, changes) => {
     // Only the files the change touched: a room without a ledger does not get an empty one.
@@ -5397,6 +5456,7 @@ async function routes(app) {
         duplicates: N.duplicates(store, ledger, table),
         suggestions: N.suggestions(store, ledger, table),
         history: historyView(table),
+        autoMerged: autoMergedView(table),
         address: addressView(chatId),
         busy: roomBusy(chatId),
       };
@@ -5457,6 +5517,21 @@ async function routes(app) {
       log(`chat ${chatId}: undid rename ${out.source} → ${out.target} (${out.restored} restored, ${out.kept} changed since and kept)`);
       return { ...out, history: historyView(table) };
     });
+  }));
+  // One automatic (glossary) merge taken back on its own; the pair is not merged on its own again.
+  app.post('/chats/:id/names/auto-undo', guard(async (req) => {
+    const chatId = safeChatId(req.params.id);
+    const id = String(req.body?.id || '');
+    refuseBusy(chatId, '되돌릴');
+    return withRoom(chatId, async () => {
+      const { store, ledger, table: saved } = namesState(chatId);
+      const table = structuredClone(saved);
+      const changes = (saved.autoMerged || []).find((r) => r.id === id)?.changes || [];
+      const out = N.undoAutoMerge(store, ledger, table, id);
+      saveRenamed(chatId, store, ledger, table, changes);
+      log(`chat ${chatId}: undid glossary merge ${out.source} → ${out.target} (${out.restored} restored, ${out.kept} changed since and kept)`);
+      return { ...out, autoMerged: autoMergedView(table) };
+    }, '되돌릴');
   }));
   app.post('/chats/:id/names/dismiss', guard(async (req) => {
     const chatId = safeChatId(req.params.id);
@@ -5848,7 +5923,7 @@ function attach(app) {
   log('admin API ready at /api/memory-module');
 }
 
-module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { loadAddress, saveAddress, refreshAddress, presentPeople, Addr, loadState, saveState, loadPlaces, savePlaces, loadKeepsakes, saveKeepsakes, loadNotebook, saveNotebook, Nb, loadTrackers, saveTrackers, Tk, loadConflicts, saveConflicts, refreshConflicts, refreshWorld, Cf, Ks, organizeFor, sceneTokens, lastScenePeople, St, Pl, listRooms, purgeChatMemory, purgeIfGone, deleteOnSend, deletePrepare, listOrphans, deleteOrphans, goneChats, loadNames, saveNames, enqueue, foldScenes, reviewAttributions, loadAttributionLog, sceneJobs, selectedForView, loadSelected, recalls, windows, loadRecallPrefs, saveRecallPrefs, recallReport, recallCandidates, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, translateDisplayLater, fixNoteLanguages, tidySteps, tidyLedger, noteUsage, usageSummary, planAnswersOn, notebookLanguageOf, notebookLanguageSetting, rebuildNotebook, notebookJobStatus, notebookRunning: (id) => notebookJobs.get(id)?.state === 'running', loadTranslations, saveTranslations, translationRun: (id, texts) => translateMissing(id, "ko", texts), flushTranslations, clearTranslationFailures, translationGaveUp, chatLangs, langRecords, loadLang, noteLanguage, LANG_REFRESH_EVERY, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, routinePeople, noteSourceKo, sourceKo, sourceQuoteItems, quoteHints, roomSetup, setupNote, withSetup, nameInstructions, jobs, writeLanguage, roomWriteLanguage, promptLanguage, memoryCallOptions, routineSetting, routineEnabled, attributionSetting, featureOn, featureSetting, F, B, clearRoomCaches, RESTORE_UNDO_DIR, connectionWithKey, memoryModel, startTrial, trials, roomMode, setRoomMode, roomPeople, stampMode, worldArchivePeople, waPeopleCache, simulatorExample, linkScriptForms, scenePreferences } };
+module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { loadAddress, saveAddress, refreshAddress, presentPeople, Addr, loadState, saveState, loadPlaces, savePlaces, loadKeepsakes, saveKeepsakes, loadNotebook, saveNotebook, Nb, loadTrackers, saveTrackers, Tk, loadConflicts, saveConflicts, refreshConflicts, refreshWorld, Cf, Ks, organizeFor, sceneTokens, lastScenePeople, St, Pl, listRooms, purgeChatMemory, purgeIfGone, deleteOnSend, deletePrepare, listOrphans, deleteOrphans, goneChats, loadNames, saveNames, enqueue, foldScenes, reviewAttributions, loadAttributionLog, sceneJobs, selectedForView, loadSelected, recalls, windows, loadRecallPrefs, saveRecallPrefs, recallReport, recallCandidates, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, staleNames, autoMergeByGlossary, translateDisplayLater, fixNoteLanguages, tidySteps, tidyLedger, noteUsage, usageSummary, planAnswersOn, notebookLanguageOf, notebookLanguageSetting, rebuildNotebook, notebookJobStatus, notebookRunning: (id) => notebookJobs.get(id)?.state === 'running', loadTranslations, saveTranslations, translationRun: (id, texts) => translateMissing(id, "ko", texts), flushTranslations, clearTranslationFailures, translationGaveUp, chatLangs, langRecords, loadLang, noteLanguage, LANG_REFRESH_EVERY, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, routinePeople, noteSourceKo, sourceKo, sourceQuoteItems, quoteHints, roomSetup, setupNote, withSetup, nameInstructions, jobs, writeLanguage, roomWriteLanguage, promptLanguage, memoryCallOptions, routineSetting, routineEnabled, attributionSetting, featureOn, featureSetting, F, B, clearRoomCaches, RESTORE_UNDO_DIR, connectionWithKey, memoryModel, startTrial, trials, roomMode, setRoomMode, roomPeople, stampMode, worldArchivePeople, waPeopleCache, simulatorExample } };
 
 
 
