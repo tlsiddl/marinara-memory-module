@@ -14,6 +14,7 @@ process.env.MEMORY_MODULE_RECALL = 'off';
 const L = require('../memory-module/lib/ledger.cjs');
 const S = require('../memory-module/lib/scenes.cjs');
 const Sim = require('../memory-module/lib/simulator.cjs');
+const A = require('../memory-module/lib/aliases.cjs');
 const service = require('../memory-module/lib/service.cjs');
 const X = service._test;
 const C = require('./fixtures/simulator-cases.cjs');
@@ -43,15 +44,28 @@ test('batchCast: only people this batch names (a name or another name), the late
   assert.ok(!got.includes('학생00'), 'the oldest mentions are the ones left out');
 });
 
-test('newPeople: someone who speaks, keeps a note, knows or is known about; not a description, the narrator, the user, an unknown name or someone only present', () => {
+test('newPeople: someone who speaks, keeps a note, knows or does not know; not a description, a group, a fact\'s subject alone, the narrator, the user, an unknown name or someone only present', () => {
   const store = simStore([]);
   const scenes = [{
     present: [C.NARRATOR, HERMIONE, RON, C.USER, '론의 누나', '부엉이'],
-    events: [{ with: [NEVILLE], quotes: [{ by: HERMIONE, to: C.USER }, { by: C.NARRATOR }, { by: '론의 누나' }] }],
+    events: [{ with: [NEVILLE], quotes: [{ by: HERMIONE, to: C.USER }, { by: C.NARRATOR }, { by: '론의 누나' }, { by: HERMIONE, to: '1학년들' }] }],
     notebook: [{ who: C.NARRATOR }],
     facts: [{ about: NEVILLE, knownBy: [HERMIONE, '드레이코 말포이'], unaware: [{ who: C.USER }] }],
   }];
-  assert.deepEqual(Sim.newPeople(store, scenes, C.slice()), [HERMIONE, NEVILLE], 'Ron and the owl are only present: they stay extras; Draco is not in the text');
+  assert.deepEqual(Sim.newPeople(store, scenes, C.slice()), [HERMIONE], 'Ron and the owl are only present: they stay extras; Neville is only what a fact is about; Draco is not in the text');
+  const heard = [{ events: [{ quotes: [{ by: HERMIONE, to: NEVILLE }] }] }];
+  assert.deepEqual(Sim.newPeople(store, heard, C.slice()), [HERMIONE, NEVILLE], 'spoken to: a person');
+  assert.equal(Sim.isGroup('1학년들'), true);
+  assert.equal(Sim.isGroup('신입생들'), true);
+  assert.equal(Sim.isGroup('모두'), true);
+  assert.equal(Sim.isGroup('firstyears'), true);
+  assert.equal(Sim.isGroup(NEVILLE), false);
+  // 톰: one syllable, a person once the name table has a longer form of him.
+  const tomText = L.prepareMessages([{ id: 't1', number: 1, role: 'assistant', speaker: C.NARRATOR, content: 'Tom | "어서 오세요, 교수님!"' }]);
+  assert.deepEqual(Sim.newPeople(simStore([]), [{ events: [{ quotes: [{ by: '톰' }] }] }], tomText), [], 'one syllable, nothing else known');
+  const t = A.emptyTable();
+  A.addAlias(t, 'Tom', '톰', { rewrite: false });
+  assert.deepEqual(A.using(t, () => Sim.newPeople(simStore([]), [{ events: [{ quotes: [{ by: '톰' }] }] }], tomText)), ['톰'], 'linked to Tom: a person');
   assert.deepEqual(store.cast, [], 'the store is not changed');
   assert.deepEqual(Sim.newPeople(simStore([HERMIONE]), [{ events: [{ quotes: [{ by: '헤르미온느' }] }] }], C.slice()), [], 'someone the cast has (or a shorter name of them) is not added again');
   // A spaced name whose own word is in the text counts ("베인 공작" for 「에드워드 베인」); a title word alone does not.
@@ -184,7 +198,6 @@ test('reply side: in a simulator room standalone quotes are not labelled with th
 });
 
 // ---- one person, two scripts (the story's English speaker labels, the model's Korean) ----
-const A = require('../memory-module/lib/aliases.cjs');
 const VANE = '에드워드 베인', VANE_EN = 'Edward Vane', MINERVA = '미네르바 맥고나걸', MINERVA_EN = 'Minerva McGonagall';
 const GLOSSARY = [{ from: 'Hogwarts', to: '호그와트' }, { from: VANE_EN, to: VANE }, { from: MINERVA_EN, to: MINERVA }, { from: 'Irina', to: C.USER }, { from: C.NARRATOR, to: '호그와트 시뮬레이터' }];
 

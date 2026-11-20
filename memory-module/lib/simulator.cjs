@@ -75,6 +75,14 @@ function inList(name, list) {
 
 const whoOf = (v) => (v && typeof v === 'object' ? v.who : v);
 
+/** A group, not a person: 「1학년들」, 「신입생들」, 「모두」, "the first-years". */
+const GROUP_WORDS = new Set(['모두', '여러분', '다들', '일행', '사람들', '모든사람', 'everyone', 'everybody', 'all', 'firstyears', 'students', 'children', 'kids', 'guys']);
+function isGroup(name) {
+  const n = String(name || '').trim();
+  const k = squash(n);
+  return GROUP_WORDS.has(k) || /[가-힣]들$/.test(n) || /^thes+w+s$/i.test(n);
+}
+
 /** Title words that are not a name of their own (from World Archive's NAME_FILLER, c813aeb). */
 const NAME_FILLER = new Set(['the', 'and', 'of', 'for', 'with', 'from', 'into', 'house', 'school', 'family', 'lady', 'lord', 'miss', 'mister', 'mrs', 'mr', 'sir', 'madam', 'madame', 'professor', 'young', 'little', 'your', 'grace', 'head', '교수', '교수님', '선생', '선생님', '공작', '부인', '씨', '양', '군']);
 
@@ -96,12 +104,13 @@ function nameInText(name, text) {
 
 /**
  * New people a scene reply names (store is not changed): someone who acts as a person in it — speaks a line or is
- * spoken to, keeps a notebook note, is what a fact is about, knows or does not know something, remembers the scene.
+ * spoken to, keeps a notebook note, knows or does not know something, remembers the scene. What a fact is about is
+ * not enough (a fact about 호그와트 or the Great Hall: a place, not a person), and neither is a group (「1학년들」).
  * Being in a scene's present list alone is not enough (an owl, "the guard": they stay the scene's extras, as in
  * character mode). The name must be its own (not a description), written in the batch's text, and not the narrator,
  * the user's character or someone the cast already has.
  */
-/** The names a scene reply uses as people (speaker, listener, notebook, fact, knowing, recollection), in order. */
+/** The names a scene reply uses as people (speaker, listener, notebook, knowing, recollection), in order. */
 function namedPeople(scenes) {
   return (Array.isArray(scenes) ? scenes : []).flatMap((item) => {
     const events = Array.isArray(item?.events) ? item.events : [];
@@ -109,7 +118,7 @@ function namedPeople(scenes) {
     return [
       ...events.flatMap((e) => (Array.isArray(e?.quotes) ? e.quotes : []).flatMap((q) => [...namesIn(q?.by), ...namesIn(q?.to)])),
       ...(Array.isArray(item?.notebook) ? item.notebook : []).flatMap((n) => namesIn(n?.who)),
-      ...facts.flatMap((f) => [...namesIn(f?.about), ...namesIn(f?.knownBy), ...(Array.isArray(f?.unaware) ? f.unaware : []).flatMap((u) => namesIn(whoOf(u)))]),
+      ...facts.flatMap((f) => [...namesIn(f?.knownBy), ...(Array.isArray(f?.unaware) ? f.unaware : []).flatMap((u) => namesIn(whoOf(u)))]),
       ...(Array.isArray(item?.recollections) ? item.recollections : []).flatMap((r) => namesIn(r?.who)),
     ];
   });
@@ -124,8 +133,8 @@ function newPeople(store, scenes, slice) {
   {
     for (const name of namedPeople(scenes)) {
       if (cast.length + added.length >= ROOM_CAST_MAX) return added;
-      const key = squash(name);
-      if (key.length < 2 || isDescribedName(name) || !A.formsOf(name).concat(name).some((n) => nameInText(n, text))) continue;
+      // A one-syllable name (톰) counts when the name table has a longer form of it (Tom, from the glossary).
+      if (!A.formsOf(name).concat(name).some((n) => squash(n).length >= 2) || isGroup(name) || isDescribedName(name) || !A.formsOf(name).concat(name).some((n) => nameInText(n, text))) continue;
       if (inList(name, narrators) || inList(name, personas) || inList(name, cast) || inList(name, added)) continue;
       added.push(name);
     }
@@ -213,4 +222,4 @@ function narratorLine(narrators) {
   return list.length ? `[내레이터] ${list.join(', ')} (인물이 아님)` : '';
 }
 
-module.exports = { namedPeople, scriptPairs, nameLinks, canonCast, scriptLine, MODES, BATCH_CAST_MAX, ROOM_CAST_MAX, NARRATOR_PROMPT, mode, isDescribedName, nameInText, batchCast, newPeople, narratorLine, squash };
+module.exports = { isGroup, namedPeople, scriptPairs, nameLinks, canonCast, scriptLine, MODES, BATCH_CAST_MAX, ROOM_CAST_MAX, NARRATOR_PROMPT, mode, isDescribedName, nameInText, batchCast, newPeople, narratorLine, squash };
