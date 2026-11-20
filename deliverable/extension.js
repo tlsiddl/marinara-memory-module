@@ -3989,7 +3989,7 @@
 /* 세계관 설정집 화면 (연동 v2 · 세계관 칸) */
 (() => {
   const __WORLD_ARCHIVE_EMBEDDED__ = true;
-/* Copied from tlsiddl/marinara-world-archive main 7136b3e (extension/extension.js, v0.4.0 · 연동 v2 · 계약 수준 2). Do not edit here: change it there and copy again. */
+/* Copied from tlsiddl/marinara-world-archive main d623962 (extension/extension.js, v0.4.2 · 연동 v2 · 계약 수준 2). Do not edit here: change it there and copy again. */
 /* 세계관 설정집 · Marinara World Archive — personal extension UI.
  * Talks only to /api/world-archive on the same server. Visual language follows its sister module 기억 서재
  * (paper grain, ticket notches, ink shadows); the motif here is a star chart instead of a record. */
@@ -3999,7 +3999,7 @@
   // __WORLD_ARCHIVE_EMBEDDED__ = true; then nothing starts here and the tab calls __memoryWorldPanel.start(box).
   const EMBEDDED = typeof __WORLD_ARCHIVE_EMBEDDED__ !== 'undefined' && __WORLD_ARCHIVE_EMBEDDED__ === true;
   if (!EMBEDDED && document.getElementById('marinara-world-archive-root')) return;
-  const VERSION = '0.4.0';
+  const VERSION = '0.4.2';
   /** The contract level this screen is made for (the server's status.contract). Another level: read only. */
   const PANEL_CONTRACT = 2;
   const UPDATE_MSG = '세계관 칸을 쓰려면 기억 서재(또는 설정집)를 업데이트해 주세요. 지금은 보기만 할 수 있습니다.';
@@ -4477,9 +4477,11 @@ pre{white-space:pre-wrap;word-break:break-word;font:12.5px/1.65 var(--wa-mono);m
       : `메시지 ${w.auto.every}개마다 읽습니다${a?.pending != null ? ` · 아직 안 읽은 메시지 ${a.pending}개` : ''}`;
     const last = job && !running && job.state === 'done' ? `<div class="sub">지난번: 새 설정 ${job.added}개 · 바뀐 칸 ${job.changed}개${job.dropped ? ` · 근거가 없어 뺀 것 ${job.dropped}개` : ''}${job.fieldsDropped ? ` · 근거와 안 맞아 뺀 칸 ${job.fieldsDropped}개` : ''}</div>` : '';
     const err = job?.state === 'error' ? `<div class="err">${esc(job.error)}</div>` : '';
+    // v0.4.2: the past (before the room was linked, or before 「여기까지 읽음」) is read only with this button.
+    const cost = a?.past?.messages ? ` · 메시지 ${a.past.messages}개 · 약 ${Math.max(1, Math.round(a.past.tokens / 1000)).toLocaleString()}천 토큰` : '';
     const again = st.ask === 'restart'
-      ? `<span class="ask">이 방을 처음부터 다시 읽을까요? 설정은 지우지 않고, 읽은 위치만 처음으로 돌아갑니다. <button type="button" data-act="read-restart">다시 읽기</button><button class="quiet" type="button" data-act="ask" data-key="">취소</button></span>`
-      : `<button class="quiet" type="button" data-act="ask" data-key="restart">처음부터 다시 읽기</button>`;
+      ? `<span class="ask">지난 대화를 처음부터 읽을까요${cost ? `(${cost.slice(3)})` : ''}? 토큰이 많이 듭니다. 설정은 지우지 않고, 읽은 위치만 처음으로 돌아갑니다. <button type="button" data-act="read-restart">다시 읽기</button><button class="quiet" type="button" data-act="ask" data-key="">취소</button></span>`
+      : `<button class="quiet" type="button" data-act="ask" data-key="restart">지난 대화도 읽기(토큰 많이 듦)${cost}</button>`;
     return `<div class="auto-line"><span class="dot ${running ? 'run' : 'on'}"></span><span class="sub">자동 반영 · ${status}</span></div>${last}${err}
       ${running ? '' : `<div class="row" style="margin-top:8px"><button type="button" data-act="read-now" ${a?.pending === 0 ? 'disabled' : ''}>지금 읽기</button>${compact ? '' : again}</div>`}`;
   }
