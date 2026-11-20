@@ -495,3 +495,23 @@ test('someone who learned a secret in a scene that is undone does not know it an
   assert.equal(store.facts.find((f) => f.id === 'F1').knowHistory, undefined);
   assert.deepEqual(store.facts.find((f) => f.id === 'F2').guess, ['도윤']);
 });
+
+test('a scene end the model wrote oddly is still read, not thrown away', () => {
+  const raw = [];
+  for (let n = 55; n <= 62; n++) raw.push({ id: `m${n}`, number: n, speaker: n % 2 ? '하루' : '서아', content: n % 2 ? `하루가 대답했다. "알았어, ${n}."` : `"${n}번 질문이야?"` });
+  const msgs = L.prepareMessages(raw);
+  const events = () => [55, 56, 57, 58, 59, 60, 61, 62].map((n) => ({ text: `${n}번 일`, quotes: [{ n: `${n}.1`, q: String(n) }] }));
+  const scene = (extra) => ({ title: '장면', summary: '요약', events: events(), recollections: [], facts: [], ...extra });
+  const ranges = (scenes) => S.applyScenes(S.emptyStore(), { scenes }, msgs, 60).scenes.map((s) => `${s.start}~${s.end}`).join(',');
+  assert.equal(ranges([scene({ end: '58번' }), scene({ end: '[62]' })]), '55~58,59~62');
+  assert.equal(ranges([scene({ end: 4 }), scene({ end: 8 })]), '55~58,59~62'); // counted from 1
+  assert.equal(ranges([scene({ end: '55~62' })]), '55~62');
+  assert.equal(ranges([scene({ end_message: 58 }), scene({ end: 62 })]), '55~58,59~62');
+  // Unreadable ends (copied example, scene id, missing): closed at the required message instead of failing.
+  assert.equal(ranges([scene({ end: 25 })]), '55~60');
+  assert.equal(ranges([scene({ end: 'S23' })]), '55~60');
+  assert.equal(ranges([scene({}), scene({ end: 58 }), scene({ end: 62 })]), '55~58,59~62');
+  // The prompt names the numbers to use.
+  const prompt = S.buildScenePrompt(S.emptyStore(), msgs, 60)[1].content;
+  assert.match(prompt, /\[이번 메시지 번호\] 55~62/);
+});

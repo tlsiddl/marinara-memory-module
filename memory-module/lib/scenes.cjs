@@ -77,6 +77,7 @@ const SCENE_PROMPT = `너는 장기 롤플레이의 기억 관리자야. 지나�
 장면 나누기:
 - 작중 시간이 크게 건너뛰거나, 장소가 바뀌거나, 상황의 흐름이 바뀌는 곳에서 나눠. 한 장면은 보통 메시지 2~8개. 긴 흐름은 화제가 바뀌는 곳에서 더 잘게 나눠(장면 하나에 사건은 최대 8개라서, 너무 길면 세부가 빠져).
 - 장면은 첫 메시지부터 빈틈없이 이어져. 각 장면은 끝 메시지 번호(end)만 적으면 돼.
+- end는 그 장면 마지막 메시지의 [번호]를 숫자 하나로 적어(예: [58] 메시지에서 끝나면 "end":58). 장면 번호(S…), 문장 번호(58.3), "55~58" 같은 범위, 1부터 센 순서가 아니야. 아래 출력 형식의 숫자는 예시일 뿐이니 베끼지 마.
 - 사용자 메시지와 그에 대한 캐릭터의 답은 같은 장면에 둬. 장면을 사용자 메시지에서 끝내지 마(질문만 있고 답이 다음 장면으로 넘어가면 안 돼).
 - 마지막 장면은 반드시 [필수 끝 번호] 이상에서 끝나야 해. 그 뒤 메시지는 장면이 거기서 자연스럽게 끝날 때만 포함해.
 
@@ -428,7 +429,7 @@ function buildScenePrompt(store, slice, required, problem = null, preferences = 
   if (personas.length) head.push(`[사용자 캐릭터] ${personas.join(', ')}`);
   if (head.length) parts.unshift(...head, '');
   if (problem) parts.push('', `## 지난번 답의 문제 (이번엔 고쳐 줘)`, problem);
-  parts.push('', `## 메시지 (${slice[0].number}번부터)`, `[필수 끝 번호] ${required}`);
+  parts.push('', `## 메시지 (${slice[0].number}번부터)`, `[필수 끝 번호] ${required}`, `[이번 메시지 번호] ${slice[0].number}~${slice.at(-1).number} (end는 이 안의 숫자)`);
   for (const message of slice) {
     // Talk outside the story: in the scene by its number (scenes stay continuous), but nothing in it is the story.
     if (message.ooc) { parts.push(`[${message.number}] ${message.speaker}: (OOC — 이야기 밖 대화라 생략. 장면 내용·사실·인용·수첩에 쓰지 마)`); continue; }
@@ -763,11 +764,48 @@ function sameFact(a, b) {
 }
 
 /** Where a scene ends, as an index into the slice (an end between messages snaps to the one before it). */
-function endIndex(item, slice, byNumber) {
-  const at = byNumber.get(Number(item?.end));
+/**
+ * The message number a scene ends at, as the model wrote it: 58, "58", "58번", "[58]", "55~58" (the last), "58.3" (its message),
+ * a list of numbers (the last), or the same under a near key ("end_message", "last", "range"…). A scene, chapter or fact id
+ * ("S23") is not a message number. NaN when there is none.
+ */
+const END_KEYS = ['end', 'endMessage', 'end_message', 'endNumber', 'end_number', 'endMsg', 'last', 'lastMessage', 'last_message', 'to_message', 'range', 'messages'];
+function endNumberOf(item) {
+  const pick = (v) => {
+    if (typeof v === 'number') return Number.isFinite(v) ? Math.floor(v) : NaN;
+    if (Array.isArray(v)) return v.length ? pick(v.at(-1)) : NaN;
+    if (typeof v !== 'string') return NaN;
+    const text = v.trim();
+    if (/^[SCF]\s*-?\s*\d/i.test(text)) return NaN;
+    const numbers = text.match(/\d+(?:\.\d+)?/g);
+    return numbers ? Math.floor(Number(numbers.at(-1))) : NaN;
+  };
+  for (const key of END_KEYS) {
+    const n = pick(item?.[key]);
+    if (Number.isFinite(n)) return n;
+  }
+  return NaN;
+}
+
+/**
+ * Where in the slice a scene ends, or undefined when its end cannot be read. `relative`: the model counted the messages
+ * of this slice from 1 instead of using their numbers.
+ */
+function endIndex(item, slice, byNumber, relative = false) {
+  const end = endNumberOf(item);
+  if (!Number.isFinite(end)) return undefined;
+  if (relative) return Math.min(slice.length, Math.max(1, end)) - 1;
+  const at = byNumber.get(end);
   if (at !== undefined) return at;
-  const below = slice.filter((m) => m.number <= Number(item?.end)).at(-1);
+  const below = slice.filter((m) => m.number <= end).at(-1);
   return below ? byNumber.get(below.number) : undefined;
+}
+
+/** Every end the model wrote is a count inside this slice (1, 2, …) and none is one of its message numbers. */
+function countedFromOne(raw, slice) {
+  const ends = raw.map(endNumberOf).filter(Number.isFinite);
+  if (!ends.length || slice[0].number <= slice.length) return false;
+  return ends.every((n) => n >= 1 && n <= slice.length);
 }
 
 /**
@@ -807,11 +845,19 @@ function eventPresence(raw, cast, personas) {
   return [...new Set([...castNames(list, cast), ...list.filter((n) => personas.includes(n) || !castNames([n], cast).length)])];
 }
 
-function joinAnswers(raw, slice, byNumber) {
+function joinAnswers(raw, slice, byNumber, requiredAt = slice.length - 1) {
   const out = [];
-  for (const item of raw) {
-    let endAt = endIndex(item, slice, byNumber);
-    if (endAt === undefined) continue;
+  const relative = countedFromOne(raw, slice);
+  const ends = raw.map((item) => endIndex(item, slice, byNumber, relative));
+  for (let i = 0; i < raw.length; i++) {
+    const item = raw[i];
+    let endAt = ends[i];
+    // An end that cannot be read (missing, "S23", a number before this slice): the scene is not thrown away.
+    // It runs on to the next scene's end and is joined with it, or (the last one) closes at the required message.
+    if (endAt === undefined) {
+      const next = ends.slice(i + 1).find((e) => e !== undefined);
+      endAt = next !== undefined ? next : Math.max(requiredAt, out.at(-1)?._endAt ?? -1);
+    }
     const prev = out.at(-1);
     if (prev && endAt <= prev._endAt) {
       for (const key of ['events', 'facts', 'learned', 'later', 'recollections']) {
@@ -1048,7 +1094,8 @@ function applyScenes(store, result, slice, required, now = new Date().toISOStrin
   // Lines the model put under the wrong scene: moved to the scene they belong to once all scenes are made.
   const stray = [];
   let startAt = 0;
-  for (const item of joinAnswers(raw, slice, byNumber)) {
+  const requiredAt = byNumber.get(required) ?? slice.length - 1;
+  for (const item of joinAnswers(raw, slice, byNumber, requiredAt)) {
     const endAt = item._endAt;
     if (endAt === undefined || endAt < startAt) continue;
     const messages = slice.slice(startAt, endAt + 1);
@@ -1172,7 +1219,7 @@ function applyScenes(store, result, slice, required, now = new Date().toISOStrin
     }
     startAt = endAt + 1;
   }
-  if (!made.length) return { error: '쓸 수 있는 장면이 없습니다' };
+  if (!made.length) return { error: `쓸 수 있는 장면이 없습니다. 장면마다 end에 이번 메시지 번호(${slice[0].number}~${slice.at(-1).number}) 중 그 장면의 마지막 번호를 숫자 하나로 적어 주세요. 마지막 장면은 ${required} 이상에서 끝나야 합니다.`, errorCode: 'no_scene' };
   const speakers = new Map(slice.map((m) => [m.number, m.speaker]));
   placeStray(made, stray, (n) => speakers.get(n), quoteMode);
   for (const scene of made) {
