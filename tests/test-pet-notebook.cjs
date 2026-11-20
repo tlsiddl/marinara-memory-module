@@ -47,7 +47,7 @@ test('applyReply: a checked note is kept as the cat\'s, marked pet; a person, an
   const st = store();
   const found = Pets.targets(st, st.scenes, slice());
   const stats = {};
-  const added = Pets.applyReply(st, found, { notebook: [
+  const added = Pets.applyReply(st, found, { animals: { [CAT]: true }, notebook: [
     { scene: 'S1', who: CAT, kind: 'about', about: MCG, when: '맥고나걸이 다가왔을 때', text: '맥고나걸은 낯선 냄새가 나서 아직 가까이 두기 싫음.', evidence: ['1.2'] },
     { scene: 'S1', who: MCG, kind: 'heart', when: '고양이를 봤을 때', text: '고양이가 낯을 가린다고 생각함.', evidence: ['1.4'] },
     { scene: 'S1', who: CAT, kind: 'heart', when: '이리나가 턱을 긁어 줬을 때', text: '이리나의 손길이 좋아서 곁에 있기로 함.', evidence: ['2.1'] },
@@ -59,12 +59,12 @@ test('applyReply: a checked note is kept as the cat\'s, marked pet; a person, an
   assert.equal(notes[0].who, CAT);
   assert.equal(notes[0].pet, true);
   assert.equal(notes[0].about, MCG);
-  assert.equal(stats.notAllowed, 1, 'McGonagall is a person with lines, not a candidate');
+  assert.equal(stats.noVerdict, 1, 'McGonagall is not a candidate: no animal answer for her, so no note');
   assert.equal(stats.tooMany, 2, 'one note per animal per scene');
   // A sentence of the story with little changed is not the cat's own note; evidence from outside the scene is none.
   const fresh = store();
   const more = {};
-  assert.equal(Pets.applyReply(fresh, Pets.targets(fresh, fresh.scenes, slice()), { notebook: [
+  assert.equal(Pets.applyReply(fresh, Pets.targets(fresh, fresh.scenes, slice()), { animals: { [CAT]: true }, notebook: [
     { scene: 'S1', who: CAT, kind: 'heart', when: '상자에서 나왔을 때', text: '베아트릭스가 상자에서 나와 이리나의 무릎으로 뛰어올랐다.', evidence: ['1.1'] },
     { scene: 'S1', who: CAT, kind: 'heart', when: '창밖을 봤을 때', text: '창밖의 새가 신경 쓰여 계속 지켜보기로 함.', evidence: ['9.1'] },
   ] }, slice(), { lang: 'ko', stats: more }), 0);
@@ -78,7 +78,7 @@ test('service: off by default (no call); on in a simulator room with the noteboo
   const model = { provider: { async chatComplete(messages) {
     calls++;
     assert.match(messages[messages.length - 1].content, /\[동물 후보\] 베아트릭스/);
-    return { content: JSON.stringify({ notebook: [{ scene: 'S1', who: CAT, kind: 'about', about: USER, when: '이리나가 턱을 긁어 줬을 때', text: '이리나 곁이 제일 편해서 무릎에서 내려가지 않기로 함.', evidence: ['2.1'] }] }) };
+    return { content: JSON.stringify({ animals: { [CAT]: true }, notebook: [{ scene: 'S1', who: CAT, kind: 'about', about: USER, when: '이리나가 턱을 긁어 줬을 때', text: '이리나 곁이 제일 편해서 무릎에서 내려가지 않기로 함.', evidence: ['2.1'] }] }) };
   } } };
   let st = store();
   assert.equal(await X.petNotes(room, st, st.scenes, slice(), model, null), 0, 'off by default');
@@ -100,4 +100,24 @@ test('the scene call itself does not change with the switch (the pet notes are a
   const before = JSON.stringify(S.buildScenePrompt(st, slice(), 2, null, X.organizeFor(room)));
   X.saveSettings(X.F.withRoomMode(X.settings(), room, 'petNotebook', 'on'));
   assert.equal(JSON.stringify(S.buildScenePrompt(st, slice(), 2, null, X.organizeFor(room))), before);
+});
+
+test('who is an animal: the reply says so for each candidate; a "no" is kept for the room and never asked again; a name with a person\'s title is never a candidate', () => {
+  const WITCH = '카트 마녀', BUTLER = 'Arthur';
+  const witchSlice = L.prepareMessages([{ id: 'w1', number: 1, role: 'assistant', speaker: NARRATOR, content: '카트 마녀가 문을 열었다. 카트 마녀는 웃으며 카트를 밀었다. 아서가 고개를 숙였다. 아서는 조용히 차를 따랐다.' }]);
+  const st = { ...S.emptyStore(), mode: 'simulator', narrators: [NARRATOR], personas: [USER], cast: [WITCH, '아서'], scenes: [{ id: 'S1', start: 1, end: 1, title: '객실', present: [WITCH, '아서'], recollections: [], events: [] }] };
+  let found = Pets.targets(st, st.scenes, witchSlice);
+  assert.deepEqual(found[0].names, ['아서'], '「카트 마녀」 has a person\'s title: not a candidate');
+  const stats = {};
+  assert.equal(Pets.applyReply(st, found, { animals: { 아서: false }, notebook: [{ scene: 'S1', who: '아서', kind: 'heart', when: '차를 따를 때', text: '조용히 있는 편이 낫다고 느낌.', evidence: ['1.4'] }] }, witchSlice, { stats }), 0);
+  assert.equal(stats.notAnimal, 1);
+  assert.deepEqual(st.notAnimals, ['아서']);
+  found = Pets.targets(st, st.scenes, witchSlice);
+  assert.deepEqual(found, [], 'remembered: no call for him again');
+  // No answer for a candidate: its notes are not kept either.
+  const st2 = store();
+  const none = {};
+  assert.equal(Pets.applyReply(st2, Pets.targets(st2, st2.scenes, slice()), { notebook: [{ scene: 'S1', who: CAT, kind: 'heart', when: '맥고나걸이 다가왔을 때', text: '낯선 냄새가 싫어서 경계하기로 함.', evidence: ['1.2'] }] }, slice(), { stats: none }), 0);
+  assert.equal(none.noVerdict, 1);
+  assert.equal(BUTLER, 'Arthur');
 });
