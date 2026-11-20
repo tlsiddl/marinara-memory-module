@@ -20,11 +20,19 @@ const RELATION_RULE = `## 설정집 관계 (세계관 설정집에서 받음)
 - 서로 아는 사이인지는 이 목록을 따라. 둘이 처음 만나는 장면처럼 적지 마.
 - 무엇을 아는지(비밀, 사건, 약속)는 지금처럼 대화에서만 정리해. 이 목록은 그 사람이 무엇을 안다는 근거가 아니야.`;
 
-/** Is a person of the World Archive relation in this batch: named in its text (any form), or one of its people. */
-function inBatch(name, text, people) {
-  if (!name) return false;
-  if ((people || []).some((p) => A.canonical(p) === A.canonical(name))) return true;
-  return [name, ...A.formsOf(name)].some((n) => Sim.nameInText(n, text));
+/**
+ * A person of the World Archive relation in this batch: the name the memory knows them by (one of the batch's people
+ * whose name is one of the forms — World Archive's other names count: its 「개러스 어쿼하트」 is the memory's 「가레스
+ * 어콰트」 through "Gareth Urquhart"), or the World Archive name when one of the forms is in the batch's text; null
+ * when they are not in the batch.
+ */
+function inBatch(forms, text, people) {
+  const all = [...new Set((forms || []).filter(Boolean).flatMap((n) => [n, ...A.formsOf(n)]))];
+  if (!all.length) return null;
+  const keys = new Set(all.map((n) => Sim.squash(A.canonical(n))).concat(all.map((n) => Sim.squash(n))));
+  const known = (people || []).find((p) => [p, ...A.formsOf(p)].some((n) => keys.has(Sim.squash(n)) || keys.has(Sim.squash(A.canonical(n)))));
+  if (known) return A.canonical(known);
+  return all.some((n) => Sim.nameInText(n, text)) ? forms[0] : null;
 }
 
 /**
@@ -37,9 +45,9 @@ function relationLines(relations, slice, people = []) {
   const seen = new Set();
   for (const r of Array.isArray(relations) ? relations : []) {
     if (out.length >= RELATION_LINES_MAX) break;
-    const a = String(r?.fromName || '').trim();
-    const b = String(r?.toName || '').trim();
-    if (!a || !b || !inBatch(a, text, people) || !inBatch(b, text, people)) continue;
+    const a = inBatch([String(r?.fromName || '').trim(), ...(r?.fromAliases || [])], text, people);
+    const b = inBatch([String(r?.toName || '').trim(), ...(r?.toAliases || [])], text, people);
+    if (!a || !b || A.canonical(a) === A.canonical(b)) continue;
     const key = [A.canonical(a), A.canonical(b)].sort().join('\u0000');
     if (seen.has(key)) continue;
     seen.add(key);

@@ -1241,15 +1241,22 @@ function worldRelations(chatId) {
   const hit = worldRelCache.get(chatId);
   if (hit && Date.now() - hit.at < 60_000) return hit.list;
   let list = [];
-  try { list = worldLink(chatId)?.roomRelations(chatId)?.relations || []; } catch {}
+  try {
+    const api = worldLink(chatId);
+    const rels = api?.roomRelations(chatId)?.relations || [];
+    // Each end with World Archive's other names, so a name it spells its own way still finds the memory's person.
+    const byId = new Map((rels.length ? api.roomEntities(chatId)?.entities || [] : []).map((e) => [e.entityId, e.aliases || []]));
+    list = rels.map((x) => ({ ...x, fromAliases: byId.get(x.from) || [], toAliases: byId.get(x.to) || [] }));
+  } catch {}
   worldRelCache.set(chatId, { at: Date.now(), list });
   return list;
 }
-/** canonical name → 종 for World Archive's people that are not people; null when the room is not linked. */
+/** canonical name → 종 for World Archive's people that are not people; null when the room is not linked or its world has no 종 yet. */
 function worldSpecies(chatId) {
   const api = worldLink(chatId);
   if (!api) return null;
-  try { return W.speciesMap(api.roomEntities(chatId)?.entities); } catch { return null; }
+  // A world read before 종 existed has none at all: then the animals are asked about, as without World Archive.
+  try { const map = W.speciesMap(api.roomEntities(chatId)?.entities); return map.size ? map : null; } catch { return null; }
 }
 /** The scene call's options: the room's settings, and with World Archive linked, its relations. */
 function sceneOptions(chatId) {

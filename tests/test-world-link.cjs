@@ -23,9 +23,9 @@ after(() => { fs.rmSync(dir, { recursive: true, force: true }); delete globalThi
 
 const EDWARD = '에드워드 베인', CATHERINE = '캐서린 베인', JULIAN = '줄리언 에이버리', MOR = '모웨나 셀윈', CAT = '베아트릭스', USER = C.USER;
 const RELS = [
-  { relationId: 'r1', fromName: EDWARD, toName: CATHERINE, type: '가족', note: '부부', previous: [] },
-  { relationId: 'r2', fromName: USER, toName: JULIAN, type: '적대', note: '등 돌림 · 과거에는 연인', previous: ['연인'] },
-  { relationId: 'r3', fromName: USER, toName: MOR, type: '친구', note: '', previous: [] },
+  { relationId: 'r1', from: 'e-ed', to: 'e-ca', fromName: EDWARD, toName: CATHERINE, type: '가족', note: '부부', previous: [] },
+  { relationId: 'r2', from: 'e-ir', to: 'e-ju', fromName: USER, toName: JULIAN, type: '적대', note: '등 돌림 · 과거에는 연인', previous: ['연인'] },
+  { relationId: 'r3', from: 'e-ir', to: 'e-mo', fromName: USER, toName: MOR, type: '친구', note: '', previous: [] },
 ];
 const slice = () => L.prepareMessages([
   { id: 'w1', number: 1, role: 'assistant', speaker: C.NARRATOR, content: `베인 공작이 아내 캐서린 베인의 손을 잡았다. 베아트릭스가 하품했다. 베아트릭스는 이리나 무릎에서 꼬리를 감았다.\n${EDWARD} | "출발하자."` },
@@ -34,9 +34,9 @@ const slice = () => L.prepareMessages([
 const linkedApi = (extra = {}) => ({
   version: 1, contract: 2, features: ['relations', 'species', 'entity'],
   roomEntities: () => ({ worldId: 'w', entities: [
-    { type: 'person', name: CAT, aliases: ['비아', 'Beatrix'], fields: { species: '하프니즐' } },
-    { type: 'person', name: EDWARD, aliases: ['Edward Vane'], fields: {} },
-    { type: 'person', name: JULIAN, aliases: ['Julian Avery'], fields: { species: '' } },
+    { entityId: 'e-cat', type: 'person', name: CAT, aliases: ['비아', 'Beatrix'], fields: { species: '하프니즐' } },
+    { entityId: 'e-ed', type: 'person', name: EDWARD, aliases: ['Edward Vane'], fields: {} },
+    { entityId: 'e-ju', type: 'person', name: JULIAN, aliases: ['Julian Avery'], fields: { species: '' } },
   ] }),
   roomRelations: () => ({ worldId: 'w', relations: RELS }),
   lookup: () => ({ worldId: 'w', entity: null }),
@@ -80,7 +80,9 @@ test('service: linked (contract 2) → relations into the scene options; not lin
   assert.equal(X.worldLink(room), null, 'the room is not linked to a world');
   globalThis.__marinaraWorldArchive = { api: linkedApi() };
   X.worldRelCache.clear();
-  assert.deepEqual(X.sceneOptions(room).worldRelations, RELS);
+  assert.deepEqual(X.sceneOptions(room).worldRelations.map(({ fromAliases, toAliases, ...r }) => r), RELS, 'its relations, each end with its other names');
+  assert.deepEqual(X.sceneOptions(room).worldRelations.find((r) => r.relationId === 'r2').toAliases, ['Julian Avery'], 'each end with its other names');
+  assert.deepEqual(X.sceneOptions(room).worldRelations.find((r) => r.relationId === 'r3').toAliases, [], 'an end World Archive does not list has none');
   assert.equal(X.worldSpecies(room).get(CAT), '하프니즐');
   assert.equal(X.worldSpecies(room).has(JULIAN), false, 'an empty 종 is unknown, not an animal');
   delete globalThis.__marinaraWorldArchive;
@@ -111,5 +113,27 @@ test('0.35.4 automatic merges take World Archive\'s name pairs after the glossar
   } finally {
     delete globalThis.__marinaraWorldArchive;
     X.setRoomMode(room, 'character');
+  }
+});
+
+test('a name World Archive spells its own way finds the memory\'s person through its other names, and the line uses the memory\'s name', () => {
+  const t = A.emptyTable();
+  A.addAlias(t, 'Gareth Urquhart', '가레스 어콰트', { rewrite: false });
+  A.addAlias(t, 'Barnaby Pye', '바나비 파이', { rewrite: false });
+  const batch = L.prepareMessages([{ id: 'g1', number: 1, role: 'assistant', speaker: C.NARRATOR, content: 'Gareth Urquhart | "바나비, 자리 좀."\n바나비 파이가 웃었다.' }]);
+  const rels = [{ fromName: '바너비 파이', fromAliases: ['Barnaby Pye'], toName: '개러스 어쿼하트', toAliases: ['Gareth Urquhart'], type: '친구', note: '', previous: [] }];
+  const lines = A.using(t, () => W.relationLines(rels, batch, ['가레스 어콰트', '바나비 파이']));
+  assert.deepEqual(lines, ['- 바나비 파이 — 가레스 어콰트: 친구']);
+  assert.deepEqual(A.using(A.emptyTable(), () => W.relationLines(rels, batch, [])), ['- 바너비 파이 — 개러스 어쿼하트: 친구'], 'not one of the batch\'s people: World Archive\'s name, found in the text by its other name');
+});
+
+test('a world with no 종 at all (read before v2): the pet notebook asks about animals, as without World Archive', () => {
+  const room = 'wl_nospecies';
+  globalThis.__marinaraWorldArchive = { api: linkedApi({ roomEntities: () => ({ worldId: 'w', entities: [{ type: 'person', name: CAT, aliases: [], fields: {} }] }) }) };
+  try {
+    assert.ok(X.worldLink(room), 'linked');
+    assert.equal(X.worldSpecies(room), null, 'no 종 anywhere: null, so the animals answer decides');
+  } finally {
+    delete globalThis.__marinaraWorldArchive;
   }
 });
