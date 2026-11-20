@@ -26,6 +26,7 @@ const Tk = require('./trackers.cjs');
 const Rp = require('./reasons.cjs');
 const Sim = require('./simulator.cjs');
 const Pets = require('./petnotes.cjs');
+const W = require('./worldlink.cjs');
 
 /**
  * Marinara's own data folder, found the way Marinara finds it: DATA_DIR (relative to the server package) if set,
@@ -1221,6 +1222,42 @@ function setRoomMode(chatId, mode) {
   saveSettings(next);
 }
 
+/**
+ * World Archive (세계관 설정집) linked to this room with 연동 v2 (계약 수준 2): its api, or null. Read only — the
+ * memory module never writes to it.
+ */
+function worldLink(chatId) {
+  try {
+    const api = globalThis.__marinaraWorldArchive?.api;
+    if (!api || !(Number(api.contract) >= 2) || typeof api.roomRelations !== 'function') return null;
+    return api.roomEntities(chatId)?.worldId ? api : null;
+  } catch {
+    return null;
+  }
+}
+/** The room's relations from World Archive (who knows whom from the start), kept a minute. [] when not linked. */
+const worldRelCache = new Map();
+function worldRelations(chatId) {
+  const hit = worldRelCache.get(chatId);
+  if (hit && Date.now() - hit.at < 60_000) return hit.list;
+  let list = [];
+  try { list = worldLink(chatId)?.roomRelations(chatId)?.relations || []; } catch {}
+  worldRelCache.set(chatId, { at: Date.now(), list });
+  return list;
+}
+/** canonical name → 종 for World Archive's people that are not people; null when the room is not linked. */
+function worldSpecies(chatId) {
+  const api = worldLink(chatId);
+  if (!api) return null;
+  try { return W.speciesMap(api.roomEntities(chatId)?.entities); } catch { return null; }
+}
+/** The scene call's options: the room's settings, and with World Archive linked, its relations. */
+function sceneOptions(chatId) {
+  const prefs = organizeFor(chatId);
+  const rels = worldRelations(chatId);
+  return rels.length ? { ...prefs, worldRelations: rels } : prefs;
+}
+
 /** People World Archive (세계관 설정집) knows for this room: [{ name, aliases }] — read only, kept a minute. */
 const waPeopleCache = new Map();
 function worldArchivePeople(chatId) {
@@ -1952,14 +1989,15 @@ async function tidyLedger(model, ledger, messages, { scenes = null } = {}) {
  */
 async function petNotes(chatId, store, scenes, slice, model, job) {
   if (store?.mode !== 'simulator' || !featureOn(chatId, 'petNotebook') || !featureOn(chatId, 'notebook')) return 0;
-  const found = Pets.targets(store, scenes, slice);
+  const species = worldSpecies(chatId);
+  const found = Pets.targets(store, scenes, slice, { species });
   if (!found.length) return 0;
   const set = notebookLanguageOf(chatId);
   const lang = ['ko', 'en', 'zh'].includes(set) ? set : writeLanguage(chatId);
   try {
     const reply = await askModel(model, Pets.buildPrompt(store, found, slice, { lang }), { maxTokens: 1500 });
     const parsed = L.parseJsonObject(reply);
-    const added = parsed ? Pets.applyReply(store, found, parsed, slice, { lang, stats: job ? (job.petStats ||= {}) : null }) : 0;
+    const added = parsed ? Pets.applyReply(store, found, parsed, slice, { lang, species, stats: job ? (job.petStats ||= {}) : null }) : 0;
     log(`chat ${chatId}: pet notebook ${found.flatMap((f) => f.names).join(', ')} — ${added} note(s)`);
   } catch (error) {
     if (job?.cancel) throw error;
@@ -1989,7 +2027,7 @@ async function foldScenes(chatId, store, messages, window, model, job, { minPend
       let lastParsed = null;
       let lastCode = null;
       for (let attempt = 0; attempt < 2 && !applied; attempt++) {
-        const reply = await askModel(model, withSetup(setupNote(chatId), S.buildScenePrompt(store, next.slice, next.required, lastError || null, organizeFor(chatId)), chatId), { maxTokens: sceneTokens(chatId) });
+        const reply = await askModel(model, withSetup(setupNote(chatId), S.buildScenePrompt(store, next.slice, next.required, lastError || null, sceneOptions(chatId)), chatId), { maxTokens: sceneTokens(chatId) });
         calls++;
         lastReply = String(reply || '');
         const { result: parsed, truncated } = S.parseScenesReply(reply);
@@ -3195,7 +3233,10 @@ function autoMergeByGlossary(chatId) {
   return enqueue(chatId, () => enqueue(`scenes:${chatId}`, async () => {
     const busy = [jobs, sceneJobs, trials, notebookJobs].some((m) => m.get(chatId)?.state === 'running');
     if (busy) return 0;
-    const pairs = roomGlossary(chatId);
+    // The glossary's pairs, then World Archive's names (연동 v2) that the glossary does not have.
+    let worldNames = [];
+    try { worldNames = worldLink(chatId)?.names?.(chatId)?.names || []; } catch {}
+    const pairs = W.namePairs(roomGlossary(chatId), worldNames);
     if (!pairs.length) return 0;
     const store = structuredClone(loadScenes(chatId) || S.emptyStore());
     const ledger = structuredClone(loadLedger(chatId) || L.emptyLedger());
@@ -5948,7 +5989,7 @@ function attach(app) {
   log('admin API ready at /api/memory-module');
 }
 
-module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { loadAddress, saveAddress, refreshAddress, presentPeople, Addr, loadState, saveState, loadPlaces, savePlaces, loadKeepsakes, saveKeepsakes, loadNotebook, saveNotebook, Nb, loadTrackers, saveTrackers, Tk, loadConflicts, saveConflicts, refreshConflicts, refreshWorld, Cf, Ks, organizeFor, sceneTokens, lastScenePeople, St, Pl, listRooms, purgeChatMemory, purgeIfGone, deleteOnSend, deletePrepare, listOrphans, deleteOrphans, goneChats, loadNames, saveNames, enqueue, foldScenes, reviewAttributions, loadAttributionLog, sceneJobs, selectedForView, loadSelected, recalls, windows, loadRecallPrefs, saveRecallPrefs, recallReport, recallCandidates, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, staleNames, autoMergeByGlossary, translateDisplayLater, fixNoteLanguages, tidySteps, tidyLedger, noteUsage, usageSummary, planAnswersOn, notebookLanguageOf, notebookLanguageSetting, rebuildNotebook, notebookJobStatus, notebookRunning: (id) => notebookJobs.get(id)?.state === 'running', loadTranslations, saveTranslations, translationRun: (id, texts) => translateMissing(id, "ko", texts), flushTranslations, clearTranslationFailures, translationGaveUp, chatLangs, langRecords, loadLang, noteLanguage, LANG_REFRESH_EVERY, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, routinePeople, noteSourceKo, sourceKo, sourceQuoteItems, quoteHints, roomSetup, setupNote, withSetup, nameInstructions, jobs, writeLanguage, roomWriteLanguage, promptLanguage, memoryCallOptions, routineSetting, routineEnabled, attributionSetting, featureOn, featureSetting, F, B, clearRoomCaches, RESTORE_UNDO_DIR, connectionWithKey, memoryModel, startTrial, trials, roomMode, setRoomMode, roomPeople, stampMode, worldArchivePeople, waPeopleCache, simulatorExample, petNotes, askModel } };
+module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { loadAddress, saveAddress, refreshAddress, presentPeople, Addr, loadState, saveState, loadPlaces, savePlaces, loadKeepsakes, saveKeepsakes, loadNotebook, saveNotebook, Nb, loadTrackers, saveTrackers, Tk, loadConflicts, saveConflicts, refreshConflicts, refreshWorld, Cf, Ks, organizeFor, sceneTokens, lastScenePeople, St, Pl, listRooms, purgeChatMemory, purgeIfGone, deleteOnSend, deletePrepare, listOrphans, deleteOrphans, goneChats, loadNames, saveNames, enqueue, foldScenes, reviewAttributions, loadAttributionLog, sceneJobs, selectedForView, loadSelected, recalls, windows, loadRecallPrefs, saveRecallPrefs, recallReport, recallCandidates, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, staleNames, autoMergeByGlossary, translateDisplayLater, fixNoteLanguages, tidySteps, tidyLedger, noteUsage, usageSummary, planAnswersOn, notebookLanguageOf, notebookLanguageSetting, rebuildNotebook, notebookJobStatus, notebookRunning: (id) => notebookJobs.get(id)?.state === 'running', loadTranslations, saveTranslations, translationRun: (id, texts) => translateMissing(id, "ko", texts), flushTranslations, clearTranslationFailures, translationGaveUp, chatLangs, langRecords, loadLang, noteLanguage, LANG_REFRESH_EVERY, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, routinePeople, noteSourceKo, sourceKo, sourceQuoteItems, quoteHints, roomSetup, setupNote, withSetup, nameInstructions, jobs, writeLanguage, roomWriteLanguage, promptLanguage, memoryCallOptions, routineSetting, routineEnabled, attributionSetting, featureOn, featureSetting, F, B, clearRoomCaches, RESTORE_UNDO_DIR, connectionWithKey, memoryModel, startTrial, trials, roomMode, setRoomMode, roomPeople, stampMode, worldArchivePeople, waPeopleCache, simulatorExample, petNotes, askModel, worldLink, worldRelations, worldRelCache, worldSpecies, sceneOptions } };
 
 
 

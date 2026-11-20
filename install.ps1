@@ -35,7 +35,8 @@ $files = @(
   'memory-module/lib/reasons.cjs',
   'memory-module/lib/trackers.cjs',
   'memory-module/lib/simulator.cjs',
-  'memory-module/lib/petnotes.cjs'
+  'memory-module/lib/petnotes.cjs',
+  'memory-module/lib/worldlink.cjs'
 )
 
 function Get-Version($path) {
