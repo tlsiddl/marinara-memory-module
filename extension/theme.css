@@ -279,3 +279,11 @@ pre{font-size:12.5px!important;line-height:1.85!important}
 /* 페르소나 말 표시: one row per mark (start message, mark, language) */
 .speech-row{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;margin:6px 0}.speech-row label{flex:1 1 110px;min-width:0}.speech-row input,.speech-row select{width:100%}.speech-row button{flex:none}
 .speech-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px}
+/* 0.38.0 인물별 카드 (시안 B): 두 구역 — 설정집에서 · 이 방의 기억 */
+.person-card h3{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.person-card .person-more{margin-left:auto;font-size:11px}
+.person-zone{font-size:10px!important;letter-spacing:2px!important;margin:12px 0 4px!important}.person-zone:after{max-width:220px}
+.person-card .world-field>span{flex:0 0 76px}.person-card .world-field input[readonly]{cursor:default}
+.wf-caps{display:flex;gap:6px;flex-wrap:wrap;flex:1}.wf-cap{display:inline-block;padding:3px 10px;border:1px solid var(--im-ink);border-radius:999px;font-size:11px;white-space:nowrap}
+.person-detail{margin:12px 0 4px}
+/* 0.38.0 세계관 칸의 오른쪽 칸(설정집 패널 railHtml): 「인물」 아래 줄에 「동물 2 포함」 */
+.rail-stat>span{font-size:13px;line-height:1.5;color:var(--t-ink)}.rail-stat>span small{display:block;font-size:11px!important;color:var(--t-muted)!important}
