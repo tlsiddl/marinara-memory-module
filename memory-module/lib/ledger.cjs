@@ -1394,17 +1394,37 @@ const ENGLISH_STOP = new Set(('a an the and or but nor of to in on at for from b
   // Words in almost any English sentence: shared, they say nothing about which scene is meant.
   + 'more most less while other others another such same own too much many few like well back way here there now '
   + 'time times thing things something nothing anything everything someone anyone everyone around through until since '
-  + 'because though although yet ever never always once already almost really quite enough first last next earlier later').split(' '));
+  + 'because though although yet ever never always once already almost really quite enough first last next earlier later '
+  // Every other preposition and joining word: shared by two lines, they matched a scene that had nothing to do with it.
+  + 'above across against along alongside amid amidst among amongst around aside atop behind below beneath beside besides between beyond '
+  + 'despite during except inside instead near nearer nearly outside past per since than toward towards upon via within throughout '
+  + 'unless whereas wherever whenever whatever whoever however therefore thus hence meanwhile otherwise else rather perhaps maybe '
+  // Pronouns and their forms, and the leftovers of contractions (don't → do, she'll → she).
+  + 'mine yours ours theirs myself yourself yourselves ourselves itself oneself whose whichever anybody somebody nobody everybody '
+  + 'somewhere anywhere nowhere everywhere somehow anyway anyways don doesn didn isn aren wasn weren hasn haven hadn won wouldn shouldn '
+  + 'couldn can cannot ain let\'s '
+  // Little talk and the verbs of saying, looking and being that fill every role-play line.
+  + 'yes yeah yep nope okay ok oh ah uh um hmm hey hi hello please thanks thank sorry well right sure fine '
+  + 'say says said saying tell tells told ask asks asked reply replied answer answered speak spoke spoken talk talked '
+  + 'go goes going gone went come comes coming came take takes took taken give gives gave given put puts keep keeps kept '
+  + 'look looks looked looking see sees saw seen seem seems seemed know knows knew known think thinks thought '
+  + 'want wants wanted need needs needed feel feels felt try tries tried turn turns turned become became begin began '
+  + 'there\'s here\'s that\'s what\'s it\'s').split(' '));
+// Contraction endings: "don't", "she'll", "I'm", "you've" keep only the word in front (then the stop list decides).
+const CONTRACTION = /(?:n't|'(?:s|re|ve|ll|d|m|t))$/;
 
 /** Content words of an English text, lowercased and with a plain ending (bites/bitten/biting → bit…), names left out. */
 function englishWords(text, names = []) {
   let rest = String(text || '');
   for (const name of names) if (name) rest = rest.split(name).join(' ');
   const out = new Set();
-  for (const w of rest.toLowerCase().match(/[a-z']+/g) || []) {
-    if (w.length < 3 || ENGLISH_STOP.has(w)) continue;
-    const stem = w.replace(/'s$/, '').replace(/(?:ing|ed|es|s)$/, '');
-    if (stem.length >= 3) out.add(stem);
+  // Curly and back quotes are apostrophes too ("don’t" is one word, not "don" and "t").
+  for (const raw of rest.toLowerCase().replace(/[’‘`ʼ]/g, "'").match(/[a-z']+/g) || []) {
+    const w = raw.replace(/^'+|'+$/g, '').replace(CONTRACTION, '');
+    if (w.length < 3 || w.includes("'") || ENGLISH_STOP.has(w)) continue;
+    const stem = w.replace(/(?:ing|ed|es|s)$/, '');
+    // "others" → "other", "things" → "thing": a plain form that is a little word is left out too.
+    if (stem.length >= 3 && !ENGLISH_STOP.has(stem)) out.add(stem);
   }
   return out;
 }
