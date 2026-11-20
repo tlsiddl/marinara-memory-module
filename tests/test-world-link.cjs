@@ -137,3 +137,22 @@ test('a world with no 종 at all (read before v2): the pet notebook asks about a
     delete globalThis.__marinaraWorldArchive;
   }
 });
+
+test('the 「아는 사이」 lines always use the name table\'s name — also when the person is only in the text — and one pair is one line', () => {
+  const t = A.emptyTable();
+  A.addAlias(t, 'Gareth Urquhart', '가레스 어콰트', { rewrite: false });
+  A.addAlias(t, 'Barnaby Pye', '바나비 파이', { rewrite: false });
+  const rel = { fromName: '바너비 파이', fromAliases: ['Barnaby Pye'], toName: '개러스 어쿼하트', toAliases: ['Gareth Urquhart'], type: '친구', note: '', previous: [] };
+  // One batch has both among its people, another has them only in its text: the same line both times.
+  const withPeople = L.prepareMessages([{ id: 'p1', number: 1, role: 'assistant', speaker: C.NARRATOR, content: '둘이 자리를 바꿨다.' }]);
+  const textOnly = L.prepareMessages([{ id: 'p2', number: 2, role: 'assistant', speaker: C.NARRATOR, content: 'Barnaby Pye | "가레스, 비켜."\nGareth Urquhart가 웃었다.' }]);
+  const a = A.using(t, () => W.relationLines([rel], withPeople, ['바나비 파이', '가레스 어콰트']));
+  const b = A.using(t, () => W.relationLines([rel], textOnly, []));
+  assert.deepEqual(a, ['- 바나비 파이 — 가레스 어콰트: 친구']);
+  assert.deepEqual(b, a, 'only in the text: still the name table\'s names');
+  // World Archive holds the same person twice (two spellings) with a relation each: one line.
+  const twice = [rel, { ...rel, fromName: '바나비 파이', fromAliases: [], toName: '가레스 어콰트', toAliases: [] }];
+  assert.deepEqual(A.using(t, () => W.relationLines(twice, textOnly, [])), a);
+  // A person the name table does not know at all: World Archive's name, once.
+  assert.deepEqual(A.using(A.emptyTable(), () => W.relationLines([rel, rel], textOnly, [])), ['- 바너비 파이 — 개러스 어쿼하트: 친구']);
+});

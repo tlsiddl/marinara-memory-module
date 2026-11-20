@@ -21,18 +21,27 @@ const RELATION_RULE = `## 설정집 관계 (세계관 설정집에서 받음)
 - 무엇을 아는지(비밀, 사건, 약속)는 지금처럼 대화에서만 정리해. 이 목록은 그 사람이 무엇을 안다는 근거가 아니야.`;
 
 /**
- * A person of the World Archive relation in this batch: the name the memory knows them by (one of the batch's people
- * whose name is one of the forms — World Archive's other names count: its 「개러스 어쿼하트」 is the memory's 「가레스
- * 어콰트」 through "Gareth Urquhart"), or the World Archive name when one of the forms is in the batch's text; null
- * when they are not in the batch.
+ * The name a World Archive person goes by in the memory: one of the batch's people whose name is one of the forms
+ * (World Archive's other names count: its 「개러스 어쿼하트」 is the memory's 「가레스 어콰트」 through "Gareth
+ * Urquhart"), else the person the room's name table knows by any of the forms, else World Archive's own name.
+ * Returns { name, forms } — forms: every way they are written, the memory's too.
  */
-function inBatch(forms, text, people) {
-  const all = [...new Set((forms || []).filter(Boolean).flatMap((n) => [n, ...A.formsOf(n)]))];
+function memoryName(forms, people) {
+  const given = (forms || []).map((n) => String(n || '').trim()).filter(Boolean);
+  const all = [...new Set(given.flatMap((n) => [n, ...A.formsOf(n)]))];
   if (!all.length) return null;
-  const keys = new Set(all.map((n) => Sim.squash(A.canonical(n))).concat(all.map((n) => Sim.squash(n))));
+  const keys = new Set(all.flatMap((n) => [Sim.squash(n), Sim.squash(A.canonical(n))]));
   const known = (people || []).find((p) => [p, ...A.formsOf(p)].some((n) => keys.has(Sim.squash(n)) || keys.has(Sim.squash(A.canonical(n)))));
-  if (known) return A.canonical(known);
-  return all.some((n) => Sim.nameInText(n, text)) ? forms[0] : null;
+  const canon = known ? A.canonical(known) : all.map((n) => A.canonOf(n)).find(Boolean);
+  const name = canon || given[0];
+  return { name, forms: [...new Set([...all, ...(canon ? A.formsOf(canon) : [])])], known: Boolean(known) };
+}
+
+/** The memory's name for a person of the relation when they are in this batch (one of its people, or written in its text); null otherwise. */
+function inBatch(forms, text, people) {
+  const m = memoryName(forms, people);
+  if (!m) return null;
+  return m.known || m.forms.some((n) => Sim.nameInText(n, text)) ? m.name : null;
 }
 
 /**
@@ -79,4 +88,4 @@ function namePairs(glossary, names) {
   return [...(glossary || []), ...extra];
 }
 
-module.exports = { RELATION_LINES_MAX, RELATION_RULE, relationLines, speciesMap, namePairs, inBatch };
+module.exports = { RELATION_LINES_MAX, RELATION_RULE, relationLines, speciesMap, namePairs, inBatch, memoryName };
