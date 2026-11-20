@@ -32,6 +32,8 @@
     ['todo', '할 일', 'note', ['ledger', 'promises', 'life']],
     ['search', '검색', 'search', ['search']],
     ['inject', '주입 확인', 'search', ['inject']],
+    // 세계관 설정집 연동 v2: World Archive's own screen, shown only while its server answers (worldTab).
+    ['worldarchive', '세계관', 'globe', ['worldarchive']],
     ['settings', '설정', 'settings', ['settings']],
   ];
   const SUBTAB = { timeline: '시간순', lines: '줄기', scenes: '장면·챕터', setup: '배경 설정', person: '인물별', facts: '알게 된 사실', notebook: '수첩', world: '상태·장소·물건', names: '이름 정리', ledger: '끝나지 않은 일', promises: '약속', life: '최근 생활' };
@@ -174,6 +176,7 @@
       close: '<path d="m6 6 12 12M6 18 18 6"/>',
       refresh: '<path d="M20 7v5h-5M4 17v-5h5"/><path d="M6 6a8 8 0 0 1 14 6M4 12a8 8 0 0 0 14 6"/>',
       spark: '<path d="m12 3 2.4 6.6L21 12l-6.6 2.4L12 21l-2.4-6.6L3 12l6.6-2.4z"/>',
+      globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
     };
     return `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.note}</svg>`;
   }
@@ -1838,6 +1841,7 @@
       </div>
       <div class="paper"><h2>이 방</h2>
         <label class="setting-switch"><span>기억 사용<small>켜면 답변마다 장부와 장면을 자동으로 갱신합니다.</small></span><input type="checkbox" id="setEnabled" ${info.enabled ? 'checked' : ''}></label>
+        <label>기억 관리 모드<select id="setRoomMode"><option value="character" ${info.mode !== 'simulator' ? 'selected' : ''}>캐릭터 RP</option><option value="simulator" ${info.mode === 'simulator' ? 'selected' : ''}>세계 시뮬레이터</option></select></label>${info.worldLink?.linked ? `<label class="setting-switch"><span>설정집 연동<small>이 방은 세계관 설정집에 연결돼 있습니다. 켜 두면 기억을 정리할 때 그 묶음에 나온 사람끼리의 설정집 관계(가족·친구·연인 등)를 「처음부터 아는 사이」로 알려 주고(정리 한 번에 100~170토큰쯤), 설정집의 영어·한국어 이름 쌍으로 같은 사람을 합칩니다. 끄면 둘 다 멈추고 지시문은 연동이 없을 때와 같아집니다(이미 합친 이름은 그대로, 이름 정리에서 되돌리기).</small></span><input type="checkbox" id="setWorldLink" ${info.worldLink.on ? 'checked' : ''}></label>` : ''}<p class="hint">세계 시뮬레이터는 봇 카드를 이야기를 진행하는 내레이터로 보고, 카드가 연기하는 NPC들을 한 명씩 인물로 기억합니다(수첩·아는 사람·관계). 카드 이름으로는 인물·수첩을 만들지 않고, 대사 앞 이름도 카드 이름으로 붙이지 않습니다. 세계관 설정집이 이 방에 연결돼 있으면 그 인물 목록을 읽어 씁니다. 바꿔도 지우는 기억은 없고, 다음 정리부터 적용됩니다.</p>
         <label class="setting-switch"><span>말풍선 태그 되살리기<small>화자 색상이 켜진 '합쳐서' 그룹 RP에서 모델이 원래의 숨은 화자 태그를 출력하도록 지침을 보강합니다. 보이는 이름표 없이 따옴표만 쓰는 대사에도 적용됩니다.</small></span><input type="checkbox" id="setTags" ${info.speakerTags ? 'checked' : ''}></label>
         <label class="setting-switch"><span>대사 앞에 이름 표시<small>캐릭터 대사에 '이름 | 대사'를 출력하도록 요청합니다. 말풍선 태그 기능과 독립적으로 설정할 수 있습니다.</small></span><input type="checkbox" id="setSpeakerNames" ${info.speakerNames ? 'checked' : ''}></label>
         <label>장면의 디테일<select id="setDetailLevel"><option value="standard" ${!info.organize?.detailLevel || info.organize.detailLevel === 'standard' ? 'selected' : ''}>보통</option><option value="detailed" ${info.organize?.detailLevel === 'detailed' ? 'selected' : ''}>자세히</option><option value="very_detailed" ${info.organize?.detailLevel === 'very_detailed' ? 'selected' : ''}>아주 자세히</option></select></label><p class="hint">자세할수록 행동과 반응, 사건의 앞뒤를 더 세밀하게 기록하도록 요청합니다. 정리와 회상에 쓰이는 토큰이 늘어날 수 있습니다.</p>
@@ -2343,7 +2347,7 @@
     return `<div class="paper"><h2>섹션별 분량</h2>${merged.map(([name, size]) => `<div class="bar-row"><span>${esc(name)}</span><span class="bar"><span style="width:${Math.max(1, Math.round((size / total) * 100))}%"></span></span><small>${Math.round((size / total) * 100)}%</small></div>`).join('')}</div>`;
   }
 
-  const VIEWS = { timeline: viewTimeline, lines: viewLines, person: viewPerson, notebook: viewNotebook, home: viewHome, setup: viewSetup, scenes: viewScenes, search: viewSearch, facts: viewFacts, ledger: viewLedger, promises: viewPromises, life: viewLife, world: viewWorld, names: viewNames, inject: viewInject, settings: viewSettings };
+  const VIEWS = { timeline: viewTimeline, lines: viewLines, person: viewPerson, notebook: viewNotebook, home: viewHome, setup: viewSetup, scenes: viewScenes, search: viewSearch, facts: viewFacts, ledger: viewLedger, promises: viewPromises, life: viewLife, world: viewWorld, names: viewNames, inject: viewInject, settings: viewSettings, worldarchive: () => '' };
 
   /** The screens of the current tab, as a row of chips under the panel's top (nothing for a one-screen tab). */
   function subTabs() {
@@ -2366,6 +2370,7 @@
     for (const b of root.querySelectorAll('nav button')) {
       const g = GROUPS.find((x) => x[0] === b.dataset.groupTab);
       if (!g) { b.classList.toggle('selected', b.dataset.tab === tab); continue; }
+      if (g[0] === 'worldarchive') b.hidden = !worldTab.available;
       b.classList.toggle('selected', g === here);
       b.dataset.tab = lastIn[g[0]] || g[3][0];
     }
@@ -2389,6 +2394,7 @@
     const translation = trPending || trError ? `<div class="note" role="status">${trError ? `한국어 번역을 마치지 못했습니다. ${esc(trError)}` : trWorking ? '한국어 번역 중입니다.' : trAuto ? '한국어 번역이 남아 있습니다.' : '자동 번역이 꺼져 있어 일부 항목이 영어로 보입니다.'} ${trPending ? `남은 항목: ${trPending}개.` : ''} <button data-act="retryTranslation">${trAuto || trError ? '남은 항목 다시 번역' : '지금 번역'}</button></div>` : '';
     content.innerHTML = warning + translation + subTabs() + VIEWS[tab]();
     content.scrollTop = scroll;
+    showWorldTab(content);
     root.querySelector('#inspector').innerHTML = inspector();
     const n = root.querySelector('#themeToggle');
     n.innerHTML = icon(theme === 'dark' ? 'sun' : 'moon');
@@ -2577,6 +2583,10 @@
       case 'refresh':
         rooms = [];
         return act(refresh, '새로 불러왔습니다.', { reload: false });
+      case 'worldLinkRoom':
+        // 세계관 칸, a room not linked yet: link it (the chosen world, or a new one named after the room).
+        worldTab.working = true;
+        return act(async () => { try { await linkRoomToWorld(); } finally { worldTab.working = false; } }, '이 방을 세계관에 연결했습니다.');
       case 'start':
         return act(() => api('POST', `/chats/${chat}/start`, { fresh: false }), '정리를 시작했습니다.');
       case 'fresh':
@@ -3386,9 +3396,81 @@
     return button;
   }
 
+  /*
+   * 세계관 설정집 연동 v2: World Archive's screen as the 「세계관」 tab. build.py builds its extension.js in (vendor/
+   * world-panel.js, embedded: it starts only here, inside #worldMount). The tab is there while the World Archive
+   * server answers /status; without it (not installed, turned off) the tab is gone and nothing else changes. While the
+   * tab is there, World Archive's own floating button hides (document data-memory-world-tab="on").
+   */
+  const worldTab = { available: false, gone: false, instance: null, linked: null, linkRoom: '', worlds: null, working: false };
+  /** World Archive's /status: when the page loads, and on opening the library only while it was there. A 404 or a
+   * failure: not asked again until the page is opened anew (no requests for someone without World Archive). */
+  async function checkWorldTab() {
+    if (worldTab.gone) return;
+    let ok = false;
+    try {
+      const r = await fetch('/api/world-archive/status', { credentials: 'same-origin', cache: 'no-store', headers: { 'x-marinara-csrf': '1' } });
+      ok = r.ok && Boolean((await r.json())?.version);
+    } catch {}
+    ok = ok && Boolean(globalThis.__memoryWorldPanel?.start);
+    const was = worldTab.available;
+    worldTab.available = ok;
+    if (!ok) worldTab.gone = true;
+    try { if (ok) document.documentElement.dataset.memoryWorldTab = 'on'; else delete document.documentElement.dataset.memoryWorldTab; } catch {}
+    if (!ok && tab === 'worldarchive') tab = 'home';
+    if (was !== ok) render();
+  }
+  /** Is this room linked to a world (asked when the tab is shown for another room than last time). */
+  async function loadWorldLinkState() {
+    const id = room;
+    worldTab.linkRoom = id;
+    worldTab.linked = null;
+    try {
+      const get = async (p) => { const r = await fetch(p, { credentials: 'same-origin', cache: 'no-store', headers: { 'x-marinara-csrf': '1' } }); if (!r.ok) throw Error(String(r.status)); return r.json(); };
+      const r = await get(`/api/world-archive/rooms/${encodeURIComponent(id)}`);
+      if (worldTab.linkRoom !== id) return;
+      worldTab.linked = Boolean(r?.worldId);
+      if (!worldTab.linked) worldTab.worlds = (await get('/api/world-archive/worlds')).worlds || [];
+    } catch (error) {
+      worldTab.linked = false;
+      worldTab.worlds = worldTab.worlds || [];
+    }
+    render();
+  }
+  /** The tab for a room not linked to a world: only linking it (to a world there is, or a new one named after the room). */
+  function worldLinkCard() {
+    const worlds = worldTab.worlds || [];
+    const opts = worlds.map((w) => `<option value="${esc(w.worldId)}">${esc(w.name)}</option>`).join('');
+    return `<div class="paper"><h2>세계관</h2><p class="hint">이 방은 세계관 설정집의 세계관에 연결돼 있지 않습니다. 연결하면 이 칸에서 설정집을 보고 고칠 수 있고, 기억을 정리할 때 설정집 관계를 함께 씁니다.</p>
+      ${worlds.length ? `<label>연결할 세계관<select id="worldLinkPick">${opts}</select></label>` : '<p class="hint">아직 세계관이 없습니다. 이 방 이름으로 새 세계관을 만들어 연결합니다.</p>'}
+      <div class="buttons"><button class="primary" data-act="worldLinkRoom" ${worldTab.working ? 'disabled' : ''}>이 방을 세계관에 연결하기</button></div></div>`;
+  }
+  async function linkRoomToWorld() {
+    const pick = root.querySelector('#worldLinkPick')?.value || '';
+    const send = async (method, p, body) => { const r = await fetch(p, { method, credentials: 'same-origin', cache: 'no-store', headers: { 'x-marinara-csrf': '1', 'content-type': 'application/json' }, body: JSON.stringify(body) }); const d = await r.json().catch(() => ({})); if (!r.ok) throw Error(d?.error || String(r.status)); return d; };
+    let worldId = pick;
+    if (!worldId) worldId = (await send('POST', '/api/world-archive/worlds', { name: roomLabel(rooms.find((r) => r.id === room) || { id: room }) || '새 세계관' })).worldId;
+    await send('PUT', `/api/world-archive/rooms/${encodeURIComponent(room)}`, { worldId });
+    worldTab.linked = true;
+  }
+  function showWorldTab(content) {
+    const box = root.querySelector('#worldMount');
+    const here = tab === 'worldarchive' && worldTab.available;
+    if (here && worldTab.linkRoom !== room) void loadWorldLinkState();
+    const panel = here && worldTab.linked === true;
+    content.hidden = panel;
+    box.hidden = !panel;
+    if (here && !panel) content.innerHTML = worldTab.linked === false ? worldLinkCard() : '<p class="hint">세계관 연결을 확인하는 중…</p>';
+    if (!panel) return;
+    if (!worldTab.instance) {
+      try { worldTab.instance = globalThis.__memoryWorldPanel.start(box, { theme }); } catch (error) { box.textContent = `세계관 칸을 열지 못했습니다: ${error?.message || error}`; }
+    } else worldTab.instance.setTheme?.(theme);
+  }
+
   function openLibrary() {
     if (open || disposed) return;
     open = true;
+    if (worldTab.available) { worldTab.linkRoom = ''; void checkWorldTab(); }
     const current = activeChatId();
     if (current && current !== room) {
       room = current;
@@ -3476,6 +3558,7 @@
             <button id="close" class="close" aria-label="기억 서재 닫기" title="닫기">${icon('close')}</button></header>
           <div id="status" role="status"></div><div id="error" hidden></div>
           <main id="content"></main>
+          <div id="worldMount" class="world-mount" hidden></div>
         </div>
         <aside class="inspector" id="inspector"></aside>
         <div class="resize-edge resize-r" id="resizeRight" aria-hidden="true"></div><div class="resize-edge resize-b" id="resizeBottom" aria-hidden="true"></div><div class="resize-grip" id="resizeCorner" title="끌어서 크기 바꾸기" aria-hidden="true"></div>
@@ -3486,6 +3569,9 @@
     launcher?.setAttribute('data-theme', theme);
     installSelectionButton();
     setupPanelMove();
+    // 세계관 설정집 연동 v2: whether the 「세계관」 tab is there is known from the start, so World Archive's own
+    // floating button hides even before this screen is first opened. The one request when the page loads.
+    void checkWorldTab();
 
     // Shadow DOM retargets input events to our DIV at the page boundary. Keep
     // host shortcuts from treating typing (notably '?') as a page command.
@@ -3624,6 +3710,14 @@
           localStorage.setItem('memory-module-font', font);
         } catch {}
         return render();
+      }
+      if (e.target.id === 'setRoomMode') {
+        const mode = e.target.value === 'simulator' ? 'simulator' : 'character';
+        void act(() => api('POST', `/chats/${encodeURIComponent(room)}/mode`, { mode }), mode === 'simulator' ? '세계 시뮬레이터로 바꿨습니다. 다음 정리부터 적용됩니다.' : '캐릭터 RP로 바꿨습니다. 다음 정리부터 적용됩니다.');
+      }
+      if (e.target.id === 'setWorldLink') {
+        const on = e.target.checked;
+        void act(() => api('POST', `/chats/${encodeURIComponent(room)}/world-link`, { on }), on ? '설정집 연동을 켰습니다. 다음 정리부터 적용됩니다.' : '설정집 연동을 껐습니다. 다음 정리부터 적용됩니다.');
       }
       if (e.target.id === 'setSpeakerNames') {
         const on = e.target.checked;
@@ -3854,6 +3948,7 @@
   }
 
   const EXTRA_CSS = `
+.world-mount{display:block;height:calc(100% - 8px);min-height:560px;overflow:hidden}.world-mount[hidden]{display:none!important}#content[hidden]{display:none!important}
     .memory-search{margin-bottom:18px}.memory-search input{flex:1;min-width:120px}.memory-search .buttons{flex-wrap:wrap}
     #launch{position:fixed;right:18px;bottom:122px;width:64px;height:64px;padding:0;border:0;border-radius:0;place-items:center;color:inherit;
       background:transparent!important;box-shadow:none!important;filter:drop-shadow(0 3px 5px #00000040);transition:transform .18s,filter .18s}
