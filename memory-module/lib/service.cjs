@@ -2195,6 +2195,7 @@ function processChat(chatId, { rebuild = false, reason = 'auto' } = {}) {
       job.state = 'done';
       log(`chat ${chatId}: ledger up to date (${reason}, ${job.total} call(s))`);
       translateDisplayLater(chatId);
+      autoMergeLater(chatId);
     } catch (error) {
       job.state = job.cancel ? 'idle' : 'error';
       job.error = job.cancel ? null : error?.message || String(error);
@@ -2674,6 +2675,7 @@ function processScenes(chatId, { rebuild = false, reason = 'auto' } = {}) {
       } while (job.again && !job.cancel);
       job.state = 'done';
       translateDisplayLater(chatId);
+      autoMergeLater(chatId);
     } catch (error) {
       job.state = job.cancel ? 'idle' : 'error';
       job.error = job.cancel ? null : error?.message || String(error);
@@ -3075,6 +3077,59 @@ function roomKoreanNames(chatId) {
     return [];
   }
 }
+
+/**
+ * Names of one person stored apart in two scripts ("Daniel" in the English memory, "다니엘" from the card) that the
+ * user's glossary pairs are merged on their own: the name kept is the one in the language the memory is written in.
+ * Each merge is recorded (이름 정리 → 자동으로 합친 이름) and can be taken back alone. Never while a job writes the
+ * room: the next run's end tries again. Returns how many merges were made.
+ */
+const AUTO_MERGE_MAX = 20;
+function autoMergeByGlossary(chatId) {
+  return enqueue(chatId, () => enqueue(`scenes:${chatId}`, async () => {
+    const busy = [jobs, sceneJobs, trials, notebookJobs].some((m) => m.get(chatId)?.state === 'running');
+    if (busy) return 0;
+    const pairs = roomGlossary(chatId);
+    if (!pairs.length) return 0;
+    const store = structuredClone(loadScenes(chatId) || S.emptyStore());
+    const ledger = structuredClone(loadLedger(chatId) || L.emptyLedger());
+    const table = structuredClone(loadNames(chatId));
+    const base = writeLanguage(chatId) === 'ko' ? 'ko' : 'foreign';
+    const latinForms = (canon) => [canon, ...(table.people?.[canon]?.aliases || [])].filter((n) => /[A-Za-z]/.test(n) && !/[가-힣]/.test(n)).sort((a, b) => b.length - a.length);
+    const koreanOf = (x) => {
+      const names = T.koreanNames(pairs, table);
+      const canon = A.canonOf(x, table);
+      for (const form of [x, ...(canon ? latinForms(canon) : [])]) {
+        const hit = names.find((n) => n.from.toLowerCase() === String(form).toLowerCase());
+        if (hit) return hit.to;
+      }
+      return null;
+    };
+    const latinOf = (x) => pairs.find((p) => p.to === x)?.from || latinForms(A.canonOf(x, table) || x)[0] || T.koreanNames(pairs, table).find((n) => n.to === x)?.from || null;
+    const made = [];
+    const skip = new Set();
+    for (let i = 0; i < AUTO_MERGE_MAX; i++) {
+      const group = A.using(table, () => N.glossaryMerges(store, ledger, table, pairs, { base, koreanOf, latinOf, skip }))[0];
+      if (!group) break;
+      try {
+        const planned = A.using(table, () => N.planMany(store, ledger, table, group.items));
+        made.push(N.applyAutoMerge(store, ledger, table, planned, { why: `${group.pair.from} = ${group.pair.to}` }));
+      } catch (error) {
+        skip.add(group.key);
+        log(`chat ${chatId}: glossary merge ${group.items.map((x) => x.source).join(', ')} → ${group.target} skipped (${error?.message || error})`);
+      }
+    }
+    if (!made.length) return 0;
+    if (made.some((r) => r.changes.some((c) => c.doc === 'scenes'))) saveScenes(chatId, store);
+    if (made.some((r) => r.changes.some((c) => c.doc === 'ledger'))) saveLedger(chatId, ledger);
+    saveNames(chatId, table);
+    recalls.delete(chatId);
+    enqueue(`scenes:${chatId}`, () => indexScenes(chatId, loadScenes(chatId))).catch((error) => log(`chat ${chatId}: re-index after merge failed (${error?.message || error})`));
+    for (const r of made) log(`chat ${chatId}: merged ${r.source} → ${r.target} by the glossary (${r.changes.length} change(s))`);
+    return made.length;
+  }));
+}
+const autoMergeLater = (chatId) => { autoMergeByGlossary(chatId).catch((error) => log(`chat ${chatId}: glossary merge failed (${error?.message || error})`)); };
 
 /**
  * The glossary pairs become other names of the people they name ("Daniel = 다니엘" → Daniel is 다니엘 크로우),
@@ -4269,6 +4324,8 @@ async function routes(app) {
       const aliases = glossaryAliases(table, pairs);
       if (aliases.length) saveNames(chatId, table);
       if (pairs.length) log(`chat ${chatId}: glossary ${pairs.length} name(s) from ${source || 'the library'}${aliases.length ? `, ${aliases.length} new other name(s)` : ''}`);
+      // Runs after this (it waits for the room's queue): names stored apart that the new glossary pairs are merged.
+      autoMergeLater(chatId);
       return { count: pairs.length, changed: true, aliases };
     });
   }));
@@ -4961,6 +5018,7 @@ async function routes(app) {
   };
   const nameOptions = (body) => ({ source: body?.source, target: body?.target, display: body?.display, text: body?.text !== false });
   const planView = (p) => ({ source: p.source, target: p.target, display: p.display, text: p.text, items: p.items || null, counts: p.counts, areas: p.areas, total: p.total, samples: p.samples, token: L.hashText(JSON.stringify(p.changes)) });
+  const autoMergedView = (table) => (table.autoMerged || []).slice().reverse().map((r) => ({ id: r.id, at: r.at, why: r.why, source: r.source, target: r.target, counts: r.counts, changes: r.changes.length }));
   const historyView = (table) => (table.history || []).map((h) => ({ id: h.id, kind: h.kind, at: h.at, source: h.source, target: h.target, display: h.display, text: h.text, counts: h.counts, changes: h.changes.length }));
   const saveRenamed = (chatId, store, ledger, table, changes) => {
     // Only the files the change touched: a room without a ledger does not get an empty one.
@@ -5316,6 +5374,7 @@ async function routes(app) {
         duplicates: N.duplicates(store, ledger, table),
         suggestions: N.suggestions(store, ledger, table),
         history: historyView(table),
+        autoMerged: autoMergedView(table),
         address: addressView(chatId),
         busy: roomBusy(chatId),
       };
@@ -5376,6 +5435,21 @@ async function routes(app) {
       log(`chat ${chatId}: undid rename ${out.source} → ${out.target} (${out.restored} restored, ${out.kept} changed since and kept)`);
       return { ...out, history: historyView(table) };
     });
+  }));
+  // One automatic (glossary) merge taken back on its own; the pair is not merged on its own again.
+  app.post('/chats/:id/names/auto-undo', guard(async (req) => {
+    const chatId = safeChatId(req.params.id);
+    const id = String(req.body?.id || '');
+    refuseBusy(chatId, '되돌릴');
+    return withRoom(chatId, async () => {
+      const { store, ledger, table: saved } = namesState(chatId);
+      const table = structuredClone(saved);
+      const changes = (saved.autoMerged || []).find((r) => r.id === id)?.changes || [];
+      const out = N.undoAutoMerge(store, ledger, table, id);
+      saveRenamed(chatId, store, ledger, table, changes);
+      log(`chat ${chatId}: undid glossary merge ${out.source} → ${out.target} (${out.restored} restored, ${out.kept} changed since and kept)`);
+      return { ...out, autoMerged: autoMergedView(table) };
+    }, '되돌릴');
   }));
   app.post('/chats/:id/names/dismiss', guard(async (req) => {
     const chatId = safeChatId(req.params.id);
@@ -5752,7 +5826,7 @@ function attach(app) {
   log('admin API ready at /api/memory-module');
 }
 
-module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { loadAddress, saveAddress, refreshAddress, presentPeople, Addr, loadState, saveState, loadPlaces, savePlaces, loadKeepsakes, saveKeepsakes, loadNotebook, saveNotebook, Nb, loadTrackers, saveTrackers, Tk, loadConflicts, saveConflicts, refreshConflicts, refreshWorld, Cf, Ks, organizeFor, sceneTokens, lastScenePeople, St, Pl, listRooms, purgeChatMemory, purgeIfGone, deleteOnSend, deletePrepare, listOrphans, deleteOrphans, goneChats, loadNames, saveNames, enqueue, foldScenes, reviewAttributions, loadAttributionLog, sceneJobs, selectedForView, loadSelected, recalls, windows, loadRecallPrefs, saveRecallPrefs, recallReport, recallCandidates, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, staleNames, translateDisplayLater, fixNoteLanguages, tidySteps, tidyLedger, noteUsage, usageSummary, planAnswersOn, notebookLanguageOf, notebookLanguageSetting, rebuildNotebook, notebookJobStatus, notebookRunning: (id) => notebookJobs.get(id)?.state === 'running', loadTranslations, saveTranslations, translationRun: (id, texts) => translateMissing(id, "ko", texts), flushTranslations, clearTranslationFailures, translationGaveUp, chatLangs, langRecords, loadLang, noteLanguage, LANG_REFRESH_EVERY, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, routinePeople, noteSourceKo, sourceKo, sourceQuoteItems, quoteHints, roomSetup, setupNote, withSetup, nameInstructions, jobs, writeLanguage, roomWriteLanguage, promptLanguage, memoryCallOptions, routineSetting, routineEnabled, attributionSetting, featureOn, featureSetting, F, B, clearRoomCaches, RESTORE_UNDO_DIR, connectionWithKey, memoryModel, startTrial, trials } };
+module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { loadAddress, saveAddress, refreshAddress, presentPeople, Addr, loadState, saveState, loadPlaces, savePlaces, loadKeepsakes, saveKeepsakes, loadNotebook, saveNotebook, Nb, loadTrackers, saveTrackers, Tk, loadConflicts, saveConflicts, refreshConflicts, refreshWorld, Cf, Ks, organizeFor, sceneTokens, lastScenePeople, St, Pl, listRooms, purgeChatMemory, purgeIfGone, deleteOnSend, deletePrepare, listOrphans, deleteOrphans, goneChats, loadNames, saveNames, enqueue, foldScenes, reviewAttributions, loadAttributionLog, sceneJobs, selectedForView, loadSelected, recalls, windows, loadRecallPrefs, saveRecallPrefs, recallReport, recallCandidates, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, staleNames, autoMergeByGlossary, translateDisplayLater, fixNoteLanguages, tidySteps, tidyLedger, noteUsage, usageSummary, planAnswersOn, notebookLanguageOf, notebookLanguageSetting, rebuildNotebook, notebookJobStatus, notebookRunning: (id) => notebookJobs.get(id)?.state === 'running', loadTranslations, saveTranslations, translationRun: (id, texts) => translateMissing(id, "ko", texts), flushTranslations, clearTranslationFailures, translationGaveUp, chatLangs, langRecords, loadLang, noteLanguage, LANG_REFRESH_EVERY, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, routinePeople, noteSourceKo, sourceKo, sourceQuoteItems, quoteHints, roomSetup, setupNote, withSetup, nameInstructions, jobs, writeLanguage, roomWriteLanguage, promptLanguage, memoryCallOptions, routineSetting, routineEnabled, attributionSetting, featureOn, featureSetting, F, B, clearRoomCaches, RESTORE_UNDO_DIR, connectionWithKey, memoryModel, startTrial, trials } };
 
 
 

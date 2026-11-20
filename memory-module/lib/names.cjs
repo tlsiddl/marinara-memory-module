@@ -383,6 +383,14 @@ function undo(store, ledger, table) {
   table.people = entry.tableBefore.people;
   table.dismissed = entry.tableBefore.dismissed;
   table.history = table.history.slice(0, -1);
+  // Automatic merges made after this rename were in the table that was just put back: they are made again there.
+  for (const rec of table.autoMerged || []) {
+    if (!(rec.at > entry.at)) continue;
+    rec.aliasUndo = [];
+    for (const item of rec.items || []) {
+      try { rec.aliasUndo.push(A.addAliasUndoable(table, item.source, item.target, { rewrite: false }).undo); } catch {}
+    }
+  }
   A.touch(table);
   return { undone: entry.id, source: entry.source, target: entry.target, restored, kept };
 }
@@ -499,4 +507,110 @@ function suggestions(store, ledger, table) {
   return out;
 }
 
-module.exports = { AREAS, fieldsOf, plan, planAliasText, planMany, apply, undo, usedNames, knownPeople, duplicates, suggestions, lookAlike, mergeRoutine, getPath };
+
+/* ---------- automatic merges from the user's glossary ---------- */
+
+// Merges made on their own are kept apart from the hand renames (which keep only a few, for the last-undo), so each
+// can be looked at and taken back on its own.
+const AUTO_KEEP = 40;
+const hangulName = (s) => /[가-힣]/.test(s) && !/[A-Za-z]/.test(s);
+const words = (s) => A.tidy(s).split(' ').filter(Boolean).length;
+
+/**
+ * Groups of names stored apart that the user's glossary says are one person ("Daniel = 다니엘": "Daniel" in the
+ * English memory, "다니엘" from the card). Each group: { pair, target, items: [{ source, target, display }] }.
+ * `base` 'ko' keeps the Korean form as the name, anything else the foreign (Latin or Chinese) form, so the name
+ * follows the language the memory is written in. A full name wins over a first name alone: the card's
+ * "Daniel Crowe" and the glossary's "다니엘" become "다니엘 크로우" (`koreanOf`) in a Korean memory.
+ * `display` is how the merged name is written in running text: the source's own form in the base language.
+ * Two card or persona names are never merged (two people may share a name), nor a pair the user took back.
+ */
+function glossaryMerges(store, ledger, table, pairs, { base = 'ko', koreanOf = () => null, latinOf = () => null, skip = new Set() } = {}) {
+  const people = knownPeople(store, ledger, table);
+  const used = usedNames(store, ledger, people);
+  const resolve = (n) => {
+    const hit = A.using(table, () => L.matchName(n, people) || A.canonOf(n, table));
+    if (hit) return hit;
+    const u = used.find((x) => x.count && A.fold(x.name) === A.fold(n));
+    return u ? u.name : null;
+  };
+  const seeded = (n) => !!table.people?.[n]?.seeded;
+  const out = [];
+  for (const pair of pairs || []) {
+    if (!pair?.from || !pair?.to) continue;
+    const a = resolve(pair.from);
+    const b = resolve(pair.to);
+    if (!a || !b || A.fold(a) === A.fold(b)) continue;
+    const key = `${A.fold(a)}\u0000${A.fold(b)}`;
+    if (skip.has(key) || A.dismissed(table, a, b) || A.dismissed(table, pair.from, pair.to)) continue;
+    if (seeded(a) && seeded(b)) continue;
+    let target;
+    if (base === 'ko') target = hangulName(b) && words(a) > words(b) ? koreanOf(a) || b : b;
+    else target = !hangulName(a) && words(b) > words(a) ? latinOf(b) || a : a;
+    const inBase = (x) => (base === 'ko' ? hangulName(x) : !hangulName(x));
+    const display = (x) => (inBase(x) ? x : base === 'ko' ? koreanOf(x) || pair.to : latinOf(x) || pair.from);
+    const items = [a, b].filter((x) => A.fold(x) !== A.fold(target)).map((x) => ({ source: x, target, display: display(x), text: true }));
+    if (items.length) out.push({ pair, key, target, items });
+  }
+  return out;
+}
+
+/**
+ * Apply an automatic merge (a planMany plan): the fields change as in a hand merge, but nothing is marked as edited
+ * by hand (later checks still look after those records), and the name table keeps exactly what is needed to take
+ * this one merge back later, whatever came after it. Returns the record.
+ */
+function applyAutoMerge(store, ledger, table, planned, { now = new Date().toISOString(), why = null } = {}) {
+  const docs = { scenes: store, ledger };
+  const changes = [];
+  for (const c of planned.changes) {
+    if (!same(getPath(docs[c.doc], c.path), c.before)) continue;
+    setPath(docs[c.doc], c.path, structuredClone(c.after));
+    changes.push(c);
+  }
+  if (planned.counts?.routine) {
+    const merged = mergeRoutine(ledger);
+    if (merged) {
+      changes.push({ doc: 'ledger', path: ['routine'], before: structuredClone(ledger.routine), after: structuredClone(merged), whole: true });
+      ledger.routine = merged;
+    }
+  }
+  const aliasUndo = [];
+  for (const item of planned.items || []) aliasUndo.push(A.addAliasUndoable(table, item.source, item.target, { rewrite: false }).undo);
+  const n = (table.autoMerged?.at(-1)?.n || 0) + 1;
+  const rec = { id: `G${n}`, n, kind: 'glossary', at: now, why, source: planned.source, target: planned.target, items: planned.items.map(({ source, target, display }) => ({ source, target, display })), counts: planned.counts, changes, aliasUndo };
+  table.autoMerged = [...(table.autoMerged || []), rec].slice(-AUTO_KEEP);
+  A.touch(table);
+  return rec;
+}
+
+/**
+ * Take one automatic merge back: every field still holding what it wrote gets its old value (a field changed since is
+ * left as it is now, counted in `kept`), the other names it added go, and the pair is not merged on its own again.
+ * Hand renames made after it keep working: their saved table is put right too.
+ */
+function undoAutoMerge(store, ledger, table, id) {
+  const list = table.autoMerged || [];
+  const at = list.findIndex((r) => r.id === id);
+  if (at < 0) throw Error('되돌릴 자동 합침을 찾지 못했습니다.');
+  const rec = list[at];
+  const docs = { scenes: store, ledger };
+  let restored = 0;
+  let kept = 0;
+  for (const c of [...rec.changes].reverse()) {
+    if (!same(getPath(docs[c.doc], c.path), c.after)) { kept++; continue; }
+    setPath(docs[c.doc], c.path, c.before === undefined ? undefined : structuredClone(c.before));
+    restored++;
+  }
+  for (const u of [...(rec.aliasUndo || [])].reverse()) A.undoAlias(table, u);
+  for (const h of table.history || []) {
+    if (!h.tableBefore || !(h.at > rec.at)) continue;
+    for (const u of [...(rec.aliasUndo || [])].reverse()) A.undoAlias(h.tableBefore, u);
+  }
+  for (const item of rec.items || []) A.dismiss(table, item.source, item.target);
+  table.autoMerged = list.filter((r) => r.id !== id);
+  A.touch(table);
+  return { undone: rec.id, source: rec.source, target: rec.target, restored, kept };
+}
+
+module.exports = { glossaryMerges, applyAutoMerge, undoAutoMerge, AUTO_KEEP, AREAS, fieldsOf, plan, planAliasText, planMany, apply, undo, usedNames, knownPeople, duplicates, suggestions, lookAlike, mergeRoutine, getPath };
