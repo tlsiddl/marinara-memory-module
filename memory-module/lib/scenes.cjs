@@ -5,6 +5,7 @@
 // Pure logic only; the engine side lives in service.cjs.
 
 const L = require('./ledger.cjs');
+const Sim = require('./simulator.cjs');
 const A = require('./aliases.cjs');
 const St = require('./state.cjs');
 const Pl = require('./places.cjs');
@@ -400,7 +401,8 @@ function absentFrom(scene, cast) {
 function buildScenePrompt(store, slice, required, problem = null, preferences = {}) {
   const parts = [];
   const known = liveFacts(store).slice(-80);
-  const cast = castOf(store);
+  const sim = store.mode === 'simulator';
+  const cast = sim ? Sim.batchCast(castOf(store), slice, store.castAliases) : castOf(store);
   const group = cast.length >= 2;
   const unawareNote = (f) => (group ? [f.unaware?.length ? ` (모름: ${f.unaware.join('·')})` : '', f.guess?.length ? ` (짐작만: ${f.guess.join('·')})` : ''].join('') : '');
   parts.push('## 이미 아는 사실', known.length ? known.map((f) => `- ${f.id} ${f.about ? `${f.about}: ` : ''}${f.text}${unawareNote(f)}`).join('\n') : '(없음)');
@@ -425,6 +427,7 @@ function buildScenePrompt(store, slice, required, problem = null, preferences = 
   }
   const personas = L.personaNames(slice);
   const head = [];
+  if (sim && Sim.narratorLine(store.narrators)) head.push(Sim.narratorLine(store.narrators));
   if (cast.length) head.push(`[등장인물] ${cast.join(', ')}`);
   if (personas.length) head.push(`[사용자 캐릭터] ${personas.join(', ')}`);
   if (head.length) parts.unshift(...head, '');
@@ -447,6 +450,7 @@ function buildScenePrompt(store, slice, required, problem = null, preferences = 
   if (preferences.quoteMode === 'both') guidance.push(`사건의 대사와 중요한 서술을 모두 인용해. 각 사건에서 중요한 대사와 행동·표정·접촉·상황 변화의 서술을 각각 원문 문장 번호로 인용해. 대사가 있는 사건도 관련 서술이 있으면 최소 한 문장을 별도 quotes 항목으로 넣어. 원문에 없으면 만들지 마. 사건마다 최대 ${quoteLimit('both')}개. 질문과 답변은 함께 보존하고 서술의 by와 to는 null로 둬. 이름·철자 공개 뒤의 질문과 반응처럼 새 전개가 있으면 별도 사건을 만들어 그 대사를 직접 연결해.`);
   // Optional records (인물 상태, 장소): added only while the room's switch is on, so a room without them gets the same prompt as before.
   const extras = [LINES_PROMPT];
+  if (sim) extras.push(Sim.NARRATOR_PROMPT);
   if (preferences.characterState) extras.push(St.PROMPT);
   if (preferences.places) extras.push(Pl.PROMPT);
   if (preferences.keepsakes) extras.push(Ks.PROMPT);
@@ -1082,6 +1086,7 @@ function applyScenes(store, result, slice, required, now = new Date().toISOStrin
   // OOC talk is never a quote, a fact's evidence or a note's evidence.
   const index = L.indexBatch(slice.filter((m) => !m.ooc));
   const personas = L.personaNames(slice);
+  if (store.mode === 'simulator') Sim.admitPeople(store, raw, slice);
   const cast = castOf(store);
   // 인물의 수첩: each character's note language, from their lines in this slice (Korean for a Korean-bracketed speaker).
   const noteWriters = [...new Set([...(store.personas || []), ...personas])];
