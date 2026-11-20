@@ -1928,6 +1928,60 @@ async function tidyLedger(model, ledger, messages, { scenes = null } = {}) {
 }
 
 /**
+ * The scene call's preferences: the room's organize settings, and in a simulator room with Korean memory the glossary
+ * spellings (the prompt names the ones the batch uses).
+ */
+function scenePreferences(chatId, store) {
+  const prefs = organizeFor(chatId);
+  if (store?.mode !== 'simulator' || writeLanguage(chatId) !== 'ko') return prefs;
+  const scriptNames = Sim.scriptPairs(roomGlossary(chatId), worldArchivePeople(chatId));
+  return scriptNames.length ? { ...prefs, scriptNames } : prefs;
+}
+
+/**
+ * 세계 시뮬레이터: one person written in two scripts (the story's English speaker labels, the model's Korean names) is
+ * made one person in the room's name table, from the room's glossary (번역 프리셋·단어장) and World Archive's other
+ * names. names: the cast, plus the names a reply uses as people. Each link is an automatic application of an alias
+ * suggestion, so it is listed under 자동으로 적용함 and can be taken back one by one (one taken back is never made
+ * again). The target is the form the memory is written in. Returns how many links were made.
+ */
+function linkScriptForms(chatId, store, scenes = [], slice = []) {
+  if (store?.mode !== 'simulator') return 0;
+  try {
+    const pairs = Sim.scriptPairs(roomGlossary(chatId), worldArchivePeople(chatId));
+    if (!pairs.length) return 0;
+    const table = loadNames(chatId);
+    // The reply's own names, before they are checked against the text: 「아더 펜들턴」 is written only as
+    // 「Arthur Pendleton」 there, and is found once the pair links them.
+    const names = [...(store.cast || []), ...Sim.namedPeople(scenes)];
+    const links = Sim.nameLinks(names, pairs, table, { korean: writeLanguage(chatId) === 'ko', narrators: store.narrators || [], personas: [...(store.personas || []), ...L.personaNames(slice || [])] });
+    if (!links.length) return 0;
+    const book = loadAddress(chatId);
+    let asked = 0;
+    let made = 0;
+    for (const link of links) {
+      const sug = Addr.pushSuggestion(book, { kind: 'alias', source: link.source, target: link.target, count: 0, origin: 'glossary' });
+      if (!sug) continue; // asked before: answered, applied, or taken back
+      asked++;
+      const rec = Addr.autoApply(book, sug.id, { table });
+      if (!rec) continue;
+      rec.text = `‘${link.source}’ = ${rec.target}의 다른 이름 (단어장)`;
+      made++;
+    }
+    if (made) saveNames(chatId, table);
+    if (asked) saveAddress(chatId, book);
+    if (made) {
+      store.cast = Sim.canonCast(store.cast);
+      log(`chat ${chatId}: ${made} name(s) written in two scripts linked from the glossary`);
+    }
+    return made;
+  } catch (error) {
+    log(`chat ${chatId}: names not linked (${error?.message || error})`);
+    return 0;
+  }
+}
+
+/**
  * Fold messages that are leaving the window into scenes, one slice per call, until caught up.
  * Each slice is saved as soon as it is done, so a stopped run continues where it left off.
  */
@@ -1939,6 +1993,7 @@ async function foldScenes(chatId, store, messages, window, model, job, { minPend
     if (!next) break;
     if (job?.cancel) throw Error('중단했습니다. 다시 시작하면 이어서 정리합니다.');
     if (job) job.stage = `장면 정리 (${next.slice[0].number}번부터)`;
+    linkScriptForms(chatId, store, [], next.slice);
     let applied = null;
     let lastError = '';
     let lastReply = '';
@@ -1948,11 +2003,12 @@ async function foldScenes(chatId, store, messages, window, model, job, { minPend
       let lastParsed = null;
       let lastCode = null;
       for (let attempt = 0; attempt < 2 && !applied; attempt++) {
-        const reply = await askModel(model, withSetup(setupNote(chatId), S.buildScenePrompt(store, next.slice, next.required, lastError || null, organizeFor(chatId))), { maxTokens: sceneTokens(chatId) });
+        const reply = await askModel(model, withSetup(setupNote(chatId), S.buildScenePrompt(store, next.slice, next.required, lastError || null, scenePreferences(chatId, store))), { maxTokens: sceneTokens(chatId) });
         calls++;
         lastReply = String(reply || '');
         const { result: parsed, truncated } = S.parseScenesReply(reply);
         if (parsed) lastParsed = parsed;
+        if (parsed) linkScriptForms(chatId, store, parsed.scenes, next.slice);
         const opts = { partial: !!truncated, quoteMode: settings().chats?.[chatId]?.organize?.quoteMode, verifyAttribution: true, strictCoverage: true, ...sceneRecords(chatId), ...(job ? { notebookStats: (job.notebookStats ||= {}) } : {}) };
         const result = parsed ? S.applyScenes(store, parsed, next.slice, next.required, undefined, opts) : { error: truncated ? '응답이 너무 길어서 잘렸습니다' : '응답을 읽지 못했습니다' };
         if (!result.error) applied = result;
@@ -5792,7 +5848,7 @@ function attach(app) {
   log('admin API ready at /api/memory-module');
 }
 
-module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { loadAddress, saveAddress, refreshAddress, presentPeople, Addr, loadState, saveState, loadPlaces, savePlaces, loadKeepsakes, saveKeepsakes, loadNotebook, saveNotebook, Nb, loadTrackers, saveTrackers, Tk, loadConflicts, saveConflicts, refreshConflicts, refreshWorld, Cf, Ks, organizeFor, sceneTokens, lastScenePeople, St, Pl, listRooms, purgeChatMemory, purgeIfGone, deleteOnSend, deletePrepare, listOrphans, deleteOrphans, goneChats, loadNames, saveNames, enqueue, foldScenes, reviewAttributions, loadAttributionLog, sceneJobs, selectedForView, loadSelected, recalls, windows, loadRecallPrefs, saveRecallPrefs, recallReport, recallCandidates, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, translateDisplayLater, fixNoteLanguages, tidySteps, tidyLedger, noteUsage, usageSummary, planAnswersOn, notebookLanguageOf, notebookLanguageSetting, rebuildNotebook, notebookJobStatus, notebookRunning: (id) => notebookJobs.get(id)?.state === 'running', loadTranslations, saveTranslations, translationRun: (id, texts) => translateMissing(id, "ko", texts), flushTranslations, clearTranslationFailures, translationGaveUp, chatLangs, langRecords, loadLang, noteLanguage, LANG_REFRESH_EVERY, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, routinePeople, noteSourceKo, sourceKo, sourceQuoteItems, quoteHints, roomSetup, setupNote, withSetup, nameInstructions, jobs, writeLanguage, roomWriteLanguage, promptLanguage, memoryCallOptions, routineSetting, routineEnabled, attributionSetting, featureOn, featureSetting, F, B, clearRoomCaches, RESTORE_UNDO_DIR, connectionWithKey, memoryModel, startTrial, trials, roomMode, setRoomMode, roomPeople, stampMode, worldArchivePeople, waPeopleCache, simulatorExample } };
+module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { loadAddress, saveAddress, refreshAddress, presentPeople, Addr, loadState, saveState, loadPlaces, savePlaces, loadKeepsakes, saveKeepsakes, loadNotebook, saveNotebook, Nb, loadTrackers, saveTrackers, Tk, loadConflicts, saveConflicts, refreshConflicts, refreshWorld, Cf, Ks, organizeFor, sceneTokens, lastScenePeople, St, Pl, listRooms, purgeChatMemory, purgeIfGone, deleteOnSend, deletePrepare, listOrphans, deleteOrphans, goneChats, loadNames, saveNames, enqueue, foldScenes, reviewAttributions, loadAttributionLog, sceneJobs, selectedForView, loadSelected, recalls, windows, loadRecallPrefs, saveRecallPrefs, recallReport, recallCandidates, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, translateDisplayLater, fixNoteLanguages, tidySteps, tidyLedger, noteUsage, usageSummary, planAnswersOn, notebookLanguageOf, notebookLanguageSetting, rebuildNotebook, notebookJobStatus, notebookRunning: (id) => notebookJobs.get(id)?.state === 'running', loadTranslations, saveTranslations, translationRun: (id, texts) => translateMissing(id, "ko", texts), flushTranslations, clearTranslationFailures, translationGaveUp, chatLangs, langRecords, loadLang, noteLanguage, LANG_REFRESH_EVERY, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, routinePeople, noteSourceKo, sourceKo, sourceQuoteItems, quoteHints, roomSetup, setupNote, withSetup, nameInstructions, jobs, writeLanguage, roomWriteLanguage, promptLanguage, memoryCallOptions, routineSetting, routineEnabled, attributionSetting, featureOn, featureSetting, F, B, clearRoomCaches, RESTORE_UNDO_DIR, connectionWithKey, memoryModel, startTrial, trials, roomMode, setRoomMode, roomPeople, stampMode, worldArchivePeople, waPeopleCache, simulatorExample, linkScriptForms, scenePreferences } };
 
 
 

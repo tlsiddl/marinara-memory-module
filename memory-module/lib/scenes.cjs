@@ -432,6 +432,7 @@ function buildScenePrompt(store, slice, required, problem = null, preferences = 
   if (sim && Sim.narratorLine(store.narrators)) head.push(Sim.narratorLine(store.narrators));
   if (cast.length) head.push(`[등장인물] ${cast.join(', ')}`);
   if (personas.length) head.push(`[사용자 캐릭터] ${personas.join(', ')}`);
+  if (sim && Sim.scriptLine(preferences.scriptNames, slice)) head.push(Sim.scriptLine(preferences.scriptNames, slice));
   if (head.length) parts.unshift(...head, '');
   if (problem) parts.push('', `## 지난번 답의 문제 (이번엔 고쳐 줘)`, problem);
   parts.push('', `## 메시지 (${slice[0].number}번부터)`, `[필수 끝 번호] ${required}`, `[이번 메시지 번호] ${slice[0].number}~${slice.at(-1).number} (end는 이 안의 숫자)`);
@@ -1084,7 +1085,9 @@ function sceneNotesOf(raw, scenePlace) {
  */
 function applyScenes(store, result, slice, required, now, options) {
   if (store.mode !== 'simulator') return applySceneReply(store, result, slice, required, now, options);
-  const newcomers = Sim.newPeople(store, Array.isArray(result?.scenes) ? result.scenes : [], slice);
+  // Each newcomer under the name the room's name table keeps them by ("Minerva McGonagall" linked to 미네르바 맥고나걸
+  // by the glossary joins as 미네르바 맥고나걸), so the reply's two forms of them count as one person.
+  const newcomers = Sim.canonCast(Sim.newPeople(store, Array.isArray(result?.scenes) ? result.scenes : [], slice)).filter((n) => !(store.cast || []).some((c) => A.canonical(c) === n));
   if (!newcomers.length) return applySceneReply(store, result, slice, required, now, options);
   const before = store.cast;
   store.cast = [...(before || []), ...newcomers];
@@ -3015,6 +3018,14 @@ function applyLearned(store, learned) {
 }
 
 function commitScenes(store, applied) {
+  // 세계 시뮬레이터: a person listed both as knowing and, in their other script, as not knowing knows it (the two forms
+  // become one name just below).
+  if (store.mode === 'simulator') {
+    for (const f of applied.facts || []) {
+      if (!Array.isArray(f.unaware) || !Array.isArray(f.knownBy)) continue;
+      f.unaware = f.unaware.filter((u) => !f.knownBy.some((k) => k !== u && A.canonical(k) === A.canonical(u)));
+    }
+  }
   // People renamed by hand keep the name the user chose in what the model writes next.
   A.rewriteDeep(applied.scenes);
   A.rewriteDeep(applied.facts);
@@ -3022,7 +3033,10 @@ function commitScenes(store, applied) {
   A.rewriteDeep(applied.learned);
   store.scenes.push(...applied.scenes);
   // 세계 시뮬레이터: the people this reply brought in join the room now (not when a reply is only tried).
-  for (const name of applied.people || []) if (Array.isArray(store.cast) && !store.cast.includes(name) && store.cast.length < Sim.ROOM_CAST_MAX) store.cast.push(name);
+  for (const raw of applied.people || []) {
+    const name = A.canonical(raw);
+    if (Array.isArray(store.cast) && !store.cast.some((c) => A.canonical(c) === name) && store.cast.length < Sim.ROOM_CAST_MAX) store.cast.push(name);
+  }
   for (const f of applied.facts) {
     const old = f.replaces && store.facts.find((k) => k.id === f.replaces);
     if (old && !old.edited) old.replacedBy = f.id;

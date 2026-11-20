@@ -7,6 +7,7 @@
 // Nothing here runs in character mode: every caller checks store.mode === 'simulator' first.
 
 const L = require('./ledger.cjs');
+const A = require('./aliases.cjs');
 
 const MODES = ['character', 'simulator'];
 /** The most people one batch's prompt names (most recently mentioned first). */
@@ -47,7 +48,7 @@ function batchCast(cast, messages, aliases = {}, max = BATCH_CAST_MAX) {
   const texts = (messages || []).map((m) => squash(m.content || (m.sentences || []).join(' ')));
   const last = new Map();
   for (const name of cast || []) {
-    const keys = [name, ...(aliases?.[name] || [])].map(squash).filter((k) => k.length >= 2);
+    const keys = [name, ...(aliases?.[name] || []), ...A.formsOf(name)].map(squash).filter((k) => k.length >= 2);
     for (let i = texts.length - 1; i >= 0; i--) {
       if (keys.some((k) => texts[i].includes(k))) {
         last.set(name, i);
@@ -62,6 +63,15 @@ const namesIn = (value) =>
   (Array.isArray(value) ? value : typeof value === 'string' ? value.split(/[,·、/]|\s및\s|\s와\s|\s과\s/) : [])
     .map((n) => String(n ?? '').replace(/\s+/g, ' ').trim().slice(0, 40))
     .filter(Boolean);
+
+/**
+ * Is this name one of the people in the list? L.matchName also answers with the person the room's name table knows
+ * the name for, whether or not that person is in the list; here only a person of the list counts.
+ */
+function inList(name, list) {
+  const hit = L.matchName(name, list || []);
+  return !!hit && (list || []).some((x) => (A.canonOf(x) || A.tidy(x)) === hit);
+}
 
 const whoOf = (v) => (v && typeof v === 'object' ? v.who : v);
 
@@ -91,30 +101,110 @@ function nameInText(name, text) {
  * character mode). The name must be its own (not a description), written in the batch's text, and not the narrator,
  * the user's character or someone the cast already has.
  */
+/** The names a scene reply uses as people (speaker, listener, notebook, fact, knowing, recollection), in order. */
+function namedPeople(scenes) {
+  return (Array.isArray(scenes) ? scenes : []).flatMap((item) => {
+    const events = Array.isArray(item?.events) ? item.events : [];
+    const facts = Array.isArray(item?.facts) ? item.facts : [];
+    return [
+      ...events.flatMap((e) => (Array.isArray(e?.quotes) ? e.quotes : []).flatMap((q) => [...namesIn(q?.by), ...namesIn(q?.to)])),
+      ...(Array.isArray(item?.notebook) ? item.notebook : []).flatMap((n) => namesIn(n?.who)),
+      ...facts.flatMap((f) => [...namesIn(f?.about), ...namesIn(f?.knownBy), ...(Array.isArray(f?.unaware) ? f.unaware : []).flatMap((u) => namesIn(whoOf(u)))]),
+      ...(Array.isArray(item?.recollections) ? item.recollections : []).flatMap((r) => namesIn(r?.who)),
+    ];
+  });
+}
+
 function newPeople(store, scenes, slice) {
   const narrators = store.narrators || [];
   const personas = [...(store.personas || []), ...L.personaNames(slice || [])];
   const text = batchText(slice);
   const cast = Array.isArray(store.cast) ? store.cast : [];
   const added = [];
-  for (const item of Array.isArray(scenes) ? scenes : []) {
-    const events = Array.isArray(item?.events) ? item.events : [];
-    const facts = Array.isArray(item?.facts) ? item.facts : [];
-    const named = [
-      ...events.flatMap((e) => (Array.isArray(e?.quotes) ? e.quotes : []).flatMap((q) => [...namesIn(q?.by), ...namesIn(q?.to)])),
-      ...(Array.isArray(item?.notebook) ? item.notebook : []).flatMap((n) => namesIn(n?.who)),
-      ...facts.flatMap((f) => [...namesIn(f?.about), ...namesIn(f?.knownBy), ...(Array.isArray(f?.unaware) ? f.unaware : []).flatMap((u) => namesIn(whoOf(u)))]),
-      ...(Array.isArray(item?.recollections) ? item.recollections : []).flatMap((r) => namesIn(r?.who)),
-    ];
-    for (const name of named) {
+  {
+    for (const name of namedPeople(scenes)) {
       if (cast.length + added.length >= ROOM_CAST_MAX) return added;
       const key = squash(name);
-      if (key.length < 2 || isDescribedName(name) || !nameInText(name, text)) continue;
-      if (L.matchName(name, narrators) || L.matchName(name, personas) || L.matchName(name, cast) || L.matchName(name, added)) continue;
+      if (key.length < 2 || isDescribedName(name) || !A.formsOf(name).concat(name).some((n) => nameInText(n, text))) continue;
+      if (inList(name, narrators) || inList(name, personas) || inList(name, cast) || inList(name, added)) continue;
       added.push(name);
     }
   }
   return added;
+}
+
+const latinOnly = (s) => /[A-Za-z]/.test(s) && !/[가-힣]/.test(s);
+const hangulOnly = (s) => /[가-힣]/.test(s) && !/[A-Za-z]/.test(s);
+const fold = (s) => String(s ?? '').normalize('NFC').replace(/s+/g, ' ').trim().toLowerCase();
+
+/**
+ * Pairs that say two written forms are one person: the room's glossary (번역 프리셋·단어장, "Edward Vane = 에드워드 베인")
+ * first, then World Archive's people (a name and another name of theirs in the other script). → [{ from: Latin, to: Korean }]
+ */
+function scriptPairs(glossary = [], waPeople = []) {
+  const out = [];
+  const seen = new Set();
+  const push = (a, b) => {
+    const from = latinOnly(a) ? a : latinOnly(b) ? b : null;
+    const to = hangulOnly(a) ? a : hangulOnly(b) ? b : null;
+    if (!from || !to || seen.has(fold(from)) || seen.has(fold(to))) return;
+    seen.add(fold(from)).add(fold(to));
+    out.push({ from: A.tidy(from), to: A.tidy(to) });
+  };
+  for (const p of Array.isArray(glossary) ? glossary : []) if (p?.from && p?.to) push(String(p.from), String(p.to));
+  for (const person of Array.isArray(waPeople) ? waPeople : []) for (const other of person?.aliases || []) push(String(person.name || ''), String(other || ''));
+  return out;
+}
+
+/**
+ * The other names to register so one person is not two: for each name the room's people go by (or a reply just
+ * brought in), the pair that writes it in the other script. Returns [{ source, target }]: source becomes another name
+ * of target. The target is the form the memory is written in (the Korean one for a Korean memory), except that the
+ * user's character keeps their own name. Left out: a pair whose forms are one person already, a pair the user said
+ * are not the same (dismissed), and anything that names a narrator (the narrator is not a person).
+ */
+function nameLinks(names, pairs, table, { korean = true, narrators = [], personas = [] } = {}) {
+  const links = [];
+  const seen = new Set();
+  const is = (n, list) => (list || []).some((x) => fold(x) === fold(n) || (A.canonOf(x, table) && A.canonOf(x, table) === A.canonOf(n, table)));
+  for (const name of Array.isArray(names) ? names : []) {
+    const key = fold(name);
+    const pair = (pairs || []).find((p) => fold(p.from) === key || fold(p.to) === key);
+    if (!pair || seen.has(fold(pair.from))) continue;
+    seen.add(fold(pair.from));
+    if (is(pair.from, narrators) || is(pair.to, narrators)) continue;
+    let [source, target] = korean ? [pair.from, pair.to] : [pair.to, pair.from];
+    if (is(source, personas) && !is(target, personas)) [source, target] = [target, source];
+    const a = A.canonOf(source, table);
+    const b = A.canonOf(target, table);
+    if (a && b && a === b) continue;
+    if (table && A.dismissed(table, source, target)) continue;
+    links.push({ source, target });
+  }
+  return links;
+}
+
+/** The most glossary spellings one batch prompt carries. */
+const SCRIPT_LINE_MAX = 30;
+/**
+ * The [이름 표기] line of a batch prompt: how the English names written in these messages are written in Korean, from
+ * the room's glossary, so the model writes 「아더 펜들턴」 (the user's spelling), not a spelling of its own. '' when
+ * none of them is in the batch.
+ */
+function scriptLine(pairs, slice) {
+  const text = batchText(slice);
+  const hits = (pairs || []).filter((p) => p?.from && p?.to && squash(p.from).length >= 2 && text.includes(squash(p.from))).slice(0, SCRIPT_LINE_MAX);
+  return hits.length ? `[이름 표기] 본문의 영어 이름은 한국어로 이렇게 적어: ${hits.map((p) => `${p.from} = ${p.to}`).join(', ')}` : '';
+}
+
+/** The cast with each person once, under the name the room's name table keeps them by. */
+function canonCast(cast) {
+  const out = [];
+  for (const n of Array.isArray(cast) ? cast : []) {
+    const c = A.canonical(n);
+    if (c && !out.some((x) => fold(x) === fold(c))) out.push(c);
+  }
+  return out;
 }
 
 /** The [내레이터] line at the head of a batch prompt. */
@@ -123,4 +213,4 @@ function narratorLine(narrators) {
   return list.length ? `[내레이터] ${list.join(', ')} (인물이 아님)` : '';
 }
 
-module.exports = { MODES, BATCH_CAST_MAX, ROOM_CAST_MAX, NARRATOR_PROMPT, mode, isDescribedName, nameInText, batchCast, newPeople, narratorLine, squash };
+module.exports = { namedPeople, scriptPairs, nameLinks, canonCast, scriptLine, MODES, BATCH_CAST_MAX, ROOM_CAST_MAX, NARRATOR_PROMPT, mode, isDescribedName, nameInText, batchCast, newPeople, narratorLine, squash };

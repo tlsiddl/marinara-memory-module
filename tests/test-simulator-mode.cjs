@@ -182,3 +182,115 @@ test('reply side: in a simulator room standalone quotes are not labelled with th
   assert.equal(service.fixSpeakers(text, o), text, 'simulator: left alone');
   assert.doesNotMatch(service.nameInstructions(room, [C.NARRATOR]), /Hogwarts Simulator/, 'the label example is a person, not the narrator');
 });
+
+// ---- one person, two scripts (the story's English speaker labels, the model's Korean) ----
+const A = require('../memory-module/lib/aliases.cjs');
+const VANE = '에드워드 베인', VANE_EN = 'Edward Vane', MINERVA = '미네르바 맥고나걸', MINERVA_EN = 'Minerva McGonagall';
+const GLOSSARY = [{ from: 'Hogwarts', to: '호그와트' }, { from: VANE_EN, to: VANE }, { from: MINERVA_EN, to: MINERVA }, { from: 'Irina', to: C.USER }, { from: C.NARRATOR, to: '호그와트 시뮬레이터' }];
+
+test('scriptPairs / nameLinks: the glossary and World Archive pair the forms; the memory\'s language names the person, the user keeps their own name, the narrator is never linked', () => {
+  const pairs = Sim.scriptPairs(GLOSSARY, [{ name: '아서 펜들턴', aliases: ['Arthur Pendleton', '집사'] }, { name: 'Edward Vane', aliases: ['에드워드'] }]);
+  assert.deepEqual(pairs.find((p) => p.from === 'Arthur Pendleton'), { from: 'Arthur Pendleton', to: '아서 펜들턴' }, 'World Archive: a name and another name in the other script');
+  assert.equal(pairs.filter((p) => p.from === VANE_EN).length, 1, 'the glossary comes first; a form is paired once');
+  const table = A.emptyTable();
+  assert.deepEqual(Sim.nameLinks([VANE_EN, MINERVA, '호그와트', 'Irina', C.NARRATOR, '론 위즐리'], pairs, table, { narrators: [C.NARRATOR], personas: [C.USER] }), [
+    { source: VANE_EN, target: VANE },
+    { source: MINERVA_EN, target: MINERVA },
+    { source: 'Hogwarts', target: '호그와트' },
+    { source: 'Irina', target: C.USER },
+  ]);
+  assert.deepEqual(Sim.nameLinks([VANE], pairs, table, { korean: false }), [{ source: VANE, target: VANE_EN }], 'an English memory keeps the English form');
+  assert.deepEqual(Sim.nameLinks(['이리나'], pairs, table, { korean: false, personas: [C.USER] }), [{ source: 'Irina', target: C.USER }], 'the user\'s character keeps their own name');
+  A.addAlias(table, VANE_EN, VANE, { rewrite: false });
+  A.dismiss(table, MINERVA_EN, MINERVA);
+  assert.deepEqual(Sim.nameLinks([VANE_EN, MINERVA], pairs, table), [], 'already one person; told apart by the user');
+});
+
+test('simulator room: the glossary makes the two forms one person (listed under 자동으로 적용함, undone one by one, never made again); the reply is saved under one name', async () => {
+  const room = 'sim_link';
+  X.setRoomMode(room, 'simulator');
+  X.saveTranslations(room, { items: {}, glossary: { pairs: GLOSSARY, hash: 'x', source: '번역 프리셋·단어장', at: null } });
+  const slice = L.prepareMessages([
+    { id: 'm1', number: 1, role: 'assistant', speaker: C.NARRATOR, content: `베인 공작이 딸을 내려다보았다.\n${VANE_EN} | "그 이야기는 처음 듣는구나."\n${MINERVA_EN} | "따님은 마녀입니다."` },
+    { id: 'm2', number: 2, role: 'user', speaker: C.USER, content: '"아빠, 저 마녀래요."' },
+  ]);
+  const store = { ...simStore([VANE_EN]) };
+  const reply = {
+    scenes: [{
+      end: 2, time: null, place: '서재', title: '입학 통지', summary: '맥고나걸이 이리나가 마녀라고 알렸다',
+      present: [VANE, MINERVA, C.USER],
+      events: [{ text: '맥고나걸이 이리나가 마녀라고 알렸다', with: [MINERVA, VANE, C.USER], quotes: [{ q: '따님은 마녀입니다.', by: MINERVA_EN, to: VANE }, { q: '그 이야기는 처음 듣는구나.', by: VANE_EN, to: C.USER }] }],
+      recollections: [],
+      facts: [{ about: C.USER, text: '마녀이다', evidence: ['1.3'], knownBy: [MINERVA, VANE_EN, C.USER] }],
+    }],
+  };
+  let made;
+  await X.enqueue(room, async () => {
+    made = X.linkScriptForms(room, store, reply.scenes, slice);
+  });
+  assert.equal(made, 3, 'Edward Vane (in the cast), Minerva McGonagall (the reply\'s speaker) and Irina (the user\'s character, under her own name) are linked');
+  const table = X.loadNames(room);
+  assert.equal(A.canonOf(VANE_EN, table), VANE);
+  assert.equal(A.canonOf(MINERVA_EN, table), MINERVA);
+  assert.deepEqual(store.cast, [VANE], 'the cast holds the person once, under the memory\'s form');
+  const applied = X.Addr.appliedView(X.loadAddress(room));
+  assert.deepEqual(applied.map((a) => a.text).sort(), [`‘${MINERVA_EN}’ = ${MINERVA}의 다른 이름 (단어장)`, `‘${VANE_EN}’ = ${VANE}의 다른 이름 (단어장)`, `‘Irina’ = ${C.USER}의 다른 이름 (단어장)`].sort());
+  // The reply, read and saved: every name field under one name, nobody both knowing and not knowing.
+  await X.enqueue(room, async () => {
+    const out = S.applyScenes(store, reply, slice, 2, undefined, {});
+    assert.ifError(out.error);
+    S.commitScenes(store, out);
+  });
+  assert.deepEqual(store.cast, [VANE, MINERVA]);
+  const scene = store.scenes.at(-1);
+  assert.deepEqual(scene.events[0].quotes.map((q) => q.by).sort(), [MINERVA, VANE].sort(), 'the speaker labels are written under the one name');
+  const fact = store.facts.at(-1);
+  assert.ok(fact.knownBy.includes(VANE) && !fact.knownBy.includes(VANE_EN));
+  assert.ok(!(fact.unaware || []).some((n) => [VANE, VANE_EN, MINERVA, MINERVA_EN].includes(n)), 'nobody both knows and does not know');
+  // Taken back: the two forms are apart again, and the glossary does not link them again.
+  const rec = X.loadAddress(room).applied.find((a) => a.source === VANE_EN);
+  await X.enqueue(room, async () => {
+    const t = X.loadNames(room);
+    const book = X.loadAddress(room);
+    X.Addr.undoApplied(book, rec.id, { table: t });
+    X.saveNames(room, t);
+    X.saveAddress(room, book);
+  });
+  assert.equal(A.canonOf(VANE_EN, X.loadNames(room)), null);
+  assert.equal(A.canonOf(MINERVA_EN, X.loadNames(room)), MINERVA, 'the other link stays');
+  const again = simStore([VANE, VANE_EN]);
+  await X.enqueue(room, async () => {
+    assert.equal(X.linkScriptForms(room, again, [], slice), 0, 'a link taken back is never made again');
+  });
+  // Character mode: nothing is linked by this.
+  X.setRoomMode(room, 'character');
+  assert.equal(X.linkScriptForms(room, { ...S.emptyStore(), cast: [VANE_EN] }, [], slice), 0);
+});
+
+test('simulator scene prompt: the glossary spellings of the English names this batch uses ([이름 표기]); none in character mode', () => {
+  const slice = L.prepareMessages([{ id: 'p1', number: 1, role: 'assistant', speaker: C.NARRATOR, content: `${VANE_EN} | "Arthur Pendleton, 차를 내오게."\n집사가 고개를 숙였다.` }]);
+  const pairs = [...GLOSSARY, { from: 'Arthur Pendleton', to: '아더 펜들턴' }];
+  const sim = S.buildScenePrompt(simStore([VANE]), slice, 1, null, { scriptNames: pairs })[1].content;
+  const line = sim.split('\n').find((l) => l.startsWith('[이름 표기]'));
+  assert.ok(line, 'the line is there');
+  assert.match(line, /Edward Vane = 에드워드 베인/);
+  assert.match(line, /Arthur Pendleton = 아더 펜들턴/);
+  assert.doesNotMatch(line, /Minerva|Hogwarts/, 'only names these messages use');
+  const plain = S.buildScenePrompt({ ...S.emptyStore(), cast: [C.NARRATOR], personas: [C.USER] }, slice, 1, null, { scriptNames: pairs })[1].content;
+  assert.doesNotMatch(plain, /\[이름 표기\]/, 'character mode: as before');
+  assert.equal(Sim.scriptLine(pairs, L.prepareMessages([{ id: 'p2', number: 1, role: 'user', speaker: C.USER, content: '"안녕."' }])), '', 'no English name: no line');
+});
+
+test('simulator room: a person the reply names in the glossary\'s Korean, while the text has only the English label, joins once the pair links them', async () => {
+  const room = 'sim_link_label';
+  X.setRoomMode(room, 'simulator');
+  X.saveTranslations(room, { items: {}, glossary: { pairs: [{ from: 'Arthur Pendleton', to: '아더 펜들턴' }], hash: 'y', source: '번역 프리셋·단어장', at: null } });
+  const slice = L.prepareMessages([{ id: 'b1', number: 1, role: 'assistant', speaker: C.NARRATOR, content: '집사가 문을 열었다.\nArthur Pendleton | "손님이 오셨습니다."' }]);
+  const store = simStore([]);
+  const scenes = [{ end: 1, present: ['아더 펜들턴'], events: [{ text: '집사가 손님을 알렸다', quotes: [{ q: '손님이 오셨습니다.', by: '아더 펜들턴', to: null }] }] }];
+  assert.deepEqual(Sim.newPeople(store, scenes, slice), [], 'not linked yet: the Korean form is not in the text');
+  await X.enqueue(room, async () => {
+    assert.equal(X.linkScriptForms(room, store, scenes, slice), 1);
+    assert.deepEqual(Sim.newPeople(store, scenes, slice), ['아더 펜들턴'], 'linked: the English label is his');
+  });
+});
