@@ -1080,13 +1080,26 @@ function sceneNotesOf(raw, scenePlace) {
  * Turn a model result into scenes for this slice. Scenes follow each other with no gap, from the slice start,
  * and the last one must reach `required`. Returns { scenes, facts, covered } or { error }.
  */
-function applyScenes(store, result, slice, required, now = new Date().toISOString(), { partial = false, quoteMode = 'dialogue', verifyAttribution = false, strictCoverage = false, characterState = false, places = false, keepsakes = false, dateHints = false, notebook = false, notebookStats = null, notebookLang = 'character' } = {}) {
+function applyScenes(store, result, slice, required, now, options) {
+  if (store.mode !== 'simulator') return applySceneReply(store, result, slice, required, now, options);
+  const newcomers = Sim.newPeople(store, Array.isArray(result?.scenes) ? result.scenes : [], slice);
+  if (!newcomers.length) return applySceneReply(store, result, slice, required, now, options);
+  const before = store.cast;
+  store.cast = [...(before || []), ...newcomers];
+  try {
+    const out = applySceneReply(store, result, slice, required, now, options);
+    return out.error ? out : { ...out, people: newcomers };
+  } finally {
+    store.cast = before;
+  }
+}
+
+function applySceneReply(store, result, slice, required, now = new Date().toISOString(), { partial = false, quoteMode = 'dialogue', verifyAttribution = false, strictCoverage = false, characterState = false, places = false, keepsakes = false, dateHints = false, notebook = false, notebookStats = null, notebookLang = 'character' } = {}) {
   const raw = Array.isArray(result?.scenes) ? result.scenes : null;
   if (!raw || !raw.length) return { error: '장면이 비어 있습니다' };
   // OOC talk is never a quote, a fact's evidence or a note's evidence.
   const index = L.indexBatch(slice.filter((m) => !m.ooc));
   const personas = L.personaNames(slice);
-  if (store.mode === 'simulator') Sim.admitPeople(store, raw, slice);
   const cast = castOf(store);
   // 인물의 수첩: each character's note language, from their lines in this slice (Korean for a Korean-bracketed speaker).
   const noteWriters = [...new Set([...(store.personas || []), ...personas])];
@@ -3006,6 +3019,8 @@ function commitScenes(store, applied) {
   A.rewriteDeep(applied.later);
   A.rewriteDeep(applied.learned);
   store.scenes.push(...applied.scenes);
+  // 세계 시뮬레이터: the people this reply brought in join the room now (not when a reply is only tried).
+  for (const name of applied.people || []) if (Array.isArray(store.cast) && !store.cast.includes(name) && store.cast.length < Sim.ROOM_CAST_MAX) store.cast.push(name);
   for (const f of applied.facts) {
     const old = f.replaces && store.facts.find((k) => k.id === f.replaces);
     if (old && !old.edited) old.replacedBy = f.id;

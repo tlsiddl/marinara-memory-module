@@ -43,12 +43,17 @@ test('batchCast: only people this batch names (a name or another name), the late
   assert.ok(!got.includes('학생00'), 'the oldest mentions are the ones left out');
 });
 
-test('admitPeople: named people of the batch join; a description, the narrator, the user and unknown names do not', () => {
+test('newPeople: someone who speaks, keeps a note, knows or is known about; not a description, the narrator, the user, an unknown name or someone only present', () => {
   const store = simStore([]);
-  const added = Sim.admitPeople(store, [{ present: [C.NARRATOR, HERMIONE, RON, C.USER, '론의 누나'], events: [{ with: [NEVILLE, '드레이코 말포이'] }] }], C.slice());
-  assert.deepEqual(added, [HERMIONE, RON, NEVILLE]);
-  assert.deepEqual(store.cast, [HERMIONE, RON, NEVILLE]);
-  assert.deepEqual(Sim.admitPeople(store, [{ present: [HERMIONE, '헤르미온느'] }], C.slice()), [], 'someone the cast has (or a shorter name of them) is not added again');
+  const scenes = [{
+    present: [C.NARRATOR, HERMIONE, RON, C.USER, '론의 누나', '부엉이'],
+    events: [{ with: [NEVILLE], quotes: [{ by: HERMIONE, to: C.USER }, { by: C.NARRATOR }, { by: '론의 누나' }] }],
+    notebook: [{ who: C.NARRATOR }],
+    facts: [{ about: NEVILLE, knownBy: [HERMIONE, '드레이코 말포이'], unaware: [{ who: C.USER }] }],
+  }];
+  assert.deepEqual(Sim.newPeople(store, scenes, C.slice()), [HERMIONE, NEVILLE], 'Ron and the owl are only present: they stay extras; Draco is not in the text');
+  assert.deepEqual(store.cast, [], 'the store is not changed');
+  assert.deepEqual(Sim.newPeople(simStore([HERMIONE]), [{ events: [{ quotes: [{ by: '헤르미온느' }] }] }], C.slice()), [], 'someone the cast has (or a shorter name of them) is not added again');
   assert.equal(Sim.isDescribedName("Ron's sister said"), true);
   assert.equal(Sim.isDescribedName('론의누나'), false, 'only "…의 " with a space is a description (a name may contain 의)');
 });
@@ -84,9 +89,16 @@ test('simulator reply: NPCs the scene names become people; their secrets, notes 
       notebook: [{ who: HERMIONE, kind: 'heart', when: '네빌의 비밀을 이리나에게 말한 뒤', text: '네빌 몰래 시험지를 같이 찾아 주기로 함', evidence: ['3.2'] }, { who: C.NARRATOR, kind: 'heart', when: '저녁 식사 시간에', text: '이야기를 더 극적으로 만들기로 함', evidence: ['1.1'] }],
     }],
   };
+  // A reply that is turned down brings nobody in.
+  const bad = S.applyScenes(store, { scenes: [{ ...reply.scenes[0], end: 1 }] }, C.slice(), 4, undefined, { notebook: true });
+  assert.ok(bad.error);
+  assert.deepEqual(store.cast, []);
   const out = S.applyScenes(store, reply, C.slice(), 4, undefined, { notebook: true });
   assert.ifError(out.error);
-  assert.deepEqual(store.cast, [HERMIONE, RON, NEVILLE], 'the narrator, the user and a description are not people');
+  assert.deepEqual(out.people, [HERMIONE, NEVILLE]);
+  assert.deepEqual(store.cast, [], 'nobody joins until the result is committed');
+  S.commitScenes(store, out);
+  assert.deepEqual(store.cast, [HERMIONE, NEVILLE], 'the narrator, the user, a description and Ron (only present) are not people');
   const [fact] = out.facts;
   assert.ok(fact, 'the fact is kept');
   assert.ok(!(fact.knownBy || []).includes(C.NARRATOR), 'the narrator never knows anything as a person');

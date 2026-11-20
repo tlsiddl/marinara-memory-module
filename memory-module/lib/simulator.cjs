@@ -63,29 +63,35 @@ const namesIn = (value) =>
     .map((n) => String(n ?? '').replace(/\s+/g, ' ').trim().slice(0, 40))
     .filter(Boolean);
 
+const whoOf = (v) => (v && typeof v === 'object' ? v.who : v);
+
 /**
- * New people a scene reply names, admitted to the room's cast: a name of their own (not a description), written in
- * the batch's text, not the narrator, not the user's character, not someone the cast already has. Returns the names
- * added (store.cast is changed in place).
+ * New people a scene reply names (store is not changed): someone who acts as a person in it — speaks a line or is
+ * spoken to, keeps a notebook note, is what a fact is about, knows or does not know something, remembers the scene.
+ * Being in a scene's present list alone is not enough (an owl, "the guard": they stay the scene's extras, as in
+ * character mode). The name must be its own (not a description), written in the batch's text, and not the narrator,
+ * the user's character or someone the cast already has.
  */
-function admitPeople(store, scenes, slice) {
+function newPeople(store, scenes, slice) {
   const narrators = store.narrators || [];
   const personas = [...(store.personas || []), ...L.personaNames(slice || [])];
   const text = batchText(slice);
-  const cast = (store.cast = Array.isArray(store.cast) ? store.cast : []);
+  const cast = Array.isArray(store.cast) ? store.cast : [];
   const added = [];
   for (const item of Array.isArray(scenes) ? scenes : []) {
+    const events = Array.isArray(item?.events) ? item.events : [];
+    const facts = Array.isArray(item?.facts) ? item.facts : [];
     const named = [
-      ...namesIn(item?.present),
-      ...(Array.isArray(item?.events) ? item.events.flatMap((e) => namesIn(e?.with)) : []),
-      ...(Array.isArray(item?.recollections) ? item.recollections.flatMap((r) => namesIn(r?.who)) : []),
+      ...events.flatMap((e) => (Array.isArray(e?.quotes) ? e.quotes : []).flatMap((q) => [...namesIn(q?.by), ...namesIn(q?.to)])),
+      ...(Array.isArray(item?.notebook) ? item.notebook : []).flatMap((n) => namesIn(n?.who)),
+      ...facts.flatMap((f) => [...namesIn(f?.about), ...namesIn(f?.knownBy), ...(Array.isArray(f?.unaware) ? f.unaware : []).flatMap((u) => namesIn(whoOf(u)))]),
+      ...(Array.isArray(item?.recollections) ? item.recollections : []).flatMap((r) => namesIn(r?.who)),
     ];
     for (const name of named) {
-      if (cast.length >= ROOM_CAST_MAX) return added;
+      if (cast.length + added.length >= ROOM_CAST_MAX) return added;
       const key = squash(name);
       if (key.length < 2 || isDescribedName(name) || !text.includes(key)) continue;
-      if (L.matchName(name, narrators) || L.matchName(name, personas) || L.matchName(name, cast)) continue;
-      cast.push(name);
+      if (L.matchName(name, narrators) || L.matchName(name, personas) || L.matchName(name, cast) || L.matchName(name, added)) continue;
       added.push(name);
     }
   }
@@ -98,4 +104,4 @@ function narratorLine(narrators) {
   return list.length ? `[내레이터] ${list.join(', ')} (인물이 아님)` : '';
 }
 
-module.exports = { MODES, BATCH_CAST_MAX, ROOM_CAST_MAX, NARRATOR_PROMPT, mode, isDescribedName, batchCast, admitPeople, narratorLine, squash };
+module.exports = { MODES, BATCH_CAST_MAX, ROOM_CAST_MAX, NARRATOR_PROMPT, mode, isDescribedName, batchCast, newPeople, narratorLine, squash };
