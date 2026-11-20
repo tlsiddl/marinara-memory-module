@@ -3944,7 +3944,7 @@
 /* 세계관 설정집 화면 (연동 v2 · 세계관 칸) */
 (() => {
   const __WORLD_ARCHIVE_EMBEDDED__ = true;
-/* Copied from tlsiddl/marinara-world-archive feature/link-v2 33c9562 (extension/extension.js, v0.4.0 · 연동 v2 · 계약 수준 2). Do not edit here: change it there and copy again. */
+/* Copied from tlsiddl/marinara-world-archive main 7136b3e (extension/extension.js, v0.4.0 · 연동 v2 · 계약 수준 2). Do not edit here: change it there and copy again. */
 /* 세계관 설정집 · Marinara World Archive — personal extension UI.
  * Talks only to /api/world-archive on the same server. Visual language follows its sister module 기억 서재
  * (paper grain, ticket notches, ink shadows); the motif here is a star chart instead of a record. */
@@ -4700,6 +4700,11 @@ pre{white-space:pre-wrap;word-break:break-word;font:12.5px/1.65 var(--wa-mono);m
         <div class="actions"><button class="primary" type="button" data-act="save-auto">저장</button></div>
       </form>
       <div class="paper">
+        <h2>인물 종 채우기 <small>추가 기능</small></h2>
+        <p class="sub" style="margin:0 0 12px">「종」 칸이 생기기 전에 읽은 인물은 종이 비어 있습니다. 누를 때만, 종이 빈 인물의 이름 · 다른 이름 · 외형 · 메모를 모아 100명씩 작은 호출로 묻고, 사람이 아닌 존재(반려동물 · 마법 생물 같은)에만 종을 적습니다. 직접 고친 칸은 건드리지 않고, 기록에서 하나씩 되돌릴 수 있습니다. 자동 반영 연결을 씁니다.</p>
+        <div class="row"><button type="button" data-act="species-fill">인물 종 채우기</button></div>
+      </div>
+      <div class="paper">
         <h2>백업 · 복원</h2>
         <p class="sub" style="margin:0 0 12px">이 세계관의 설정 · 관계 · 기록을 파일 하나로 내려받습니다. 복원하면 「(복원)」이 붙은 새 세계관이 생기고, 지금 세계관은 그대로입니다. 방 연결은 복원되지 않습니다.</p>
         <div class="row"><button type="button" data-act="backup">백업 내려받기</button><label class="quiet" style="cursor:pointer;padding:6px 8px">백업에서 복원<input id="restore-file" type="file" accept="application/json,.json" hidden></label></div>
@@ -5020,6 +5025,11 @@ pre{white-space:pre-wrap;word-break:break-word;font:12.5px/1.65 var(--wa-mono);m
       await loadScores();
       await loadRoom();
     }),
+    'species-fill': () => run(async () => {
+      const r = await api('POST', `/worlds/${st.worldId}/species-fill`);
+      await loadEntities();
+      st.bad = false;
+      st.msg = r.filled.length ? `종을 채웠습니다(${r.filled.length}명): ${r.filled.map((x) => `${x.name} — ${x.species}`).join(', ')}. 기록에서 되돌릴 수 있습니다.` : `종이 빈 인물 ${r.asked}명 가운데 사람이 아닌 존재를 찾지 못했습니다.`;    }),
     backup: () => run(async () => {
       const w = world();
       const file = await api('GET', `/worlds/${w.worldId}/export`);
