@@ -22,6 +22,36 @@ const NARRATOR_PROMPT = `## 세계 시뮬레이터 방
 - 내레이터의 서술(장면 묘사, 다른 곳에서 일어난 일)은 누구의 말이나 생각도 아니야. 내레이터가 알려 준 것을 인물이 안다고 적지 마. 그 자리에 있었거나 전해 들은 인물만 알아.
 - 새 인물은 본문에 이름이 나오는 사람만 적어. 「○○의 누나」처럼 설명으로만 불리는 사람은 이름으로 만들지 마(장면 present에는 본문의 호칭 그대로 둬도 돼).`;
 
+/**
+ * With the notebook on, in a simulator room: a named animal the story gives a part to (a pet, a familiar) keeps a
+ * notebook too, from what it does and how it reacts (it has no lines).
+ */
+const ANIMAL_NOTEBOOK_PROMPT = `세계 시뮬레이터 방의 동물 수첩:
+- 이름이 있고 본문에 행동·반응이 여러 번 서술되는 동물(반려동물, 패밀리어 같은)도 수첩을 쓸 수 있어. who는 그 동물 이름.
+- 동물은 대사가 없으니, 본문에 드러난 행동과 반응(다가감, 피함, 경계, 고집, 애착)에서 그 동물이 누구를 어떻게 여기고 무엇을 좋아하거나 꺼리게 됐는지를 그 동물 시점으로 짧게 적어. 사람처럼 말로 생각하거나 계획을 세운다고 꾸미지 마.
+- 이름 없이 지나가는 동물(편지를 가져온 부엉이 같은)은 적지 마.`;
+
+/**
+ * The people of this batch who have never had a line but were there in two or more saved scenes (a cat, a silent
+ * servant): the notebook prompt names them, since a model told only "animals may keep a notebook too" writes none.
+ */
+function silentPeople(store, batch) {
+  const canon = (n) => A.canonical(n);
+  const spoke = new Set();
+  const seen = new Map();
+  for (const sc of store?.scenes || []) {
+    for (const q of [...(sc.events || []).flatMap((e) => e.quotes || []), ...(sc.loose || [])]) if (q?.kind === 'dialogue' && q.by) spoke.add(canon(q.by));
+    for (const p of new Set((sc.present || []).map(canon))) seen.set(p, (seen.get(p) || 0) + 1);
+  }
+  return (batch || []).filter((n) => !spoke.has(canon(n)) && (seen.get(canon(n)) || 0) >= 2);
+}
+
+/** The animal-notebook rules, with the people of this batch who act without lines named. */
+function animalNotebookPrompt(silent) {
+  return silent?.length ? `${ANIMAL_NOTEBOOK_PROMPT}
+- 이번 묶음에서 대사 없이 행동으로만 나오는 인물: ${silent.join(', ')}. 이들의 행동·반응이 서술된 장면에서는 그 시점의 수첩을 적극적으로 적어.` : ANIMAL_NOTEBOOK_PROMPT;
+}
+
 const squash = (t) => String(t ?? '').toLowerCase().replace(/[\s"'“”‘’「」『』.,!?·~\-_()[\]]/g, '');
 
 /**
@@ -222,4 +252,4 @@ function narratorLine(narrators) {
   return list.length ? `[내레이터] ${list.join(', ')} (인물이 아님)` : '';
 }
 
-module.exports = { isGroup, namedPeople, scriptPairs, nameLinks, canonCast, scriptLine, MODES, BATCH_CAST_MAX, ROOM_CAST_MAX, NARRATOR_PROMPT, mode, isDescribedName, nameInText, batchCast, newPeople, narratorLine, squash };
+module.exports = { silentPeople, animalNotebookPrompt, ANIMAL_NOTEBOOK_PROMPT, isGroup, namedPeople, scriptPairs, nameLinks, canonCast, scriptLine, MODES, BATCH_CAST_MAX, ROOM_CAST_MAX, NARRATOR_PROMPT, mode, isDescribedName, nameInText, batchCast, newPeople, narratorLine, squash };

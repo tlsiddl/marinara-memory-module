@@ -307,3 +307,33 @@ test('simulator room: a person the reply names in the glossary\'s Korean, while 
     assert.deepEqual(Sim.newPeople(store, scenes, slice), ['아더 펜들턴'], 'linked: the English label is his');
   });
 });
+
+test('simulator scene prompt with the notebook on: a named animal of the story keeps a notebook too; not without the notebook, not in character mode', () => {
+  const slice = C.slice();
+  const withNotes = S.buildScenePrompt(simStore([HERMIONE]), slice, 4, null, { notebook: true })[0].content;
+  assert.ok(withNotes.includes(Sim.ANIMAL_NOTEBOOK_PROMPT));
+  assert.ok(!S.buildScenePrompt(simStore([HERMIONE]), slice, 4, null, {})[0].content.includes('동물 수첩'), 'notebook off: no line');
+  assert.ok(!S.buildScenePrompt({ ...S.emptyStore(), cast: [C.NARRATOR], personas: [C.USER] }, slice, 4, null, { notebook: true })[0].content.includes('동물 수첩'), 'character mode: as before');
+  // The cat keeps a note: she joins the room's people (a notebook makes one), the owl that only brought a letter does not.
+  const cat = L.prepareMessages([{ id: 'k1', number: 1, role: 'assistant', speaker: C.NARRATOR, content: '부엉이가 편지를 떨어뜨리고 날아갔다. 베아트릭스가 이리나의 무릎에 뛰어올라 낯선 손님을 노려보았다.' }]);
+  assert.deepEqual(Sim.newPeople(simStore([]), [{ present: ['부엉이', '베아트릭스', C.USER], notebook: [{ who: '베아트릭스', kind: 'heart', text: '낯선 손님은 믿지 않기로 함' }] }], cat), ['베아트릭스']);
+});
+
+test('simulator scene prompt: someone with no lines (a cat) is on the [수첩 언어] list too; character mode lists only who speaks, as before', () => {
+  const slice = L.prepareMessages([{ id: 'v1', number: 1, role: 'assistant', speaker: C.NARRATOR, content: `베아트릭스가 꼬리를 세웠다.\n${HERMIONE} | "고양이가 너를 좋아하네."` }]);
+  const sys = S.buildScenePrompt(simStore([HERMIONE, '베아트릭스']), slice, 1, null, { notebook: true })[0].content;
+  const row = sys.split('\n').find((l) => l.startsWith('[수첩 언어]'));
+  assert.ok(row && row.includes('베아트릭스'), row);
+  const plain = S.buildScenePrompt({ ...S.emptyStore(), cast: [HERMIONE, '베아트릭스'], personas: [C.USER] }, slice, 1, null, { notebook: true })[0].content;
+  assert.ok(!(plain.split('\n').find((l) => l.startsWith('[수첩 언어]')) || '').includes('베아트릭스'), 'character mode: unchanged');
+});
+
+test('simulator notebook prompt: someone of the batch with no lines, there in two saved scenes, is named for the animal notebook', () => {
+  const store = simStore([HERMIONE, '베아트릭스']);
+  store.scenes = [1, 2].map((i) => ({ id: `S${i}`, title: '저녁', summary: '', recollections: [], present: [HERMIONE, '베아트릭스', C.USER], events: [{ quotes: [{ q: '안녕', by: HERMIONE, kind: 'dialogue' }] }] }));
+  assert.deepEqual(Sim.silentPeople(store, [HERMIONE, '베아트릭스']), ['베아트릭스']);
+  assert.deepEqual(Sim.silentPeople({ ...store, scenes: store.scenes.slice(0, 1) }, [HERMIONE, '베아트릭스']), [], 'one scene is not enough');
+  const slice = L.prepareMessages([{ id: 'v2', number: 1, role: 'assistant', speaker: C.NARRATOR, content: `베아트릭스가 꼬리를 세웠다.\n${HERMIONE} | "고양이가 너를 좋아하네."` }]);
+  const sys = S.buildScenePrompt(store, slice, 1, null, { notebook: true })[0].content;
+  assert.match(sys, /대사 없이 행동으로만 나오는 인물: 베아트릭스/);
+});

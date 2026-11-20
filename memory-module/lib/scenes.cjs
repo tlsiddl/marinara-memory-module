@@ -462,9 +462,19 @@ function buildScenePrompt(store, slice, required, problem = null, preferences = 
     // How each character talks in Korean (their Korean lines, or the saved Korean translation of English-only lines).
     const speakers = cast.filter((n) => !(store.personas || []).includes(n) && !personas.includes(n));
     const samples = Nb.voiceSamples(slice, cast, { personas: [...new Set([...(store.personas || []), ...personas])] });
-    const voice = Nb.voiceBlock(samples, Nb.priorNotes(store, speakers), { langs: Nb.langsFor(samples, speakers, preferences.notebookLang) });
+    let langs = Nb.langsFor(samples, speakers, preferences.notebookLang);
+    // 세계 시뮬레이터: someone with no lines (a cat, a silent servant) is on the [수첩 언어] list too, in the language the
+    // others' notes take, so the model sees they may keep a notebook.
+    if (sim) {
+      const count = {};
+      for (const l of Object.values(langs)) count[l] = (count[l] || 0) + 1;
+      const common = Object.entries(count).sort((x, y) => y[1] - x[1])[0]?.[0] || 'ko';
+      langs = { ...Object.fromEntries(speakers.map((n) => [n, common])), ...langs };
+    }
+    const voice = Nb.voiceBlock(samples, Nb.priorNotes(store, speakers), { langs });
     extras.push(voice ? `${Nb.PROMPT}
 ${voice}` : Nb.PROMPT);
+    if (sim) extras.push(Sim.animalNotebookPrompt(Sim.silentPeople(store, speakers)));
   }
   return [
     { role: 'system', content: base + (guidance.length ? '\n\n사용자가 선택한 정리 우선순위 (위의 대사 우선 규칙보다 우선):\n' + guidance.join('\n') : '') + (extras.length ? '\n\n' + extras.join('\n\n') : '') },
