@@ -60,9 +60,10 @@ function targets(store, scenes, slice, { species = null } = {}) {
   // Not a candidate: someone who spoke, the narrator, the user's character, a name with a person's title, a name the
   // room already found is not an animal.
   const notAnimal = new Set((store.notAnimals || []).map((n) => A.canonical(n)));
-  // 세계관 설정집 연동 v2: with World Archive linked, only its people with a 종 (species) are animals.
+  // 세계관 설정집 연동 v2: with World Archive linked, its people with a 종 (species) who never had a line (a ghost, a
+  // house-elf or a goblin has a 종 too, but talks: a person of the story with a notebook of its own, not a pet).
   const silent = species
-    ? cast.filter((n) => species.has(A.canonical(n)) && !(store.narrators || []).includes(n) && !(store.personas || []).includes(n))
+    ? cast.filter((n) => species.has(A.canonical(n)) && !spoke.has(A.canonical(n)) && !(store.narrators || []).includes(n) && !(store.personas || []).includes(n))
     : cast.filter((n) => !spoke.has(A.canonical(n)) && !(store.narrators || []).includes(n) && !(store.personas || []).includes(n) && !personWord(n) && !notAnimal.has(A.canonical(n)));
   if (!silent.length) return [];
   const out = [];

@@ -156,3 +156,24 @@ test('the 「아는 사이」 lines always use the name table\'s name — also w
   // A person the name table does not know at all: World Archive's name, once.
   assert.deepEqual(A.using(A.emptyTable(), () => W.relationLines([rel, rel], textOnly, [])), ['- 바너비 파이 — 개러스 어쿼하트: 친구']);
 });
+
+test('a 종 is not "an animal": a ghost, a house-elf or a goblin who talks keeps a notebook as a person, and is never a pet-notebook candidate', () => {
+  const Sim = require('../memory-module/lib/simulator.cjs');
+  const species = W.speciesMap([
+    { type: 'person', name: CAT, aliases: [], fields: { species: '하프 크니즐' } },
+    { type: 'person', name: '피브스', aliases: [], fields: { species: '유령' } },
+    { type: 'person', name: '팁피', aliases: [], fields: { species: '집요정' } },
+  ]);
+  const batch = L.prepareMessages([
+    { id: 'h1', number: 1, role: 'assistant', speaker: C.NARRATOR, content: `피브스가 천장에서 내려왔다. 피브스는 분필을 던졌다. 팁피가 몸을 숙였다. 팁피는 접시를 떨어뜨렸다. 베아트릭스가 하악질했다. 베아트릭스는 꼬리를 부풀렸다.\n피브스 | "1학년이다!"\n팁피 | "팁피는 죄송합니다."` },
+  ]);
+  const store = { ...S.emptyStore(), mode: 'simulator', narrators: [C.NARRATOR], personas: [USER], cast: [CAT],
+    scenes: [{ id: 'S1', start: 1, end: 1, title: '복도', present: [CAT, '피브스', '팁피', USER], recollections: [], events: [{ text: '소동', quotes: [{ q: '1학년이다!', by: '피브스', kind: 'dialogue' }, { q: '팁피는 죄송합니다.', by: '팁피', kind: 'dialogue' }] }] }] };
+  // They speak: the simulator takes them in as people, as anyone else who speaks.
+  const reply = [{ events: [{ quotes: [{ by: '피브스', to: USER }, { by: '팁피', to: USER }] }], notebook: [{ who: '팁피', kind: 'heart', text: '이리나 앞에서 실수해 부끄러움' }] }];
+  assert.deepEqual(Sim.newPeople(store, reply, batch), ['피브스', '팁피']);
+  store.cast = [CAT, '피브스', '팁피'];
+  // With World Archive: a 종 and never a line — only the cat.
+  const found = Pets.targets(store, store.scenes, batch, { species });
+  assert.deepEqual(found.map((f) => f.names), [[CAT]]);
+});
