@@ -25,6 +25,11 @@ js = (root / 'runtime.js').read_text()
 js = js.replace("/*__UI_CSS__*/ ''", "/*__UI_CSS__*/ " + json.dumps((root / 'ui.css').read_text(), ensure_ascii=False))
 js = js.replace("/*__THEME_CSS__*/ ''", "/*__THEME_CSS__*/ " + json.dumps((root / 'theme.css').read_text(), ensure_ascii=False))
 js = js.replace("'/*__VERSION__*/'", json.dumps(version))
+# 세계관 설정집 연동 v2: World Archive's screen built in for the 「세계관」 tab (vendor/world-panel.js, a copy of its
+# extension/extension.js). Wrapped so it only registers itself (__memoryWorldPanel) and never starts on its own.
+panel = root / 'vendor' / 'world-panel.js'
+if panel.exists():
+    js += '\n/* 세계관 설정집 화면 (연동 v2 · 세계관 칸) */\n(() => {\n  const __WORLD_ARCHIVE_EMBEDDED__ = true;\n' + panel.read_text() + '\n})();\n'
 (out / 'extension.js').write_text('/* 기억 서재 · 마리나라 엔진용 기억 모듈 (비공식) */\n' + js)
 (out / 'extension.css').write_text('/* UI styles live in an isolated ShadowRoot. */\n')
 (out / 'manifest.json').write_text(json.dumps(manifest, ensure_ascii=False, indent=2))
