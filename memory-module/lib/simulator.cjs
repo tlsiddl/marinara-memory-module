@@ -65,6 +65,25 @@ const namesIn = (value) =>
 
 const whoOf = (v) => (v && typeof v === 'object' ? v.who : v);
 
+/** Title words that are not a name of their own (from World Archive's NAME_FILLER, c813aeb). */
+const NAME_FILLER = new Set(['the', 'and', 'of', 'for', 'with', 'from', 'into', 'house', 'school', 'family', 'lady', 'lord', 'miss', 'mister', 'mrs', 'mr', 'sir', 'madam', 'madame', 'professor', 'young', 'little', 'your', 'grace', 'head', '교수', '교수님', '선생', '선생님', '공작', '부인', '씨', '양', '군']);
+
+/**
+ * Is this name written in the text? The whole name, or one word of a spaced name that is a name of its own (2+ Hangul
+ * syllables or 4+ Latin letters, not a title): the story calls 「에드워드 베인」 "베인 공작" more often than his full name.
+ */
+function nameInText(name, text) {
+  if (text.includes(squash(name))) return true;
+  const words = String(name).split(/\s+/).filter(Boolean);
+  if (words.length < 2) return false;
+  return words.some((w) => {
+    const k = squash(w);
+    if (NAME_FILLER.has(k)) return false;
+    if (/^[가-힣]+$/.test(k)) return k.length >= 2 && text.includes(k);
+    return /^[a-z]+$/.test(k) && k.length >= 4 && text.includes(k);
+  });
+}
+
 /**
  * New people a scene reply names (store is not changed): someone who acts as a person in it — speaks a line or is
  * spoken to, keeps a notebook note, is what a fact is about, knows or does not know something, remembers the scene.
@@ -90,7 +109,7 @@ function newPeople(store, scenes, slice) {
     for (const name of named) {
       if (cast.length + added.length >= ROOM_CAST_MAX) return added;
       const key = squash(name);
-      if (key.length < 2 || isDescribedName(name) || !text.includes(key)) continue;
+      if (key.length < 2 || isDescribedName(name) || !nameInText(name, text)) continue;
       if (L.matchName(name, narrators) || L.matchName(name, personas) || L.matchName(name, cast) || L.matchName(name, added)) continue;
       added.push(name);
     }
@@ -104,4 +123,4 @@ function narratorLine(narrators) {
   return list.length ? `[내레이터] ${list.join(', ')} (인물이 아님)` : '';
 }
 
-module.exports = { MODES, BATCH_CAST_MAX, ROOM_CAST_MAX, NARRATOR_PROMPT, mode, isDescribedName, batchCast, newPeople, narratorLine, squash };
+module.exports = { MODES, BATCH_CAST_MAX, ROOM_CAST_MAX, NARRATOR_PROMPT, mode, isDescribedName, nameInText, batchCast, newPeople, narratorLine, squash };

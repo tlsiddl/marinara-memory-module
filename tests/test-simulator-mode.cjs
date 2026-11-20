@@ -54,6 +54,9 @@ test('newPeople: someone who speaks, keeps a note, knows or is known about; not 
   assert.deepEqual(Sim.newPeople(store, scenes, C.slice()), [HERMIONE, NEVILLE], 'Ron and the owl are only present: they stay extras; Draco is not in the text');
   assert.deepEqual(store.cast, [], 'the store is not changed');
   assert.deepEqual(Sim.newPeople(simStore([HERMIONE]), [{ events: [{ quotes: [{ by: '헤르미온느' }] }] }], C.slice()), [], 'someone the cast has (or a shorter name of them) is not added again');
+  // A spaced name whose own word is in the text counts ("베인 공작" for 「에드워드 베인」); a title word alone does not.
+  const duke = L.prepareMessages([{ id: 'd1', number: 1, role: 'assistant', speaker: C.NARRATOR, content: '베인 공작이 웃었다. Professor가 들어왔다.' }]);
+  assert.deepEqual(Sim.newPeople(simStore([]), [{ events: [{ quotes: [{ by: '에드워드 베인' }, { by: 'Professor Snape' }, { by: '아서 펜들턴' }] }] }], duke), ['에드워드 베인'], 'Snape: only the title is in the text; Pendleton: nothing of him');
   assert.equal(Sim.isDescribedName("Ron's sister said"), true);
   assert.equal(Sim.isDescribedName('론의누나'), false, 'only "…의 " with a space is a description (a name may contain 의)');
 });
