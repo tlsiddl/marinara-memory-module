@@ -1711,14 +1711,38 @@ function hedged(text) {
 
 const WEEKDAYS = '일월화수목금토';
 
+/**
+ * A two-digit year as a full one: the century of the story's day (`base`) that puts it nearest that day, so in a
+ * story of 1766 "66-08-19" is 1766, not 2066. Without a known day, 20xx.
+ */
+function fullYear(two, base = null) {
+  const yy = Number(two);
+  const by = base ? Number(String(base).slice(0, 4)) : NaN;
+  if (!Number.isFinite(by)) return 2000 + yy;
+  const c = Math.floor(by / 100) * 100;
+  return [c - 100 + yy, c + yy, c + 100 + yy].sort((a, b) => Math.abs(a - by) - Math.abs(b - by))[0];
+}
+
+/** "24-10-18" for showing a day of 20xx; any other year is written in full ("1766-08-19"), so it reads back the same. */
+function shortDay(iso) {
+  return /^20\d{2}-/.test(String(iso || '')) ? String(iso).slice(2) : String(iso || '');
+}
+
 /** "24-10-18" / "2024-10-18" / "10-18" (year from `base`) → "2024-10-18", or null. */
 function isoDate(text, base = null) {
   const m = String(text || '').match(/(?:(\d{2}|\d{4})[-./])?(\d{1,2})[-./](\d{1,2})/);
   if (!m) return null;
-  const year = m[1] ? (m[1].length === 2 ? 2000 + Number(m[1]) : Number(m[1])) : base ? Number(base.slice(0, 4)) : null;
+  const year = m[1] ? (m[1].length === 2 ? fullYear(m[1], base) : Number(m[1])) : base ? Number(base.slice(0, 4)) : null;
   if (!year) return null;
   const d = new Date(Date.UTC(year, Number(m[2]) - 1, Number(m[3])));
+  if (year < 100) d.setUTCFullYear(year);
   return Number.isNaN(d.getTime()) || d.getUTCMonth() !== Number(m[2]) - 1 || d.getUTCDate() !== Number(m[3]) ? null : d.toISOString().slice(0, 10);
+}
+
+/** "2024-03-01", "1766.8.19", "2024/3/1" with a full year → "2024-03-01", or null (a date the user typed in). */
+function isoDateStrict(text) {
+  const m = String(text || '').trim().match(/^(\d{3,4})\s*[-./년]\s*(\d{1,2})\s*[-./월]\s*(\d{1,2})\s*일?$/);
+  return m ? isoDate(`${m[1].padStart(4, '0')}-${m[2]}-${m[3]}`) : null;
 }
 
 function addDays(iso, days) {
@@ -1735,7 +1759,8 @@ function addDays(iso, days) {
 function storyDate(messages, base = null) {
   let latest = null;
   for (const m of messages || []) {
-    const own = dateInText(m.content, latest || base);
+    // clockOnly: a date set by hand, or a room that reads dates from the tracker only (its clock already says).
+    const own = m.clockOnly ? null : dateInText(m.content, latest || base);
     if (own) latest = own.date;
     else if (m.clock?.date) latest = m.clock.date;
   }
@@ -1783,6 +1808,9 @@ function dateInText(content, base = null) {
     if (at < 0) continue;
     const c = parseClock(fields[at], base);
     const time = c.time || fields.slice(at + 1, at + 3).map((f) => parseClock(f)).find((x) => x?.time && !x.date)?.time || null;
+    // "3/10" or "4.5" alone is a score as often as a day ("[서아|3/10|기분 좋음]", "[호감도|4.5]"): a day only with a
+    // year, a month word ("3월 10일", "Mar 10") or a time beside it.
+    if (/^\d{1,2}\s*[-./]\s*\d{1,2}$/.test(fields[at]) && !time) continue;
     take({ date: c.date, time });
   }
   // A numeric date with its weekday in brackets is a header wherever it stands, even inline before a line of
@@ -1903,9 +1931,9 @@ function weekdayOf(text) {
 function clockNote(message) {
   const c = message?.clock;
   const parts = [];
-  if ((c?.date || c?.time || c?.label) && !dateInText(message.content, c?.date || null)) {
+  if ((c?.date || c?.time || c?.label) && (message.clockOnly || !dateInText(message.content, c?.date || null))) {
     // A tracker date that could not be read as a calendar day is passed on in its own words (not an older date).
-    const day = c.date ? `${c.date.slice(2)} (${WEEKDAYS[new Date(`${c.date}T00:00:00Z`).getUTCDay()]})` : c.label || '';
+    const day = c.date ? `${shortDay(c.date)} (${WEEKDAYS[new Date(`${c.date}T00:00:00Z`).getUTCDay()]})` : c.label || '';
     parts.push(`작중 ${[day, c.time].filter(Boolean).join(' ')}`);
   }
   if (message?.weather) parts.push(`날씨: ${message.weather}`);
@@ -1930,7 +1958,7 @@ function notAMeal(text) {
 function storyTime(messages, base = null) {
   let latest = null;
   for (const m of messages || []) {
-    const own = dateInText(m.content, latest?.slice(0, 10) || base);
+    const own = m.clockOnly ? null : dateInText(m.content, latest?.slice(0, 10) || base);
     const found = !!own;
     // A date line without a time takes the tracker's time when the tracker is on the same day.
     const time = own?.time || (own && m.clock?.date === own.date ? m.clock.time : null);
@@ -2305,6 +2333,8 @@ function drugName(text) {
   return String(text || '약').replace(/\s*(한|두|세|네|\d+)\s*(알|정|캡슐|포|봉|번|mg|ml).*$/i, '').replace(/\s+/g, '').slice(0, 20) || '약';
 }
 
+// Records older than this (no newer one for the person) are not counted from: the story moved on without them.
+const ROUTINE_STALE_HOURS = 24;
 function renderRoutine(ledger, now = null, { only = null } = {}) {
   // Nothing that happens after "now" (an older prompt preview, or a reroll further back) is counted.
   // A hand-added entry always counts: the person put it there on purpose.
@@ -2318,6 +2348,14 @@ function renderRoutine(ledger, now = null, { only = null } = {}) {
   for (const who of people) {
     // A picked person with nothing recorded yet: said so plainly (not as a row of "no record" notes).
     if (chosen && !all.some((r) => r.who === who)) { lines.push(`- ${who}: 기록 없음`); continue; }
+    // Nothing written down for a day or more (the story skipped days or months, or they were away): the old
+    // records say nothing about now. Counted from them, the model was told they had not eaten for 60 days, or had
+    // slept for 60 days, and played it.
+    const lastAt = all.filter((r) => r.who === who && r.at).map((r) => r.at).sort().at(-1);
+    if (now && lastAt && Date.parse(`${now}:00Z`) - Date.parse(`${lastAt}:00Z`) >= ROUTINE_STALE_HOURS * 3600000) {
+      lines.push(`- ${who}: ${clock(lastAt, today)} 이후 기록 없음(그사이 시간이 흘렀거나 건너뛰었을 뿐이니, 굶었거나 계속 잤다고 여기지 마)`);
+      continue;
+    }
     const of = (what) => all.filter((r) => r.who === who && r.what === what);
     // Times they were plainly up: a sleep can't have run through these.
     const awake = all.filter((r) => r.who === who && ['meal', 'wash', 'groom', 'medicine'].includes(r.what) && r.at).map((r) => r.at);
@@ -2447,7 +2485,7 @@ function dawnFix(value, item, evidence, batch) {
 
 function dayLabel(iso) {
   const d = new Date(`${iso}T00:00:00Z`);
-  return `${iso.slice(2)} (${WEEKDAYS[d.getUTCDay()]})`;
+  return `${shortDay(iso)} (${WEEKDAYS[d.getUTCDay()]})`;
 }
 
 /** "24-10-18 (금)~24-10-20 (일), 지금 1/3일째" — the day count comes from the newest story date read. */
@@ -2904,6 +2942,9 @@ module.exports = {
   formatPeriod,
   storyDate,
   parseClock,
+  isoDateStrict,
+  fullYear,
+  shortDay,
   addDays,
   dayCounter,
   weekdayOf,

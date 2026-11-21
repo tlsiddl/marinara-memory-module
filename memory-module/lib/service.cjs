@@ -1223,6 +1223,33 @@ function setRoomMode(chatId, mode) {
 }
 
 /**
+ * 작중 날짜 바로잡기 (방마다): the story dates the user set by hand, each from a message on ({ id, number, date,
+ * time }), and whether dates written in the messages' text are read at all (off: the tracker and hand fixes only,
+ * for a room whose status lines have numbers that read as dates).
+ */
+function dateFixes(chatId) {
+  const list = settings().chats?.[chatId]?.dateFixes;
+  return Array.isArray(list) ? list.filter((f) => f && typeof f.id === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(f.date)) : [];
+}
+function datesFromText(chatId) {
+  return settings().chats?.[chatId]?.datesFromText !== false;
+}
+function setRoomDates(chatId, { fixes, fromText } = {}) {
+  const next = settings();
+  const room = { ...(next.chats?.[chatId] || {}) };
+  if (fixes !== undefined) {
+    if (fixes.length) room.dateFixes = fixes;
+    else delete room.dateFixes;
+  }
+  if (fromText !== undefined) {
+    if (fromText === false) room.datesFromText = false;
+    else delete room.datesFromText;
+  }
+  next.chats = { ...next.chats, [chatId]: room };
+  saveSettings(next);
+}
+
+/**
  * World Archive (세계관 설정집) linked to this room with 연동 v2 (계약 수준 2): its api, or null. Read only — the
  * memory module never writes to it.
  */
@@ -1508,7 +1535,19 @@ async function chatLanguage(chatId) {
   return chatLangs.get(chatId) || record.lang;
 }
 
-const CLOCK_FIELD = /날짜|일자|date|day|시간|시각|time|작중|게임 ?내|in-?game/i;
+/**
+ * A tracker field that holds the story's date or time: "날짜", "작중 시간", "Date", "Time", "In-game day". Not one
+ * that only has such a word inside ("Birthday", "D-day", "함께한 시간", "남은 시간", "Days together"): those
+ * hold other dates and counts, and read as the story's day they sent it to a wrong one.
+ */
+const CLOCK_FIELD = {
+  test(name) {
+    const n = String(name || '').replace(/[\p{Extended_Pictographic}\uFE0F:：]/gu, '').trim();
+    if (!n || /생일|기념일|디데이|d-?day|birth|anniv|since|until|left|remain|남은|함께|플레이|play|경과|elapsed|count|together|\bage\b|나이|기간|duration/i.test(n)) return false;
+    if (/날짜|일자|작중|게임\s*내|in-?game|\bdate\b|calendar|달력/i.test(n)) return true;
+    return /^(?:현재\s*|지금\s*|current\s*|story\s*)?(?:시간|시각|시간대|time|time of day|day|clock|요일|weekday)$/i.test(n);
+  },
+};
 
 /** The story date and time a tracker snapshot shows: the world tracker's date/time, or a custom field named so. */
 function trackerClock(row, base) {
@@ -1607,17 +1646,24 @@ async function addTrackerClock(e, chatId, messages) {
   let was = null;
   const at = (c) => (c?.date ? `${c.date}T${c.time || '00:00'}` : null);
   const weekday = (iso) => new Date(`${iso}T00:00:00Z`).getUTCDay();
+  const fixes = new Map(dateFixes(chatId).map((f) => [f.id, f]));
+  const fromText = datesFromText(chatId);
   for (const [i, m] of messages.entries()) {
-    // A date line written in the message itself comes first, and is what the next messages carry on from.
-    const own = L.dateInText(L.htmlToText(m.content), last?.date || null);
+    // A date line written in the message itself comes first, and is what the next messages carry on from
+    // (unless the room reads dates from the tracker only). A date the user set by hand for a message wins over both.
+    const written = L.dateInText(L.htmlToText(m.content), last?.date || null);
+    const fix = fixes.get(m.id) || null;
+    const own = fix ? { date: fix.date, time: fix.time || written?.time || null } : fromText ? written : null;
+    if (fix || !fromText) m.clockOnly = true;
     const snap = snaps.get(m.id);
     const clock = trackerClock(snap, own?.date || last?.date || null);
     const text = clock?.dateText || null;
     const count = text ? L.dayCounter(text) : null;
-    if (own) was = own.date;
+    if (written) was = written.date;
     else if (clock?.date && !(was && clock.date < was)) was = clock.date;
     let label = null;
     if (own) {
+      if (fix) behind = null;
       last = { date: own.date, time: own.time || null };
       if (count != null) counter = { n: count, date: own.date };
       lastText = text;
@@ -1658,7 +1704,7 @@ async function addTrackerClock(e, chatId, messages) {
     // The weather holds for the day it was noted on: a new story day starts with no weather until one is noted.
     if (clock?.weather) weather = { text: clock.weather, date: last?.date || null };
     else if (weather?.date && last?.date && last.date !== weather.date) weather = null;
-    if (last && !m.clock?.label) m.clock = { ...last };
+    if (last && !m.clock?.label) m.clock = { ...last, ...(fix ? { fixed: true, time: fix.time || last.time || clock?.time || null } : {}) };
     if (was && m.clock && m.clock.date !== was) m.clock.was = was;
     // No calendar day known: the tracker's own words for the day go with the time ("Day 3 14:00").
     if (!own && text && !m.clock?.date && !m.clock?.label) m.clock = { ...(m.clock || {}), date: null, time: m.clock?.time ?? clock?.time ?? null, label: text };
@@ -1747,9 +1793,21 @@ function memoryCallOptions(conn, baseUrl) {
   const host = String(baseUrl || '').replace(/^https?:\/\//, '').split('/')[0].toLowerCase();
   const deepseek = conn.provider === 'deepseek' || /(^|\.)deepseek\.com(:\d+)?$/.test(host) || (process.env.MEMORY_MODULE_TEST_DEEPSEEK_HOST && host === process.env.MEMORY_MODULE_TEST_DEEPSEEK_HOST);
   const own = JSON.stringify(conn.defaultParameters ?? '');
-  if (!deepseek || /thinking|reasoning/i.test(own)) return {};
-  return { customParameters: { thinking: { type: 'disabled' } } };
+  // The connection's own setting for thinking wins, for every model.
+  if (/thinking|reasoning/i.test(own)) return {};
+  if (deepseek) return { customParameters: { thinking: { type: 'disabled' } } };
+  // Gemma 4 thinks at length by default, and a memory answer then came back cut off or not at all: it is asked to
+  // think lightly ("low"). Said the way the site takes it; a site that refuses it is asked again without (askModel).
+  if (GEMMA4.test(String(conn.model || ''))) {
+    if (conn.provider === 'google' || /generativelanguage\.googleapis\.com$/.test(host)) return { light: { reasoningEffort: 'low', enableThinking: true } };
+    if (/(^|\.)openrouter\.ai$/.test(host)) return { light: { customParameters: { reasoning: { effort: 'low' } } } };
+    return { light: { customParameters: { reasoning_effort: 'low' } } };
+  }
+  return {};
 }
+const GEMMA4 = /gemma[-_ ]?4/i;
+// Connections whose site refused the light-thinking setting (asked again without it, and not sent it again).
+const lightRefused = new Set();
 
 /** The connection that translates memory: its own when one is set, else the memory connection. */
 function translateModel() {
@@ -1881,15 +1939,26 @@ function usageSummary() {
 async function askModel(model, messages, { maxTokens = 4096 } = {}) {
   messages = withLanguage(messages, model.lang);
   const signal = model.signal ? AbortSignal.any([AbortSignal.timeout(MODEL_TIMEOUT_MS), model.signal]) : AbortSignal.timeout(MODEL_TIMEOUT_MS);
-  const base = { model: model.model, maxTokens, temperature: 0.2, signal, ...(model.extra || {}) };
+  const { light, ...extra } = model.extra || {};
+  const lightKey = `${model.name || ''}\u0000${model.model || ''}`;
+  const useLight = light && !lightRefused.has(lightKey);
+  const base = { model: model.model, maxTokens, temperature: 0.2, signal, ...extra, ...(useLight ? light : {}) };
   let content;
   let reply;
   const inChars = messages.reduce((n, m) => n + String(m?.content ?? '').length, 0);
   try {
-    reply = await model.provider.chatComplete(messages, { ...base, responseFormat: { type: 'json_object' } });
+    try {
+      reply = await model.provider.chatComplete(messages, { ...base, responseFormat: { type: 'json_object' } });
+    } catch (error) {
+      if (!/response_format|json_object|responseFormat/i.test(String(error?.message))) throw error;
+      reply = await model.provider.chatComplete(messages, base);
+    }
   } catch (error) {
-    if (!/response_format|json_object|responseFormat/i.test(String(error?.message))) throw error;
-    reply = await model.provider.chatComplete(messages, base);
+    // The site did not take the light-thinking setting: asked again without it, and not sent it again.
+    if (!useLight || signal.aborted || !/reasoning|thinking|effort|unrecognized|unknown (?:field|param|arg)|extra (?:field|input|param)|not permitted/i.test(String(error?.message))) throw error;
+    lightRefused.add(lightKey);
+    log(`connection ${model.name || model.model}: light thinking refused (${String(error?.message || error).slice(0, 120)}), asking without it`);
+    return askModel(model, messages, { maxTokens });
   }
   content = reply?.content;
   noteUsage(inChars, String(content ?? '').length, reply?.usage || null);
@@ -4725,6 +4794,7 @@ async function routes(app) {
       selectedStamp: fileStamp(selectedFile(chatId)),
       speakerNames: speakerNamesOn(chatId),
       mode: roomMode(chatId),
+      dates: { today: storyToday(chatId, ledger), fixes: dateFixes(chatId), fromText: datesFromText(chatId) },
       worldLink: { linked: Boolean(worldLinked(chatId)), on: worldLinkOn(chatId) },
       organize: settings().chats?.[chatId]?.organize || { npcCoverage: 'standard', quoteMode: 'dialogue', detailLevel: 'standard' },
       routine: ledger ? L.renderRoutine(ledger, storyNow.get(chatId) || ledger.storyTime || null, { only: routinePeople(chatId) }) : '',
@@ -5730,6 +5800,49 @@ async function routes(app) {
     setSpeakerTags(safeChatId(req.params.id), on);
     return { speakerTags: on };
   }));
+  // 작중 날짜 바로잡기: a date set by hand from a message on, taking one back, and reading dates from the text or not.
+  // The scenes written with the day the change put right are re-dated at once (no model call).
+  app.post('/chats/:id/dates', guard(async (req) => {
+    const chatId = safeChatId(req.params.id);
+    const body = req.body || {};
+    return enqueue(`scenes:${chatId}`, async () => {
+      if (sceneJobs.get(chatId)?.state === 'running') throw Error('지금 이 방의 장면을 정리하는 중입니다. 끝난 뒤에 다시 해 주세요.');
+      const before = await chatMessages(chatId);
+      let fixes = dateFixes(chatId);
+      if (body.action === 'add') {
+        const date = L.isoDateStrict(String(body.date || ''));
+        if (!date) throw Error('날짜를 2024-03-01처럼 적어 주세요(연도·월·일).');
+        const time = /^\d{1,2}:\d{2}$/.test(String(body.time || '').trim()) ? String(body.time).trim().padStart(5, '0') : null;
+        const wanted = Number(body.number);
+        const msg = Number.isFinite(wanted) && wanted > 0 ? before.find((m) => m.number === wanted) || before.filter((m) => m.number <= wanted).at(-1) : before.at(-1);
+        if (!msg) throw Error('그 번호의 메시지를 찾지 못했습니다.');
+        fixes = [...fixes.filter((f) => f.id !== msg.id), { id: msg.id, number: msg.number, date, time }].sort((a, b) => a.number - b.number);
+        setRoomDates(chatId, { fixes });
+      } else if (body.action === 'remove') {
+        setRoomDates(chatId, { fixes: fixes.filter((f) => f.id !== body.id) });
+      } else if (typeof body.fromText === 'boolean') {
+        setRoomDates(chatId, { fromText: body.fromText });
+      } else throw Error('바꿀 내용이 없습니다.');
+      const after = await chatMessages(chatId);
+      // The day each message had before this change: scenes written with it are the ones to re-date.
+      const old = new Map(before.map((m) => [m.id, m.clock?.date || null]));
+      for (const m of after) {
+        if (!m.clock) continue;
+        const o = old.get(m.id);
+        if (o && m.clock.date && o !== m.clock.date) m.clock.was = o;
+        else delete m.clock.was;
+      }
+      const store = loadScenes(chatId);
+      const redated = store ? S.redateScenes(store, after) : 0;
+      if (redated) saveScenes(chatId, store);
+      const day = L.storyDate(after);
+      if (day) storyDays.set(chatId, day);
+      else storyDays.delete(chatId);
+      recalls.delete(chatId);
+      log(`chat ${chatId}: story dates changed (${dateFixes(chatId).length} hand fix(es), text dates ${datesFromText(chatId) ? 'on' : 'off'}), ${redated} scene(s) re-dated`);
+      return { redated, dates: { today: storyToday(chatId, loadLedger(chatId)), fixes: dateFixes(chatId), fromText: datesFromText(chatId) } };
+    });
+  }));
   app.post('/chats/:id/mode', guard(async (req) => {
     const mode = req.body?.mode;
     if (!Sim.MODES.includes(mode)) throw Object.assign(new Error("mode는 'character' 또는 'simulator'입니다."), { statusCode: 400 });
@@ -6101,7 +6214,7 @@ function attach(app) {
   log('admin API ready at /api/memory-module');
 }
 
-module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { loadAddress, saveAddress, refreshAddress, presentPeople, Addr, loadState, saveState, loadPlaces, savePlaces, loadKeepsakes, saveKeepsakes, loadNotebook, saveNotebook, Nb, loadTrackers, saveTrackers, Tk, loadConflicts, saveConflicts, refreshConflicts, refreshWorld, Cf, Ks, organizeFor, sceneTokens, lastScenePeople, St, Pl, listRooms, purgeChatMemory, purgeIfGone, deleteOnSend, deletePrepare, listOrphans, deleteOrphans, goneChats, loadNames, saveNames, enqueue, foldScenes, reviewAttributions, loadAttributionLog, sceneJobs, selectedForView, loadSelected, recalls, windows, loadRecallPrefs, saveRecallPrefs, recallReport, recallCandidates, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, staleNames, autoMergeByGlossary, translateDisplayLater, fixNoteLanguages, tidySteps, tidyLedger, noteUsage, usageSummary, planAnswersOn, notebookLanguageOf, notebookLanguageSetting, rebuildNotebook, notebookJobStatus, notebookRunning: (id) => notebookJobs.get(id)?.state === 'running', loadTranslations, saveTranslations, translationRun: (id, texts) => translateMissing(id, "ko", texts), flushTranslations, clearTranslationFailures, translationGaveUp, chatLangs, langRecords, loadLang, noteLanguage, LANG_REFRESH_EVERY, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, routinePeople, noteSourceKo, sourceKo, sourceQuoteItems, quoteHints, roomSetup, setupNote, withSetup, nameInstructions, jobs, writeLanguage, roomWriteLanguage, promptLanguage, memoryCallOptions, routineSetting, routineEnabled, attributionSetting, featureOn, featureSetting, F, B, clearRoomCaches, RESTORE_UNDO_DIR, connectionWithKey, memoryModel, startTrial, trials, roomMode, setRoomMode, roomPeople, stampMode, worldArchivePeople, waPeopleCache, simulatorExample, petNotes, askModel, worldLink, worldLinked, worldLinkOn, setWorldLink, worldRelations, worldRelCache, worldSpecies, sceneOptions } };
+module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { loadAddress, saveAddress, refreshAddress, presentPeople, Addr, loadState, saveState, loadPlaces, savePlaces, loadKeepsakes, saveKeepsakes, loadNotebook, saveNotebook, Nb, loadTrackers, saveTrackers, Tk, loadConflicts, saveConflicts, refreshConflicts, refreshWorld, Cf, Ks, organizeFor, sceneTokens, lastScenePeople, St, Pl, listRooms, purgeChatMemory, purgeIfGone, deleteOnSend, deletePrepare, listOrphans, deleteOrphans, goneChats, loadNames, saveNames, enqueue, foldScenes, reviewAttributions, loadAttributionLog, sceneJobs, selectedForView, loadSelected, recalls, windows, loadRecallPrefs, saveRecallPrefs, recallReport, recallCandidates, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, staleNames, autoMergeByGlossary, translateDisplayLater, fixNoteLanguages, tidySteps, tidyLedger, noteUsage, usageSummary, planAnswersOn, notebookLanguageOf, notebookLanguageSetting, rebuildNotebook, notebookJobStatus, notebookRunning: (id) => notebookJobs.get(id)?.state === 'running', loadTranslations, saveTranslations, translationRun: (id, texts) => translateMissing(id, "ko", texts), flushTranslations, clearTranslationFailures, translationGaveUp, chatLangs, langRecords, loadLang, noteLanguage, LANG_REFRESH_EVERY, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, routinePeople, noteSourceKo, sourceKo, sourceQuoteItems, quoteHints, roomSetup, setupNote, withSetup, nameInstructions, jobs, writeLanguage, roomWriteLanguage, promptLanguage, memoryCallOptions, lightRefused, routineSetting, routineEnabled, attributionSetting, featureOn, featureSetting, F, B, clearRoomCaches, RESTORE_UNDO_DIR, connectionWithKey, memoryModel, startTrial, trials, roomMode, setRoomMode, roomPeople, stampMode, worldArchivePeople, waPeopleCache, simulatorExample, petNotes, askModel, worldLink, worldLinked, worldLinkOn, setWorldLink, worldRelations, worldRelCache, worldSpecies, sceneOptions } };
 
 
 

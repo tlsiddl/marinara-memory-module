@@ -69,8 +69,8 @@ function localDate(now = new Date()) {
   const p = (n) => String(n).padStart(2, '0');
   return `${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())}`;
 }
-/** "24-07-16" for showing. */
-const shortDate = (iso) => (iso ? iso.slice(2) : '');
+/** "24-07-16" for showing (a year outside 20xx in full: "1766-08-19", so it reads back the same). */
+const shortDate = (iso) => (iso ? (/^20\d{2}-/.test(iso) ? iso.slice(2) : iso) : '');
 
 /* ---------- counting ---------- */
 
