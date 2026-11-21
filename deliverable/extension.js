@@ -631,7 +631,8 @@
   let foldTab = '';
   function foldKeys(content) {
     const seen = new Map();
-    return [...content.querySelectorAll('details')].map((d) => {
+    if (typeof content?.querySelectorAll !== 'function') return [];
+    return [...(content.querySelectorAll('details') || [])].map((d) => {
       const summary = d.querySelector(':scope > summary');
       // Its own id when it has one (a 할 일 item, a list, a scene), else the summary's words.
       const own = Object.entries(d.dataset).find(([k, v]) => v && k !== 'act')?.join(':');
