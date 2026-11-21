@@ -1600,6 +1600,8 @@ async function addTrackerClock(e, chatId, messages) {
   // The tracker's words for the day the date carried on is for: when they change and cannot be read, that date is
   // no longer the story's day (it used to be carried on forever, and every scene was filed under the first day).
   let lastText = null;
+  // An earlier day the tracker shows, and how many times in a row.
+  let behind = null;
   const at = (c) => (c?.date ? `${c.date}T${c.time || '00:00'}` : null);
   const weekday = (iso) => new Date(`${iso}T00:00:00Z`).getUTCDay();
   for (const [i, m] of messages.entries()) {
@@ -1634,9 +1636,16 @@ async function addTrackerClock(e, chatId, messages) {
         m.clock = { date: null, time: clock?.time || null, label };
       } else {
         const next = { date: date || (text && text !== lastText && !last?.date ? null : last?.date || null), time: clock?.time || null };
-        // A tracker that lags behind (still showing the night before after the story moved on) is not followed back.
-        if (!(at(last) && at(next) && date && at(next) < at(last))) {
+        // A tracker that lags behind (still showing the night before after the story moved on) is not followed
+        // back for a moment. But a step back of more than a day, or the same earlier day twice in a row, is the
+        // story going back or the tracker putting right a wrong start: followed (it used to never be, and the
+        // memory stayed on the wrong first day for good).
+        const back = at(last) && at(next) && date && at(next) < at(last);
+        const far = back && date < L.addDays(last.date, -1);
+        if (back && !far) behind = behind?.date === date ? { date, n: behind.n + 1 } : { date, n: 1 };
+        if (!back || far || behind?.n >= 2) {
           last = next;
+          behind = null;
           if (text) lastText = text;
         }
       }
@@ -5904,12 +5913,11 @@ const storyDays = new Map();
 
 /**
  * The story's "today", one value for everything that counts days (the memory text, the deadline list): the
- * latest date the chat itself shows (date lines, trackers) as of the last reply, else what the ledger has read.
+ * date the chat itself shows last (date lines, trackers) as of the last reply, else what the ledger has read.
  */
 function storyToday(chatId, ledger) {
-  const day = storyDays.get(chatId) || null;
-  const read = ledger?.storyDate || null;
-  return day && (!read || day >= read) ? day : read;
+  // The chat as it is now wins: a story that went back (or a tracker that put a wrong date right) is followed.
+  return storyDays.get(chatId) || ledger?.storyDate || null;
 }
 const storyNow = new Map();
 

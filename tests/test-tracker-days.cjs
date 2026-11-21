@@ -61,3 +61,14 @@ test('calendar dates written in more ways are read', () => {
 test('a tracker date that parses still wins, and a lagging one is not followed back', async () => {
   assert.deepEqual(days(await run([['[2024.03.01 (금) 09:00]'], ['', '2024-03-03', '10:00'], ['', '2024-03-02', '09:00']])), ['2024-03-01', '2024-03-03', '2024-03-03']);
 });
+
+test('a wrong start the tracker puts right (or a story that goes back) is followed, not held for good', async () => {
+  // The tracker first took a wrong year, then put it right: every later message used to carry the wrong day.
+  assert.deepEqual(days(await run([['시작', '2026-11-21', '09:00'], ['', '2024-03-01', '09:30'], ['', '2024-03-02', '08:00']])), ['2026-11-21', '2024-03-01', '2024-03-02']);
+  // Still the night before for one message after the text moved on: not followed.
+  assert.deepEqual(days(await run([['[2024.03.02 (토) 00:10]'], ['', '2024-03-01', '23:50'], ['', '2024-03-02', '00:30']])), ['2024-03-02', '2024-03-02', '2024-03-02']);
+  // One day back, twice in a row: the story is there.
+  assert.deepEqual(days(await run([['[2024.03.02 (토) 09:00]'], ['', '2024-03-01', '09:00'], ['', '2024-03-01', '10:00']])), ['2024-03-02', '2024-03-02', '2024-03-01']);
+  // The ledger's story day is the last one shown, not the latest.
+  assert.equal(L.storyDate([{ content: '', clock: { date: '2026-11-21' } }, { content: '', clock: { date: '2024-03-01' } }]), '2024-03-01');
+});

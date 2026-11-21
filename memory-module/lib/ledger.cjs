@@ -1727,14 +1727,17 @@ function addDays(iso, days) {
   return d.toISOString().slice(0, 10);
 }
 
-/** The newest in-story date in a header like "§RP | 24-10-18 (금) | 11:15 | …§". */
+/**
+ * The story's day as of the last message that shows one (a header like "§RP | 24-10-18 (금) | 11:15 | …§", or the
+ * tracker's date). The last one, not the latest: a story that goes back in time, or a tracker that puts a wrong
+ * start right, is where the story is now.
+ */
 function storyDate(messages, base = null) {
   let latest = null;
   for (const m of messages || []) {
     const own = dateInText(m.content, latest || base);
-    const found = !!own;
-    if (own && (!latest || own.date > latest)) latest = own.date;
-    if (!found && m.clock?.date && (!latest || m.clock.date > latest)) latest = m.clock.date;
+    if (own) latest = own.date;
+    else if (m.clock?.date) latest = m.clock.date;
   }
   return latest;
 }
@@ -2491,7 +2494,7 @@ function beginBatch(ledger, firstIndex) {
 function commitBatch(ledger, batch) {
   for (const message of batch) ledger.processed.push({ id: message.id, h: message.h, ...(message.c ? { c: message.c } : {}) });
   const date = storyDate(batch);
-  if (date && (!ledger.storyDate || date > ledger.storyDate)) ledger.storyDate = date;
+  if (date) ledger.storyDate = date;
   const time = storyTime(batch);
   if (time && (!ledger.storyTime || time > ledger.storyTime)) ledger.storyTime = time;
   const last = batch.at(-1)?.number;
