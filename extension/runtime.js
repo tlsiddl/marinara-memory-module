@@ -587,7 +587,8 @@
         if (!busy) {
           // Idle: only the small status is asked for; the whole room is loaded while a run is on and when it ends.
           if (was) {
-            store = null;
+            // The scenes on screen stay until the new ones arrive (emptied first, the page became "불러오는 중"
+            // for a moment every 3 seconds and the reader was thrown back to the top).
             storeRoom = '';
             await loadRoom(room);
           }
@@ -620,6 +621,34 @@
     }, was || info?.translationPrep?.working || info?.displayTranslating || info?.notebookJob?.state === 'running' ? 3000 : 10000);
   }
 
+  /**
+   * Which folding sections (<details>) the reader has opened or closed, so a redraw (the check every few seconds,
+   * the first press of a two-press button) leaves them as they were. Without it, every redraw folded them all:
+   * the page got shorter, the reader was thrown up, and a 「끝난 일로 닫기」 pressed once was folded away before the
+   * second press. Known by the tab and the summary's words (and which one of the same words it is).
+   */
+  let foldTab = '';
+  function foldKeys(content) {
+    const seen = new Map();
+    return [...content.querySelectorAll('details')].map((d) => {
+      const summary = d.querySelector(':scope > summary');
+      // Its own id when it has one (a 할 일 item, a list, a scene), else the summary's words.
+      const own = Object.entries(d.dataset).find(([k, v]) => v && k !== 'act')?.join(':');
+      const words = (own || summary?.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+      const n = (seen.get(words) || 0) + 1;
+      seen.set(words, n);
+      return [d, `${words}#${n}`];
+    });
+  }
+  function foldState(content) {
+    if (foldTab !== tab) { foldTab = tab; return null; }
+    return new Map(foldKeys(content).map(([d, key]) => [key, d.open]));
+  }
+  function restoreFolds(content, folds) {
+    if (!folds?.size) return;
+    for (const [d, key] of foldKeys(content)) if (folds.has(key) && d.open !== folds.get(key)) d.open = folds.get(key);
+  }
+
   /** Someone is typing in the library: a background check must not redraw the form under them. */
   function editing() {
     const el = root?.activeElement;
@@ -643,7 +672,7 @@
       await fn();
       if (done) notice = done;
       if (options.reload !== false) {
-        store = null;
+        // Reloaded in place (see schedulePoll): the page keeps its length and the reader's place.
         storeRoom = '';
         await loadRoom(room);
       }
@@ -2476,10 +2505,12 @@
     err.textContent = lastError;
     const content = root.querySelector('#content');
     const scroll = content.scrollTop;
+    const folds = foldState(content);
     const jobError = info?.job?.error || info?.sceneJob?.error;
     const warning = jobError ? `<div class="note" role="alert">기억 정리를 마치지 못했습니다. ${esc(jobError)}</div>` : '';
     const translation = trPending || trError ? `<div class="note" role="status">${trError ? `한국어 번역을 마치지 못했습니다. ${esc(trError)}` : trWorking ? '한국어 번역 중입니다.' : trAuto ? '한국어 번역이 남아 있습니다.' : '자동 번역이 꺼져 있어 일부 항목이 영어로 보입니다.'} ${trPending ? `남은 항목: ${trPending}개.` : ''} <button data-act="retryTranslation">${trAuto || trError ? '남은 항목 다시 번역' : '지금 번역'}</button></div>` : '';
     content.innerHTML = warning + translation + subTabs() + VIEWS[tab]();
+    restoreFolds(content, folds);
     content.scrollTop = scroll;
     showWorldTab(content);
     root.querySelector('#inspector').innerHTML = inspector();
