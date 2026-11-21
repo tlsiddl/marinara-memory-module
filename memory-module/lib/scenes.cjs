@@ -1387,6 +1387,109 @@ function attachTranslations(store, messages) {
   return changed;
 }
 
+/* ---------- story dates put right (no model call) ---------- */
+
+const WEEK_KO = '일월화수목금토';
+// A calendar date as the memory writes it: "24-03-01", "2024-03-01", "2024.03.01", "2024/3/1", "2024년 3월 1일",
+// "3월 1일", each with an optional weekday after it ("(금)", "금요일").
+const DATE_TOKEN = /(?<!\d)(?:(\d{4}|\d{2})([-./])(\d{1,2})\2(\d{1,2})|(?:(\d{4})\s*년\s*)?(\d{1,2})\s*월\s*(\d{1,2})\s*일(?!\s*[차째]))(?!\d)(\s*\(\s*[일월화수목금토]\s*\)|\s*[일월화수목금토]요일)?/g;
+
+/**
+ * `text` with its first written date set to `first` and its last to `last` (ISO days), each in the way it was
+ * written (year digits, separator, zero padding, weekday). A date already right is left as it is. Null when the
+ * text names no date.
+ */
+function redateText(text, first, last = first) {
+  const raw = String(text ?? '');
+  const hits = [...raw.matchAll(DATE_TOKEN)];
+  if (!hits.length || !first) return null;
+  let out = '';
+  let from = 0;
+  hits.forEach((m, k) => {
+    const want = k === 0 ? first : k === hits.length - 1 ? last : null;
+    out += raw.slice(from, m.index);
+    from = m.index + m[0].length;
+    const [y, mo, d] = want ? want.split('-') : [];
+    const week = want ? WEEK_KO[new Date(`${want}T00:00:00Z`).getUTCDay()] : null;
+    const weekText = m[8] ? m[8].replace(/[일월화수목금토](?=\s*\)|요일)/, week || '$&') : '';
+    if (!want) { out += m[0]; return; }
+    if (m[1]) {
+      const pad = (v, like) => (like.length === 2 ? String(v).padStart(2, '0') : String(Number(v)));
+      const year = m[1].length === 2 ? y.slice(2) : y;
+      const next = `${year}${m[2]}${pad(mo, m[3])}${m[2]}${pad(d, m[4])}`;
+      out += next === `${m[1]}${m[2]}${m[3]}${m[2]}${m[4]}` ? m[0] : `${next}${weekText}`;
+    } else {
+      const same = Number(m[6]) === Number(mo) && Number(m[7]) === Number(d) && (!m[5] || m[5] === y);
+      out += same ? m[0] : `${m[5] ? `${y}년 ` : ''}${Number(mo)}월 ${Number(d)}일${weekText}`;
+    }
+  });
+  return out + raw.slice(from);
+}
+
+/** The first day a text writes, as an ISO day (a year left out is taken from `base`), or null. */
+function writtenDay(text, base) {
+  const m = [...String(text ?? '').matchAll(DATE_TOKEN)][0];
+  if (!m) return null;
+  const year = m[1] ? (m[1].length === 2 ? `20${m[1]}` : m[1]) : m[5] || String(base || '').slice(0, 4);
+  const [mo, d] = m[1] ? [m[3], m[4]] : [m[6], m[7]];
+  if (!/^\d{4}$/.test(year)) return null;
+  return `${year}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
+
+/**
+ * Scenes filed under a story day their messages no longer show (a tracker date that could not be read, or a
+ * tracker that put a wrong start right, made every later message carry the first day): their written days are
+ * set to what the messages show now, in the scene, its events, what was learned there, its facts, and the
+ * chapters and arcs it is in. Scenes edited by hand are left alone. Returns how many scenes changed.
+ */
+function redateScenes(store, messages) {
+  const byId = new Map((messages || []).map((m) => [m.id, m]));
+  const span = new Map();
+  let changed = 0;
+  for (const scene of store.scenes || []) {
+    const clocks = (scene.messages || []).map((x) => byId.get(x.id)?.clock).filter((c) => c?.date);
+    if (!clocks.length) continue;
+    const first = clocks[0].date;
+    const last = clocks.at(-1).date;
+    span.set(scene.id, { first, last });
+    if (scene.edited || scene.ooc) continue;
+    // Only a scene written with the day the old reading wrongly carried: a day the model chose on its own (a
+    // flashback, a date said in the story) is left as it is.
+    const wrong = new Set(clocks.map((c) => c.was).filter(Boolean));
+    const written = writtenDay(scene.time, first);
+    if (!written || !wrong.has(written)) continue;
+    const fix = (v) => {
+      const next = v ? redateText(v, first, last) : null;
+      return next && next !== v ? next : null;
+    };
+    const time = fix(scene.time);
+    if (!time) continue;
+    const old = scene.time;
+    scene.time = time;
+    for (const e of scene.events || []) { const t = fix(e.time); if (t) e.time = t; }
+    for (const list of [scene.learned, scene.later]) for (const x of list || []) if (x?.when === old) x.when = time;
+    for (const f of store.facts || []) if (f.sceneId === scene.id && f.when === old) f.when = time;
+    changed++;
+  }
+  if (!changed) return 0;
+  const spanOf = (ids) => {
+    const known = ids.map((id) => span.get(id)).filter(Boolean);
+    return known.length ? { first: known[0].first, last: known.at(-1).last } : null;
+  };
+  for (const c of store.chapters || []) {
+    const sp = spanOf(c.scenes || []);
+    const t = sp && c.time ? redateText(c.time, sp.first, sp.last) : null;
+    if (t && t !== c.time) c.time = t;
+  }
+  const chapterScenes = new Map((store.chapters || []).map((c) => [c.id, c.scenes || []]));
+  for (const a of store.arcs || []) {
+    const sp = spanOf((a.chapters || []).flatMap((id) => chapterScenes.get(id) || []));
+    const t = sp && a.time ? redateText(a.time, sp.first, sp.last) : null;
+    if (t && t !== a.time) a.time = t;
+  }
+  return changed;
+}
+
 /**
  * Quotes saved as pieces of a line. Before v0.11.48 a paragraph with mismatched quote marks (opened with " and closed
  * with ”, or the reverse, or an inch mark before it) was split at every period, so a saved quote could be one piece of
@@ -4019,6 +4122,8 @@ function renderScenes(store, firstInside, { maxChars = 9000, maxSummaries = 40, 
 }
 
 module.exports = {
+  redateText,
+  redateScenes,
   isStoryScene,
   markOocScenes,
   lastStoryScene,

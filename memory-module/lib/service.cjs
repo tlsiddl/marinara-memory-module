@@ -1602,6 +1602,9 @@ async function addTrackerClock(e, chatId, messages) {
   let lastText = null;
   // An earlier day the tracker shows, and how many times in a row.
   let behind = null;
+  // The day the reading before 0.38.1 gave each message (it never went back and could not read "Day 3"): a scene
+  // written with that day, when the day is now another, is one to re-date (S.redateScenes).
+  let was = null;
   const at = (c) => (c?.date ? `${c.date}T${c.time || '00:00'}` : null);
   const weekday = (iso) => new Date(`${iso}T00:00:00Z`).getUTCDay();
   for (const [i, m] of messages.entries()) {
@@ -1611,6 +1614,8 @@ async function addTrackerClock(e, chatId, messages) {
     const clock = trackerClock(snap, own?.date || last?.date || null);
     const text = clock?.dateText || null;
     const count = text ? L.dayCounter(text) : null;
+    if (own) was = own.date;
+    else if (clock?.date && !(was && clock.date < was)) was = clock.date;
     let label = null;
     if (own) {
       last = { date: own.date, time: own.time || null };
@@ -1654,6 +1659,7 @@ async function addTrackerClock(e, chatId, messages) {
     if (clock?.weather) weather = { text: clock.weather, date: last?.date || null };
     else if (weather?.date && last?.date && last.date !== weather.date) weather = null;
     if (last && !m.clock?.label) m.clock = { ...last };
+    if (was && m.clock && m.clock.date !== was) m.clock.was = was;
     // No calendar day known: the tracker's own words for the day go with the time ("Day 3 14:00").
     if (!own && text && !m.clock?.date && !m.clock?.label) m.clock = { ...(m.clock || {}), date: null, time: m.clock?.time ?? clock?.time ?? null, label: text };
     if (weather) m.weather = weather.text;
@@ -2825,6 +2831,12 @@ function processScenes(chatId, { rebuild = false, reason = 'auto' } = {}) {
         if (S.markOocScenes(store, messages)) saveScenes(chatId, store);
         // Quotes an older split left as pieces of a line are made whole again (no model call).
         const fragments = S.repairFragmentQuotes(store, messages);
+        // Scenes filed under a story day their messages no longer show are re-dated (no model call).
+        const redated = S.redateScenes(store, messages);
+        if (redated) {
+          log(`chat ${chatId}: ${redated} scene(s) re-dated to the days their messages show`);
+          recalls.delete(chatId);
+        }
         // Saved lines read again under the room's speech marks: their language, and bracketed lines as speech.
         const voiced = S.applySpeechMarks(store, messages);
         if (voiced) recalls.delete(chatId);
@@ -2840,7 +2852,7 @@ function processScenes(chatId, { rebuild = false, reason = 'auto' } = {}) {
           store.cast = cast;
         }
         seedNames(chatId, [...cast, ...personas]);
-        if (translated || personasChanged || fragments.repaired || voiced) {
+        if (translated || personasChanged || fragments.repaired || voiced || redated) {
           saveScenes(chatId, store);
           if (translated) log(`chat ${chatId}: added the translation to ${translated} saved line(s)`);
           if (fragments.repaired) {

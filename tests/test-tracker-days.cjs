@@ -72,3 +72,32 @@ test('a wrong start the tracker puts right (or a story that goes back) is follow
   // The ledger's story day is the last one shown, not the latest.
   assert.equal(L.storyDate([{ content: '', clock: { date: '2026-11-21' } }, { content: '', clock: { date: '2024-03-01' } }]), '2024-03-01');
 });
+
+test('이어서 정리 puts right the scenes the old reading filed under the wrong day, and only those', async () => {
+  const S = require('../memory-module/lib/scenes.cjs');
+  // The tracker took a wrong year first, then put it right; the old reading carried 2026-11-21 on.
+  const ms = await run([['시작', '2026-11-21', '09:00'], ['', '2024-03-01', '09:30'], ['', '2024-03-01', '20:00'], ['', '2024-03-02', '08:00'], ['', '2024-03-02', '09:00']]);
+  const scene = (id, ids, time, extra = {}) => ({ id, messages: ids.map((i) => ({ id: `m${i}` })), time, title: id, events: [{ text: 'x', time: null }], ...extra });
+  const store = {
+    scenes: [
+      scene('S1', [1, 2], '26-11-21 (토) 09:30 ~ 20:00', { learned: [{ who: 'A', what: 'b', when: '26-11-21 (토) 09:30 ~ 20:00' }] }),
+      scene('S2', [3, 4], '2026-11-21 08:00 ~ 09:00'),
+      scene('S3', [3], '2019-05-05 회상'), // a day the model chose (a flashback): left alone
+      scene('S4', [4], '26-11-21 09:00', { edited: true }), // edited by hand: left alone
+    ],
+    facts: [{ id: 'F1', sceneId: 'S1', when: '26-11-21 (토) 09:30 ~ 20:00', text: 't' }],
+    chapters: [{ id: 'C1', scenes: ['S1', 'S2'], time: '26-11-21 (토) 09:30 ~ 26-11-21 09:00' }],
+  };
+  assert.equal(S.redateScenes(store, ms), 2);
+  assert.equal(store.scenes[0].time, '24-03-01 (금) 09:30 ~ 20:00');
+  assert.equal(store.scenes[1].time, '2024-03-02 08:00 ~ 09:00');
+  assert.equal(store.scenes[2].time, '2019-05-05 회상');
+  assert.equal(store.scenes[3].time, '26-11-21 09:00');
+  assert.equal(store.scenes[0].learned[0].when, '24-03-01 (금) 09:30 ~ 20:00');
+  assert.equal(store.facts[0].when, '24-03-01 (금) 09:30 ~ 20:00');
+  assert.equal(store.chapters[0].time, '24-03-01 (금) 09:30 ~ 24-03-02 09:00');
+  assert.equal(S.redateScenes(store, ms), 0, 'nothing left to put right');
+  // A room whose days were read right all along: nothing changes.
+  const fine = await run([['[2024.03.01 (금) 09:00]'], ['', '2024-03-01', '10:00']]);
+  assert.equal(S.redateScenes({ scenes: [scene('S1', [0, 1], '24-03-01 09:00 ~ 10:00')] }, fine), 0);
+});
