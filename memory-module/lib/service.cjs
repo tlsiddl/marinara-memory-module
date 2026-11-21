@@ -1524,8 +1524,13 @@ function trackerClock(row, base) {
   if (row.date || row.time) texts.push([row.date, row.time].filter(Boolean).join(' '));
   const world = parse(row.worldCustomFields);
   const custom = parse(row.playerStats)?.customTrackerFields;
+  // The tracker's date in its own words ("Day 3", "토요일", "2024-10-18"): its date field, else a custom date field.
+  let dateText = String(row.date || '').trim() || null;
   for (const f of [...(Array.isArray(world) ? world : []), ...(Array.isArray(custom) ? custom : [])]) {
-    if (f && CLOCK_FIELD.test(String(f.name || '')) && f.value) texts.push(String(f.value));
+    if (f && CLOCK_FIELD.test(String(f.name || '')) && f.value) {
+      texts.push(String(f.value));
+      if (!dateText && DATE_FIELD.test(String(f.name || ''))) dateText = String(f.value).trim() || null;
+    }
   }
   let date = null;
   let time = null;
@@ -1537,8 +1542,9 @@ function trackerClock(row, base) {
   let weather = String(row.weather || '').trim() || null;
   for (const f of Array.isArray(world) ? world : []) if (!weather && WEATHER_FIELD.test(String(f?.name || '')) && f.value) weather = String(f.value).trim();
   // raw: the tracker's own words, so a change in how they are read never looks like an edit.
-  return date || time || weather ? { date, time, weather: weather ? weather.slice(0, 30) : null, raw: [...texts, weather] } : null;
+  return date || time || weather || dateText ? { date, time, dateText: dateText ? dateText.slice(0, 40) : null, weather: weather ? weather.slice(0, 30) : null, raw: [...texts, weather] } : null;
 }
+const DATE_FIELD = /날짜|일자|date|day|작중|게임 ?내|in-?game/i;
 
 const WEATHER_FIELD = /날씨|하늘|weather|sky/i;
 
@@ -1589,23 +1595,58 @@ async function addTrackerClock(e, chatId, messages) {
   });
   let last = null;
   let weather = null;
+  // A tracker that counts story days ("Day 3", "3일차"): the count on a day whose date is known, to count from.
+  let counter = null;
+  // The tracker's words for the day the date carried on is for: when they change and cannot be read, that date is
+  // no longer the story's day (it used to be carried on forever, and every scene was filed under the first day).
+  let lastText = null;
   const at = (c) => (c?.date ? `${c.date}T${c.time || '00:00'}` : null);
+  const weekday = (iso) => new Date(`${iso}T00:00:00Z`).getUTCDay();
   for (const [i, m] of messages.entries()) {
     // A date line written in the message itself comes first, and is what the next messages carry on from.
     const own = L.dateInText(L.htmlToText(m.content), last?.date || null);
     const snap = snaps.get(m.id);
     const clock = trackerClock(snap, own?.date || last?.date || null);
+    const text = clock?.dateText || null;
+    const count = text ? L.dayCounter(text) : null;
+    let label = null;
     if (own) {
       last = { date: own.date, time: own.time || null };
-    } else if (clock?.date || clock?.time) {
-      const next = { date: clock.date || last?.date || null, time: clock.time };
-      // A tracker that lags behind (still showing the night before after the story moved on) is not followed back.
-      if (!(at(last) && at(next) && clock.date && at(next) < at(last))) last = next;
+      if (count != null) counter = { n: count, date: own.date };
+      lastText = text;
+    } else if (clock?.date || clock?.time || text) {
+      let date = clock?.date || null;
+      if (date && count != null) counter = { n: count, date };
+      if (!date && text && last?.date && text !== lastText) {
+        if (count != null) {
+          // The first count seen is the day the story is on; later counts move from it.
+          counter ||= { n: lastText && L.dayCounter(lastText) != null ? L.dayCounter(lastText) : count, date: last.date };
+          date = L.addDays(counter.date, count - counter.n);
+        } else if (L.weekdayOf(text) != null) {
+          // "Saturday" after a known Friday: the next Saturday.
+          date = L.addDays(last.date, (L.weekdayOf(text) - weekday(last.date) + 7) % 7);
+        } else {
+          // Words that name no day we can count ("봄, 매의 날"): passed on as they are, not as the old date.
+          label = text;
+        }
+      }
+      if (label) {
+        m.clock = { date: null, time: clock?.time || null, label };
+      } else {
+        const next = { date: date || (text && text !== lastText && !last?.date ? null : last?.date || null), time: clock?.time || null };
+        // A tracker that lags behind (still showing the night before after the story moved on) is not followed back.
+        if (!(at(last) && at(next) && date && at(next) < at(last))) {
+          last = next;
+          if (text) lastText = text;
+        }
+      }
     }
     // The weather holds for the day it was noted on: a new story day starts with no weather until one is noted.
     if (clock?.weather) weather = { text: clock.weather, date: last?.date || null };
     else if (weather?.date && last?.date && last.date !== weather.date) weather = null;
-    if (last) m.clock = { ...last };
+    if (last && !m.clock?.label) m.clock = { ...last };
+    // No calendar day known: the tracker's own words for the day go with the time ("Day 3 14:00").
+    if (!own && text && !m.clock?.date && !m.clock?.label) m.clock = { ...(m.clock || {}), date: null, time: m.clock?.time ?? clock?.time ?? null, label: text };
     if (weather) m.weather = weather.text;
     // What the tracker said for this very message: a hand fix of its date, time or weather is a change to read again.
     if (snap && (clock?.date || clock?.time || clock?.weather)) m.trackerMark = clock.raw;

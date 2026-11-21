@@ -1846,11 +1846,14 @@ function parseClock(text, base = null) {
   if (compact) date = isoDate(`${compact[1]}-${compact[2]}-${compact[3]}`);
   const ko = raw.match(/(?:(\d{2}|\d{4})\s*년\s*)?(\d{1,2})\s*월\s*(\d{1,2})\s*일(?!\s*차)/);
   if (!date && ko) date = isoDate(`${ko[1] ? `${ko[1]}-` : ''}${ko[2]}-${ko[3]}`, base);
+  const cjk = !date && raw.match(/(?:(\d{4})\s*年\s*)?(\d{1,2})\s*月\s*(\d{1,2})\s*日/);
+  if (cjk) date = isoDate(`${cjk[1] ? `${cjk[1]}-` : ''}${cjk[2]}-${cjk[3]}`, base);
   if (!date) {
     // English: "October 18, 2024", "Oct 18th", "18 October 2024", "Fri, Oct 18 2024".
     const month = (m) => MONTHS.findIndex((x) => m.toLowerCase().startsWith(x)) + 1;
-    const mdy = raw.match(/\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?\b(?:,?\s*(\d{4}))?/i);
-    const dmy = raw.match(/\b(\d{1,2})(?:st|nd|rd|th)?\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?(?:,?\s*(\d{4}))?/i);
+    // Also "the 2nd of March" and "March the 2nd".
+    const mdy = raw.match(/\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+(?:the\s+)?(\d{1,2})(?:st|nd|rd|th)?\b(?:,?\s*(\d{4}))?/i);
+    const dmy = raw.match(/\b(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?(?:,?\s*(\d{4}))?/i);
     if (mdy) date = isoDate(`${mdy[3] ? `${mdy[3]}-` : ''}${month(mdy[1])}-${mdy[2]}`, base);
     else if (dmy) date = isoDate(`${dmy[3] ? `${dmy[3]}-` : ''}${month(dmy[2])}-${dmy[1]}`, base);
   }
@@ -1874,14 +1877,32 @@ function parseClock(text, base = null) {
 }
 
 /**
+ * A story-day counter in a tracker's date: "Day 3", "Day 3 of spring", "D+3", "3일차", "3일째", "제3일", "the 3rd day".
+ * Its number, or null. It is not a calendar date: the date it means is counted from a day whose date is known.
+ */
+function dayCounter(text) {
+  const t = String(text || '');
+  const m = t.match(/\bday\s*#?\s*(\d{1,4})\b/i) || t.match(/\bD\s*\+\s*(\d{1,4})\b/) || t.match(/(\d{1,4})\s*일\s*(?:차|째)/) || t.match(/제\s*(\d{1,4})\s*일/) || t.match(/\b(\d{1,4})(?:st|nd|rd|th)\s+day\b/i) || t.match(/第\s*(\d{1,4})\s*[天日]/);
+  return m ? Number(m[1]) : null;
+}
+
+const WEEKDAY_NAMES = [/\bsun(?:day)?\b|일요일/i, /\bmon(?:day)?\b|월요일/i, /\btue(?:s|sday)?\b|화요일/i, /\bwed(?:nesday)?\b|수요일/i, /\bthu(?:r|rs|rsday)?\b|목요일/i, /\bfri(?:day)?\b|금요일/i, /\bsat(?:urday)?\b|토요일/i];
+/** The weekday a tracker's date names ("Saturday", "토요일"), 0 = Sunday, or null (none, or more than one). */
+function weekdayOf(text) {
+  const hits = WEEKDAY_NAMES.map((re, i) => (re.test(String(text || '')) ? i : -1)).filter((i) => i >= 0);
+  return hits.length === 1 ? hits[0] : null;
+}
+
+/**
  * " (작중 24-10-18 (금) 14:00 · 날씨: 비)" after a speaker name: the story date from a tracker (when the message has
  * no date line of its own) and the tracker's weather.
  */
 function clockNote(message) {
   const c = message?.clock;
   const parts = [];
-  if ((c?.date || c?.time) && !dateInText(message.content, c?.date || null)) {
-    const day = c.date ? `${c.date.slice(2)} (${WEEKDAYS[new Date(`${c.date}T00:00:00Z`).getUTCDay()]})` : '';
+  if ((c?.date || c?.time || c?.label) && !dateInText(message.content, c?.date || null)) {
+    // A tracker date that could not be read as a calendar day is passed on in its own words (not an older date).
+    const day = c.date ? `${c.date.slice(2)} (${WEEKDAYS[new Date(`${c.date}T00:00:00Z`).getUTCDay()]})` : c.label || '';
     parts.push(`작중 ${[day, c.time].filter(Boolean).join(' ')}`);
   }
   if (message?.weather) parts.push(`날씨: ${message.weather}`);
@@ -2880,6 +2901,9 @@ module.exports = {
   formatPeriod,
   storyDate,
   parseClock,
+  addDays,
+  dayCounter,
+  weekdayOf,
   deadlineOf,
   deadlineList,
   verifiedBefore,
