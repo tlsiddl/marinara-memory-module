@@ -1835,6 +1835,8 @@ const NOT_A_TERM_IT = new Set(('ricevuto ricevuta inteso intesi perfetto benissi
 const NOT_A_TERM_KO = new Set(['응', '으응', '으음', '어', '어어', '아', '아아', '네', '예', '그래', '알았어', '알겠어', '알겠습니다', '알았다', '들었지', '들었어', '봐', '봐봐', '자', '저기', '있잖아', '근데', '그러니까', '아니', '뭐', '왜', '진짜', '정말', '좋아', '됐어', '됐다', '맞아', '맞지', '글쎄', '그럼', '그러게', '그렇지', '그렇구나', '아하', '어휴', '에이', '이런', '저런', '그런', '아무래도', '사실', '솔직히', '씨발', '시발', '씨팔', '젠장', '제길', '빌어먹을', '일어나', '일어나요', '멍청', '아마', '혹시', '제발', '빨리', '얼른', '어서', '당장', '이제', '이미', '아직', '여기', '거기', '저쪽', '오늘', '내일', '어제', '나중에', '잠깐', '잠시', '가만', '가만히', '조용', '조용히', '다시', '또', '벌써', '역시', '결국', '일단', '그냥', '자꾸', '계속', '항상', '절대', '분명', '확실히', '물론', '당연', '당연히', '설마', '아이고', '어머나', '세상에', '맙소사', '헐', '앗', '엇', '음', '흠', '응응', '아냐', '아니야', '아니에요', '그만', '들어', '들어봐', '말해', '말해봐', '가자', '가', '와', '오', '이봐', '여봐', '안녕', '고마워', '미안', '미안해', '죄송', '감사']);
 const KO_SOUNDS = /^(?:으+[응음]|어+|아+|음+|응+|흠+|하+|헤+|오+|우+|에+)$/;
 // 지 only on longer words: 수지, 은지 are names, 들었지 is a sentence.
+// Words that end a phrase about someone, never a call to them: "대니 차례", "하루 생일", "네 몫", "내 탓".
+const KO_NOT_CALL = /^(?:차례|순서|순번|생일|몫|탓|덕|덕분|잘못|책임|때문|거|것|건|게|일|말|얘기|이야기|소리|생각|편|쪽|방|집|자리|이름|번|짓|꼴|뜻|맘|마음|문제|사정|일정|계획|숙제|담당|당번|용|전용)$/;
 const KO_ENDING = /(?:어|요|네|다|까|잖아|거든|[가-힣]{2}지)$/;
 // Terms of endearment: real forms of address even though they are ordinary words.
 const ENDEARMENTS = new Set(['tesoro', 'amore', 'cara', 'caro', 'honey', 'darling', 'babe', 'baby', 'sweetheart', 'sweetie', 'love', 'dear', 'bella', 'bello', 'piccola', 'piccolo', 'cucciolo', 'cucciola', 'stella', 'angelo', 'bimba', 'bimbo', 'gioia', 'cuore', 'principessa', 'principe', 'gattina', 'gattino', 'princess', 'prince', 'kitten', 'kitty', '공주', '자기', '애기', '여보', '왕자', '아가', '달링', '허니', '공주님', '왕자님']);
@@ -1883,7 +1885,11 @@ function plausibleTerm(term) {
   const words = t.split(/\s+/);
   const body = words.filter((w) => !TITLE_WORD.test(w.replace(/[.,]$/, '')));
   if (!body.length) return false;
-  if (hasHangul(t)) return body.every((w) => !isStopword(w) && !KO_SOUNDS.test(w) && !KO_ENDING.test(w));
+  if (hasHangul(t)) {
+    // "대니 차례!", "하루 생일이야" set off like a call: a name and a word that never ends a call ("…'s turn").
+    if (body.length > 1 && KO_NOT_CALL.test(body.at(-1))) return false;
+    return body.every((w) => !isStopword(w) && !KO_SOUNDS.test(w) && !KO_ENDING.test(w));
+  }
   if (words.length > 3) return false;
   return body.every((w) => /^\p{L}[\p{L}\p{N}'’-]+$/u.test(w) && !isStopword(w) && !COMMON_EN.has(normWord(w)) && !COMMON_IT.has(normWord(w)));
 }

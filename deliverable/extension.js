@@ -1688,6 +1688,7 @@
     const book = a.addressBook ? `<div class="paper"><h2>호칭 사전 · ${entries.length}개</h2>
       <p class="hint">누가 누구를 어떻게 부르는지입니다. 저장된 대사에서 같은 부르는 말을 두 번 이상 쓴 것만 자동으로 올라오고(모델을 부르지 않습니다), 직접 추가한 것은 횟수와 상관없이 남습니다. ‘대사 확인에 쓰기’를 켜 둔 말은 대사의 화자·상대를 확인할 때 쓰입니다(그 말로 불린 사람은 상대이고 화자가 아님). 자동으로 올라온 항목은 다음 정리 때 대사에 맞게 다시 계산되고, 고치면 직접 추가한 것이 됩니다.</p>
       ${entries.length ? entries.map(row).join('') : '<p class="hint">아직 없습니다.</p>'}
+      ${(a.blocked || []).length ? `<details class="address-blocked" data-list="address-blocked"><summary>지운 호칭 · ${a.blocked.length}개 (다시 자동으로 만들지 않음)</summary><p class="hint">지운 호칭은 저장된 대사에 다시 나와도 자동으로 올리지 않습니다. 되살리면 다음 정리 때 대사에 있으면 다시 올라옵니다(직접 추가해도 됩니다).</p>${a.blocked.map((b) => `<div class="routine-row"><span><b>${esc(b.from)}</b> → <b>${esc(b.to)}</b>: ${esc(b.term)}</span><button class="ghost" data-act="addressUnblock" data-key="${esc(b.key)}">되살리기</button></div>`).join('')}</details>` : ''}
       <h3>${f.id ? '호칭 고치기' : '호칭 직접 추가'}</h3>
       <div class="routine-row address-form"><input id="addrFrom" list="addrPeople" value="${esc(f.from)}" placeholder="부르는 사람" aria-label="부르는 사람"><input id="addrTo" list="addrPeople" value="${esc(f.to)}" placeholder="불리는 사람" aria-label="불리는 사람"><input id="addrTerm" value="${esc(f.term)}" placeholder="부르는 말 (예: 보스)" aria-label="부르는 말"><input id="addrNote" value="${esc(f.note)}" placeholder="메모(선택)" aria-label="메모">
         <datalist id="addrPeople">${people}</datalist>
@@ -3058,7 +3059,14 @@
           await api('POST', `/chats/${chat}/address`, { action: 'delete', id });
           if (addressForm.id === id) addressForm = { id: '', from: '', to: '', term: '', note: '' };
           names = null;
-        }, '호칭을 지웠습니다.');
+        }, '호칭을 지웠습니다. 대사에 다시 나와도 자동으로 만들지 않습니다(아래 「지운 호칭」에서 되살릴 수 있습니다).');
+      case 'addressUnblock': {
+        const key = el.dataset.key || '';
+        return act(async () => {
+          await api('POST', `/chats/${chat}/address`, { action: 'unblock', key });
+          names = null;
+        }, '지운 호칭을 되살렸습니다. 다음 정리 때 대사에 있으면 다시 올라옵니다.');
+      }
       case 'suggestAccept':
       case 'suggestIgnore': {
         const accept = actName === 'suggestAccept';
