@@ -1785,6 +1785,12 @@ function dateLine(line, base = null) {
   // An English line with many words around the date is a sentence that mentions it, not a date line.
   if ((t.match(/\b[a-z]{2,}\b/g) || []).filter((w) => !/^(?:am|pm|at|of|the|on|and|in|st|nd|rd|th)$/.test(w)).length > 4) return null;
   const c = parseClock(t, base);
+  // Eight digits as the only sign of a day, under another label and with no time ("금화|20241018", "💰 금화 20241018"):
+  // an amount, however much it looks like a day. "📅 20241018", "날짜: 20241018" or "20241018 19:25" are days.
+  if (c?.date && !c.time && /(?<!\d)\d{8}(?!\d)/.test(t) && !WEEKDAY_WORD.test(t) && !/\d{4}\s*년|\d{2,4}[-./]\d{1,2}[-./]\d{1,2}/.test(t)) {
+    const rest = t.replace(/(?<!\d)\d{8}(?!\d)/, '').replace(/날짜|일자|작중|오늘|\bdate\b|\bday\b|\brp\b/gi, '');
+    if (/\p{L}/u.test(rest)) return null;
+  }
   return c?.date ? c : null;
 }
 
@@ -1811,6 +1817,9 @@ function dateInText(content, base = null) {
     // "3/10" or "4.5" alone is a score as often as a day ("[서아|3/10|기분 좋음]", "[호감도|4.5]"): a day only with a
     // year, a month word ("3월 10일", "Mar 10") or a time beside it.
     if (/^\d{1,2}\s*[-./]\s*\d{1,2}$/.test(fields[at]) && !time) continue;
+    // Eight digits alone ("20241018") under a label that is not a date's ("[금화|20241018]") is an amount, however
+    // much it looks like a day: a day when it leads the bracket, follows a date label (RP, 날짜, 📅), or has a time.
+    if (/^\d{8}$/.test(fields[at]) && !time && at > 0 && !/^(?:rp|날짜|일자|작중|date|day|\p{Extended_Pictographic})/iu.test(fields[0])) continue;
     take({ date: c.date, time });
   }
   // A numeric date with its weekday in brackets is a header wherever it stands, even inline before a line of
