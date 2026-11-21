@@ -1,4 +1,4 @@
-/* Copied from tlsiddl/marinara-world-archive main 7143ccb (extension/extension.js, v0.7.5 · 장소 · 정리 후보 · 장면 순서 · 「보기: 원문 · 한국어」 · 계약 수준 2). Do not edit here: change it there and copy again. */
+/* Copied from tlsiddl/marinara-world-archive main fc40f6c (extension/extension.js, v0.7.6 · 인물 카드 네 칸 · 「보기: 원문 · 한국어」 · 계약 수준 2). Do not edit here: change it there and copy again. */
 /* 세계관 설정집 · Marinara World Archive — personal extension UI.
  * Talks only to /api/world-archive on the same server. Visual language follows its sister module 기억 서재
  * (paper grain, ticket notches, ink shadows); the motif here is a star chart instead of a record. */
@@ -8,7 +8,7 @@
   // __WORLD_ARCHIVE_EMBEDDED__ = true; then nothing starts here and the tab calls __memoryWorldPanel.start(box).
   const EMBEDDED = typeof __WORLD_ARCHIVE_EMBEDDED__ !== 'undefined' && __WORLD_ARCHIVE_EMBEDDED__ === true;
   if (!EMBEDDED && document.getElementById('marinara-world-archive-root')) return;
-  const VERSION = '0.7.5';
+  const VERSION = '0.7.6';
   /** The contract level this screen is made for (the server's status.contract). Another level: read only. */
   const PANEL_CONTRACT = 2;
   const UPDATE_MSG = '세계관 칸을 쓰려면 기억 서재(또는 설정집)를 업데이트해 주세요. 지금은 보기만 할 수 있습니다.';
@@ -537,7 +537,8 @@ button.cap:hover{background:var(--wa-soft)}.cap.ghost{border-style:dashed;color:
   }
 
   // ------------------------------------------------------------------ pieces
-  const defs = (type) => st.fields[type] || [];
+  // v0.7.6: an optional field (기숙사 · 학년) only in a world that turns it on
+  const defs = (type) => (st.fields[type] || []).filter((x) => !x.optional || (world()?.personFields || []).includes(x.key));
   const count = (type) => st.entities.filter((e) => e.type === type).length;
   const fmtDate = (iso) => { const d = new Date(iso); return isNaN(d) ? '' : `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`; };
   const shortId = (id) => String(id || '').slice(0, 4).toUpperCase();
@@ -682,7 +683,10 @@ button.cap:hover{background:var(--wa-soft)}.cap.ghost{border-style:dashed;color:
     const f = e.fields || {};
     if (e.type === 'person') {
       const where = e.room ? `지내는 곳 ${nameOfId(e.room)}` : e.work ? `일하는 곳 ${nameOfId(e.work)}` : '';
-      return [f.age, f.gender, where].filter(Boolean).join(' · ');
+      // v0.7.6: 기숙사 · 학년 in the line (a world that has them)
+      const on = world()?.personFields || [];
+      const year = on.includes('year') && f.year ? (/^\d+$/.test(String(f.year).trim()) ? `${String(f.year).trim()}학년` : f.year) : '';
+      return [f.age, f.gender, on.includes('house') ? f.house : '', year, where].filter(Boolean).join(' · ');
     }
     return defs(e.type).filter((x) => x.kind === 'line' && f[x.key]).slice(0, 3).map((x) => f[x.key]).join(' · ');
   }
@@ -1173,6 +1177,7 @@ button.cap:hover{background:var(--wa-soft)}.cap.ghost{border-style:dashed;color:
         <label class="check"><input type="checkbox" id="w-tail-bal" ${w.tail?.balance !== false ? 'checked' : ''}> [균형] — 반복 등장 인물(두 번 이상 나왔거나 고정) 수를 칸별로</label>
         <label class="f" for="w-balance">균형 볼 칸<em>쉼표로 나눔 · 4개까지 · 기본 성별. 인물 칸 이름(성별 · 종 · 소속 …)이 아니면 인물의 추가 칸으로 생기고, 자동 반영은 근거가 있을 때만 채웁니다</em></label><input id="w-balance" maxlength="100" value="${esc((w.balance?.length ? w.balance : ['성별']).join(', '))}">
         <label class="f" for="w-lang">정리 언어<em>자동: 이 방 기억 서재의 기억 언어(없으면 한국어). 영어로 정리하면 이름은 원문 그대로 두고 번역 단어장의 한국어 이름은 다른 이름에 넣어요</em></label><select id="w-lang" style="max-width:360px">${[['auto', '자동'], ['ko', '한국어'], ['en', '영어']].map(([v, l]) => `<option value="${v}" ${(w.summaryLang || 'auto') === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
+        <label class="f">인물 추가 칸<em>학교 세계에서 켜요. 소속 · 명단으로 알 수 있으면 코드가 채우고, 사람이 쓴 칸은 덮지 않아요</em></label><div class="row">${[['house', '기숙사'], ['year', '학년']].map(([k, l]) => `<label class="check"><input type="checkbox" data-pf="${k}" ${(w.personFields || []).includes(k) ? 'checked' : ''}> ${l}</label>`).join('')}</div>
         <label class="f" for="w-names">{{세계}} 이름 표기<em>자동: 영어로 진행하는 방에서는 「원래 표기(한국어)」</em></label><select id="w-names" style="max-width:360px">${[['auto', '자동'], ['ko', '한국어만'], ['original', '원래 표기(한국어)']].map(([v, l]) => `<option value="${v}" ${(w.nameStyle || 'auto') === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
         <div class="grid2">
           <div><label class="f" for="w-board">점수판 이름<em>비우면 점수를 찾지 않습니다 (예: 기숙사 점수)</em></label><input id="w-board" maxlength="40" value="${esc(w.scoreboard?.name || '')}"></div>
@@ -1195,7 +1200,7 @@ button.cap:hover{background:var(--wa-soft)}.cap.ghost{border-style:dashed;color:
         <h2>인물 종 채우기 <small>추가 기능</small></h2>
         <p class="sub" style="margin:0 0 12px">「종」 칸이 생기기 전에 읽은 인물은 종이 비어 있습니다. 누를 때만, 종이 빈 인물의 이름 · 다른 이름 · 외형 · 메모를 모아 100명씩 작은 호출로 묻고, 사람이 아닌 존재(반려동물 · 마법 생물 같은)에만 종을 적습니다. 직접 고친 칸은 건드리지 않고, 기록에서 하나씩 되돌릴 수 있습니다. 자동 반영 연결을 씁니다.</p>
         ${tidyHtml()}
-        <div class="row"><button type="button" data-act="tidy" title="한 번 스친 물건·주문 같은 규칙·시스템·일정과, 성격·메모에 섞인 사건을 후보로만 고릅니다(작은 호출). 지우지는 않습니다.">잡다한 설정 정리</button><button type="button" data-act="species-fill">인물 종 채우기</button><button type="button" data-act="applies-fill" title="적용되는 곳이 빈 규칙·시스템을 이름·분류·내용만으로 한 번에 묻습니다(작은 호출). 근거가 없으면 모름으로 둡니다.">규칙 적용되는 곳 채우기</button><button type="button" data-act="topic-fill" title="주제가 빈 규칙·시스템을 이름·분류·내용만으로 한 번에 묻습니다(작은 호출).">규칙 주제 채우기</button><button type="button" data-act="topic-redo" title="자동으로 붙은 주제도 다시 매깁니다(사람이 고친 것은 그대로, 기록에서 되돌릴 수 있음).">주제 다시 매기기</button><button type="button" data-act="location-fill" title="아직 어느 장소 안에도 없는 장소를 위치 칸으로 먼저 잇고, 남은 것만 작은 호출로 묻습니다.">장소 위치 채우기</button></div>
+        <div class="row"><button type="button" data-act="tidy" title="한 번 스친 물건·주문 같은 규칙·시스템·일정과, 성격·메모에 섞인 사건을 후보로만 고릅니다(작은 호출). 지우지는 않습니다.">잡다한 설정 정리</button><button type="button" data-act="species-fill">인물 종 채우기</button><button type="button" data-act="hair-fill" title="머리색 · 눈색이 빈 인물을 외형 글에서만 뽑습니다(작은 호출, 지어내지 않음).">머리색 · 눈색 채우기</button><button type="button" data-act="applies-fill" title="적용되는 곳이 빈 규칙·시스템을 이름·분류·내용만으로 한 번에 묻습니다(작은 호출). 근거가 없으면 모름으로 둡니다.">규칙 적용되는 곳 채우기</button><button type="button" data-act="topic-fill" title="주제가 빈 규칙·시스템을 이름·분류·내용만으로 한 번에 묻습니다(작은 호출).">규칙 주제 채우기</button><button type="button" data-act="topic-redo" title="자동으로 붙은 주제도 다시 매깁니다(사람이 고친 것은 그대로, 기록에서 되돌릴 수 있음).">주제 다시 매기기</button><button type="button" data-act="location-fill" title="아직 어느 장소 안에도 없는 장소를 위치 칸으로 먼저 잇고, 남은 것만 작은 호출로 묻습니다.">장소 위치 채우기</button></div>
       </div>
       <div class="paper">
         <h2>백업 · 복원</h2>
@@ -2014,7 +2019,7 @@ button.cap:hover{background:var(--wa-soft)}.cap.ghost{border-style:dashed;color:
     }, '세계관을 만들었습니다.'),
     'save-world': () => run(async () => {
       const w = world();
-      await api('PATCH', `/worlds/${w.worldId}`, { name: val('w-name'), description: val('w-desc'), injectChars: Number(val('w-budget')), injectMode: val('w-mode') === 'scene' ? 'scene' : 'all', scoreboard: { name: val('w-board'), unit: val('w-unit') }, yearStart: Number(val('w-year')) || 9, nameStyle: val('w-names') || 'auto', summaryLang: val('w-lang') || 'auto', tail: { cast: !!root.getElementById('w-tail-cast')?.checked, balance: !!root.getElementById('w-tail-bal')?.checked }, balance: val('w-balance').split(/[,，]/).map((x) => x.trim()).filter(Boolean).slice(0, 4), revision: w.revision });
+      await api('PATCH', `/worlds/${w.worldId}`, { name: val('w-name'), description: val('w-desc'), injectChars: Number(val('w-budget')), injectMode: val('w-mode') === 'scene' ? 'scene' : 'all', scoreboard: { name: val('w-board'), unit: val('w-unit') }, yearStart: Number(val('w-year')) || 9, nameStyle: val('w-names') || 'auto', summaryLang: val('w-lang') || 'auto', personFields: [...root.querySelectorAll('[data-pf]')].filter((x) => x.checked).map((x) => x.dataset.pf), tail: { cast: !!root.getElementById('w-tail-cast')?.checked, balance: !!root.getElementById('w-tail-bal')?.checked }, balance: val('w-balance').split(/[,，]/).map((x) => x.trim()).filter(Boolean).slice(0, 4), revision: w.revision });
       await loadWorlds();
       await loadRoom();
     }, '저장했습니다.'),
@@ -2181,6 +2186,12 @@ button.cap:hover{background:var(--wa-soft)}.cap.ghost{border-style:dashed;color:
       await loadEntities();
       st.bad = false;
       st.msg = `주제가 빈 규칙·시스템 ${r.asked}개 가운데 ${r.filled.length}개를 채웠습니다(호출 ${r.calls}번). 기록에서 되돌릴 수 있습니다.`;
+    }),
+    'hair-fill': () => run(async () => {
+      const r = await api('POST', `/worlds/${st.worldId}/hair-fill`, {});
+      await loadEntities();
+      st.bad = false;
+      st.msg = `머리색 · 눈색이 빈 인물 ${r.asked}명 가운데 ${r.filled.length}명을 외형 글에서 채웠습니다(호출 ${r.calls}번). 기록에서 되돌릴 수 있습니다.`;
     }),
     'species-fill': () => run(async () => {
       const r = await api('POST', `/worlds/${st.worldId}/species-fill`);
