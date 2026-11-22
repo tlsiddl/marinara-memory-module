@@ -31,7 +31,8 @@ test('home: version notice, things to fix, day counts, recent changes, cost; sea
 });
 
 test('the person page shows a foreign term with its Korean translation as one, like the names tab', () => {
-  const person = source.slice(source.indexOf('  function viewPerson() {'), source.indexOf('\n  }\n', source.indexOf('  function viewPerson() {')));
+  // 0.38.0: the one-person page is 「자세히」 under a card (personDetail)
+  const person = source.slice(source.indexOf('  function personDetail(p) {'), source.indexOf('\n  }\n', source.indexOf('  function personDetail(p) {')));
   assert.match(person, /x\.id === e\.pairWith\); return t \? `\$\{e\.term\}\(\$\{t\.term\}\)` : e\.term;/);
   assert.match(person, /!\(e\.pairOf && allCalls\.some\(\(x\) => x\.id === e\.pairOf\)\)/);
   assert.match(person, /“\$\{esc\(callLabel\(e\)\)\}”/);

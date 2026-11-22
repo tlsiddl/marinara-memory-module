@@ -1928,6 +1928,11 @@
   }
 
   function inspector() {
+    // 0.38.0: on the 「세계관」 tab, World Archive's panel says what goes here (이 세계관 · 이 방 · {{세계}})
+    if (tab === 'worldarchive' && worldTab.linked === true && worldTab.instance?.railHtml) {
+      const html = worldTab.instance.railHtml();
+      if (html) return `${html}<div class="rail-footer">기억 서재 · 기억 모듈판 v${VERSION}</div>`;
+    }
     if (!info) return '';
     const stats = threadStats();
     return `<div class="rail-title">이 방의 기억</div>
@@ -2167,8 +2172,13 @@
     if (!store) return emptyRoom();
     const people = personNames();
     if (!people.length) return `<h1>인물별</h1><div class="empty">${icon('person')}아직 인물이 없습니다.</div>`;
-    if (!people.includes(selectedPerson)) selectedPerson = people[0];
-    const p = selectedPerson;
+    if (selectedPerson && !people.includes(selectedPerson)) selectedPerson = '';
+    loadWaPeople();
+    return `<div class="eyebrow">PEOPLE · ${people.length}</div><h1>인물별</h1>
+      <p class="intro">사람마다 두 구역으로 모았습니다. 「설정집에서」는 세계관 설정집의 외형 · 성격 · 관계(이 방이 세계관에 연결돼 있을 때, 고치는 것은 설정집에서), 「이 방의 기억」은 이 방에서 정리된 지금 상태 · 알게 된 사실 · 수첩입니다. 「자세히」에서 장면 · 대사 · 끝나지 않은 일까지 봅니다.</p>
+      ${people.map(personCard).join('')}`;
+  }
+  function personDetail(p) {
     const all = store.facts || [];
     const facts = all.filter((f) => f.about === p && !(f.replacedBy && all.some((x) => x.id === f.replacedBy)));
     const notes = (world?.notes || {})[p] || [];
@@ -2183,10 +2193,7 @@
     const calls = allCalls.filter((e) => (e.from === p || e.to === p) && !(e.pairOf && allCalls.some((x) => x.id === e.pairOf)));
     const field = (label, v) => (v && (!Array.isArray(v) || v.length) ? `<dt>${label}</dt><dd>${esc(Array.isArray(v) ? v.join(' · ') : v)}</dd>` : '');
     const section = (key, title, count, body, openNow = false) => `<details class="paper person-sec" data-list="person:${esc(key)}" ${openLists.has(`person:${key}`) || openNow ? 'open' : ''}><summary><b>${title}</b> · ${count}</summary>${body}</details>`;
-    return `<div class="eyebrow">PEOPLE · ${people.length}</div><h1>인물별</h1>
-      <p class="intro">한 사람에 대한 기억을 한곳에 모았습니다: 지금 상태, 부르는 말, 알게 된 사실, 수첩, 끝나지 않은 일, 함께한 장면과 주고받은 대사. 고치는 것은 각 항목의 원래 화면에서 합니다(링크).</p>
-      <div class="person-chips">${people.map((n) => `<button class="${n === p ? 'selected' : ''}" data-act="selectPerson" data-id="${esc(n)}">${esc(nameShown(n))}</button>`).join('')}</div>
-      <div class="paper"><h2>${esc(nameShown(p))}</h2>
+    return `<div class="person-detail"><div class="paper"><h2>${esc(nameShown(p))} · 자세히</h2>
         ${card ? `<dl class="person-now">${field('있는 곳', card.location)}${field('차림', card.outfit)}${field('다친 곳', card.injuries)}${field('가진 것', card.carrying)}${field('기분', card.mood)}${field('그 밖', card.other)}</dl>` : '<p class="hint">지금 상태 기록이 없습니다(상태·장소·물건에서 켜고 고칠 수 있음).</p>'}
         ${(() => {
           // What this person calls others, apart from what others call them.
@@ -2202,8 +2209,72 @@
       ${section('notes', '수첩 (본인만 아는 다짐)', notes.length, notes.length ? notes.map((n) => `<p class="person-row">${n.star ? '★ ' : ''}${n.when ? `<small>(${esc(shown(n.when))})</small> ` : ''}${esc(shown(n.text))}</p>`).join('') + '<div class="buttons"><button class="ghost" data-tab="notebook">수첩에서 고치기</button></div>' : '<p class="hint">없습니다.</p>')}
       ${section('items', '이 사람의 끝나지 않은 일', items.length, items.length ? items.map((t) => `<p class="person-row"><span class="pill ${t.kind === 'promise' ? '' : 'neutral'}">${esc(KIND[t.kind] || t.kind)}</span> ${esc(shown(t.title))} <a href="#" class="record-link chip" data-goto-thread="${esc(t.id)}"><span class="chip-id">${esc(t.id)}</span></a></p>`).join('') : '<p class="hint">없습니다.</p>', items.length > 0)}
       ${section('scenes', '함께한 장면', scenes.length, scenes.length ? `<div class="record-links">${scenes.slice(-30).map((x) => sceneLink(x)).join('')}</div>` : '<p class="hint">없습니다.</p>')}
-      ${section('quotes', '주고받은 대사 (최근 12개)', quotes.length, quotes.length ? quotes.map(({ sc, q }) => { const l = quoteLine(q); return `<div class="quote-card"><small>${esc(sc.id)} · ${esc(l.who)}</small><blockquote>${esc(l.text)}</blockquote></div>`; }).join('') : '<p class="hint">없습니다.</p>')}`;
+      ${section('quotes', '주고받은 대사 (최근 12개)', quotes.length, quotes.length ? quotes.map(({ sc, q }) => { const l = quoteLine(q); return `<div class="quote-card"><small>${esc(sc.id)} · ${esc(l.who)}</small><blockquote>${esc(l.text)}</blockquote></div>`; }).join('') : '<p class="hint">없습니다.</p>')}</div>`;
   }
+
+  /* ---------- 인물별 (0.38.0 · 시안 B): 카드마다 두 구역 — 「설정집에서」(세계관 설정집, 읽기만) · 「이 방의 기억」 ---------- */
+
+  // 세계관 설정집의 이 방 인물 · 관계 (읽기만; 기억 서재는 설정집에 쓰지 않음). 방마다 30초 동안 다시 묻지 않음.
+  const waPeople = { room: '', at: 0, loading: false, entities: [], relations: [], linked: false };
+  function loadWaPeople() {
+    if (waPeople.loading || (waPeople.room === room && Date.now() - waPeople.at < 30000)) return;
+    if (!worldTab.available) return;
+    waPeople.loading = true;
+    const id = room;
+    (async () => {
+      try {
+        const e = await api('GET', `/api/world-archive/rooms/${encodeURIComponent(id)}/entities`);
+        const r = e?.worldId ? await api('GET', `/api/world-archive/rooms/${encodeURIComponent(id)}/relations`).catch(() => ({ relations: [] })) : { relations: [] };
+        Object.assign(waPeople, { room: id, at: Date.now(), linked: Boolean(e?.worldId), entities: (e?.entities || []).filter((x) => x.type === 'person'), relations: r?.relations || [] });
+      } catch {
+        Object.assign(waPeople, { room: id, at: Date.now(), linked: false, entities: [], relations: [] });
+      } finally {
+        waPeople.loading = false;
+        if (tab === 'person') render();
+      }
+    })();
+  }
+  const waKey = (x) => String(x || '').normalize('NFC').toLowerCase().replace(/[\s"'“”‘’·,.()]+/g, '');
+  function waPersonOf(name) {
+    if (waPeople.room !== room || !waPeople.linked) return null;
+    const keys = new Set([name, nameShown(name)].map(waKey).filter(Boolean));
+    return waPeople.entities.find((e) => [e.name, ...(e.aliases || [])].some((n) => keys.has(waKey(n)))) || null;
+  }
+  /** 「테오 마렌 · 친구」, 「벨로나 하르트 · 스승」: this person's relations in the world, as the other one is to them. */
+  function waRelationsOf(ent) {
+    return waPeople.relations.filter((r) => r.from === ent.entityId || r.to === ent.entityId).map((r) => {
+      const mine = r.from === ent.entityId;
+      const other = mine ? r.toName : r.fromName;
+      // 스승·제자: from is the pupil
+      // a note says what the other one is from the first one's side (「반려동물」): on the other side only the kind
+      const what = r.type === '스승·제자' ? (mine ? '스승' : '제자') : r.type === '가족' && r.note && mine ? r.note.replace(/과거에는.*$/, '').trim() || '가족' : r.type;
+      return `${other} · ${what}`;
+    });
+  }
+  const wfRow = (label, value) => (value ? `<div class="world-field"><span>${esc(label)}</span><input readonly value="${esc(value)}" aria-label="${esc(label)}"></div>` : '');
+  function personCard(p) {
+    const all = store.facts || [];
+    const facts = all.filter((f) => f.about === p && !(f.replacedBy && all.some((x) => x.id === f.replacedBy)));
+    const notes = (world?.notes || {})[p] || [];
+    const card = (world?.cards || []).find((c) => c.name === p);
+    const ent = waPersonOf(p);
+    const pill = ent ? String(ent.fields?.species || '').trim() || String(ent.fields?.affiliation || '').split(/[,，、]/)[0].trim() : '';
+    const rels = ent ? waRelationsOf(ent) : [];
+    const wa = ent ? `<p class="eyebrow person-zone">설정집에서 · 세계관</p>
+        ${wfRow('외형', ent.fields?.appearance)}${wfRow('성격', ent.fields?.personality)}
+        ${rels.length ? `<div class="world-field"><span>관계</span><div class="wf-caps">${rels.map((x) => `<span class="wf-cap">${esc(x)}</span>`).join('')}</div></div>` : ''}
+        ${!ent.fields?.appearance && !ent.fields?.personality && !rels.length ? '<p class="hint">설정집에 이 사람의 외형 · 성격 · 관계가 아직 없습니다.</p>' : ''}` : '';
+    const now = card ? [card.location, card.carrying, card.injuries, card.mood, card.other].filter(Boolean).join(' · ') : '';
+    const last = (list, get) => (list.length ? ` · 「${clipText(shown(get(list[list.length - 1])), 40)}」` : '');
+    const mem = `<p class="eyebrow person-zone">이 방의 기억</p>
+        ${wfRow('지금', now)}${wfRow('알게 된 사실', facts.length ? `${facts.length}개${last(facts, (f) => f.text)}` : '')}${wfRow('수첩', notes.length ? `${notes.length}개${last(notes, (n) => n.text)}` : '')}
+        ${!now && !facts.length && !notes.length ? '<p class="hint">이 방의 기억에 아직 이 사람의 상태 · 사실 · 수첩이 없습니다.</p>' : ''}`;
+    const open = p === selectedPerson;
+    return `<div class="world-card person-card${open ? ' is-open' : ''}"><h3>${esc(nameShown(p))}${pill ? ` <span class="pill">${esc(clipText(pill, 16))}</span>` : ''}
+        <button class="ghost person-more" data-act="selectPerson" data-id="${esc(open ? '' : p)}" aria-expanded="${open}">${open ? '접기' : '자세히'}</button></h3>${wa}${mem}${open ? personDetail(p) : ''}</div>`;
+  }
+  const clipText = (t, n) => { const s = String(t || ''); return s.length > n ? `${s.slice(0, n)}…` : s; };
+
 
   /* ---------- 할 일: 거르기 · 여러 개 고르기 · 되돌리기 ---------- */
 
@@ -3462,6 +3533,13 @@
     if (!worldTab.instance) {
       try { worldTab.instance = globalThis.__memoryWorldPanel.start(box, { theme }); } catch (error) { box.textContent = `세계관 칸을 열지 못했습니다: ${error?.message || error}`; }
     } else worldTab.instance.setTheme?.(theme);
+    // the panel loads on its own: keep the right column in step while this tab is shown
+    if (!worldTab.railTimer) worldTab.railTimer = setInterval(() => {
+      if (tab !== 'worldarchive' || !root) { clearInterval(worldTab.railTimer); worldTab.railTimer = null; return; }
+      const el = root.querySelector('#inspector');
+      const html = inspector();
+      if (el && el.innerHTML !== html) el.innerHTML = html;
+    }, 1500);
   }
 
   function openLibrary() {
