@@ -1415,7 +1415,7 @@ function redateText(text, first, last = first) {
     if (!want) { out += m[0]; return; }
     if (m[1]) {
       const pad = (v, like) => (like.length === 2 ? String(v).padStart(2, '0') : String(Number(v)));
-      const year = m[1].length === 2 ? y.slice(2) : y;
+      const year = m[1].length === 2 && /^20/.test(y) ? y.slice(2) : y;
       const next = `${year}${m[2]}${pad(mo, m[3])}${m[2]}${pad(d, m[4])}`;
       out += next === `${m[1]}${m[2]}${m[3]}${m[2]}${m[4]}` ? m[0] : `${next}${weekText}`;
     } else {
@@ -1430,7 +1430,7 @@ function redateText(text, first, last = first) {
 function writtenDay(text, base) {
   const m = [...String(text ?? '').matchAll(DATE_TOKEN)][0];
   if (!m) return null;
-  const year = m[1] ? (m[1].length === 2 ? `20${m[1]}` : m[1]) : m[5] || String(base || '').slice(0, 4);
+  const year = m[1] ? (m[1].length === 2 ? String(L.fullYear(m[1], base)) : m[1]) : m[5] || String(base || '').slice(0, 4);
   const [mo, d] = m[1] ? [m[3], m[4]] : [m[6], m[7]];
   if (!/^\d{4}$/.test(year)) return null;
   return `${year}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;

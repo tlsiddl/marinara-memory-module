@@ -1823,6 +1823,21 @@
     setTimeout(() => URL.revokeObjectURL(url), 10000);
   }
 
+  // 작중 날짜 바로잡기: the story's day as the memory reads it now, the dates set by hand, and reading dates from text.
+  function datesPaper(d) {
+    if (!d) return '';
+    const list = (d.fixes || []).map((f) => `<div class="routine-row"><span>메시지 ${esc(f.number)}번부터 <b>${esc(f.date)}${f.time ? ` ${esc(f.time)}` : ''}</b></span><button class="ghost" data-act="dateFixRemove" data-id="${esc(f.id)}">지우기</button></div>`).join('');
+    return `<div class="paper"><h2>작중 날짜</h2>
+      <p class="hint">지금 기억 서재가 읽은 이 방의 작중 날짜: <b>${d.today ? esc(d.today) : '모름'}</b>. 트래커나 메시지 글에서 날짜를 자동으로 읽는데, 잘못 읽었으면 여기서 바로잡을 수 있습니다. 정한 날짜는 그 메시지부터 다음 날짜가 나올 때까지 이어지고, 그 때문에 날짜가 바뀐 장면은 모델을 부르지 않고 바로 고쳐집니다.</p>
+      <label>메시지 번호<input id="dateFixNumber" type="number" min="1" inputmode="numeric" placeholder="비우면 마지막 메시지"></label>
+      <label>날짜 (연도-월-일)<input id="dateFixDate" type="text" inputmode="numeric" placeholder="예: 2024-03-01, 1766-08-19"></label>
+      <label>시각 (없어도 됨)<input id="dateFixTime" type="text" inputmode="numeric" placeholder="예: 14:30"></label>
+      <div class="buttons"><button class="primary" data-act="dateFixAdd">이 메시지부터 이 날짜로</button></div>
+      ${list ? `<h3>직접 정한 날짜</h3>${list}` : ''}
+      <label class="setting-switch"><span>메시지 글에서도 날짜 읽기<small>끄면 메시지 글(상태창 등)에 적힌 날짜는 읽지 않고, 트래커와 여기서 정한 날짜만 씁니다. 상태창의 숫자(예: 3/10)를 날짜로 잘못 읽을 때 끄세요.</small></span><input type="checkbox" id="setDatesFromText" ${d.fromText !== false ? 'checked' : ''}></label>
+    </div>`;
+  }
+
   function viewSettings() {
     if (!info) return emptyRoom();
     const current = serverSettings?.connection || '';
@@ -1847,6 +1862,7 @@
         <label>원문 인용 방식<select id="setQuoteMode"><option value="dialogue" ${!info.organize?.quoteMode || info.organize.quoteMode === 'dialogue' ? 'selected' : ''}>대사 위주</option><option value="narration" ${info.organize?.quoteMode === 'narration' ? 'selected' : ''}>서술 위주</option><option value="both" ${info.organize?.quoteMode === 'both' ? 'selected' : ''}>대사 + 서술 둘 다 · 토큰량 높음</option></select></label><p class="hint">대사 위주는 중요한 대사를 중심으로, 서술 위주는 장면의 행동·상황을 보여 주는 서술을 중심으로 인용합니다. 서술 위주에서도 중요한 대사는 함께 보존하도록 요청합니다. 둘 다를 선택하면 대사와 서술을 더 넉넉히 인용하므로 정리와 회상에 쓰이는 토큰이 늘어날 수 있습니다.</p><p class="hint">이 방에만 적용됩니다. 저장 후 새로 정리하는 장면부터 적용되며, 이미 정리한 장면을 바꾸려면 원문부터 다시 정리해야 합니다. 실제 정리 결과는 사용하는 모델에 따라 달라질 수 있습니다.</p><div class="buttons"><button data-act="saveOrganizePreferences">이 방의 정리 방식 저장</button></div>
         <label>이 방의 대사 확인 방식<select id="setAttributionRoom" data-attribution-room="1"><option value="follow" ${(info.attributionCheck?.room || 'follow') === 'follow' ? 'selected' : ''}>기본값 따름 (지금 모든 방 기본값: ${esc(attributionModeLabel(info.attributionCheck?.global))})</option>${attributionModeOptions(info.attributionCheck?.room)}</select></label><p class="hint">${ATTRIBUTION_MODE_HINT} 바꾸면 바로 저장되고, 다음 정리부터 적용됩니다.</p>
       </div>
+      ${datesPaper(info.dates)}
       ${featuresPaper(info.features)}
       ${backupPaper({ armed, preview: restorePreview && restorePreview.room === room ? restorePreview : null, withVectors: backupVectors, running: running(), undo: info.restoreUndo })}
       <div class="paper"><h2>모든 방 공통</h2>
@@ -3164,6 +3180,20 @@
         const mode = serverSettings?.routine === false ? 'on' : 'default';
         return act(() => api('POST', `/chats/${encodeURIComponent(room)}/routine-mode`, { mode }), '이 방에서 최근 생활 기록을 켰습니다. 새 메시지부터 이어서 기록합니다.');
       }
+      case 'dateFixAdd': {
+        const number = root.querySelector('#dateFixNumber')?.value.trim();
+        const date = root.querySelector('#dateFixDate')?.value.trim();
+        const time = root.querySelector('#dateFixTime')?.value.trim();
+        return act(async () => {
+          const r = await api('POST', `/chats/${encodeURIComponent(room)}/dates`, { action: 'add', number: number ? Number(number) : null, date, time });
+          notice = `작중 날짜를 정했습니다.${r.redated ? ` 날짜가 바뀐 장면 ${r.redated}개를 고쳤습니다.` : ''}`;
+        });
+      }
+      case 'dateFixRemove':
+        return act(async () => {
+          const r = await api('POST', `/chats/${encodeURIComponent(room)}/dates`, { action: 'remove', id });
+          notice = `직접 정한 날짜를 지웠습니다.${r.redated ? ` 날짜가 바뀐 장면 ${r.redated}개를 고쳤습니다.` : ''}`;
+        });
       case 'saveOrganizePreferences': {
         const npcCoverage = root.querySelector('#setNpcCoverage')?.value, quoteMode = root.querySelector('#setQuoteMode')?.value, detailLevel = root.querySelector('#setDetailLevel')?.value;
         if (!room) throw Error('현재 채팅방을 먼저 선택해 주세요.');
@@ -3789,6 +3819,13 @@
       if (e.target.id === 'setRoomMode') {
         const mode = e.target.value === 'simulator' ? 'simulator' : 'character';
         void act(() => api('POST', `/chats/${encodeURIComponent(room)}/mode`, { mode }), mode === 'simulator' ? '세계 시뮬레이터로 바꿨습니다. 다음 정리부터 적용됩니다.' : '캐릭터 RP로 바꿨습니다. 다음 정리부터 적용됩니다.');
+      }
+      if (e.target.id === 'setDatesFromText') {
+        const on = e.target.checked;
+        void act(async () => {
+          const r = await api('POST', `/chats/${encodeURIComponent(room)}/dates`, { fromText: on });
+          notice = `${on ? '메시지 글에서도 날짜를 읽습니다.' : '메시지 글의 날짜는 읽지 않고 트래커와 직접 정한 날짜만 씁니다.'}${r.redated ? ` 날짜가 바뀐 장면 ${r.redated}개를 고쳤습니다.` : ''}`;
+        });
       }
       if (e.target.id === 'setWorldLink') {
         const on = e.target.checked;
