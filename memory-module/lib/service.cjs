@@ -25,6 +25,7 @@ const Nb = require('./notebook.cjs');
 const Tk = require('./trackers.cjs');
 const Rp = require('./reasons.cjs');
 const Sim = require('./simulator.cjs');
+const Pets = require('./petnotes.cjs');
 
 /**
  * Marinara's own data folder, found the way Marinara finds it: DATA_DIR (relative to the server package) if set,
@@ -1928,6 +1929,29 @@ async function tidyLedger(model, ledger, messages, { scenes = null } = {}) {
 }
 
 /**
+ * 반려동물 수첩 (추가 기능, 세계 시뮬레이터 방 · 인물의 수첩이 켜져 있을 때): after a batch's scenes are saved, one small
+ * call writes the notes of the named animals that acted in them. No animal in the batch, or the switch off: no call,
+ * and the scene call is as before. A failure is logged and never stops the scenes. Returns the calls made (0 or 1).
+ */
+async function petNotes(chatId, store, scenes, slice, model, job) {
+  if (store?.mode !== 'simulator' || !featureOn(chatId, 'petNotebook') || !featureOn(chatId, 'notebook')) return 0;
+  const found = Pets.targets(store, scenes, slice);
+  if (!found.length) return 0;
+  const set = notebookLanguageOf(chatId);
+  const lang = ['ko', 'en', 'zh'].includes(set) ? set : writeLanguage(chatId);
+  try {
+    const reply = await askModel(model, Pets.buildPrompt(store, found, slice, { lang }), { maxTokens: 1500 });
+    const parsed = L.parseJsonObject(reply);
+    const added = parsed ? Pets.applyReply(store, found, parsed, slice, { lang, stats: job ? (job.petStats ||= {}) : null }) : 0;
+    log(`chat ${chatId}: pet notebook ${found.flatMap((f) => f.names).join(', ')} — ${added} note(s)`);
+  } catch (error) {
+    if (job?.cancel) throw error;
+    log(`chat ${chatId}: pet notebook failed (${error?.message || error})`);
+  }
+  return 1;
+}
+
+/**
  * Fold messages that are leaving the window into scenes, one slice per call, until caught up.
  * Each slice is saved as soon as it is done, so a stopped run continues where it left off.
  */
@@ -1981,6 +2005,7 @@ async function foldScenes(chatId, store, messages, window, model, job, { minPend
     if (job?.cancel) throw Error('중단했습니다. 다시 시작하면 이어서 정리합니다.');
     if (!applied) throw Error(`${next.slice[0].number}번부터 장면 정리에 실패했습니다: ${lastError}`);
     S.commitScenes(store, applied);
+    calls += await petNotes(chatId, store, applied.scenes, next.slice, model, job);
     store.window = { size: window, firstInside: S.firstInsideWindow(messages, window) };
     saveScenes(chatId, store);
     log(`chat ${chatId}: ${applied.scenes.length} scene(s) through message ${applied.scenes.at(-1).end}, ${applied.facts.length} fact(s)`);
@@ -5902,7 +5927,7 @@ function attach(app) {
   log('admin API ready at /api/memory-module');
 }
 
-module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { loadAddress, saveAddress, refreshAddress, presentPeople, Addr, loadState, saveState, loadPlaces, savePlaces, loadKeepsakes, saveKeepsakes, loadTrackers, saveTrackers, Tk, loadConflicts, saveConflicts, refreshConflicts, refreshWorld, Cf, Ks, organizeFor, sceneTokens, lastScenePeople, St, Pl, listRooms, purgeChatMemory, purgeIfGone, deleteOnSend, deletePrepare, listOrphans, deleteOrphans, goneChats, loadNames, saveNames, enqueue, foldScenes, reviewAttributions, loadAttributionLog, sceneJobs, selectedForView, loadSelected, recalls, windows, loadRecallPrefs, saveRecallPrefs, recallReport, recallCandidates, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, loadTranslations, saveTranslations, chatLangs, langRecords, loadLang, noteLanguage, LANG_REFRESH_EVERY, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, routinePeople, noteSourceKo, sourceKo, sourceQuoteItems, quoteHints, roomSetup, setupNote, withSetup, nameInstructions, jobs, writeLanguage, roomWriteLanguage, memoryCallOptions, routineSetting, routineEnabled, attributionSetting, featureOn, featureSetting, F, B, clearRoomCaches, promptLanguage, translateDisplayLater, loadNotebook, saveNotebook, Nb, fixNoteLanguages, rebuildNotebook, notebookJobStatus, notebookLanguageOf, notebookLanguageSetting, planAnswersOn, tidySteps, tidyLedger, noteUsage, usageSummary, RESTORE_UNDO_DIR, notebookRunning: (id) => notebookJobs.get(id)?.state === 'running', translationRun: (id, texts) => translateMissing(id, "ko", texts), flushTranslations, clearTranslationFailures, translationGaveUp, staleNames, autoMergeByGlossary, roomMode, setRoomMode, roomPeople, stampMode, worldArchivePeople, waPeopleCache, simulatorExample } };
+module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { loadAddress, saveAddress, refreshAddress, presentPeople, Addr, loadState, saveState, loadPlaces, savePlaces, loadKeepsakes, saveKeepsakes, loadTrackers, saveTrackers, Tk, loadConflicts, saveConflicts, refreshConflicts, refreshWorld, Cf, Ks, organizeFor, sceneTokens, lastScenePeople, St, Pl, listRooms, purgeChatMemory, purgeIfGone, deleteOnSend, deletePrepare, listOrphans, deleteOrphans, goneChats, loadNames, saveNames, enqueue, foldScenes, reviewAttributions, loadAttributionLog, sceneJobs, selectedForView, loadSelected, recalls, windows, loadRecallPrefs, saveRecallPrefs, recallReport, recallCandidates, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, loadTranslations, saveTranslations, chatLangs, langRecords, loadLang, noteLanguage, LANG_REFRESH_EVERY, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, routinePeople, noteSourceKo, sourceKo, sourceQuoteItems, quoteHints, roomSetup, setupNote, withSetup, nameInstructions, jobs, writeLanguage, roomWriteLanguage, memoryCallOptions, routineSetting, routineEnabled, attributionSetting, featureOn, featureSetting, F, B, clearRoomCaches, promptLanguage, translateDisplayLater, loadNotebook, saveNotebook, Nb, fixNoteLanguages, rebuildNotebook, notebookJobStatus, notebookLanguageOf, notebookLanguageSetting, planAnswersOn, tidySteps, tidyLedger, noteUsage, usageSummary, RESTORE_UNDO_DIR, notebookRunning: (id) => notebookJobs.get(id)?.state === 'running', translationRun: (id, texts) => translateMissing(id, "ko", texts), flushTranslations, clearTranslationFailures, translationGaveUp, staleNames, autoMergeByGlossary, roomMode, setRoomMode, roomPeople, stampMode, worldArchivePeople, waPeopleCache, simulatorExample, petNotes, askModel } };
 
 
 
