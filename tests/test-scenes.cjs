@@ -126,6 +126,18 @@ test('folding starts before messages leave the window, waits for a batch, and ne
   assert.equal(S.nextSlice(store, many, 20, { minPending: 8 }), null, 'only 2 waiting');
 });
 
+test('short windows fold as soon as a message leaves the context', () => {
+  for (const window of [1, 2, 6, 8, 9, 10, 14, 15, 20, 30]) {
+    const many = Array.from({ length: 50 }, (_, i) => ({ id: `m${i}`, number: i + 1, role: 'assistant', content: 'test' }));
+    const store = S.emptyStore();
+    store.covered = many.slice(0, many.length - window - 1).map((m) => ({ id: m.id }));
+    const result = S.nextSlice(store, many, window, { minPending: S.sceneMinPending(window) });
+    assert.ok(result, `window ${window} left a message unprocessed`);
+    assert.ok(result.slice[0].number <= many.length - window, `window ${window} skipped the oldest message`);
+    assert.ok(result.slice.at(-1).number <= many.length - Math.min(8, window), `window ${window} touched a protected message`);
+  }
+});
+
 test('who-forgets notes use the right particle and summaries sit on adjacent lines', () => {
   const store = S.emptyStore();
   const { slice } = S.nextSlice(store, chat, 2, { lead: 0, minVisible: 0 });
@@ -482,4 +494,24 @@ test('someone who learned a secret in a scene that is undone does not know it an
   assert.deepEqual(store.facts.find((f) => f.id === 'F1').unaware, ['도윤']);
   assert.equal(store.facts.find((f) => f.id === 'F1').knowHistory, undefined);
   assert.deepEqual(store.facts.find((f) => f.id === 'F2').guess, ['도윤']);
+});
+
+test('a scene end the model wrote oddly is still read, not thrown away', () => {
+  const raw = [];
+  for (let n = 55; n <= 62; n++) raw.push({ id: `m${n}`, number: n, speaker: n % 2 ? '하루' : '서아', content: n % 2 ? `하루가 대답했다. "알았어, ${n}."` : `"${n}번 질문이야?"` });
+  const msgs = L.prepareMessages(raw);
+  const events = () => [55, 56, 57, 58, 59, 60, 61, 62].map((n) => ({ text: `${n}번 일`, quotes: [{ n: `${n}.1`, q: String(n) }] }));
+  const scene = (extra) => ({ title: '장면', summary: '요약', events: events(), recollections: [], facts: [], ...extra });
+  const ranges = (scenes) => S.applyScenes(S.emptyStore(), { scenes }, msgs, 60).scenes.map((s) => `${s.start}~${s.end}`).join(',');
+  assert.equal(ranges([scene({ end: '58번' }), scene({ end: '[62]' })]), '55~58,59~62');
+  assert.equal(ranges([scene({ end: 4 }), scene({ end: 8 })]), '55~58,59~62'); // counted from 1
+  assert.equal(ranges([scene({ end: '55~62' })]), '55~62');
+  assert.equal(ranges([scene({ end_message: 58 }), scene({ end: 62 })]), '55~58,59~62');
+  // Unreadable ends (copied example, scene id, missing): closed at the required message instead of failing.
+  assert.equal(ranges([scene({ end: 25 })]), '55~60');
+  assert.equal(ranges([scene({ end: 'S23' })]), '55~60');
+  assert.equal(ranges([scene({}), scene({ end: 58 }), scene({ end: 62 })]), '55~58,59~62');
+  // The prompt names the numbers to use.
+  const prompt = S.buildScenePrompt(S.emptyStore(), msgs, 60)[1].content;
+  assert.match(prompt, /\[이번 메시지 번호\] 55~62/);
 });

@@ -887,14 +887,19 @@
   // fingerprints and internal marks ("critical", "m12") are not searched or shown.
   const SEARCH_TEXT = new Set(['title', 'summary', 'text', 'why', 'time', 'place', 'weather', 'what', 'kept', 'detail', 'cause', 'need', 'about', 'who', 'toward', 'by', 'to', 'how', 'turns', 'keep', 'present']);
   const SEARCH_NESTED = new Set(['events', 'quotes', 'loose', 'recollections', 'later', 'learned', 'latest', 'closed', 'evidence', 'clues']);
+  // An English (or Chinese) memory text is found by its Korean translation too, when the library has one.
+  const withKoText = (text) => {
+    const k = ko(text);
+    return k ? `${text} ${k}` : text;
+  };
   function searchableText(value) {
     if (value == null) return '';
     if (Array.isArray(value)) return value.map(searchableText).filter(Boolean).join(' ');
-    if (typeof value !== 'object') return String(value);
+    if (typeof value !== 'object') return withKoText(String(value));
     const parts = [];
     for (const [k, v] of Object.entries(value)) {
       if (v == null) continue;
-      if (SEARCH_TEXT.has(k)) parts.push(Array.isArray(v) ? v.filter((x) => typeof x === 'string').join(' ') : typeof v === 'string' ? v : '');
+      if (SEARCH_TEXT.has(k)) parts.push(Array.isArray(v) ? v.filter((x) => typeof x === 'string').map(withKoText).join(' ') : typeof v === 'string' ? withKoText(v) : '');
       else if (SEARCH_NESTED.has(k)) parts.push(searchableText(v));
     }
     return parts.filter(Boolean).join(' ').replace(/\s+/g, ' ');
@@ -905,7 +910,9 @@
     const out = [];
     for (const sc of store?.scenes || []) for (const e of sc.events || []) for (const q of e.quotes || []) {
       const l = quoteLine(q);
-      out.push({ id: sc.id, title: `${sc.id} · ${l.who}`, text: l.text, people: [q.by, q.to].filter(Boolean) });
+      // A line with no Korean of its own beside it is found by the library's translation of it.
+      const korean = q.translation ? null : ko(q.text);
+      out.push({ id: sc.id, title: `${sc.id} · ${l.who}`, text: korean ? `${l.text} (${korean})` : l.text, people: [q.by, q.to].filter(Boolean) });
     }
     return out;
   }
@@ -935,7 +942,7 @@
       const excerpt = `${start ? '…' : ''}${text.slice(start, at + query.length + 110)}${text.length > at + query.length + 110 ? '…' : ''}`;
       results.push(`<a href="#" class="record-link record-row" data-goto-${kind === 'quote' ? 'scene' : kind}="${esc(record.id)}"><span class="pill neutral">${label}</span><span class="row-main"><b>${esc(record.title || record.about || record.id)}</b><small>${esc(excerpt)}</small></span><span class="chip-arrow">›</span></a>`);
     }
-    return `<h1>기억 검색</h1><p class="intro">이 방의 장면·대사·챕터·큰 흐름·사실·미해결 기록과 닫힌 기록에서 입력한 글자를 찾습니다. 종류와 인물로 거를 수 있습니다. 결과를 누르면 해당 기록으로 이동합니다.</p>
+    return `<h1>기억 검색</h1><p class="intro">이 방의 장면·대사·챕터·큰 흐름·사실·미해결 기록과 닫힌 기록에서 입력한 글자를 찾습니다. 영어·중국어 기억은 한국어 번역으로도 찾습니다(번역이 아직 없는 기억은 원문으로만). 종류와 인물로 거를 수 있습니다. 결과를 누르면 해당 기록으로 이동합니다.</p>
       <form id="memorySearch" class="memory-search"><label for="memorySearchInput">검색어</label><div class="buttons"><input id="memorySearchInput" type="search" value="${esc(searchDraft)}" placeholder="이름, 대사, 장소 등" autocomplete="off"><button class="primary" type="submit">${icon('search')}검색</button><button type="button" data-act="clearSearch">초기화</button></div>
         <div class="buttons search-filters"><select id="searchKind" aria-label="종류로 거르기"><option value="all">모든 종류</option>${[['scene', '장면'], ['quote', '대사'], ['chapter', '챕터'], ['arc', '큰 흐름'], ['fact', '사실'], ['thread', '미해결·닫힌 기록']].map(([k, l]) => `<option value="${k}" ${searchKind === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
         <select id="searchWho" aria-label="인물로 거르기"><option value="all">모든 인물</option>${personNames().map((n) => `<option value="${esc(n)}" ${searchWho === n ? 'selected' : ''}>${esc(nameShown(n))}</option>`).join('')}</select></div></form>
@@ -1887,11 +1894,11 @@
           <option value="connection" ${embedMode() === 'connection' ? 'selected' : ''}>마리나라 연결의 임베딩 설정 그대로 쓰기 (추천)</option>
           <option value="manual" ${embedMode() === 'manual' ? 'selected' : ''}>여기서 직접 입력</option>
           <option value="off" ${embedMode() === 'off' ? 'selected' : ''}>끄기</option></select></label>
-        <p class="hint">‘그대로 쓰기’는 위의 ‘기억 정리에 쓸 연결’에서 마리나라 연결 설정의 <b>시맨틱 검색(임베딩)</b> 모델·주소·임베딩 연결을 그대로 가져옵니다.</p>
+        <p class="hint">‘그대로 쓰기’는 위의 ‘기억 정리에 쓸 연결’에서 마리나라 연결 설정의 <b>시맨틱 검색(임베딩)</b> 모델·주소·임베딩 연결을 그대로 가져옵니다. ‘직접 입력’은 모델명만 바꾸되, 설정된 임베딩 전용 연결이 있으면 그 주소와 키로 호출합니다.</p>
         <label>직접 입력할 임베딩 모델<input id="setEmbedding" list="embeddingModels" value="${esc(serverSettings?.embedding?.model || '')}" placeholder="예: Qwen/Qwen3-Embedding-8B"></label>
         <datalist id="embeddingModels"><option value="Qwen/Qwen3-Embedding-8B"><option value="BAAI/bge-m3"><option value="Qwen/Qwen3-Embedding-0.6B"></datalist>
         <p class="hint">지금: ${serverEmbedding?.model ? `<b>${esc(serverEmbedding.model)}</b> · ${esc(serverEmbedding.label || '')}` : serverEmbedding?.error ? esc(serverEmbedding.error) : embedMode() === 'off' ? '꺼져 있습니다.' : '임베딩 모델을 찾지 못했습니다. 마리나라 연결 설정에 임베딩 모델을 넣거나 직접 입력해 주세요.'}</p>
-        ${info.vectors ? `<p class="hint">이 방: 장면 ${info.vectors.total}개 중 ${info.vectors.indexed}개 색인됨${info.vectors.indexed < info.vectors.total ? ' (다음 정리 때 이어서 만듭니다)' : ''}</p>` : ''}
+        ${info.vectors ? `<p class="hint">이 방: 장면 ${info.vectors.total}개 중 ${info.vectors.indexed}개 색인됨${info.vectors.indexed < info.vectors.total ? ' (다음 정리 때 이어서 만듭니다)' : ''}</p>${info.vectors.error ? `<p class="hint" style="color:var(--danger, #c85b5b)">최근 색인 실패: ${esc(info.vectors.error)}</p>` : ''}` : ''}
         <div class="buttons"><button data-act="saveEmbedding">임베딩 저장·연결 확인</button></div>
       </div>
       ${orphanSection()}
