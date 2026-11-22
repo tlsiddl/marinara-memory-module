@@ -53,14 +53,18 @@ function speakers(store) {
  * (or another name of theirs) is in MIN_MENTIONS or more narration sentences (not quoted lines) of the scene's messages.
  * A name that only passes by once is left out. Returns [{ scene, names }]; [] means no call.
  */
-function targets(store, scenes, slice) {
+function targets(store, scenes, slice, { species = null } = {}) {
   const cast = Array.isArray(store?.cast) ? store.cast : [];
   if (!cast.length || !scenes?.length) return [];
   const spoke = speakers(store);
   // Not a candidate: someone who spoke, the narrator, the user's character, a name with a person's title, a name the
   // room already found is not an animal.
   const notAnimal = new Set((store.notAnimals || []).map((n) => A.canonical(n)));
-  const silent = cast.filter((n) => !spoke.has(A.canonical(n)) && !(store.narrators || []).includes(n) && !(store.personas || []).includes(n) && !personWord(n) && !notAnimal.has(A.canonical(n)));
+  // 세계관 설정집 연동 v2: with World Archive linked, its people with a 종 (species) who never had a line (a ghost, a
+  // house-elf or a goblin has a 종 too, but talks: a person of the story with a notebook of its own, not a pet).
+  const silent = species
+    ? cast.filter((n) => species.has(A.canonical(n)) && !spoke.has(A.canonical(n)) && !(store.narrators || []).includes(n) && !(store.personas || []).includes(n))
+    : cast.filter((n) => !spoke.has(A.canonical(n)) && !(store.narrators || []).includes(n) && !(store.personas || []).includes(n) && !personWord(n) && !notAnimal.has(A.canonical(n)));
   if (!silent.length) return [];
   const out = [];
   for (const scene of scenes) {
@@ -100,7 +104,7 @@ function buildPrompt(store, found, slice, { lang = 'ko' } = {}) {
  * evidence from that scene, not a copied sentence, not a fact or a note it already has), added to the scenes as
  * charNotes marked pet. Returns how many were added.
  */
-function applyReply(store, found, reply, slice, { lang = 'ko', stats = null } = {}) {
+function applyReply(store, found, reply, slice, { lang = 'ko', stats = null, species = null } = {}) {
   const count = (k) => { if (stats) stats[k] = (stats[k] || 0) + 1; };
   const items = Array.isArray(reply?.notebook) ? reply.notebook.slice(0, MAX_NOTES) : [];
   const index = L.indexBatch((slice || []).filter((m) => !m.ooc));
@@ -112,12 +116,13 @@ function applyReply(store, found, reply, slice, { lang = 'ko', stats = null } = 
   const fold = (s) => String(s ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
   const verdicts = reply?.animals && typeof reply.animals === 'object' && !Array.isArray(reply.animals) ? reply.animals : {};
   const verdictOf = (name, item) => {
+    if (species?.has(A.canonical(name))) return true; // World Archive says what it is
     const hit = Object.entries(verdicts).find(([k]) => fold(k) === fold(name) || A.canonical(k) === A.canonical(name));
     if (hit && typeof hit[1] === 'boolean') return hit[1];
     return typeof item?.animal === 'boolean' ? item.animal : null;
   };
   for (const name of [...new Set(found.flatMap((f) => f.names))]) {
-    if (verdictOf(name) !== false) continue;
+    if (species || verdictOf(name) !== false) continue;
     const canon = A.canonical(name);
     if (!(store.notAnimals || []).some((n) => A.canonical(n) === canon)) store.notAnimals = [...(store.notAnimals || []), canon].slice(-NOT_ANIMALS_MAX);
     count('notAnimalName');

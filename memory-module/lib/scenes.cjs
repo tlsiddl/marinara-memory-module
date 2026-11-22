@@ -6,6 +6,7 @@
 
 const L = require('./ledger.cjs');
 const Sim = require('./simulator.cjs');
+const W = require('./worldlink.cjs');
 const A = require('./aliases.cjs');
 const St = require('./state.cjs');
 const Pl = require('./places.cjs');
@@ -432,6 +433,9 @@ function buildScenePrompt(store, slice, required, problem = null, preferences = 
   if (sim && Sim.narratorLine(store.narrators)) head.push(Sim.narratorLine(store.narrators));
   if (cast.length) head.push(`[등장인물] ${cast.join(', ')}`);
   if (personas.length) head.push(`[사용자 캐릭터] ${personas.join(', ')}`);
+  // 세계관 설정집 연동 v2: who knows whom from the start, for this batch's people only (a room not linked: nothing).
+  const relLines = preferences.worldRelations?.length ? W.relationLines(preferences.worldRelations, slice, [...cast, ...personas]) : [];
+  if (relLines.length) head.push('[설정집 관계 — 처음부터 아는 사이]', ...relLines);
   if (head.length) parts.unshift(...head, '');
   if (problem) parts.push('', `## 지난번 답의 문제 (이번엔 고쳐 줘)`, problem);
   parts.push('', `## 메시지 (${slice[0].number}번부터)`, `[필수 끝 번호] ${required}`, `[이번 메시지 번호] ${slice[0].number}~${slice.at(-1).number} (end는 이 안의 숫자)`);
@@ -453,6 +457,7 @@ function buildScenePrompt(store, slice, required, problem = null, preferences = 
   // Optional records (인물 상태, 장소): added only while the room's switch is on, so a room without them gets the same prompt as before.
   const extras = [LINES_PROMPT];
   if (sim) extras.push(Sim.NARRATOR_PROMPT);
+  if (relLines.length) extras.push(W.RELATION_RULE);
   if (preferences.characterState) extras.push(St.PROMPT);
   if (preferences.places) extras.push(Pl.PROMPT);
   if (preferences.keepsakes) extras.push(Ks.PROMPT);

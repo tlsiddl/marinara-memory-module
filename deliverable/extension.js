@@ -3,7 +3,7 @@
   'use strict';
   // 기억 서재 (기억 모듈판): a window onto the server-side memory module (/api/memory-module).
   // All memory lives on the server; this only shows it and sends the user's changes back.
-  const VERSION = "0.36.1-marinara.2.4.6.154";
+  const VERSION = "0.37.0-marinara.2.4.6.155";
   const UI_CSS = /*__UI_CSS__*/ ":host{all:initial;color:#34374b;font:14px/1.65 \"Pretendard\",\"Noto Sans KR\",-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;--im-accent:#7777c8;--im-ink:#34374b;--im-muted:#8e91a6;--im-line:#e9e9f2;--im-paper:#fff;--im-canvas:#f5f5fb;--im-soft:#eeeefa}\n*{box-sizing:border-box}button,input,select,textarea{font:inherit}button{cursor:pointer;color:inherit;border:1px solid var(--im-line);background:var(--im-paper);padding:9px 14px;border-radius:11px;transition:background .15s,transform .15s,box-shadow .15s}button:hover{background:var(--im-soft)}button:disabled{opacity:.45;cursor:default}button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible,summary:focus-visible{outline:3px solid #aaa7e5;outline-offset:3px}.icon{width:19px;height:19px;flex:none;display:inline-block;vertical-align:middle}#launch{position:fixed;right:20px;bottom:126px;z-index:2147483600;display:flex;align-items:center;gap:8px;color:#fff;background:#7777c8;border:0;border-radius:24px;padding:11px 19px;box-shadow:0 7px 20px #7777c84d}#backdrop{position:fixed;inset:0;background:#20233654;z-index:2147483601}#panel{position:fixed;z-index:2147483602;left:50%;top:50%;transform:translate(-50%,-50%);width:min(1320px,96vw);height:min(900px,91vh);display:grid;grid-template-columns:192px minmax(0,1fr) 224px;background:var(--im-paper);border-radius:26px;box-shadow:0 25px 100px #25254435;overflow:hidden}#panel[hidden],[hidden]{display:none!important}\n.sidebar{display:flex;flex-direction:column;padding:30px 18px 20px;border-right:1px solid var(--im-line);min-width:0}.brand{display:flex;align-items:center;gap:10px;padding:0 12px 30px;color:var(--im-accent);font-size:18px;font-weight:750;letter-spacing:-.8px}.brand .icon{width:27px;height:27px}.brand small{display:block;white-space:nowrap;font:7px/1.8 ui-monospace,monospace;letter-spacing:1.3px;color:#a8a6bd}.nav-label{font-size:9px;letter-spacing:1.8px;color:#b2b1c2;padding:13px 14px 9px}nav{display:flex;flex-direction:column;gap:6px}nav button{display:flex;gap:11px;align-items:center;border:0;background:transparent;text-align:left;font-size:12px;padding:11px 13px;border-radius:10px;color:#9291aa}nav button.selected{background:#eeeeFA;color:#6d69b4;font-weight:700}nav button .icon{width:17px;height:17px}.side-bottom{margin-top:auto;padding-top:26px;display:grid;gap:10px}.side-bottom button{font-size:11px;border:0;display:flex;align-items:center;gap:8px;background:#f7f7fb}.side-bottom small{font-size:9px;color:#b0aec0;padding-left:10px}\n.workspace{min-width:0;min-height:0;display:flex;flex-direction:column;background:var(--im-canvas)}.topbar{min-height:84px;display:flex;gap:14px;align-items:center;padding:20px 30px}.crumb{font-size:11px;color:#a2a0b6;flex:1}.crumb b{color:#636178;font-weight:500}.global-search{display:flex;align-items:center;gap:7px;border:1px solid #e8e7f2;background:#fff9;padding:6px 7px 6px 12px;border-radius:30px;width:min(225px,44%)}.global-search input{border:0!important;background:transparent!important;outline:0;width:100%;min-width:0;font-size:10px!important;padding:0!important}.global-search button{padding:5px;border-radius:50%;border:0;background:#7a77c9;color:#fff;line-height:0}.global-search .icon{width:14px;height:14px}.close{border:0;background:transparent;padding:7px;line-height:0;color:#a5a1b5}.close:hover{background:#eae9f4}#status{font-size:10px;color:#a09cb4;padding:0 30px 5px;min-height:20px}#error{margin:0 28px 12px;padding:12px 14px;border-radius:12px;background:#fff0e7;color:#995c42;font-size:12px;white-space:pre-wrap}#content{padding:8px 30px 32px;overflow:auto;overscroll-behavior:contain;flex:1;min-height:0;scrollbar-width:thin;scrollbar-color:#dad7e9 transparent}.eyebrow{font:9px ui-monospace,monospace;letter-spacing:2.2px;color:#a9a5bc;text-transform:uppercase;margin:4px 0 8px}h1{font-size:25px;line-height:1.4;letter-spacing:-1.1px;margin:0 0 10px;font-weight:740}h2,h3{font-size:14px;letter-spacing:-.35px;margin:20px 0 12px;font-weight:700}h4{margin:0;font-size:13px}p{margin:8px 0 14px;overflow-wrap:anywhere}.intro{font-size:11px;color:#9995ac;line-height:1.85;margin-bottom:25px}.section-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:24px 0 15px}.section-head h2,.section-head h3{margin:0}.section-head>small{font-size:10px;color:var(--im-muted)}small{color:var(--im-muted);font-size:10px;overflow-wrap:anywhere}.buttons{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}.primary{background:var(--im-accent)!important;border-color:var(--im-accent)!important;color:#fff!important;box-shadow:0 4px 10px #7777c824}.ghost{border:0;background:transparent;padding:6px 9px;font-size:10px;color:#9390aa}.recall-marks{display:inline-flex;gap:4px;margin-left:auto}.mark-button.is-on{background:var(--im-soft);color:var(--im-accent);font-weight:700}.reason-list{display:grid;gap:6px}.reason-row{display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--im-line);border-radius:10px}.reason-row .row-main{display:grid;gap:3px;min-width:0;flex:1}.reason-chips{display:flex;gap:4px;flex-wrap:wrap}.pill{display:inline-flex;gap:4px;align-items:center;background:var(--im-soft);color:#7e76b4;border-radius:30px;padding:3px 9px;font-size:9px;white-space:nowrap}.pill.green{background:#eaf4ef;color:#68957a}.pill.neutral{background:#efeff4;color:#9693a6}\n.folder-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:17px;margin:36px 0 26px}.folder-card{position:relative;border:0;text-align:left;min-height:155px;padding:23px 18px 17px;border-radius:0 16px 16px 16px;box-shadow:0 8px 25px #30305b08;background:#fff;display:flex;flex-direction:column;align-items:flex-start;isolation:isolate}.folder-card:before{content:\"\";position:absolute;top:-12px;left:0;width:52%;height:26px;background:inherit;border-radius:11px 12px 0 0;z-index:-1}.folder-card.purple{background:#7a78c7;color:#fff}.folder-card.cream{background:#eee8db}.folder-card:hover{transform:translateY(-3px);background:#f0eff9}.folder-card.purple:hover{background:#706dc0}.folder-card.cream:hover{background:#e8e0ce}.folder-card .icon{width:23px;height:23px;opacity:.7;margin-bottom:16px}.folder-card small{font-size:8px;letter-spacing:1.3px;color:inherit;opacity:.55}.folder-card strong{font-size:13px;line-height:1.6;margin:5px 0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.folder-card span:last-child{margin-top:auto;font-size:9px;opacity:.7}.welcome-strip{display:flex;align-items:center;justify-content:space-between;gap:18px;background:#fff;padding:15px 18px;border-radius:13px;margin:20px 0;font-size:11px;color:#8e88a6}.welcome-strip b{display:block;color:#625d7c;font-size:12px;margin-bottom:4px}\n.file-shelf{display:flex;gap:0;overflow-x:auto;overflow-y:hidden;padding:12px 6px 18px 0;min-height:225px;scrollbar-width:thin}.file-index{flex:1 0 115px;position:relative;min-width:115px;max-width:210px;min-height:215px;margin-left:-13px;padding:28px 15px 20px 29px;text-align:left;border:0;border-radius:0 11px 7px 0;box-shadow:-4px 0 10px #2c2a321c;background:linear-gradient(96deg,#ffffff18,transparent 30%),repeating-linear-gradient(0deg,#ffffff08 0,#ffffff08 1px,#00000003 1px,#00000003 3px),#e5e0d0;isolation:isolate;color:#4e5044;transition:transform .18s;overflow:visible}.file-index:first-child{margin-left:0}.file-index:before{content:\"\";position:absolute;top:-10px;left:0;width:82%;height:24px;z-index:-1;background:inherit;border-radius:6px 11px 0 0}.file-index:nth-child(4n+2){background-color:#bfc4ca;color:#3f4653}.file-index:nth-child(4n+3){background-color:#c6b49b;color:#55432e}.file-index:nth-child(4n+4){background-color:#aeb8aa;color:#344b40}.file-index.is-current{background-color:#8481b5;color:#fff}.file-index:hover,.file-index.is-selected{transform:translateY(-7px);z-index:4}.file-index.is-selected{box-shadow:-4px 0 12px #35305422,inset 0 0 0 1px #6f6a9a55}.file-code{font:8px ui-monospace,monospace;letter-spacing:1.1px;opacity:.68}.file-index h3{font-size:16px;line-height:1.55;font-weight:650;margin:20px 0 12px;word-break:keep-all;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}.file-index .file-spine{position:absolute;left:8px;top:40px;writing-mode:vertical-rl;font:8px ui-monospace,monospace;letter-spacing:1.8px;opacity:.48}.file-index .file-foot{position:absolute;bottom:18px;left:29px;right:12px;font-size:9px;border-top:1px solid #0000001a;padding-top:10px;display:flex;justify-content:space-between}.file-index .barcode{height:14px;width:43px;margin-top:15px;opacity:.35;background:repeating-linear-gradient(90deg,currentColor 0,currentColor 1px,transparent 1px,transparent 3px,currentColor 3px,currentColor 5px,transparent 5px,transparent 7px)}\n.paper{background:var(--im-paper);border:1px solid #eeeef5;border-radius:15px;padding:20px;margin:16px 0}.paper h3:first-child{margin-top:0}.paper .hint{font-size:11px;color:#9993ac;line-height:1.8}.paper-toolbar{display:flex;align-items:center;justify-content:space-between;gap:14px}.paper-toolbar h2{margin:0}.editor-grid{display:grid;grid-template-columns:1fr 1fr;gap:15px}.editor-grid .paper{margin:0}.note{background:#eeeefa;border:1px solid #e4e2f2;border-radius:12px;padding:14px 16px;font-size:11px;color:#827a9c;line-height:1.85}.event-row{border-bottom:1px solid #efedf5;background:transparent}.event-row:last-child{border-bottom:0}.event-row>summary{list-style:none;cursor:pointer;padding:16px 0;display:flex;align-items:center;gap:12px}.event-row>summary::-webkit-details-marker{display:none}.event-no{font:10px ui-monospace,monospace;color:#a6a0bc;min-width:24px}.event-main{min-width:0;flex:1}.event-main b{font-size:12px;font-weight:600;display:block}.event-main small{font-size:9px;display:block;margin-top:3px}.event-body{padding:0 0 16px 36px;font-size:12px}.fact-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px 24px}.fact-grid .wide{grid-column:1/-1}.fact-grid label{padding:0;color:#aba4bd;font-size:9px}.fact-grid p{color:#615b73;font-size:12px;margin:5px 0 0;white-space:pre-wrap}.quote-card{border-left:2px solid #c3bde2;margin:15px 0;padding:2px 14px}.quote-card blockquote{margin:6px 0;font-size:13px;color:#665a83;white-space:pre-wrap}.quote-card small{font-size:9px}.empty{padding:35px 20px;text-align:center;color:#aaa3b8;font-size:12px}.empty .icon{display:block;margin:0 auto 10px;width:30px;height:30px;opacity:.5}\nlabel{display:block;font-size:11px;color:#777187;margin:12px 0 6px}input:not([type=checkbox]),textarea,select{width:100%;background:#fafafe;color:#575167;border:1px solid #e5e1ef;border-radius:9px;padding:10px 11px;outline:none;font-size:12px}input[type=checkbox]{accent-color:var(--im-accent);vertical-align:middle;width:15px;height:15px;margin-right:7px}textarea{min-height:180px;resize:vertical;line-height:1.85}textarea.event-field{min-height:88px}#eventEditor textarea[data-q]{min-height:90px}#eventEditor article{background:#faf9fd;padding:17px;border:1px solid #ebe6f2;border-radius:12px;margin:15px 0}.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 15px}.form-grid .full{grid-column:1/-1}.setting-switch{display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid #f0eef5;margin:0}.setting-switch span{font-size:12px}.setting-switch small{display:block;margin-top:3px;font-size:10px}.setting-switch input{order:2;margin:0}.check-row{display:flex;gap:8px;border-top:1px solid #f0eef5;padding:13px 0;margin:0}.check-row span{min-width:0}.check-row b{font-size:12px;color:#6d657e}.check-row small{display:block;font-size:10px;margin-top:4px;line-height:1.75}.check-row input{flex:none;margin-top:3px}.range-preview{border:1px solid #e7e3f1;border-radius:10px;margin:15px 0;padding:13px}.range-preview p{font-size:11px;margin:6px 0}.range-preview .snippet{color:#aaa0b4;font-size:10px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.import-preview{max-height:350px;overflow:auto}.metric-row{display:flex;gap:12px}.metric{flex:1;padding:16px;background:#fff;border-radius:12px}.metric strong{display:block;font-size:22px;font-weight:500;color:#7870b5}.metric small{font-size:10px}pre{font:10px/1.8 ui-monospace,monospace;white-space:pre-wrap;overflow-wrap:anywhere;background:#f8f6fc;border-radius:10px;padding:15px;color:#82778d}details>summary{cursor:pointer;color:#8e83a0;font-size:11px;padding:10px 0}#records>article{padding:16px 0;border-bottom:1px solid #ece8f2}#records>article>b{font-size:12px}#records>article>p{font-size:12px;color:#82768d}#records>article>small{display:block}#records blockquote{border-left:2px solid #cbc0e2;margin:12px 0;padding:5px 13px;font-size:12px}\n.inspector{padding:30px 22px;border-left:1px solid var(--im-line);overflow:auto}.rail-title{font-size:12px;font-weight:650;margin:7px 0 20px}.rail-stat{display:flex;align-items:center;gap:12px;background:#f5f4fa;border-radius:14px;padding:15px 12px;margin:11px 0}.rail-stat b{width:46px;height:46px;display:grid;place-items:center;border:1px solid #c9c4e9;border-radius:50%;color:#8178ba;font-size:16px;font-weight:500;flex:none}.rail-stat small{font-size:10px;line-height:1.8;color:#9c92ac}.rail-divider{height:1px;background:#efebf4;margin:24px 0}.rail-note h3{font-size:12px;line-height:1.8;margin:0 0 8px}.rail-note p{font-size:10px;color:#a296af;line-height:1.9}.rail-note .icon{color:#9c91c8;width:28px;height:28px;margin-bottom:10px}.rail-folder{height:90px;background:linear-gradient(135deg,#eeeafa,#e7e3f4);border-radius:10px;position:relative;margin:24px 4px;color:#a59ac6;display:grid;place-items:center}.rail-folder:before{content:\"\";position:absolute;top:-10px;left:0;width:55%;height:20px;background:#eeeafa;border-radius:8px}.rail-folder .icon{width:42px;height:42px}.room-label{font-size:11px;color:#82778e;margin:12px 0;overflow-wrap:anywhere}.rail-footer{font-size:9px;color:#b9aec1;line-height:1.9;margin-top:28px}\n@media(max-width:1120px){#panel{grid-template-columns:174px minmax(0,1fr)}.inspector{display:none}.sidebar{padding-left:12px;padding-right:12px}}@media(max-width:720px){#panel{inset:0;left:0;top:0;transform:none;width:100%;height:100dvh;border-radius:0;grid-template-columns:1fr;grid-template-rows:auto minmax(0,1fr)}.sidebar{padding:14px 14px 0;border:0;display:block;overflow:clip}.brand{padding:0 4px 10px;font-size:16px}.brand small,.nav-label,.side-bottom{display:none}.sidebar nav{flex-direction:row;overflow-x:auto;gap:3px;padding-bottom:10px;scrollbar-width:none}.sidebar nav button{flex:none;font-size:10px;padding:8px 9px;gap:6px}.sidebar nav .icon{width:14px;height:14px}.topbar{min-height:60px;padding:12px 18px;gap:9px}.crumb{font-size:10px}.global-search{width:42%;padding-left:9px}.global-search input{font-size:16px!important}#content{padding:6px 18px 25px}#status{padding:0 18px 6px}#error{margin:0 16px 10px}.editor-grid{grid-template-columns:1fr}.folder-grid{gap:10px;margin-top:28px}.folder-card{padding:17px 11px 12px;min-height:143px}.folder-card strong{font-size:11px}.folder-card .icon{width:20px;height:20px;margin-bottom:12px}.folder-card small{font-size:7px}.file-index{min-width:115px;max-width:170px;flex:0 0 134px}.welcome-strip{padding:13px;gap:9px;font-size:10px}.welcome-strip button{flex:none;font-size:10px}.form-grid{grid-template-columns:1fr}.form-grid .full{grid-column:auto}input:not([type=checkbox]),select,textarea{font-size:16px!important}.paper{padding:16px}.fact-grid{grid-template-columns:1fr}.fact-grid .wide{grid-column:auto}.event-body{padding-left:0}.event-row>summary{gap:8px}.paper-toolbar{align-items:flex-start}.paper-toolbar .buttons{justify-content:flex-end}.metric-row{gap:7px}.metric{padding:12px}.metric strong{font-size:19px}h1{font-size:23px}}\n@media(prefers-reduced-motion:reduce){*{transition:none!important}}\n/* v0.5 — calm controls, readable editors, complete light/dark surfaces */\n:host{--im-ink:#37354a;--im-muted:#757086;--im-line:#e4e1ed;--im-paper:#fff;--im-canvas:#f5f4fa;--im-soft:#efedf8;--im-accent:#7770b8;--im-accent-hover:#665da6;--im-accent-active:#554c92;--im-field:#faf9fd;--im-field-border:#ded9e9;--im-subtle:#f4f2f9;--im-selected:#eae6f7;color:var(--im-ink);color-scheme:light}\n:host([data-theme=dark]){--im-ink:#e8e5f2;--im-muted:#afa8c1;--im-line:#3b354b;--im-paper:#252130;--im-canvas:#1c1925;--im-soft:#393246;--im-accent:#aaa0e3;--im-accent-hover:#bcb2f1;--im-accent-active:#c9c0f8;--im-field:#211d2a;--im-field-border:#4a425d;--im-subtle:#2d273a;--im-selected:#3e3456;color-scheme:dark}\nbutton{font-weight:550;transition:background-color .16s,border-color .16s,color .16s,box-shadow .16s; -webkit-tap-highlight-color:transparent;touch-action:manipulation}\nbutton:not(:disabled):hover{background-color:var(--im-selected);border-color:#b8aed5;color:var(--im-ink);box-shadow:0 2px 7px #5a487512}\nbutton:not(:disabled):active{background-color:var(--im-soft);border-color:var(--im-accent);box-shadow:inset 0 1px 3px #30233d25;color:var(--im-accent-active)}\nbutton:disabled{opacity:.48;box-shadow:none}\n.primary:not(:disabled):hover{background:var(--im-accent-hover)!important;border-color:var(--im-accent-hover)!important;color:#fff!important;box-shadow:0 4px 12px #5d4e9c30}\n.primary:not(:disabled):active{background:var(--im-accent-active)!important;border-color:var(--im-accent-active)!important;box-shadow:inset 0 2px 5px #28194336}\n:host([data-theme=dark]) .primary{color:#20192f!important}\n:host([data-theme=dark]) .primary:not(:disabled):hover{color:#20192f!important}\nbutton:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible,summary:focus-visible{outline:2px solid var(--im-accent);outline-offset:3px}\nnav button{color:var(--im-muted)}nav button.selected{background:var(--im-selected);color:var(--im-accent)}nav button:not(:disabled):active{background:var(--im-soft)}\n.side-bottom button{background:var(--im-subtle)}.side-bottom small,.brand small,.nav-label,.eyebrow,.crumb,#status{color:var(--im-muted)}.crumb b{color:var(--im-ink)}\n.topbar{gap:10px}.global-search{background:var(--im-paper);border-color:var(--im-line)}.global-search button:not(:disabled):hover{background:var(--im-accent-hover);color:#fff}.close{color:var(--im-muted)}\n.theme-toggle{border:1px solid var(--im-line);background:var(--im-paper);color:var(--im-accent);width:34px;height:34px;flex:none;padding:0;display:grid;place-items:center;font:22px/1 system-ui;border-radius:11px}\n#launch:hover{background:var(--im-accent-hover);color:#fff}#launch:active{background:var(--im-accent-active);color:#fff}\n.intro,.paper .hint,.ghost,.empty,details>summary,.room-label{color:var(--im-muted)}.intro{font-size:12px}.paper{border-color:var(--im-line)}\n.note{background:var(--im-soft);border-color:var(--im-line);color:var(--im-muted)}\nlabel{color:var(--im-muted)}input:not([type=checkbox]),textarea,select{background:var(--im-field);border-color:var(--im-field-border);color:var(--im-ink)}input::placeholder,textarea::placeholder{color:var(--im-muted);opacity:.85}\ninput[type=checkbox]{appearance:none;-webkit-appearance:none;display:inline-block;width:38px;height:22px;min-width:38px;flex:none;border:1px solid #bdb6cb;border-radius:30px;background:#d4cfdf;position:relative;vertical-align:middle;cursor:pointer;margin:0;transition:background-color .18s,border-color .18s;outline-offset:4px}\ninput[type=checkbox]:before{content:\"\";position:absolute;width:16px;height:16px;top:2px;left:2px;border-radius:50%;background:#fff;box-shadow:0 1px 3px #30293d30;transition:transform .18s}\ninput[type=checkbox]:checked{background:var(--im-accent);border-color:var(--im-accent)}input[type=checkbox]:checked:before{transform:translateX(16px)}input[type=checkbox]:hover{border-color:var(--im-accent);box-shadow:0 0 0 3px #9486bd1c}input[type=checkbox]:active:before{width:18px}input[type=checkbox]:checked:active:before{transform:translateX(14px)}\n:host([data-theme=dark]) input[type=checkbox]{background:#4a435a;border-color:#6c627d}:host([data-theme=dark]) input[type=checkbox]:checked{background:var(--im-accent);border-color:var(--im-accent)}\n.setting-switch,.check-row{border-color:var(--im-line)}.setting-switch{gap:20px}.setting-switch input{align-self:center}.check-row{align-items:flex-start;gap:13px}.check-row input{margin-top:3px}.check-row b{color:var(--im-ink)}\n.room-switch{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 0;font-size:10px;margin:0}.room-switch input{width:34px;min-width:34px;height:20px}.room-switch input:before{width:14px;height:14px}.room-switch input:checked:before{transform:translateX(14px)}\n.folder-card{background:var(--im-paper)}.folder-card:not(:disabled):hover{transform:none;background:var(--im-soft)}.folder-card.purple:not(:disabled):hover{background:#6c64b3;color:#fff}.folder-card.cream:not(:disabled):hover{background:#e5dccb;color:#554a37}.folder-card:not(:disabled):active{box-shadow:inset 0 2px 6px #30233d20}.folder-card.purple:active{background:#5c549f!important}\n.file-index:not(:disabled):hover{background-color:#d8d1be;color:#4e5044;border-color:transparent;box-shadow:-4px 0 13px #28202b2e}.file-index.is-current:not(:disabled):hover{background-color:#726aab;color:#fff}.file-index:not(:disabled):active{filter:brightness(.92);color:inherit}\n.welcome-strip{background:var(--im-paper);color:var(--im-muted)}.welcome-strip b{color:var(--im-ink)}.metric{background:var(--im-paper)}.metric strong{color:var(--im-accent)}\n.event-row,#records>article{border-color:var(--im-line)}.event-no,.fact-grid label,.rail-footer{color:var(--im-muted)}.fact-grid p,.quote-card blockquote,#records>article>p{color:var(--im-ink)}.event-row>summary:hover{background:var(--im-soft);border-radius:9px}.event-row>summary{transition:background .15s}\n#eventEditor article,pre{background:var(--im-field);border-color:var(--im-line);color:var(--im-ink)}.range-preview{border-color:var(--im-line)}.range-preview .snippet{color:var(--im-muted)}\n.rail-stat{background:var(--im-subtle)}.rail-stat b{border-color:var(--im-field-border);color:var(--im-accent)}.rail-stat small,.rail-note p{color:var(--im-muted)}.rail-divider{background:var(--im-line)}\n.editor-grid{grid-template-columns:1fr;gap:22px}.memory-editor{padding:0;overflow:hidden;border:1px solid var(--im-line);border-radius:18px;box-shadow:0 4px 18px #42325606}.editor-heading{display:flex;align-items:center;gap:13px;padding:23px 24px 18px}.editor-number{display:grid;place-items:center;width:37px;height:37px;flex:none;border-radius:12px;background:var(--im-soft);color:var(--im-accent);font:12px ui-monospace,monospace}.editor-heading>div{min-width:0;flex:1}.editor-heading h2{font-size:16px;margin:0 0 4px;color:var(--im-ink)}.editor-heading .hint{margin:0;font-size:12px;line-height:1.7}.editor-heading .pill{font-size:9px;background:var(--im-soft);color:var(--im-accent)}.editor-surface{margin:0 24px;border:1px solid var(--im-field-border);border-radius:12px;background:var(--im-field);overflow:hidden}.editor-surface:focus-within{border-color:var(--im-accent);box-shadow:0 0 0 3px #9686c017}.editor-surface textarea{display:block;min-height:320px;max-height:70vh;border:0!important;border-radius:0;background:transparent;padding:20px 22px;color:var(--im-ink);font-size:14px;line-height:2;letter-spacing:.02em;word-break:normal;overflow-wrap:anywhere;tab-size:2;resize:vertical}.editor-surface textarea:focus-visible{outline:0}.editor-meta{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:12px 25px 18px;font-size:10px;color:var(--im-muted)}.editor-actions{align-items:center;margin:23px 0 15px}.editor-actions small{flex-basis:100%}\n:host([data-theme=dark]) #backdrop{background:#0c0913a8}:host([data-theme=dark]) #panel{box-shadow:0 24px 100px #0008}:host([data-theme=dark]) #error{background:#49302e;color:#ffc4ad}\n:host([data-theme=dark]) .folder-card.cream{background:#453e33;color:#e4d6bc}:host([data-theme=dark]) .folder-card.cream:hover{background:#514734;color:#f3e4c8}:host([data-theme=dark]) .folder-card.purple{background:#62568f}\n:host([data-theme=dark]) .pill.neutral{background:#393342;color:#bcb3cc}:host([data-theme=dark]) .pill.green{background:#293d37;color:#aed5bd}:host([data-theme=dark]) .pill{background:var(--im-soft);color:var(--im-accent)}\n:host([data-theme=dark]) .file-index{background-color:#6a6252;color:#f0e7d6}:host([data-theme=dark]) .file-index:nth-child(4n+2){background-color:#515b6b;color:#e3e9f1}:host([data-theme=dark]) .file-index:nth-child(4n+3){background-color:#725d49;color:#f1e3d2}:host([data-theme=dark]) .file-index:nth-child(4n+4){background-color:#4f6457;color:#e2ede5}:host([data-theme=dark]) .file-index.is-current{background-color:#6f6099;color:#fff}:host([data-theme=dark]) .file-index:hover{filter:brightness(1.12)}\n:host([data-theme=dark]) .rail-folder{background:linear-gradient(135deg,#393149,#30293e);color:#a99ac6}:host([data-theme=dark]) .rail-folder:before{background:#393149}\n@media(max-width:720px){.topbar{gap:7px}.crumb{max-width:34%;line-height:1.7}.global-search{flex:1;width:auto;min-width:0}.theme-toggle{width:30px;height:30px;font-size:20px;border-radius:9px}.close{padding:4px}.editor-heading{padding:18px 16px 14px;gap:10px;flex-wrap:wrap}.editor-heading h2{font-size:15px}.editor-heading .hint{font-size:11px}.editor-heading .pill{margin-left:47px}.editor-surface{margin:0 14px}.editor-surface textarea{padding:16px;min-height:300px;line-height:1.95}.editor-meta{padding:12px 16px 16px;display:grid;gap:4px}.memory-editor{padding:0}.editor-grid{gap:16px}.room-switch{display:none}}\n\n/* v0.5.1 — namespaced colors isolate the host theme; filled hover states. */\n:host{--im-ink:#302c40;--im-muted:#655e75;--im-line:#d8d2e4;--im-accent:#6b5aa8;--im-accent-hover:#584591;--im-accent-active:#483578;--im-field-border:#c9bfdc;--im-button-hover:#ddd4f1;--im-button-active:#c9bce7}\n:host([data-theme=dark]){--im-ink:#f0ebfa;--im-muted:#c4bcd5;--im-line:#51465f;--im-accent:#b8a7ed;--im-accent-hover:#cebcff;--im-accent-active:#dfd0ff;--im-field-border:#6b5b80;--im-button-hover:#594774;--im-button-active:#70558d}\n#panel{color:var(--im-ink)}\nbutton{color:var(--im-ink)}\nbutton:not(:disabled):hover{background:var(--im-button-hover);border-color:var(--im-accent);color:var(--im-ink);box-shadow:0 2px 8px #3b255218}\nbutton:not(:disabled):active{background:var(--im-button-active);border-color:var(--im-accent);color:var(--im-ink);box-shadow:inset 0 2px 4px #25153525}\n.primary:not(:disabled):hover{background:var(--im-accent-hover)!important;color:#fff!important}.primary:not(:disabled):active{background:var(--im-accent-active)!important;color:#fff!important}\n:host([data-theme=dark]) .primary,:host([data-theme=dark]) .primary:not(:disabled):hover,:host([data-theme=dark]) .primary:not(:disabled):active{color:#21172f!important}\nnav button.selected{color:var(--im-accent);background:var(--im-selected)}nav button:not(:disabled):hover,nav button.selected:not(:disabled):hover{background:var(--im-button-hover);color:var(--im-ink)}nav button:not(:disabled):active{background:var(--im-button-active);color:var(--im-ink)}\n.side-bottom button:not(:disabled):hover,.ghost:not(:disabled):hover,.close:not(:disabled):hover,.theme-toggle:not(:disabled):hover{background:var(--im-button-hover);color:var(--im-ink)}\n.file-index:not(:disabled):hover,.folder-card:not(:disabled):hover,.folder-card.cream:not(:disabled):hover{background:var(--im-button-hover);color:var(--im-ink)}.file-index.is-current:not(:disabled):hover,.folder-card.purple:not(:disabled):hover{background:var(--im-accent-hover);color:#fff}\n.file-index:not(:disabled):active,.folder-card:not(:disabled):active{background:var(--im-button-active)!important;color:var(--im-ink);filter:none}\n:host([data-theme=dark]) .file-index:not(:disabled):hover,:host([data-theme=dark]) .folder-card.cream:not(:disabled):hover{background:var(--im-button-hover);color:var(--im-ink);filter:none}\n:host([data-theme=dark]) .file-index.is-current:not(:disabled):hover{background:#8570b3;color:#fff}\n.brand{color:var(--im-accent)}.pill{color:var(--im-accent)}.pill.neutral{color:var(--im-muted)}.rail-stat small,.rail-footer,.rail-note p{color:var(--im-muted)}.folder-card small{opacity:.85}.folder-card span:last-child{opacity:.9}.file-code{opacity:.9}.file-index .file-spine{opacity:.75}\ninput::placeholder,textarea::placeholder{color:var(--im-muted);opacity:1}.global-search input::placeholder{color:var(--im-muted)}\n.overview-tabs{display:flex;gap:6px;padding:5px;margin:0 0 16px;background:var(--im-soft);border:1px solid var(--im-line);border-radius:13px;flex:none}\n.overview-tabs button{flex:1;background:transparent;border:1px solid transparent;border-radius:9px;padding:10px 14px;color:var(--im-muted);font-size:12px;white-space:nowrap}\n.overview-tabs button[aria-selected=true]{background:var(--im-paper);border-color:var(--im-field-border);color:var(--im-ink);box-shadow:0 2px 5px #2515350d;font-weight:700}\n.overview-tabs button:not(:disabled):hover{background:var(--im-button-hover);color:var(--im-ink)}.overview-tabs button:not(:disabled):active{background:var(--im-button-active)}\n#content.overview-page{display:flex;flex-direction:column;overflow:hidden}.overview-page .eyebrow{margin-top:0}.overview-page h1{flex:none}.overview-page>.intro{margin:0 0 14px;flex:none}.overview-page .editor-grid{display:flex;flex-direction:column;flex:1;min-height:0;gap:0}.overview-page .memory-editor{display:flex;flex-direction:column;flex:1;min-height:0;margin:0}.overview-page .editor-heading{padding:16px 20px 12px;flex:none}.overview-page .editor-surface{flex:1;min-height:60px;margin:0 20px}.overview-page .editor-surface textarea{min-height:0;max-height:none;height:100%;resize:none}.overview-page .editor-meta{flex:none;padding:10px 21px 12px}.overview-page .editor-actions{flex:none;margin:13px 0 8px;gap:8px}.overview-page>.note{font-size:10px;padding:9px 12px;flex:none}.overview-page .editor-actions small{font-size:10px}\n@media(max-width:720px){.overview-tabs{gap:4px;padding:4px;margin-bottom:12px}.overview-tabs button{font-size:11px;padding:9px 5px}.overview-page .editor-heading{padding:13px 14px 9px;flex-wrap:nowrap;gap:9px}.overview-page .editor-heading h2{font-size:13px}.overview-page .editor-heading .hint{font-size:10px}.overview-page .editor-heading .pill{display:none}.overview-page .editor-surface{margin:0 12px}.overview-page .editor-surface textarea{padding:13px}.overview-page .editor-meta{padding:8px 14px 10px;font-size:9px;display:flex;gap:4px}.overview-page .editor-actions button{font-size:11px;padding:9px 10px}.overview-page .editor-actions small{font-size:9px}.overview-page>.note{font-size:9px;padding:8px 10px}.overview-page>.intro{font-size:11px}.overview-page h1{font-size:22px;margin-bottom:7px}.overview-page .eyebrow{font-size:8px;margin-bottom:5px}}\n@media(max-height:650px){#content.overview-page{overflow:auto}.overview-page .editor-grid{min-height:240px}}\n/* v0.6 — room identity, scoped library picker, icon-only launcher */\n#launch{width:50px;height:50px;padding:0;display:grid;place-items:center;border-radius:17px;background:#6b5aa8;color:#fff;border:1px solid #ffffff36;box-shadow:0 5px 16px #3f30552b;right:22px;bottom:124px}\n#launch .icon{width:26px;height:26px;stroke-width:1.55}#launch:not(:disabled):hover{background:#55418f;color:#fff;border-color:#ffffff65;box-shadow:0 7px 20px #40305d40}#launch:not(:disabled):active{background:#463575;color:#fff}\n:host([data-theme=dark]) #launch{background:#a68ed9;color:#211630;border-color:#cfc0ec55}:host([data-theme=dark]) #launch:hover{background:#bda4ee;color:#211630}\n.topbar{align-items:center;min-height:100px}.crumb{min-width:0;flex:1}.room-picker{position:relative;min-width:0}#roomButton{display:flex;align-items:center;gap:6px;max-width:100%;padding:5px 7px;margin-left:-7px;border:1px solid transparent;background:transparent;color:var(--im-ink);font-size:13px;font-weight:700;text-align:left;line-height:1.5}#roomButton #room{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}#roomButton .icon{width:14px;height:14px;color:var(--im-muted)}#roomButton:not(:disabled):hover{background:var(--im-button-hover);border-color:var(--im-field-border)}.room-stats{display:block;font-size:10px;color:var(--im-muted);padding-top:2px}.room-page{display:flex;align-items:center;gap:9px;margin-top:5px;font-size:10px}.room-page #roomContext{font-size:9px;color:var(--im-accent)}.room-menu{position:absolute;left:-7px;top:calc(100% + 12px);width:360px;max-width:calc(100vw - 50px);max-height:65vh;overflow:auto;background:var(--im-paper);border:1px solid var(--im-field-border);box-shadow:0 12px 35px #160d2933;border-radius:15px;padding:13px;z-index:20}.room-search-label{margin:0 0 9px;font-size:10px}.room-search-label input{font-size:12px!important;margin-top:5px}#roomOptions{display:grid;gap:3px}.room-option,.room-current{display:flex;align-items:center;justify-content:space-between;gap:9px;width:100%;text-align:left;padding:10px;border:0;border-radius:9px;background:transparent}.room-option>span:first-child{display:flex;gap:10px;align-items:center;min-width:0}.room-option b{display:block;font-size:12px;font-weight:600;white-space:normal;overflow-wrap:anywhere}.room-option small{display:block;font-size:9px;margin-top:3px}.room-option .icon{width:17px;height:17px;color:var(--im-accent)}.room-option.selected{background:var(--im-selected)}.room-check{color:var(--im-accent)}.room-current{justify-content:flex-start;font-size:11px;background:var(--im-subtle)}.room-menu-label{font-size:9px;color:var(--im-muted);padding:10px 6px 5px}.room-menu-help{font-size:9px;color:var(--im-muted);margin:10px 5px 0;padding-top:10px;border-top:1px solid var(--im-line)}\n@media(max-width:720px){.topbar{flex-wrap:wrap;gap:7px;padding-top:9px;padding-bottom:8px}.crumb{max-width:none;flex-basis:100%;display:flex;align-items:center;justify-content:space-between;gap:9px}.room-picker{flex:1;min-width:0}.room-page{flex:none;max-width:35%;display:block;text-align:right;margin:0}.room-page b{font-size:9px}.room-page #roomContext{display:block;font-size:8px}#roomButton{font-size:12px}.room-stats{font-size:9px}.global-search{max-width:none;width:auto}.room-menu{width:340px;max-width:calc(100vw - 36px);left:0;max-height:60vh}.room-search-label input{font-size:16px!important}#launch{width:46px;height:46px;border-radius:15px;right:17px;bottom:115px}#launch .icon{width:24px;height:24px}}\n.auto-organize{border-color:var(--im-field-border);background:var(--im-paper)}.auto-organize .paper-toolbar h3{margin:8px 0}.auto-organize .paper-toolbar>.icon{width:28px;height:28px;color:var(--im-accent)}.organize-progress{padding:14px;background:var(--im-soft);border-radius:12px;margin:12px 0}.organize-progress>div{display:flex;justify-content:space-between;gap:10px;font-size:11px;color:var(--im-ink)}.organize-progress progress{display:block;width:100%;height:8px;margin:13px 0 16px;accent-color:var(--im-accent);border:0;border-radius:20px;overflow:hidden;background:var(--im-line)}.organize-progress progress::-webkit-progress-bar{background:var(--im-line)}.organize-progress progress::-webkit-progress-value{background:var(--im-accent);border-radius:20px}.organize-progress button{font-size:11px}.manual-range>summary{font-size:12px;font-weight:650;color:var(--im-ink)}\n.quote-review-panel{border:1px solid var(--im-field-border);background:var(--im-soft);padding:16px;border-radius:13px;margin-bottom:20px}.quote-review-panel h3{margin-top:0}.quote-review-panel .hint{font-size:11px;color:var(--im-muted)}.quote-review{border-top:1px solid var(--im-line);padding:6px 0}.quote-review summary{color:var(--im-ink);overflow-wrap:anywhere}.quote-review blockquote{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px}.review-source pre{max-height:230px;overflow:auto;font-size:11px}.review-notice{width:100%;text-align:left;font-size:10px;margin-bottom:10px;background:var(--im-soft)}\n.review-source pre{font-family:inherit;line-height:1.85}\n.repair-summary{font-size:10px;line-height:1.8;color:var(--im-muted);background:var(--im-soft);padding:10px;border-radius:10px;margin:0 0 15px}\n/* Independent overlay surface: the host itself never blocks the app. */\n:host{position:fixed;inset:0;z-index:2147483647;pointer-events:none;display:block;visibility:visible;opacity:1}\n#launch,#panel,#backdrop{pointer-events:auto}#launch{display:grid!important;visibility:visible!important;opacity:1!important;touch-action:manipulation;user-select:none;-webkit-user-select:none}\n.person-chips{display:flex;gap:7px;flex-wrap:wrap;max-height:180px;overflow:auto;padding:5px 0;margin:16px 0}.person-chips button{display:flex;align-items:center;gap:6px;font-size:12px;padding:8px 12px}.person-chips button.selected{background:var(--im-selected);border-color:var(--im-accent);color:var(--im-accent)}.person-chips .icon{width:16px;height:16px}.person-profile .paper-toolbar h2{margin:8px 0 0;font-size:20px}.person-fact{border-bottom:1px solid var(--im-line);padding:10px 0}.person-fact p{font-size:12px;white-space:pre-wrap}.people-hint{font-size:11px;color:var(--im-muted)}\n.file-time{display:block;font-size:9px;line-height:1.5;margin:5px 0;max-height:27px;overflow:hidden;opacity:.9}.file-index{min-height:244px}.file-index h3{margin-top:15px;margin-bottom:8px}.file-index .barcode{margin-top:9px}.timeline-card{display:grid;grid-template-columns:165px minmax(0,1fr);gap:18px;margin:15px 0;border:1px solid var(--im-line);border-radius:14px;background:var(--im-paper);padding:18px}.timeline-stamp{color:var(--im-accent);font-size:12px;line-height:1.8}.timeline-stamp .icon{width:15px;height:15px;display:block;margin-bottom:8px}.timeline-stamp small{display:block}.timeline-content{min-width:0}.timeline-content h3{margin:9px 0;font-size:13px}.timeline-content blockquote{margin:10px 0;padding:6px 13px;border-left:2px solid var(--im-accent);font-size:13px;white-space:pre-wrap;overflow-wrap:anywhere}.timeline-content .hint{font-size:10px;color:var(--im-muted)}\n@media(max-width:720px){.timeline-card{grid-template-columns:1fr;gap:9px;padding:15px}.timeline-stamp{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.timeline-stamp .icon{margin:0;display:inline-block}.timeline-stamp small{font-size:9px}.file-index{min-height:245px}}\n\n/* v0.7.5: mobile header controls and movable launcher */\n#themeToggle{font:inherit}#themeToggle .icon{width:20px;height:20px}\n#close{width:44px;height:44px;display:grid;place-items:center;flex:none;padding:0;border-radius:12px}\n#launch{touch-action:none;cursor:grab;-webkit-touch-callout:none;transition:background .15s,box-shadow .15s}\n#launch.dragging{cursor:grabbing;box-shadow:0 9px 28px #30204766;transition:none}\n@media(max-width:720px){\n .sidebar{padding-top:calc(8px + env(safe-area-inset-top,0px))}\n .brand{min-height:44px;padding-right:110px;padding-bottom:8px}\n #close,#themeToggle{position:absolute;top:calc(8px + env(safe-area-inset-top,0px));z-index:30;width:44px;height:44px;border:1px solid var(--im-line);background:var(--im-paper);border-radius:12px}\n #close{right:14px}#themeToggle{right:66px}\n #close:hover,#themeToggle:hover{background:var(--im-button-hover)}\n .topbar .global-search{width:100%;max-width:none;flex-basis:100%}\n #content{padding-bottom:calc(25px + env(safe-area-inset-bottom,0px))}\n}\n\n.profile-field{padding:14px 16px;margin:12px 0;border:1px solid var(--im-line);border-radius:14px;background:var(--im-field);}\n.profile-field h4{margin:0 0 8px;color:var(--im-accent);font-size:14px;}\n.profile-field p{margin:6px 0;line-height:1.75;white-space:pre-wrap;overflow-wrap:anywhere;}\n.identity-editor{margin:20px 0;padding:16px;border:1px solid var(--im-line);border-radius:14px;}\n.selection-toolbar{padding-bottom:18px;margin-bottom:18px;border-bottom:1px solid var(--im-line);}\n.memory-select{margin:0 0 14px;}\n\n/* v0.9.13: complete chapter index and readable saved-memory cards. */\n.file-shelf.chapter-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,210px),1fr));gap:28px 20px;overflow:visible;padding:18px 4px 25px;min-height:0}\n.chapter-grid .file-index{display:flex;flex-direction:column;width:100%;min-width:0;max-width:none;margin:0;flex:none;min-height:250px;padding:22px 16px 20px 30px}\n.chapter-grid .file-index h3{display:block;-webkit-line-clamp:unset;overflow:visible;font-size:15px;line-height:1.65;margin:16px 0 10px}\n.chapter-grid .file-time{max-height:none;overflow:visible;overflow-wrap:anywhere;margin:6px 0 16px}\n.chapter-grid .file-index .file-foot{position:static;margin-top:auto;gap:8px;flex-wrap:wrap;width:100%;line-height:1.6}\n.chapter-grid .barcode{margin-bottom:16px}.chapter-navigation{scroll-margin-top:16px}#chapterDetail{scroll-margin-top:16px}\n#records>article.memory-card{padding:18px;margin:14px 0;border:1px solid var(--im-line);border-radius:15px;background:var(--im-paper)}\n.memory-card-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.memory-card .memory-select{margin-left:auto;padding:0;border:0;gap:10px}.memory-card .memory-select span{font-size:10px;color:var(--im-muted)}\n.memory-details>summary{list-style:none;border-radius:10px;padding:15px 0 0;color:var(--im-ink)}.memory-details>summary::-webkit-details-marker{display:none}.memory-details>summary:hover{background:var(--im-soft)}\n.memory-details h3{font-size:14px;line-height:1.8;font-weight:600;margin:0 0 8px;overflow-wrap:anywhere}.memory-details summary small{display:block;color:var(--im-muted);font-size:11px;line-height:1.7}.memory-expand{display:flex;align-items:center;gap:6px;font-size:10px;color:var(--im-accent);margin-top:12px}.memory-expand .icon{width:13px;height:13px}.memory-details[open]>summary .memory-expand .icon{transform:rotate(180deg)}\n.memory-full{border-top:1px solid var(--im-line);margin-top:14px;padding-top:8px}.memory-full>p{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.9;font-size:13px;color:var(--im-ink)}.memory-full small{font-size:10px;color:var(--im-muted)}.memory-options{margin-top:15px;border-top:1px solid var(--im-line)}.memory-options summary{font-size:11px}.memory-options .hint{overflow-wrap:anywhere}\n@media(max-width:720px){.file-shelf.chapter-grid{grid-template-columns:repeat(auto-fill,minmax(min(100%,150px),1fr));gap:26px 12px}.chapter-grid .file-index{min-height:250px;padding:20px 12px 16px 25px}.chapter-grid .file-index h3{font-size:14px}.chapter-grid .file-code{font-size:8px;letter-spacing:.7px}#records>article.memory-card{padding:14px}.memory-card .memory-select span{font-size:9px}.memory-card-top{gap:6px}.memory-details h3{font-size:14px}}\n\n.paper-toolbar>button{flex-shrink:0;white-space:nowrap}.event-narrative{border-bottom:1px solid var(--im-line);padding:0 0 16px;margin:0 0 16px}.event-narrative h4{font-size:11px;color:var(--im-accent);margin:10px 0}.event-narrative p{font-size:13px;line-height:1.9;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--im-ink)}\n\n.chapter-page-toolbar{flex-wrap:wrap}.chapter-page-toolbar>.buttons{max-width:100%;justify-content:flex-start}\n\n#diagnosticCopyText{min-height:260px;max-height:55vh;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px;line-height:1.6;white-space:pre;overflow:auto;resize:vertical;}\n\n.memory-link-section{margin:18px 0;padding:14px 0;border-top:1px solid var(--im-line)}.memory-link-section h4{font-size:12px;color:var(--im-accent)}.memory-link-section p{display:grid;gap:5px;line-height:1.7}.memory-link{color:var(--im-accent);text-decoration:underline;text-underline-offset:3px;overflow-wrap:anywhere}.memory-link:hover{color:var(--im-ink)}.memory-link-section small,.memory-link-section span{font-size:12px}\n\n.continuous-events{border:1px solid var(--im-line);border-radius:18px;padding:18px;margin:18px 0;background:var(--im-paper)}\n.continuous-events>summary{display:flex;flex-wrap:wrap;gap:12px;align-items:center;cursor:pointer;padding:12px}\n.continuous-events>summary span,.memory-link-badge{color:var(--im-accent);font-size:.85rem}\n.continuous-events .memory-card{margin:12px 0}\n.timeline-content .event-narrative{margin:16px 0;line-height:1.85;white-space:normal}\n@media(max-width:640px){.continuous-events{padding:10px}.timeline-content .quote-card{padding:12px}}\n\n/* Chapter continuity facts share the existing theme and button behavior. */\n.chapter-details{margin:1.25rem 0;padding:1rem;border:1px solid var(--im-line);border-radius:14px}\n.chapter-fact{padding:.75rem 0;border-bottom:1px solid var(--im-line)}\n.chapter-fact:last-of-type{border-bottom:0}\n.chapter-fact p{line-height:1.75;overflow-wrap:anywhere;white-space:pre-wrap}\n.chapter-details nav{margin-top:1rem;gap:.75rem;flex-wrap:wrap}\n\n/* Local and model diagnostics stay reachable above the scrolling tab content. */\n.error-diagnostics{margin:0 28px 12px;max-height:35vh;overflow:auto;flex-shrink:0;min-width:0}.error-diagnostics .buttons{margin:0;flex-wrap:wrap}.error-diagnostics textarea{width:100%;box-sizing:border-box;min-height:100px;max-height:22vh;white-space:pre-wrap;overflow:auto}@media(max-width:720px){.error-diagnostics{margin-left:18px;margin-right:18px}}\n\n/* Links between records: soft chips and rows instead of underlined text. */\na.record-link{text-decoration:none;color:inherit;cursor:pointer;transition:background .15s,border-color .15s,transform .15s}\n.record-links{display:flex;flex-wrap:wrap;gap:8px 14px;margin:6px 0 12px}\n.chip-wrap{display:inline-flex;align-items:center;gap:6px;max-width:100%;min-width:0}\n.chip-title{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}\n.record-links+.hint,.world-card .record-links{margin-top:4px}\n@media(max-width:720px){.record-links{flex-direction:column;align-items:stretch}.record-links .chip-wrap{display:flex;width:100%}.record-links a.chip{flex:1 1 auto;min-width:0}.record-links .chip-wrap small{flex:none}}\n.chip-wrap small{font-size:10px;color:var(--im-muted)}\na.chip{display:inline-flex;align-items:center;gap:6px;max-width:100%;padding:4px 8px 4px 5px;border-radius:999px;background:var(--im-soft);color:var(--im-accent);font-size:11px;font-weight:600;border:1px solid transparent}\na.chip:hover{background:var(--im-button-hover);border-color:var(--im-field-border)}\n.chip-id{font:9px ui-monospace,monospace;padding:2px 6px;border-radius:999px;background:var(--im-paper);color:var(--im-muted);font-weight:400}\n.chip-arrow{font-size:14px;line-height:1;opacity:.55}\n.record-list{display:flex;flex-direction:column;gap:6px;margin:4px 0 18px}\na.record-row{display:flex;align-items:center;gap:12px;padding:11px 14px;border:1px solid var(--im-line);border-radius:12px;background:var(--im-paper)}\na.record-row:hover{background:var(--im-soft);border-color:var(--im-field-border);transform:translateX(2px)}\na.record-row .pill{flex:none;min-width:38px;justify-content:center}\n.row-main{min-width:0;flex:1}\n.row-main b{display:block;font-size:12px;font-weight:600;line-height:1.6;color:var(--im-ink);overflow-wrap:anywhere}\n.row-main small{display:block;margin-top:2px;font-size:10px}\na.record-row .chip-arrow{color:var(--im-accent)}\n.is-focus{border-radius:12px;box-shadow:0 0 0 2px var(--im-accent);animation:focus-fade 2.4s ease-out forwards}\n@keyframes focus-fade{0%{box-shadow:0 0 0 2px var(--im-accent),0 0 0 8px var(--im-soft)}70%{box-shadow:0 0 0 2px var(--im-accent)}100%{box-shadow:0 0 0 0 transparent}}\n\n/* Chapters: a scrolling row of chips above the scene shelf. */\n.chapter-bar{display:flex;gap:8px;overflow-x:auto;padding:4px 2px 12px;margin:0 0 6px;scrollbar-width:thin}\n.chapter-chip{flex:none;display:inline-flex;align-items:center;gap:7px;max-width:240px;padding:6px 12px 6px 6px;border-radius:999px;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;background:var(--im-paper)}\n.chapter-chip.is-selected{background:var(--im-accent);border-color:var(--im-accent);color:#fff}\n.chapter-chip.is-selected .chip-id{background:#ffffff33;color:#fff}\n.chapter-paper{margin-top:4px}\n:host([data-theme=dark]) .chapter-chip.is-selected{color:#211a30}:host([data-theme=dark]) .chapter-chip.is-selected .chip-id{color:#211a30;background:#ffffff55}\n\n/* Daily life rows: what · when · what exactly · flags · buttons, wrapping on a phone. */\n/* 인물·장소 cards. */\n.world-card{border-top:1px solid var(--im-line);padding:12px 0}\n.world-card h3{margin:0 0 6px}\n.world-field{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:4px 0}\n.world-field>span{flex:0 0 64px;font-size:11px}\n.world-field input{flex:1 1 200px;width:auto}\n.world-field button{padding:7px 12px;font-size:11px}\n.routine-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px 0;border-bottom:1px solid var(--im-line)}\n.routine-row:last-child{border-bottom:0}\n.routine-row select{width:auto;flex:0 0 92px}\n.routine-row input[type=datetime-local]{width:auto;flex:0 0 200px}\n.routine-row input[data-f=text]{flex:1 1 200px;width:auto}\n.routine-row.routine-new{border-bottom:0;padding-bottom:0}\n.routine-row.routine-new input[data-f=who]{flex:0 0 160px;width:auto}\n.routine-row .mini{display:inline-flex;align-items:center;margin:0;font-size:11px;white-space:nowrap}\n.routine-row button{padding:7px 12px;font-size:11px}\ndetails.paper>summary{font-size:13px;font-weight:600;color:var(--im-ink)}\n.routine-row .warn{flex-basis:100%;color:#b0623f}:host([data-theme=dark]) .routine-row .warn{color:#ffb08a}\n\n\n.counts{border-collapse:collapse;margin:8px 0;font-size:12px}.counts th{text-align:left;font-weight:500;padding:3px 16px 3px 0;color:var(--im-ink)}.counts td{padding:3px 0}\n.warn{color:#b0623f}:host([data-theme=dark]) .warn{color:#ffb08a}\n/* 아는 사람·모르는 사람, 기록 충돌, 소중한 물건. */\n.know-chips{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:4px 0 8px;font-size:11px}\n.know-label{font-size:10px;color:var(--im-muted)}\n.kchip{padding:2px 9px;border-radius:999px;background:var(--im-soft);border:1px solid var(--im-line);font-size:11px}\n.kchip.is-unknown{color:#b0623f}:host([data-theme=dark]) .kchip.is-unknown{color:#ffb08a}\n.conflict-row{border-top:1px solid var(--im-line);padding:12px 0}\n.conflict-head{margin:0 0 6px;font-size:12px;font-weight:600}\n.conflict-pair{display:grid;grid-template-columns:1fr 1fr;gap:10px}\n.conflict-pair>div{background:var(--im-soft);border-radius:10px;padding:8px 10px}\n.conflict-pair small{display:block;font-size:10px;color:var(--im-muted)}\n.conflict-pair p{margin:4px 0 0;font-size:12px;white-space:pre-wrap}\n.world-field select{flex:0 1 160px;width:auto}\n@media(max-width:720px){.conflict-pair{grid-template-columns:1fr}}\n\n/* 패널은 보이는 화면 안에서만 자라고, 스크롤은 #content 하나만 합니다 (끝까지 내려도 잘리지 않게). */\n.workspace{overflow:hidden}.inspector{min-height:0}\n.resize-edge,.resize-grip{display:none}\n@media(min-width:721px){\n  #panel{grid-template-rows:minmax(0,1fr);max-width:100vw;max-height:calc(100vh - 16px);max-height:calc(100dvh - 16px)}\n  .sidebar{min-height:0;overflow:auto}\n  .topbar{cursor:move;user-select:none;-webkit-user-select:none;touch-action:none}\n  .topbar :is(button,select,input,label,a,.room-menu){cursor:auto;user-select:auto;-webkit-user-select:auto}\n  .topbar button{cursor:pointer}\n  .resize-edge,.resize-grip{display:block;position:absolute;z-index:30;touch-action:none}\n  .resize-r{top:26px;right:0;bottom:26px;width:6px;cursor:ew-resize}\n  .resize-b{left:26px;right:26px;bottom:0;height:6px;cursor:ns-resize}\n  .resize-grip{right:0;bottom:0;width:22px;height:22px;cursor:nwse-resize;background:linear-gradient(135deg,transparent 0 55%,var(--im-muted) 55% 60%,transparent 60% 72%,var(--im-muted) 72% 77%,transparent 77% 88%,var(--im-muted) 88% 93%,transparent 93%);opacity:.55}\n  .resize-grip:hover{opacity:1}\n  #panel[data-compact=true]{grid-template-columns:174px minmax(0,1fr)}\n  #panel[data-compact=true] .inspector{display:none}\n}\n.feature-row{border-top:1px solid var(--im-line);padding:8px 0}.feature-row>summary{cursor:pointer;display:flex;align-items:center;gap:6px;list-style-position:inside}.feature-row>summary .feature-name{font-weight:600;color:var(--im-ink)}.feature-row[open]>summary{margin-bottom:6px}\n.tr-edit>span{color:var(--im-muted);font-size:10px}.tr-edit textarea{min-height:60px}\n.tr-inline{display:block;color:var(--im-muted);font-size:10px;margin-top:2px}h3 .tr-inline{display:inline}\n.promise-row{display:flex;flex-direction:column;gap:4px;margin-bottom:6px}.promise-row>.pill{align-self:flex-start}\n.notebook-note{border-top:1px solid var(--im-line);padding:8px 0}.notebook-head{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:4px}\n.event-main small.thread-now-line{font-size:10.5px;color:#6f63a6;margin-top:4px;white-space:normal}.thread-now{border-left:2px solid #c3bde2;padding:2px 12px;margin:0 0 14px}.thread-now small{font-size:9px;color:#9993ac}.thread-now b{font-weight:600;color:#4f4868}\n.tl-cal{border:1px solid var(--im-line);border-radius:14px;padding:12px 14px;margin:0 0 18px;max-width:420px;background:var(--im-paper)}.tl-cal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}.tl-cal-head b{font-size:13px}.tl-cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;text-align:center}.tl-cal-grid span,.tl-cal-grid button{font-size:11px;padding:6px 0;border-radius:9px;line-height:1.2}.tl-week{color:var(--im-muted);font-size:9px!important}.tl-off{color:#c9c6d6}.tl-cal-grid button{background:var(--im-soft);color:var(--im-accent);border:1px solid transparent;font-weight:650;display:flex;flex-direction:column;align-items:center}.tl-cal-grid button small{font-size:8px;font-weight:400}.tl-cal button.is-on{background:var(--im-accent);color:#fff}.tl-cal button.is-on small{color:#fff}.tl-cal-extra{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}.tl-steps{justify-content:space-between}\n.tl-parts{display:flex;flex-wrap:wrap;gap:6px;margin:-6px 0 16px}.tl-parts button{font-size:10px;padding:4px 10px;border-radius:30px}.tl-parts button.is-on{background:var(--im-accent);color:#fff;border-color:var(--im-accent)}.tl-parts button.is-on small{color:#fff}.ko-line{display:flex;gap:6px;align-items:center;margin-top:4px}.ko-line input{flex:1;min-width:0;font-size:11px}\n";
   const THEME_CSS = /*__THEME_CSS__*/ "/* 기억 서재 — 종이 티켓과 LP 테마 (ui.css 위에 덮어씀) */\n:host{--vinyl:url(\"data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20100%20100%22%3E%3Cg%20transform%3D%22translate(9%200)%22%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2239%22%20fill%3D%22%23111%22%20stroke%3D%22%23f2efe8%22%20stroke-width%3D%222%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2214%22%20fill%3D%22none%22%20stroke%3D%22%233a3a3a%22%20stroke-width%3D%22.7%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2217%22%20fill%3D%22none%22%20stroke%3D%22%233a3a3a%22%20stroke-width%3D%22.7%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2220%22%20fill%3D%22none%22%20stroke%3D%22%233a3a3a%22%20stroke-width%3D%22.7%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2223%22%20fill%3D%22none%22%20stroke%3D%22%233a3a3a%22%20stroke-width%3D%22.7%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2226%22%20fill%3D%22none%22%20stroke%3D%22%233a3a3a%22%20stroke-width%3D%22.7%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2229%22%20fill%3D%22none%22%20stroke%3D%22%233a3a3a%22%20stroke-width%3D%22.7%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2232%22%20fill%3D%22none%22%20stroke%3D%22%233a3a3a%22%20stroke-width%3D%22.7%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2235%22%20fill%3D%22none%22%20stroke%3D%22%233a3a3a%22%20stroke-width%3D%22.7%22%2F%3E%3Cpolygon%20points%3D%2268.07%2C16.57%2069.91%2C17.63%2065.91%2C22.45%22%20fill%3D%22%23f2efe8%22%2F%3E%3Cpolygon%20points%3D%2270.95%2C18.30%2073.11%2C19.83%2067.38%2C25.59%22%20fill%3D%22%23f2efe8%22%2F%3E%3Cpolygon%20points%3D%2273.66%2C20.26%2076.07%2C22.35%2068.25%2C28.94%22%20fill%3D%22%23f2efe8%22%2F%3E%3Cpolygon%20points%3D%2276.19%2C22.46%2078.75%2C25.15%2067.71%2C33.11%22%20fill%3D%22%23f2efe8%22%2F%3E%3Cpolygon%20points%3D%2278.51%2C24.88%2081.13%2C28.21%2066.40%2C37.10%22%20fill%3D%22%23f2efe8%22%2F%3E%3Cpolygon%20points%3D%2280.61%2C27.49%2083.19%2C31.50%2065.90%2C39.78%22%20fill%3D%22%23f2efe8%22%2F%3E%3Cpolygon%20points%3D%2282.62%2C30.50%2084.80%2C34.74%2062.65%2C43.48%22%20fill%3D%22%23f2efe8%22%2F%3E%3Cpolygon%20points%3D%2284.43%2C33.93%2086.01%2C37.87%2068.63%2C42.54%22%20fill%3D%22%23f2efe8%22%2F%3E%3Cpolygon%20points%3D%2285.89%2C37.53%2086.94%2C41.09%2071.35%2C43.73%22%20fill%3D%22%23f2efe8%22%2F%3E%3Cpolygon%20points%3D%2286.98%2C41.25%2087.58%2C44.38%2074.46%2C45.29%22%20fill%3D%22%23f2efe8%22%2F%3E%3Cpolygon%20points%3D%2287.68%2C45.07%2087.93%2C47.71%2080.65%2C47.07%22%20fill%3D%22%23f2efe8%22%2F%3E%3Cpolygon%20points%3D%2287.99%2C48.94%2087.99%2C51.06%2082.92%2C50.00%22%20fill%3D%22%23f2efe8%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2210%22%20fill%3D%22%23f2efe8%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%221.8%22%20fill%3D%22%23111%22%2F%3E%3C%2Fg%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%224%22%20y%3D%2210%22%20width%3D%2258%22%20height%3D%2280%22%20rx%3D%222%22%20fill%3D%22%23f2efe8%22%20stroke%3D%22%23111%22%20stroke-width%3D%222.4%22%2F%3E%0A%20%20%20%20%20%20%3Cpath%20d%3D%22M12%2024h28M12%2030h18%22%20stroke%3D%22%23111%22%20stroke-width%3D%221.6%22%2F%3E%0A%20%20%20%20%20%20%3Ctext%20x%3D%2233%22%20y%3D%2278%22%20text-anchor%3D%22middle%22%20font-family%3D%22Georgia%2Cserif%22%20font-size%3D%229%22%20font-weight%3D%22700%22%20fill%3D%22%23111%22%3EMEMORY%3C%2Ftext%3E%3C%2Fsvg%3E\");--vinyl-label:url(\"data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20100%20100%22%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2249%22%20fill%3D%22%23111%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2225.0%22%20fill%3D%22none%22%20stroke%3D%22%232c2c2c%22%20stroke-width%3D%22.7%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2227.4%22%20fill%3D%22none%22%20stroke%3D%22%232c2c2c%22%20stroke-width%3D%22.7%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2229.8%22%20fill%3D%22none%22%20stroke%3D%22%232c2c2c%22%20stroke-width%3D%22.7%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2232.2%22%20fill%3D%22none%22%20stroke%3D%22%232c2c2c%22%20stroke-width%3D%22.7%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2234.6%22%20fill%3D%22none%22%20stroke%3D%22%232c2c2c%22%20stroke-width%3D%22.7%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2237.0%22%20fill%3D%22none%22%20stroke%3D%22%232c2c2c%22%20stroke-width%3D%22.7%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2239.4%22%20fill%3D%22none%22%20stroke%3D%22%232c2c2c%22%20stroke-width%3D%22.7%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2241.8%22%20fill%3D%22none%22%20stroke%3D%22%232c2c2c%22%20stroke-width%3D%22.7%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2244.2%22%20fill%3D%22none%22%20stroke%3D%22%232c2c2c%22%20stroke-width%3D%22.7%22%2F%3E%3Cpath%20d%3D%22M50%204.5A45.5%2045.5%200%200%201%2092.5%2034%22%20fill%3D%22none%22%20stroke%3D%22%23f2efe8%22%20stroke-width%3D%222.4%22%20stroke-linecap%3D%22round%22%20opacity%3D%22.85%22%2F%3E%3Cpath%20d%3D%22M50%2012A38%2038%200%200%201%2084%2032%22%20fill%3D%22none%22%20stroke%3D%22%23f2efe8%22%20stroke-width%3D%221.3%22%20stroke-linecap%3D%22round%22%20opacity%3D%22.55%22%2F%3E%3Cpath%20d%3D%22M50%2095.5A45.5%2045.5%200%200%201%207.5%2066%22%20fill%3D%22none%22%20stroke%3D%22%23f2efe8%22%20stroke-width%3D%222.4%22%20stroke-linecap%3D%22round%22%20opacity%3D%22.85%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2222%22%20fill%3D%22%23f2efe8%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2219.5%22%20fill%3D%22none%22%20stroke%3D%22%23111%22%20stroke-width%3D%22.5%22%20opacity%3D%22.35%22%2F%3E%3C%2Fsvg%3E\")}\n/* ===== 티켓·LP 테마 시안 ===== */\n:host{\n  --t-ink:#151515; --t-paper:#f4f1ea; --t-paper2:#ebe7dd; --t-muted:#6d685f; --t-line:#15151526; --t-hair:#15151514;\n  --serif:var(--font-y2k,\"Nanum Myeongjo\",\"Noto Serif KR\",Georgia,serif); --mono:ui-monospace,\"SFMono-Regular\",Menlo,Consolas,monospace;\n  --im-canvas:var(--t-paper2); --im-paper:var(--t-paper); --im-field:#faf8f3; --im-field-border:#1515153a; --im-ink:var(--t-ink); --im-muted:var(--t-muted);\n  --im-line:var(--t-line); --im-soft:#e4dfd3; --im-subtle:#ece8df; --im-selected:#e0dbcf; --im-accent:var(--t-ink); --im-accent-hover:#000; --im-accent-active:#000;\n  --im-button-hover:#e4dfd3; --im-button-active:#d6d0c2;\n  --grain:url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .09 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\");\n}\n:host([data-theme=dark]){\n  --t-ink:#ece8df; --t-paper:#1b1a18; --t-paper2:#131312; --t-muted:#a39d92; --t-line:#ece8df2b; --t-hair:#ece8df14;\n  --im-canvas:var(--t-paper2); --im-paper:var(--t-paper); --im-field:#222120; --im-field-border:#ece8df40; --im-ink:var(--t-ink); --im-muted:var(--t-muted);\n  --im-line:var(--t-line); --im-soft:#2a2826; --im-subtle:#201f1d; --im-selected:#2e2c29; --im-accent:var(--t-ink); --im-accent-hover:#fff; --im-accent-active:#fff;\n  --im-button-hover:#2a2826; --im-button-active:#33312e;\n}\n#backdrop{background:#0a0a0a8c;backdrop-filter:grayscale(1)}\n#panel{background:var(--grain),var(--t-paper);color:var(--t-ink);border-radius:6px;border:1.5px solid var(--t-ink);box-shadow:0 30px 90px #0007;font-family:var(--font-y2k,\"Pretendard\",\"Noto Sans KR\",system-ui,sans-serif)}\n.workspace,.topbar,#content{background:transparent!important}\nh1{font-family:var(--serif)!important;font-weight:800!important;letter-spacing:-.5px;color:var(--t-ink)!important}\nh2,h3{font-family:var(--serif);font-weight:700;color:var(--t-ink)}\n.eyebrow{font-family:var(--mono)!important;letter-spacing:3px!important;color:var(--t-ink)!important;opacity:.75;display:flex;align-items:center;gap:10px}\n.eyebrow:after{content:\"\";flex:1;max-width:220px;border-top:1px dashed currentColor;opacity:.6}\n.intro,.hint{color:var(--t-muted)!important}\n\n/* sidebar = ticket stub (dark) with perforation */\n.sidebar{background:var(--grain),#151515!important;color:#ece8df!important;border:0!important;position:relative;box-shadow:none!important}\n:host([data-theme=dark]) .sidebar{background:var(--grain),#0c0c0b!important}\n.sidebar:after{content:\"\";position:absolute;top:10px;bottom:10px;right:-1px;border-right:2px dashed #ece8df55}\n.brand{color:#ece8df!important;font-family:var(--serif)!important;align-items:center}\n.brand>svg.icon{display:none}\n.brand:before{content:\"\";flex:none;width:46px;height:46px;border-radius:50%;margin-right:4px;\n  background:radial-gradient(circle,#ece8df 0 2px,#151515 2.5px 5px,#e9e4d8 5.5px 11px,#151515 11.5px),\n  repeating-radial-gradient(circle,#1d1d1d 0 1px,#2b2b2b 1.4px 2.2px);\n  box-shadow:0 0 0 1.5px #ece8df44,inset 0 0 0 1px #000;\n  -webkit-mask:radial-gradient(circle,#000 70%,#000);animation:spin 6s linear infinite paused}\n#panel.is-running .brand:before{animation-play-state:running}\n@keyframes spin{to{transform:rotate(360deg)}}\n.brand small{font-family:var(--mono);letter-spacing:2.5px;color:#ece8df99!important}\n.nav-label{font-family:var(--mono);color:#ece8df80!important;letter-spacing:3px}\n.sidebar nav button{color:#ece8dfcc!important;background:transparent!important;border:1px solid transparent!important;border-radius:3px!important;font-weight:500}\n.sidebar nav button:hover{background:#ece8df14!important;color:#fff!important}\n.sidebar nav button.selected{background:#ece8df!important;color:#151515!important;border-color:#ece8df!important;font-weight:700;\n  -webkit-mask:radial-gradient(circle at 0 50%,#0000 6px,#000 6.5px) left/51% 100% no-repeat,radial-gradient(circle at 100% 50%,#0000 6px,#000 6.5px) right/51% 100% no-repeat}\n.side-bottom,.side-bottom small,.room-switch{color:#ece8dfaa!important}\n.side-bottom button{background:transparent!important;color:#ece8df!important;border:1px solid #ece8df55!important;border-radius:3px!important}\n.room-switch input{accent-color:#ece8df}\n\n/* inspector = record shelf */\n.inspector{background:transparent!important;border-left:1.5px solid var(--t-ink)!important}\n.rail-title{font-family:var(--mono);letter-spacing:2px;text-transform:uppercase;color:var(--t-ink)!important}\n.rail-stat{background:transparent!important;border:0!important;box-shadow:none!important;padding:8px 0!important;display:flex!important;align-items:center;gap:14px}\n.rail-stat b{flex:none;width:64px!important;height:64px!important;border-radius:50%!important;display:grid!important;place-items:center;font:700 15px var(--serif)!important;color:#151515!important;border:0!important;\n  background:radial-gradient(circle,#151515 0 1.6px,#f4f1ea 2.2px 14px,#151515 14.5px 15.5px,#0000 16px),repeating-radial-gradient(circle,#151515 0 1.1px,#2a2a2a 1.5px 2.4px)!important;\n  box-shadow:0 3px 8px #0004;transition:transform .6s}\n.rail-stat:hover b{transform:rotate(200deg)}\n.rail-stat small{font-size:12px;color:var(--t-ink)!important}\n.rail-divider{height:0!important;background:none!important;border:0!important;border-top:1.5px dashed var(--t-line)!important}\n.inspector .icon,.rail-note svg{color:var(--t-ink)!important}\n\n/* topbar */\n.topbar{border-bottom:1.5px solid var(--t-ink)!important}\n#roomSelect,select,input:not([type=checkbox]),textarea{border-radius:3px!important;background:var(--im-field)!important;border:1px solid var(--im-field-border)!important;color:var(--t-ink)!important}\n#themeToggle,#close{border-radius:50%!important;border:1px solid var(--t-ink)!important;background:transparent!important;color:var(--t-ink)!important}\n/* On mobile these controls overlap a dark sidebar, even in light mode. */\n@media(max-width:720px){\n  #close{z-index:100!important;background:#f3efe7!important;color:#151515!important;border:1.5px solid #151515!important}\n  :host([data-theme=dark]) #close{background:#262522!important;color:#f3efe7!important;border-color:#f3efe7!important}\n}\n\n/* metrics = admission stubs */\n.metric-row{gap:12px!important}\n.metric{position:relative;background:var(--grain),var(--t-paper)!important;border:0!important;border-radius:0!important;box-shadow:none!important;padding:18px 16px 26px!important;\n  outline:1.5px solid var(--t-ink);outline-offset:-6px;\n  -webkit-mask:radial-gradient(circle at 0 50%,#0000 7px,#000 7.5px) left/51% 100% no-repeat,radial-gradient(circle at 100% 50%,#0000 7px,#000 7.5px) right/51% 100% no-repeat;\n  mask:radial-gradient(circle at 0 50%,#0000 7px,#000 7.5px) left/51% 100% no-repeat,radial-gradient(circle at 100% 50%,#0000 7px,#000 7.5px) right/51% 100% no-repeat}\n.metric:after{content:\"\";position:absolute;left:14px;right:14px;bottom:10px;height:7px;opacity:.35;background:repeating-linear-gradient(90deg,currentColor 0 1px,#0000 1px 3px,currentColor 3px 5px,#0000 5px 7px)}\n:host .metric{filter:drop-shadow(0 2px 3px #0002)}\n.metric strong{font:800 26px var(--serif)!important;color:var(--t-ink)!important}\n.metric small{font-size:11px!important;color:var(--t-muted)!important}\n\n/* paper sections = tickets */\n.paper{background:var(--grain),var(--t-paper)!important;border:1.5px solid var(--t-ink)!important;border-radius:4px!important;box-shadow:4px 4px 0 var(--t-ink)!important;position:relative}\n.paper-toolbar h2,.paper>h2{font-family:var(--serif)}\n.pill{font-family:var(--mono)!important;font-size:10px!important;letter-spacing:1.5px;text-transform:uppercase;border:1px solid var(--t-ink)!important;border-radius:2px!important;background:transparent!important;color:var(--t-ink)!important;transform:rotate(-2deg)}\nbutton.primary,.primary{background:var(--t-ink)!important;color:var(--t-paper)!important;border:1.5px solid var(--t-ink)!important;border-radius:3px!important;font-weight:700;letter-spacing:.3px}\nbutton.primary:hover{filter:none;background:#000!important}\n:host([data-theme=dark]) button.primary:hover{background:#fff!important}\nbutton:not(.primary):not(.file-index):not(.chapter-chip):not(#launch){border-radius:3px}\n.paper button:not(.primary):not(.file-index):not(.chapter-chip){background:transparent;border:1.5px solid var(--t-ink);color:var(--t-ink)}\n.paper button:not(.primary):not(.file-index):not(.chapter-chip):hover{background:var(--im-button-hover)}\n\n/* chapter chips = small tickets */\n.chapter-chip{border-radius:2px!important;border:1.5px solid var(--t-ink)!important;background:var(--t-paper)!important;color:var(--t-ink)!important;font-family:var(--serif);font-weight:700;\n  -webkit-mask:radial-gradient(circle at 0 50%,#0000 5px,#000 5.5px) left/51% 100% no-repeat,radial-gradient(circle at 100% 50%,#0000 5px,#000 5.5px) right/51% 100% no-repeat;padding-left:16px!important;padding-right:16px!important}\n.chapter-chip .chip-id{font-family:var(--mono);background:transparent!important;color:inherit!important;border-right:1px dashed currentColor;padding-right:8px;margin-right:6px;border-radius:0!important}\n.chapter-chip.is-selected{background:var(--t-ink)!important;color:var(--t-paper)!important}\n\n/* scene cards = admission tickets */\n.file-shelf{gap:14px!important;padding-top:16px!important}\n.file-index{margin-left:0!important;border-radius:3px!important;background:var(--grain),var(--t-paper)!important;color:var(--t-ink)!important;border:1.5px solid var(--t-ink)!important;box-shadow:3px 3px 0 var(--t-ink)!important;\n  -webkit-mask:radial-gradient(circle at 0 72%,#0000 7px,#000 7.5px) left/51% 100% no-repeat,radial-gradient(circle at 100% 72%,#0000 7px,#000 7.5px) right/51% 100% no-repeat;\n  padding:22px 14px 18px 26px!important}\n.file-index:before{display:none!important}\n.file-index:after{content:\"\";position:absolute;left:9px;right:9px;top:72%;border-top:1.5px dashed var(--t-ink);opacity:.55}\n.file-index:nth-child(n){background-color:var(--t-paper)!important}\n.file-index.is-current{background:var(--grain),var(--t-ink)!important;color:var(--t-paper)!important}\n.file-index.is-current:after{border-color:var(--t-paper)}\n.file-index.is-selected{transform:translateY(-6px) rotate(-1.2deg)!important;box-shadow:5px 6px 0 var(--t-ink)!important}\n.file-index:not(:disabled):hover{background:var(--grain),var(--im-button-hover)!important;color:var(--t-ink)!important}\n.file-index.is-current:not(:disabled):hover{background:var(--grain),#000!important;color:var(--t-paper)!important}\n.file-index h3{font-family:var(--serif)!important;font-weight:800!important;font-size:17px!important}\n.file-code,.file-spine{font-family:var(--mono)!important;opacity:.8!important}\n.file-index .barcode{opacity:.8!important;width:56px!important;height:16px!important}\n.file-foot{border-top:0!important;font-family:var(--mono);font-size:9.5px!important;top:auto}\n\n/* record rows, links, chips */\n.record-row,.event-row,.fact-row,.routine-row{border-color:var(--t-line)!important}\na.record-link,.record-link{color:var(--t-ink)!important;background:transparent!important;border:1px solid var(--t-ink)!important;border-radius:2px!important;font-family:var(--mono);font-size:11px!important;text-decoration:none!important}\n.chip,.chip-wrap .chip{border-radius:2px!important;border:1px solid var(--t-ink)!important;background:transparent!important;color:var(--t-ink)!important}\n.quote-card{border-left:3px solid var(--t-ink)!important;background:var(--im-subtle)!important;padding:12px 16px!important}\n.quote-card blockquote{border:0!important;background:none!important;margin:6px 0 0!important;padding:0!important}\n.note{background:var(--im-subtle)!important;border:1px dashed var(--t-ink)!important;border-radius:3px!important;color:var(--t-ink)!important}\n#status{font-family:var(--mono);font-size:11px;letter-spacing:.3px}\ndetails>summary{font-family:var(--serif);font-weight:700}\n.empty{border:1.5px dashed var(--t-line)!important;border-radius:3px!important;background:transparent!important}\n\n@media(max-width:720px){\n  .sidebar:after{top:auto;left:10px;right:10px;bottom:0;border-right:0;border-bottom:2px dashed #ece8df55}\n  .brand:before{width:34px;height:34px}\n  #panel{border:0;border-radius:0}\n}\n\n\n/* ---- ticket stocks: neighbours never share a colour ---- */\n.file-index:nth-child(4n+1){--stock:#f4f1ea}\n.file-index:nth-child(4n+2){--stock:#dcdad4}\n.file-index:nth-child(4n+3){--stock:#e6d8bf}\n.file-index:nth-child(4n+4){--stock:#cfd6d2}\n.file-index,.file-index:nth-child(n){background:var(--grain),var(--stock,#f4f1ea)!important;color:#151515!important}\n.file-index:not(:disabled):hover{background:var(--grain),var(--stock,#f4f1ea)!important;filter:brightness(.96)}\n.file-index.is-current,.file-index.is-current:not(:disabled):hover{background:var(--grain),var(--stock,#f4f1ea)!important;color:#151515!important}\n.file-index.is-current:after{border-color:#151515}\n.file-index.is-current:before{content:\"ON AIR\"!important;display:grid!important;place-items:center;position:absolute!important;top:12px!important;right:12px!important;left:auto!important;width:44px!important;height:44px!important;z-index:2!important;background:none!important;border:1.5px solid #151515;border-radius:50%!important;font:700 8px var(--mono);letter-spacing:1px;color:#151515;transform:rotate(-14deg);opacity:.75}\n.file-index.is-selected{outline:2.5px solid #151515!important;outline-offset:-6px}\n.chapter-chip:nth-child(3n+1){--stock:#f4f1ea}.chapter-chip:nth-child(3n+2){--stock:#e6d8bf}.chapter-chip:nth-child(3n+3){--stock:#dcdad4}\n.chapter-chip:last-child{--stock:#cfd6d2}\n.chapter-chip{background:var(--grain),var(--stock,#f4f1ea)!important;color:#151515!important}\n.chapter-chip.is-selected{background:var(--grain),#151515!important;color:#f4f1ea!important;transform:translateY(-2px)}\n\n/* ---- dark: the same paper tickets laid on a black table ---- */\n:host([data-theme=dark]){--t-ink:#ece8df;--t-paper:#121212;--t-paper2:#0b0b0b;--t-muted:#9d978c}\n:host([data-theme=dark]) #panel{background:var(--grain),#121212;border-color:#ece8df55}\n:host([data-theme=dark]) .sidebar{background:var(--grain),#1d1c1a!important}\n:host([data-theme=dark]) .topbar{border-bottom-color:#ece8df33!important}\n:host([data-theme=dark]) .inspector{border-left-color:#ece8df33!important}\n:host([data-theme=dark]) :is(.paper,.metric,.empty,.file-index,.chapter-chip){\n  --t-ink:#151515;--t-paper:#ece8df;--t-muted:#5f5a51;--t-line:#15151526;--im-field:#f7f4ee;--im-field-border:#1515153a;--im-ink:#151515;--im-muted:#5f5a51;\n  --im-line:#15151526;--im-subtle:#e2ddd2;--im-button-hover:#ddd7ca;color:#151515}\n:host([data-theme=dark]) .paper{box-shadow:0 10px 28px #000c!important;border-color:#ece8df!important}\n:host([data-theme=dark]) .metric{filter:drop-shadow(0 6px 12px #000c)}\n:host([data-theme=dark]) .file-index{box-shadow:0 8px 20px #000c!important;border-color:#ece8df!important}\n:host([data-theme=dark]) .paper button.primary{background:#151515!important;color:#ece8df!important;border-color:#151515!important}\n:host([data-theme=dark]) .chapter-chip{border-color:#ece8df!important}\n:host([data-theme=dark]) .chapter-chip.is-selected{background:var(--grain),#ece8df!important;color:#151515!important;outline:2px solid #151515;outline-offset:-5px}\n:host([data-theme=dark]) .rail-stat b{box-shadow:0 0 0 1px #ece8df30,0 6px 14px #000c!important;\n  background:radial-gradient(circle,#151515 0 1.6px,#ece8df 2.2px 14px,#0000 14.5px),repeating-radial-gradient(circle,#191919 0 1.1px,#2c2b29 1.5px 2.4px)!important}\n:host([data-theme=dark]) .brand:before{box-shadow:0 0 0 1.5px #ece8df44}\n:host([data-theme=dark]) #roomSelect{background:#1d1c1a!important;color:#ece8df!important;border-color:#ece8df44!important}\n\n/* ---- printed records with light reflections ---- */\n.brand:before,:host([data-theme=dark]) .brand:before{background:var(--vinyl) center/contain no-repeat!important;box-shadow:none!important;width:48px;height:48px}\n:host([data-theme=dark]) .brand:before{outline:0}\n.rail-stat b,:host([data-theme=dark]) .rail-stat b{background:var(--vinyl-label) center/contain no-repeat!important;color:#151515!important;width:70px!important;height:70px!important;font-size:16px!important;box-shadow:0 4px 10px #0003!important}\n:host([data-theme=dark]) .rail-stat b{box-shadow:0 0 0 1.5px #ece8df40,0 6px 14px #000c!important}\n\n.brand:before{border-radius:0!important;width:52px!important;height:52px!important;animation:none!important}\n\n/* ---- logo: a record in its sleeve; it slides out and turns while memories are being sorted ---- */\n:host{--logo-disc:url(\"data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20100%20100%22%3E%3Cg%20transform%3D%22translate(9%200)%22%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2239%22%20fill%3D%22%23111%22%20stroke%3D%22%23f2efe8%22%20stroke-width%3D%222%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2214%22%20fill%3D%22none%22%20stroke%3D%22%233a3a3a%22%20stroke-width%3D%22.7%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2217%22%20fill%3D%22none%22%20stroke%3D%22%233a3a3a%22%20stroke-width%3D%22.7%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2220%22%20fill%3D%22none%22%20stroke%3D%22%233a3a3a%22%20stroke-width%3D%22.7%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2223%22%20fill%3D%22none%22%20stroke%3D%22%233a3a3a%22%20stroke-width%3D%22.7%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2226%22%20fill%3D%22none%22%20stroke%3D%22%233a3a3a%22%20stroke-width%3D%22.7%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2229%22%20fill%3D%22none%22%20stroke%3D%22%233a3a3a%22%20stroke-width%3D%22.7%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2232%22%20fill%3D%22none%22%20stroke%3D%22%233a3a3a%22%20stroke-width%3D%22.7%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2235%22%20fill%3D%22none%22%20stroke%3D%22%233a3a3a%22%20stroke-width%3D%22.7%22%2F%3E%3Cpolygon%20points%3D%2268.07%2C16.57%2069.91%2C17.63%2065.91%2C22.45%22%20fill%3D%22%23f2efe8%22%2F%3E%3Cpolygon%20points%3D%2270.95%2C18.30%2073.11%2C19.83%2067.38%2C25.59%22%20fill%3D%22%23f2efe8%22%2F%3E%3Cpolygon%20points%3D%2273.66%2C20.26%2076.07%2C22.35%2068.25%2C28.94%22%20fill%3D%22%23f2efe8%22%2F%3E%3Cpolygon%20points%3D%2276.19%2C22.46%2078.75%2C25.15%2067.71%2C33.11%22%20fill%3D%22%23f2efe8%22%2F%3E%3Cpolygon%20points%3D%2278.51%2C24.88%2081.13%2C28.21%2066.40%2C37.10%22%20fill%3D%22%23f2efe8%22%2F%3E%3Cpolygon%20points%3D%2280.61%2C27.49%2083.19%2C31.50%2065.90%2C39.78%22%20fill%3D%22%23f2efe8%22%2F%3E%3Cpolygon%20points%3D%2282.62%2C30.50%2084.80%2C34.74%2062.65%2C43.48%22%20fill%3D%22%23f2efe8%22%2F%3E%3Cpolygon%20points%3D%2284.43%2C33.93%2086.01%2C37.87%2068.63%2C42.54%22%20fill%3D%22%23f2efe8%22%2F%3E%3Cpolygon%20points%3D%2285.89%2C37.53%2086.94%2C41.09%2071.35%2C43.73%22%20fill%3D%22%23f2efe8%22%2F%3E%3Cpolygon%20points%3D%2286.98%2C41.25%2087.58%2C44.38%2074.46%2C45.29%22%20fill%3D%22%23f2efe8%22%2F%3E%3Cpolygon%20points%3D%2287.68%2C45.07%2087.93%2C47.71%2080.65%2C47.07%22%20fill%3D%22%23f2efe8%22%2F%3E%3Cpolygon%20points%3D%2287.99%2C48.94%2087.99%2C51.06%2082.92%2C50.00%22%20fill%3D%22%23f2efe8%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%2210%22%20fill%3D%22%23f2efe8%22%2F%3E%3Ccircle%20cx%3D%2250%22%20cy%3D%2250%22%20r%3D%221.8%22%20fill%3D%22%23111%22%2F%3E%3C%2Fg%3E%3C%2Fsvg%3E\");--logo-sleeve:url(\"data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20100%20100%22%3E%0A%20%20%20%20%20%20%3Crect%20x%3D%224%22%20y%3D%2210%22%20width%3D%2258%22%20height%3D%2280%22%20rx%3D%222%22%20fill%3D%22%23f2efe8%22%20stroke%3D%22%23111%22%20stroke-width%3D%222.4%22%2F%3E%0A%20%20%20%20%20%20%3Cpath%20d%3D%22M12%2024h28M12%2030h18%22%20stroke%3D%22%23111%22%20stroke-width%3D%221.6%22%2F%3E%0A%20%20%20%20%20%20%3Ctext%20x%3D%2233%22%20y%3D%2278%22%20text-anchor%3D%22middle%22%20font-family%3D%22Georgia%2Cserif%22%20font-size%3D%229%22%20font-weight%3D%22700%22%20fill%3D%22%23111%22%3EMEMORY%3C%2Ftext%3E%3C%2Fsvg%3E\")}\n.brand:before{display:none!important}\n.brand .logo{position:relative;flex:none;width:56px;height:56px;margin-right:2px}\n.brand .logo i{position:absolute;inset:0;background:center/contain no-repeat}\n.brand .logo .disc{background-image:var(--logo-disc);transform-origin:59% 50%;transition:transform .5s}\n.brand .logo .sleeve{background-image:var(--logo-sleeve)}\n/* While memory is being sorted the record slides out of its sleeve and plays, then goes back in. */\n#panel.is-running .brand .logo .disc{animation:mm-play 4s linear infinite}\n@keyframes mm-play{0%{transform:translateX(0) rotate(0)}12%{transform:translateX(18%) rotate(40deg)}88%{transform:translateX(18%) rotate(680deg)}100%{transform:translateX(0) rotate(720deg)}}\n@media (prefers-reduced-motion:reduce){#panel.is-running .brand .logo .disc{animation:mm-play 12s linear infinite}}\n@media(max-width:720px){.brand .logo{width:40px;height:40px}}\n\n/* ---- font: Marinara's own font unless the reader picked the library's ---- */\n:host([data-font=own]){--serif:\"Nanum Myeongjo\",\"Noto Serif KR\",\"AppleMyungjo\",\"Batang\",Georgia,serif}\n:host([data-font=own]) #panel{font-family:\"Pretendard\",\"Noto Sans KR\",\"Apple SD Gothic Neo\",system-ui,sans-serif}\n\n/* ---- one font everywhere: Marinara's (or the library's own); typewriter only for short Latin labels ---- */\n:host{--body-font:var(--font-y2k,\"Pretendard\",\"Noto Sans KR\",system-ui,sans-serif)}\n:host([data-font=own]){--body-font:\"Pretendard\",\"Noto Sans KR\",\"Apple SD Gothic Neo\",system-ui,sans-serif}\n#panel,#panel *:not(svg):not(svg *){font-family:var(--body-font)!important}\n#panel :is(h1,h2,h3,.paper-toolbar h2,details>summary,.file-index h3,.metric strong,.rail-stat b,.chapter-chip,.quote-card blockquote,.brand>div){font-family:var(--serif)!important}\n#panel :is(.eyebrow,.nav-label,.brand small,.file-code,.file-spine,.chip-id,.event-no,.editor-number,code){font-family:var(--mono)!important}\n.rail-title{letter-spacing:1px!important;text-transform:none!important}\n.pill{letter-spacing:.5px!important}\na.record-link,.record-link{font-size:13px!important}\n#status{letter-spacing:0}\npre{font-size:12.5px!important;line-height:1.85!important}\n\n/* ---- scene tickets: code on one line, title above the tear line, date below ---- */\n.file-index{display:flex!important;flex-direction:column;min-height:240px!important;padding:18px 14px 0 30px!important}\n.file-index .file-code{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:9px!important;letter-spacing:.6px!important}\n.file-index h3{font-size:16px!important;line-height:1.45!important;margin:14px 0 0!important;-webkit-line-clamp:4!important;max-height:calc(1.45em * 4);word-break:keep-all;overflow-wrap:anywhere}\n.file-index .barcode{display:none!important}\n.file-index:after{top:auto!important;bottom:52px!important}\n.file-index .file-foot{position:absolute!important;left:30px!important;right:12px!important;bottom:18px!important;top:auto!important;padding:0!important}\n.file-index.is-current:before{top:8px!important;right:8px!important;width:40px!important;height:40px!important}\n.chapter-chip{max-width:300px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:none}\n.file-index{-webkit-mask:radial-gradient(circle at 0 calc(100% - 52px),#0000 7px,#000 7.5px) left/51% 100% no-repeat,radial-gradient(circle at 100% calc(100% - 52px),#0000 7px,#000 7.5px) right/51% 100% no-repeat!important;\n  mask:radial-gradient(circle at 0 calc(100% - 52px),#0000 7px,#000 7.5px) left/51% 100% no-repeat,radial-gradient(circle at 100% calc(100% - 52px),#0000 7px,#000 7.5px) right/51% 100% no-repeat!important}\n.file-index .file-code{letter-spacing:0!important;font-size:8.5px!important}\n.file-index .file-code{white-space:normal!important;overflow:visible!important;line-height:1.5}.file-index .file-range{display:block;opacity:.75;font-family:var(--body-font)!important;font-size:10px}.file-index .file-range{white-space:nowrap}\n\n/* Lines kept on a scene without a clear event */\n.quote-card.loose { border-style: dashed !important; opacity: .85; }\n\n/* Korean beside memory written in another language */\n.tr-note{margin:-4px 0 6px!important;padding:6px 10px!important;font-size:13px!important;line-height:1.55!important;color:var(--im-muted)!important;border-left:2px solid var(--im-muted)!important;background:transparent!important}\n.tr-note span{display:inline-block;margin-right:8px;font-family:var(--mono)!important;font-size:9px!important;letter-spacing:1.5px;text-transform:uppercase;opacity:.75}\n.quote-card .tr-note{margin:8px 0 0!important}\n\n\n/* v0.11.65: phone / narrow layout (<=720px). Tabs wrap onto rows instead of scrolling sideways, and the header is compact so #content gets the height. */\n@media(max-width:720px){\n  .sidebar{padding:calc(6px + env(safe-area-inset-top,0px)) 10px 0}\n  .brand{min-height:36px;padding:0 84px 0 2px;margin-bottom:8px;gap:8px;font-size:15px;letter-spacing:-.5px;line-height:1.2}\n  .brand .logo{width:28px;height:28px;margin-right:0}\n  #close,#themeToggle{top:calc(6px + env(safe-area-inset-top,0px));width:36px;height:36px;font-size:18px}\n  #close{right:10px}#themeToggle{right:52px}\n  #close .icon{width:18px;height:18px}\n  .sidebar nav{flex-direction:row;flex-wrap:wrap;overflow:visible;overflow-x:visible;gap:4px 6px;justify-content:flex-start;align-content:flex-start;padding-bottom:6px}\n  .sidebar nav button{flex:0 0 auto;min-height:36px;padding:6px 9px;font-size:12px;gap:5px;justify-content:flex-start;white-space:nowrap}\n  .sidebar nav .icon{width:14px;height:14px}\n  .topbar{min-height:0;padding:6px 12px;gap:6px}\n  #status{padding:0 12px 4px}\n}\n\n/* ===== 0.31 개편: 하위 탭 · 시간순 · 인물별 · 여러 개 고르기 · 한눈에 카드 ===== */\n.subtabs{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 16px}\n.subtab{border:1px solid var(--im-line);background:var(--im-paper);color:var(--im-ink);border-radius:999px;padding:5px 12px;font-size:11px}\n.subtab.selected{background:var(--im-ink);color:var(--im-paper);border-color:var(--im-ink)}\n.subtabs select{border-radius:999px;font-size:11px;padding:4px 10px}\n.tl-day{display:grid;grid-template-columns:110px minmax(0,1fr);gap:14px;margin:0 0 18px}\n.tl-stamp{font-family:var(--mono);align-self:start;position:sticky;top:0}.tl-stamp b{display:block;font-size:13px}\n.tl-list{display:grid;gap:8px;border-left:2px solid var(--im-line);padding-left:14px;min-width:0}\n.tl-scene{border:1px solid var(--im-line);border-radius:10px;padding:10px 12px;background:var(--im-paper);min-width:0}\n.tl-scene p{margin:6px 0}.tl-head{display:flex;flex-wrap:wrap;gap:8px;align-items:center}\n.tl-after{font-size:12px;border-left:3px solid var(--im-line);padding:2px 10px}.tl-after small{font-weight:700;color:var(--im-ink)}\n.tl-chapter{font-size:12px;margin:6px 0 2px;color:var(--im-muted)}.tl-lines .pill{margin-right:4px}\n.person-chips{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 14px}\n.person-chips button{border:1px solid var(--im-line);border-radius:999px;padding:5px 12px;background:var(--im-paper);font-size:12px}\n.person-chips button.selected{background:var(--im-ink);color:var(--im-paper);border-color:var(--im-ink)}\n.person-now{display:grid;grid-template-columns:80px minmax(0,1fr);gap:4px 12px;font-size:12px;margin:6px 0}.person-now dt{color:var(--im-muted)}.person-now dd{margin:0}\n.person-sec>summary{cursor:pointer}.person-row{font-size:12px;margin:6px 0}\n.ledger-tools{margin:0 0 12px}.pick-all{display:flex;gap:6px;align-items:center;font-size:11px;margin:6px 0}\n.pick-row{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px;align-items:start}.pick-row>input{margin-top:14px}\n.fact-row{display:grid;grid-template-columns:auto minmax(0,1fr);column-gap:8px}.fact-row>.pick-fact{margin-top:3px}.fact-row>*:not(.pick-fact){grid-column:2}\n.bulk-bar{position:sticky;top:0;z-index:2;display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;background:var(--im-ink);color:var(--im-paper);border-radius:10px;padding:8px 12px;margin:8px 0}\n.bulk-bar .buttons{margin:0}.bulk-bar button{color:var(--im-paper);border-color:var(--im-paper)}\n.next-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center;padding:8px 0;border-top:1px dashed var(--im-line)}.next-row:first-of-type{border-top:0}\n.next-row small{display:block}.sev{width:7px;height:28px;border-radius:4px;background:#b8862f}.sev.bad{background:#a8443d}.sev.ok{background:#3f7d5c}\n.tracker-tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}\n.tracker-tile{border:1px solid var(--im-line);border-radius:10px;padding:8px 10px;display:grid;gap:2px}.tracker-tile b{font-family:var(--mono);font-size:16px}\n.recent-row,.cost-row{display:grid;grid-template-columns:52px minmax(0,1fr) auto;gap:10px;align-items:center;padding:6px 0;border-top:1px dashed var(--im-line);font-size:12px}\n.cost-row{grid-template-columns:70px auto minmax(0,1fr)}\n.bar-row{display:grid;grid-template-columns:140px minmax(0,1fr) 40px;gap:8px;align-items:center;font-size:11px;margin:4px 0}\n.bar{height:9px;border-radius:5px;background:var(--im-line);overflow:hidden}.bar>span{display:block;height:100%;background:var(--im-ink)}\n.search-filters select{font-size:11px}\n@media (max-width:720px){.tl-day{grid-template-columns:minmax(0,1fr)}.tl-stamp{position:static}.bar-row{grid-template-columns:90px minmax(0,1fr) 36px}}\n/* 페르소나 말 표시: one row per mark (start message, mark, language) */\n.speech-row{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;margin:6px 0}.speech-row label{flex:1 1 110px;min-width:0}.speech-row input,.speech-row select{width:100%}.speech-row button{flex:none}\n.speech-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px}\n";
   const host = typeof marinara === 'object' ? marinara : globalThis.marinara || {};
@@ -33,6 +33,8 @@
     ['todo', '할 일', 'note', ['ledger', 'promises', 'life']],
     ['search', '검색', 'search', ['search']],
     ['inject', '주입 확인', 'search', ['inject']],
+    // 세계관 설정집 연동 v2: World Archive's own screen, shown only while its server answers (worldTab).
+    ['worldarchive', '세계관', 'globe', ['worldarchive']],
     ['settings', '설정', 'settings', ['settings']],
   ];
   const SUBTAB = { timeline: '시간순', lines: '줄기', scenes: '장면·챕터', setup: '배경 설정', person: '인물별', facts: '알게 된 사실', notebook: '수첩', world: '상태·장소·물건', names: '이름 정리', ledger: '끝나지 않은 일', promises: '약속', life: '최근 생활' };
@@ -175,6 +177,7 @@
       close: '<path d="m6 6 12 12M6 18 18 6"/>',
       refresh: '<path d="M20 7v5h-5M4 17v-5h5"/><path d="M6 6a8 8 0 0 1 14 6M4 12a8 8 0 0 0 14 6"/>',
       spark: '<path d="m12 3 2.4 6.6L21 12l-6.6 2.4L12 21l-2.4-6.6L3 12l6.6-2.4z"/>',
+      globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
     };
     return `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.note}</svg>`;
   }
@@ -2342,7 +2345,7 @@
     return `<div class="paper"><h2>섹션별 분량</h2>${merged.map(([name, size]) => `<div class="bar-row"><span>${esc(name)}</span><span class="bar"><span style="width:${Math.max(1, Math.round((size / total) * 100))}%"></span></span><small>${Math.round((size / total) * 100)}%</small></div>`).join('')}</div>`;
   }
 
-  const VIEWS = { timeline: viewTimeline, lines: viewLines, person: viewPerson, notebook: viewNotebook, home: viewHome, setup: viewSetup, scenes: viewScenes, search: viewSearch, facts: viewFacts, ledger: viewLedger, promises: viewPromises, life: viewLife, world: viewWorld, names: viewNames, inject: viewInject, settings: viewSettings };
+  const VIEWS = { timeline: viewTimeline, lines: viewLines, person: viewPerson, notebook: viewNotebook, home: viewHome, setup: viewSetup, scenes: viewScenes, search: viewSearch, facts: viewFacts, ledger: viewLedger, promises: viewPromises, life: viewLife, world: viewWorld, names: viewNames, inject: viewInject, settings: viewSettings, worldarchive: () => '' };
 
   /** The screens of the current tab, as a row of chips under the panel's top (nothing for a one-screen tab). */
   function subTabs() {
@@ -2365,6 +2368,7 @@
     for (const b of root.querySelectorAll('nav button')) {
       const g = GROUPS.find((x) => x[0] === b.dataset.groupTab);
       if (!g) { b.classList.toggle('selected', b.dataset.tab === tab); continue; }
+      if (g[0] === 'worldarchive') b.hidden = !worldTab.available;
       b.classList.toggle('selected', g === here);
       b.dataset.tab = lastIn[g[0]] || g[3][0];
     }
@@ -2388,6 +2392,7 @@
     const translation = trPending || trError ? `<div class="note" role="status">${trError ? `한국어 번역을 마치지 못했습니다. ${esc(trError)}` : trWorking ? '한국어 번역 중입니다.' : trAuto ? '한국어 번역이 남아 있습니다.' : '자동 번역이 꺼져 있어 일부 항목이 영어로 보입니다.'} ${trPending ? `남은 항목: ${trPending}개.` : ''} <button data-act="retryTranslation">${trAuto || trError ? '남은 항목 다시 번역' : '지금 번역'}</button></div>` : '';
     content.innerHTML = warning + translation + subTabs() + VIEWS[tab]();
     content.scrollTop = scroll;
+    showWorldTab(content);
     root.querySelector('#inspector').innerHTML = inspector();
     const n = root.querySelector('#themeToggle');
     n.innerHTML = icon(theme === 'dark' ? 'sun' : 'moon');
@@ -3385,9 +3390,44 @@
     return button;
   }
 
+  /*
+   * 세계관 설정집 연동 v2: World Archive's screen as the 「세계관」 tab. build.py builds its extension.js in (vendor/
+   * world-panel.js, embedded: it starts only here, inside #worldMount). The tab is there while the World Archive
+   * server answers /status; without it (not installed, turned off) the tab is gone and nothing else changes. While the
+   * tab is there, World Archive's own floating button hides (document data-memory-world-tab="on").
+   */
+  const worldTab = { available: false, checkedAt: 0, instance: null, timer: null };
+  async function checkWorldTab(force = false) {
+    if (!force && Date.now() - worldTab.checkedAt < 60_000) return;
+    worldTab.checkedAt = Date.now();
+    let ok = false;
+    try {
+      const r = await fetch('/api/world-archive/status', { credentials: 'same-origin', cache: 'no-store', headers: { 'x-marinara-csrf': '1' } });
+      ok = r.ok && Boolean((await r.json())?.version);
+    } catch {}
+    ok = ok && Boolean(globalThis.__memoryWorldPanel?.start);
+    const was = worldTab.available;
+    worldTab.available = ok;
+    try { if (ok) document.documentElement.dataset.memoryWorldTab = 'on'; else delete document.documentElement.dataset.memoryWorldTab; } catch {}
+    if (!ok && tab === 'worldarchive') tab = 'home';
+    if (was !== ok) render();
+  }
+  function showWorldTab(content) {
+    const box = root.querySelector('#worldMount');
+    const here = tab === 'worldarchive' && worldTab.available;
+    content.hidden = here;
+    box.hidden = !here;
+    if (!here) return;
+    if (!worldTab.instance) {
+      try { worldTab.instance = globalThis.__memoryWorldPanel.start(box, { theme }); } catch (error) { box.textContent = `세계관 칸을 열지 못했습니다: ${error?.message || error}`; }
+    } else worldTab.instance.setTheme?.(theme);
+  }
+
   function openLibrary() {
     if (open || disposed) return;
     open = true;
+    void checkWorldTab(true);
+    if (typeof setInterval === 'function') worldTab.timer ||= setInterval(() => { if (open) void checkWorldTab(); }, 60_000);
     const current = activeChatId();
     if (current && current !== room) {
       room = current;
@@ -3475,6 +3515,7 @@
             <button id="close" class="close" aria-label="기억 서재 닫기" title="닫기">${icon('close')}</button></header>
           <div id="status" role="status"></div><div id="error" hidden></div>
           <main id="content"></main>
+          <div id="worldMount" class="world-mount" hidden></div>
         </div>
         <aside class="inspector" id="inspector"></aside>
         <div class="resize-edge resize-r" id="resizeRight" aria-hidden="true"></div><div class="resize-edge resize-b" id="resizeBottom" aria-hidden="true"></div><div class="resize-grip" id="resizeCorner" title="끌어서 크기 바꾸기" aria-hidden="true"></div>
@@ -3485,6 +3526,9 @@
     launcher?.setAttribute('data-theme', theme);
     installSelectionButton();
     setupPanelMove();
+    // 세계관 설정집 연동 v2: whether the 「세계관」 tab is there is known from the start, so World Archive's own
+    // floating button hides even before this screen is first opened.
+    void checkWorldTab(true);
 
     // Shadow DOM retargets input events to our DIV at the page boundary. Keep
     // host shortcuts from treating typing (notably '?') as a page command.
@@ -3857,6 +3901,7 @@
   }
 
   const EXTRA_CSS = `
+.world-mount{display:block;height:calc(100% - 8px);min-height:560px;overflow:hidden}.world-mount[hidden]{display:none!important}#content[hidden]{display:none!important}
     .memory-search{margin-bottom:18px}.memory-search input{flex:1;min-width:120px}.memory-search .buttons{flex-wrap:wrap}
     #launch{position:fixed;right:18px;bottom:122px;width:64px;height:64px;padding:0;border:0;border-radius:0;place-items:center;color:inherit;
       background:transparent!important;box-shadow:none!important;filter:drop-shadow(0 3px 5px #00000040);transition:transform .18s,filter .18s}
@@ -3892,3 +3937,1192 @@
 
 
 
+
+/* 세계관 설정집 화면 (연동 v2 · 세계관 칸) */
+(() => {
+  const __WORLD_ARCHIVE_EMBEDDED__ = true;
+/* Copied from tlsiddl/marinara-world-archive main 7136b3e (extension/extension.js, v0.4.0 · 연동 v2 · 계약 수준 2). Do not edit here: change it there and copy again. */
+/* 세계관 설정집 · Marinara World Archive — personal extension UI.
+ * Talks only to /api/world-archive on the same server. Visual language follows its sister module 기억 서재
+ * (paper grain, ticket notches, ink shadows); the motif here is a star chart instead of a record. */
+(() => {
+  'use strict';
+  // 연동 v2: also built into 기억 서재's screen as its 「세계관」 tab — 기억 서재's build.py wraps this file with
+  // __WORLD_ARCHIVE_EMBEDDED__ = true; then nothing starts here and the tab calls __memoryWorldPanel.start(box).
+  const EMBEDDED = typeof __WORLD_ARCHIVE_EMBEDDED__ !== 'undefined' && __WORLD_ARCHIVE_EMBEDDED__ === true;
+  if (!EMBEDDED && document.getElementById('marinara-world-archive-root')) return;
+  const VERSION = '0.4.0';
+  /** The contract level this screen is made for (the server's status.contract). Another level: read only. */
+  const PANEL_CONTRACT = 2;
+  const UPDATE_MSG = '세계관 칸을 쓰려면 기억 서재(또는 설정집)를 업데이트해 주세요. 지금은 보기만 할 수 있습니다.';
+  const BASE = '/api/world-archive';
+  // Paper grain from 기억 서재 (tlsiddl/marinara-memory-module 165d488, extension/theme.css --wa-grain)
+  const GRAIN = "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .09 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")";
+  // Stamp-edge ticket outline from 기억 서재's launcher (same commit, extension/runtime.js LAUNCH_ICON)
+  const STAMP = "M4 11L4.75 11A2.05 2.05 0 0 0 8.85 11L10.35 11A2.05 2.05 0 0 0 14.45 11L15.95 11A2.05 2.05 0 0 0 20.05 11L21.55 11A2.05 2.05 0 0 0 25.65 11L27.15 11A2.05 2.05 0 0 0 31.25 11L32.75 11A2.05 2.05 0 0 0 36.85 11L38.35 11A2.05 2.05 0 0 0 42.45 11L43.95 11A2.05 2.05 0 0 0 48.05 11L49.55 11A2.05 2.05 0 0 0 53.65 11L55.15 11A2.05 2.05 0 0 0 59.25 11L60 11L60 11.57A2.05 2.05 0 0 0 60 15.68L60 16.82A2.05 2.05 0 0 0 60 20.93L60 22.07A2.05 2.05 0 0 0 60 26.18L60 27.32A2.05 2.05 0 0 0 60 31.43L60 32.58A2.05 2.05 0 0 0 60 36.67L60 37.83A2.05 2.05 0 0 0 60 41.92L60 43.08A2.05 2.05 0 0 0 60 47.17L60 48.33A2.05 2.05 0 0 0 60 52.42L60 53L59.25 53A2.05 2.05 0 0 0 55.15 53L53.65 53A2.05 2.05 0 0 0 49.55 53L48.05 53A2.05 2.05 0 0 0 43.95 53L42.45 53A2.05 2.05 0 0 0 38.35 53L36.85 53A2.05 2.05 0 0 0 32.75 53L31.25 53A2.05 2.05 0 0 0 27.15 53L25.65 53A2.05 2.05 0 0 0 21.55 53L20.05 53A2.05 2.05 0 0 0 15.95 53L14.45 53A2.05 2.05 0 0 0 10.35 53L8.85 53A2.05 2.05 0 0 0 4.75 53L4 53L4 52.42A2.05 2.05 0 0 0 4 48.33L4 47.17A2.05 2.05 0 0 0 4 43.08L4 41.92A2.05 2.05 0 0 0 4 37.83L4 36.67A2.05 2.05 0 0 0 4 32.58L4 31.43A2.05 2.05 0 0 0 4 27.32L4 26.18A2.05 2.05 0 0 0 4 22.07L4 20.93A2.05 2.05 0 0 0 4 16.82L4 15.68A2.05 2.05 0 0 0 4 11.57Z";
+
+  const KINDS = [
+    { type: 'person', label: '인물', en: 'PEOPLE', icon: 'person', hint: '이 세계에 사는 사람들. 외형·성격 같은 기본 정보와, 사건으로 바뀐 「지금 상태」를 따로 적어 둡니다.' },
+    { type: 'place', label: '장소', en: 'PLACES', icon: 'place', hint: '건물, 방, 숲, 도시. 고정된 구조와 출입구·연결을 적어 둡니다. 누가 잠깐 들른 일은 여기가 아니라 기억 쪽에 남습니다.' },
+    { type: 'group', label: '집단', en: 'GROUPS', icon: 'group', hint: '가문, 학교, 기숙사, 동아리, 조직. 구성원과 위계를 적어 둡니다.' },
+    { type: 'rule', label: '규칙', en: 'RULES', icon: 'rule', hint: '법, 제도, 관례, 금기, 학교 규칙처럼 지켜야 하는 것. 내용은 메모 칸에 적어 주세요.' },
+    { type: 'system', label: '시스템', en: 'SYSTEMS', icon: 'gear', hint: '마법, 능력, 경제, 점수처럼 이 세계가 돌아가는 원리. 작동 방식과 제약·대가를 적어 둡니다.' },
+    { type: 'schedule', label: '일정', en: 'SCHEDULE', icon: 'calendar', hint: '수업 시간표, 반복 행사, 정기 활동. 언제·어디서·누가를 적어 둡니다.' },
+    { type: 'history', label: '역사', en: 'HISTORY', icon: 'book', hint: '이야기가 시작되기 전의 일과 세계관 연혁. 시기·장소·관련 인물과 결과를 적어 둡니다. 이야기 안에서 지금 일어나는 일은 기억 쪽에 남습니다.' },
+    { type: 'custom', label: '기타', en: 'MISC', icon: 'star', hint: '어디에도 안 맞는 이 세계만의 설정. 필요한 칸은 「칸 추가」로 만들 수 있습니다.' },
+  ];
+  const KIND = Object.fromEntries(KINDS.map((k) => [k.type, k]));
+
+  // ------------------------------------------------------------------ icons (line, currentColor)
+  const ICONS = {
+    overview: '<circle cx="12" cy="12" r="8.5"/><path d="M12 3.5v17M3.5 12h17" stroke-dasharray="1.6 2"/><path d="M12 8.6l.9 2.5 2.5.9-2.5.9-.9 2.5-.9-2.5-2.5-.9 2.5-.9z"/>',
+    person: '<circle cx="12" cy="8" r="3.6"/><path d="M5 20c.8-3.8 3.6-5.6 7-5.6s6.2 1.8 7 5.6"/>',
+    place: '<path d="M4 20h16M6 20V9l6-4.5L18 9v11"/><path d="M10 20v-5h4v5"/>',
+    group: '<circle cx="9" cy="9" r="3"/><circle cx="16.5" cy="10" r="2.4"/><path d="M3.5 19c.6-3 2.8-4.6 5.5-4.6s4.9 1.6 5.5 4.6M14.6 14.6c2.5-.3 4.6 1 5.4 3.9"/>',
+    rule: '<path d="M7 3.5h10v17H7z"/><path d="M10 8h4M10 11.5h4M10 15h2.5"/>',
+    gear: '<path d="M17.7 9.9L20 10.1v3.8l-2.3.2-.1.4 1.4 1.8-2.7 2.7-1.8-1.4-.4.1-.2 2.3h-3.8l-.2-2.3-.4-.1-1.8 1.4L5 16.3l1.4-1.8-.1-.4L4 13.9v-3.8l2.3-.2.1-.4L5 7.7 7.7 5l1.8 1.4.4-.1.2-2.3h3.8l.2 2.3.4.1L16.3 5 19 7.7l-1.4 1.8z"/><circle cx="12" cy="12" r="2.6"/>',
+    book: '<path d="M12 6.8C10 5.3 7.2 4.9 4 5.3v13c3.2-.4 6 0 8 1.5 2-1.5 4.8-1.9 8-1.5v-13c-3.2-.4-6 0-8 1.5zM12 6.8v13"/>',
+    calendar: '<rect x="4" y="5.5" width="16" height="14.5" rx="1"/><path d="M4 10h16M8.5 3.5v4M15.5 3.5v4"/>',
+    star: '<path d="M12 4l1.8 6.2L20 12l-6.2 1.8L12 20l-1.8-6.2L4 12l6.2-1.8z"/>',
+    world: '<circle cx="12" cy="12" r="8.5"/><ellipse cx="12" cy="12" rx="3.6" ry="8.5"/><path d="M3.8 9h16.4M3.8 15h16.4"/>',
+    close: '<path d="m6 6 12 12M18 6 6 18"/>',
+    sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2.5M12 19v2.5M2.5 12H5M19 12h2.5M5.3 5.3l1.8 1.8M16.9 16.9l1.8 1.8M5.3 18.7l1.8-1.8M16.9 7.1l1.8-1.8"/>',
+    moon: '<path d="M20 14.2A8 8 0 0 1 9.8 4 8 8 0 1 0 20 14.2z"/>',
+    search: '<circle cx="10.5" cy="10.5" r="6"/><path d="m15 15 5 5"/>',
+    back: '<path d="M14.5 6 8.5 12l6 6"/>',
+    score: '<path d="M5 20V11M12 20V5M19 20v-6"/><path d="M3.5 20h17" opacity=".5"/>',
+    log: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/><path d="M3.5 12h2M18.5 12h2" opacity=".5"/>',
+  };
+  const icon = (name) => `<svg class="icon" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name] || ''}</svg>`;
+
+  // A paper ticket with stamp edges, sister of 기억 서재's launcher.
+  const LAUNCH_ICON = `<svg viewBox="0 0 64 64" aria-hidden="true"><path d="${STAMP}" fill="#f1eee7" stroke="#0000002e" stroke-width=".5"/><rect x="9" y="15.5" width="46" height="33" fill="none" stroke="#141414" stroke-width=".9"/><line x1="43.5" y1="16.5" x2="43.5" y2="47.5" stroke="#141414" stroke-width=".9" stroke-dasharray="1.6 1.6"/><text x="26.2" y="29.6" font-family="Georgia,'Times New Roman',serif" font-weight="700" font-size="6.4" text-anchor="middle" fill="#141414" letter-spacing=".3">WORLD</text><text x="26.2" y="37.8" font-family="ui-monospace,Menlo,monospace" font-size="3.4" text-anchor="middle" fill="#141414" letter-spacing=".25">ARCHIVE</text><circle cx="49.3" cy="32" r="3.9" fill="none" stroke="#141414" stroke-width=".55" stroke-dasharray=".9 .9"/><path d="M49.3 28.9l.55 2.55 2.55.55-2.55.55-.55 2.55-.55-2.55-2.55-.55 2.55-.55z" fill="#141414"/></svg>`;
+
+  // Brand mark: a small star chart (dotted orbit, axes, four-point star).
+  const BRAND = `<svg class="brand-mark" viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="21" fill="none" stroke="currentColor" stroke-width="1"/><circle cx="24" cy="24" r="14.5" fill="none" stroke="currentColor" stroke-width=".8" stroke-dasharray="1.4 2.2"/><path d="M24 2v44M2 24h44" stroke="currentColor" stroke-width=".5" opacity=".55"/><path d="M24 14.5l2 7.5 7.5 2-7.5 2-2 7.5-2-7.5-7.5-2 7.5-2z" fill="currentColor"/><circle cx="37" cy="12" r="1.1" fill="currentColor"/><circle cx="11" cy="35" r=".8" fill="currentColor"/><circle cx="35.5" cy="36.5" r=".6" fill="currentColor"/></svg>`;
+
+  // ------------------------------------------------------------------ styles
+  const CSS = `
+:host{all:initial;--wa-ink:#151515;--wa-paper:#f4f1ea;--wa-paper2:#ebe7dd;--wa-muted:#6d685f;--wa-line:#15151526;--wa-field:#faf8f3;--wa-field-line:#1515153a;--wa-soft:#e4dfd3;--wa-side:#151515;--wa-side-ink:#ece8df;
+  --wa-serif:var(--font-y2k,"Gowun Batang","Nanum Myeongjo","Noto Serif KR",Georgia,serif);--wa-mono:ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
+  --wa-sans:var(--font-y2k,"Pretendard","Noto Sans KR",-apple-system,system-ui,sans-serif);--wa-grain:${GRAIN};
+  font:14px/1.65 var(--wa-sans);color:var(--wa-ink)}
+:host([data-theme=dark]){--wa-ink:#ece8df;--wa-paper:#1b1a18;--wa-paper2:#131312;--wa-muted:#a39d92;--wa-line:#ece8df2b;--wa-field:#222120;--wa-field-line:#ece8df40;--wa-soft:#2a2826;--wa-side:#0c0c0b}
+*{box-sizing:border-box}[hidden]{display:none!important}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer;border:1.5px solid var(--wa-ink);background:transparent;border-radius:3px;padding:8px 14px;transition:background .15s,transform .15s}
+button:hover{background:var(--wa-soft)}button:disabled{opacity:.45;cursor:default}
+button.primary{background:var(--wa-ink);color:var(--wa-paper);font-weight:700}
+button.primary:hover{background:#000}:host([data-theme=dark]) button.primary:hover{background:#fff}
+button.quiet{border-color:transparent;color:var(--wa-muted);padding:6px 8px}button.quiet:hover{color:var(--wa-ink);background:transparent;text-decoration:underline}
+button.danger{color:#a3321f;border-color:#a3321f}:host([data-theme=dark]) button.danger{color:#f0a18f;border-color:#f0a18f}
+:focus-visible{outline:3px solid #8fa3c9;outline-offset:2px}
+.icon{width:18px;height:18px;flex:none;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+input,select,textarea{width:100%;border-radius:3px;background:var(--wa-field);border:1px solid var(--wa-field-line);padding:9px 11px;line-height:1.55}
+textarea{min-height:84px;resize:vertical}
+label.f{display:block;font:11px/1.4 var(--wa-mono);letter-spacing:1.5px;color:var(--wa-muted);margin:14px 0 6px}
+label.f em{font:12px var(--wa-sans);letter-spacing:0;font-style:normal;opacity:.85;margin-left:6px}
+
+#launch{position:fixed;right:18px;bottom:196px;z-index:2147483600;width:64px;height:64px;padding:0;border:0;background:transparent;filter:drop-shadow(0 3px 6px #0005);transition:transform .2s}
+#launch:hover{background:transparent;transform:translateY(-2px) rotate(3deg)}
+#launch svg{width:100%;height:100%;display:block}
+@media(max-width:720px){#launch{width:58px;height:58px;bottom:186px}}
+#backdrop{position:fixed;inset:0;z-index:2147483601;background:#0a0a0a8c;backdrop-filter:grayscale(1)}
+#panel{position:fixed;z-index:2147483602;left:50%;top:50%;transform:translate(-50%,-50%);width:min(1280px,96vw);height:min(880px,92vh);
+  display:grid;grid-template-columns:200px minmax(0,1fr) 248px;background:var(--wa-grain),var(--wa-paper);color:var(--wa-ink);border:1.5px solid var(--wa-ink);border-radius:6px;box-shadow:0 30px 90px #0007;overflow:hidden}
+
+.side{position:relative;display:flex;flex-direction:column;padding:28px 16px 18px;background:var(--wa-grain),var(--wa-side);color:var(--wa-side-ink);min-width:0}
+.side:after{content:"";position:absolute;top:10px;bottom:10px;right:-1px;border-right:2px dashed #ece8df55;pointer-events:none}
+.brand{display:flex;align-items:center;gap:10px;padding:0 6px 26px}
+.brand-mark{width:44px;height:44px;flex:none;color:var(--wa-side-ink)}
+.brand b{display:block;font:700 18px/1.2 var(--wa-serif);letter-spacing:-.5px}
+.brand small{display:block;font:7.5px/1.8 var(--wa-mono);letter-spacing:2.4px;color:#ece8df99;white-space:nowrap}
+.nav-label{font:9px var(--wa-mono);letter-spacing:3px;color:#ece8df80;padding:6px 12px 10px}
+nav{display:flex;flex-direction:column;gap:4px}
+nav button{display:flex;align-items:center;gap:11px;width:100%;text-align:left;border:1px solid transparent;color:#ece8dfcc;padding:10px 12px;font-size:13px}
+nav button:hover{background:#ece8df14;color:#fff}
+nav button .n{margin-left:auto;font:10px var(--wa-mono);opacity:.6}
+nav button.on{background:#ece8df;color:#151515;font-weight:700;
+  -webkit-mask:radial-gradient(circle at 0 50%,#0000 6px,#000 6.5px) left/51% 100% no-repeat,radial-gradient(circle at 100% 50%,#0000 6px,#000 6.5px) right/51% 100% no-repeat;
+  mask:radial-gradient(circle at 0 50%,#0000 6px,#000 6.5px) left/51% 100% no-repeat,radial-gradient(circle at 100% 50%,#0000 6px,#000 6.5px) right/51% 100% no-repeat}
+.side-bottom{margin-top:auto;padding-top:20px;display:grid;gap:8px}
+.side-bottom button{display:flex;align-items:center;gap:8px;border:1px solid #ece8df55;color:var(--wa-side-ink);font-size:12px}
+.side-bottom button:hover{background:#ece8df14}
+.side-bottom small{font:9.5px var(--wa-mono);color:#ece8df80;letter-spacing:.5px;padding:0 4px}
+
+.work{display:flex;flex-direction:column;min-width:0;min-height:0}
+.top{display:flex;align-items:center;gap:12px;padding:18px 28px;border-bottom:1.5px solid var(--wa-ink)}
+.top select{max-width:340px}
+.top .grow{flex:1}
+.round{width:42px;height:42px;padding:0;border-radius:50%!important;display:grid;place-items:center;border:1px solid var(--wa-ink)}
+main{flex:1;overflow:auto;padding:30px 30px 60px}
+.eyebrow{display:flex;align-items:center;gap:10px;font:10.5px var(--wa-mono);letter-spacing:3px;opacity:.75;margin:0 0 8px}
+.eyebrow:after{content:"";flex:1;max-width:220px;border-top:1px dashed currentColor;opacity:.6}
+h1{font:800 28px/1.3 var(--wa-serif);letter-spacing:-.5px;margin:0 0 10px;overflow-wrap:anywhere}
+h2{font:700 17px/1.4 var(--wa-serif);margin:0 0 10px}
+.intro{color:var(--wa-muted);margin:0 0 22px;max-width:760px;text-align:justify;white-space:pre-wrap}
+.msg{font-size:13px;margin:0 0 16px;padding:9px 13px;border:1.5px dashed currentColor;border-radius:3px;white-space:pre-wrap}
+.msg.bad{color:#a3321f}:host([data-theme=dark]) .msg.bad{color:#f0a18f}
+.paper{background:var(--wa-grain),var(--wa-paper);border:1.5px solid var(--wa-ink);border-radius:4px;box-shadow:4px 4px 0 var(--wa-ink);padding:20px 22px;margin:0 4px 22px 0}
+.paper .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.sub{color:var(--wa-muted);font-size:12.5px}
+.pill{display:inline-block;font:10px/1.6 var(--wa-mono);letter-spacing:1.5px;text-transform:uppercase;border:1px solid var(--wa-ink);border-radius:2px;padding:1px 7px;transform:rotate(-2deg);white-space:nowrap}
+pre{white-space:pre-wrap;word-break:break-word;font:12.5px/1.65 var(--wa-mono);margin:12px 0 0;max-height:340px;overflow:auto;background:var(--wa-field);border:1px dashed var(--wa-field-line);border-radius:3px;padding:14px}
+
+/* admission stubs */
+.stubs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:0 0 24px}
+.stub{position:relative;text-align:left;background:var(--wa-grain),var(--wa-paper);border:0;border-radius:0;padding:16px 16px 26px;outline:1.5px solid var(--wa-ink);outline-offset:-6px;filter:drop-shadow(0 2px 3px #0002);
+  -webkit-mask:radial-gradient(circle at 0 50%,#0000 7px,#000 7.5px) left/51% 100% no-repeat,radial-gradient(circle at 100% 50%,#0000 7px,#000 7.5px) right/51% 100% no-repeat;
+  mask:radial-gradient(circle at 0 50%,#0000 7px,#000 7.5px) left/51% 100% no-repeat,radial-gradient(circle at 100% 50%,#0000 7px,#000 7.5px) right/51% 100% no-repeat}
+.stub:hover{background:var(--wa-grain),var(--wa-soft)}
+.stub:after{content:"";position:absolute;left:14px;right:14px;bottom:10px;height:7px;opacity:.35;background:repeating-linear-gradient(90deg,currentColor 0 1px,#0000 1px 3px,currentColor 3px 5px,#0000 5px 7px)}
+.stub strong{display:block;font:800 26px/1.2 var(--wa-serif)}
+.stub small{font-size:11.5px;color:var(--wa-muted)}
+
+/* entity cards */
+.toolbar{display:flex;gap:10px;align-items:center;margin:0 0 18px}
+.search{position:relative;flex:1;max-width:360px}
+.search input{padding-left:36px}
+.search .icon{position:absolute;left:11px;top:50%;transform:translateY(-50%);color:var(--wa-muted)}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:18px;padding:0 4px 4px 0}
+.card{position:relative;display:flex;flex-direction:column;justify-content:flex-start;align-items:stretch;width:100%;text-align:left;padding:16px 18px 14px;background:var(--wa-grain),var(--wa-paper);border:1.5px solid var(--wa-ink);border-radius:4px;box-shadow:3px 3px 0 var(--wa-ink)}
+.card:hover{background:var(--wa-grain),var(--wa-paper);transform:translate(-1px,-1px);box-shadow:4px 4px 0 var(--wa-ink)}
+.card .nm{font:700 17px/1.35 var(--wa-serif);padding-right:48px;overflow-wrap:anywhere}
+.card .al{font:10.5px/1.5 var(--wa-mono);color:var(--wa-muted);letter-spacing:.3px;margin-top:2px;overflow-wrap:anywhere}
+.card .pin{position:absolute;right:12px;top:14px}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0 0}
+.chip{font-size:11.5px;line-height:1.5;padding:2px 10px;border:1px solid var(--wa-ink);border-radius:999px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chip:nth-child(even){border-radius:2px}
+.fact .past,.sec .past,.state .past{display:block;margin-top:3px;font-size:11.5px;color:var(--wa-muted)}.pending{display:block;margin-top:4px;font-size:12px}
+.card .hit{margin:8px 0 0;font-size:12.5px;color:var(--wa-muted)}.card .hit mark{background:var(--accent-soft,#f3e2a8);color:inherit;padding:0 1px;border-radius:2px}
+.card .snip{margin:10px 0 12px;font-size:12.5px;color:var(--wa-muted);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;text-align:justify}
+.card .foot{margin-top:auto;margin-bottom:0;padding-top:8px;padding-top:8px;border-top:1px dashed var(--wa-line);font:9.5px var(--wa-mono);letter-spacing:1.5px;color:var(--wa-muted);display:flex;justify-content:space-between}
+.empty{padding:40px 20px;text-align:center;border:1.5px dashed var(--wa-line);border-radius:4px;color:var(--wa-muted)}
+.empty h2{color:var(--wa-ink)}
+
+/* detail sheet */
+.sheet-head{display:flex;gap:18px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap}
+.sheet-head .al{font:11px var(--wa-mono);color:var(--wa-muted);letter-spacing:.5px;margin:-4px 0 0}
+.facts{display:flex;flex-wrap:wrap;gap:10px;margin:18px 0 6px}
+.fact{min-width:120px;max-width:100%;padding:10px 18px 12px;background:var(--wa-grain),var(--wa-paper);outline:1.2px solid var(--wa-ink);outline-offset:-4px;
+  -webkit-mask:radial-gradient(circle at 0 50%,#0000 5px,#000 5.5px) left/51% 100% no-repeat,radial-gradient(circle at 100% 50%,#0000 5px,#000 5.5px) right/51% 100% no-repeat;
+  mask:radial-gradient(circle at 0 50%,#0000 5px,#000 5.5px) left/51% 100% no-repeat,radial-gradient(circle at 100% 50%,#0000 5px,#000 5.5px) right/51% 100% no-repeat}
+.fact small{display:block;font:9.5px var(--wa-mono);letter-spacing:1.5px;color:var(--wa-muted)}
+.fact b{font:700 15px var(--wa-serif);overflow-wrap:anywhere}
+.sec{padding:16px 0 4px;border-top:1px dashed var(--wa-line);margin-top:14px}
+.sec small,.state small{display:block;font:10px var(--wa-mono);letter-spacing:2px;color:var(--wa-muted);margin-bottom:6px}
+.sec p,.state p{margin:0;white-space:pre-wrap;text-align:justify;overflow-wrap:anywhere}
+.state{margin-top:18px;padding:14px 16px;border:1.5px dashed var(--wa-ink);border-radius:3px}
+.meta{margin-top:20px;font:10px var(--wa-mono);letter-spacing:1px;color:var(--wa-muted)}
+.actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:20px}
+.actions .grow{flex:1}
+
+/* forms */
+.grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0 14px}
+.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 14px}
+.extra-row{display:grid;grid-template-columns:minmax(0,180px) minmax(0,1fr) auto;gap:8px;align-items:start;margin-top:8px}
+.check{display:flex;gap:8px;align-items:center;margin-top:16px;font-size:13px}.check input{width:auto}
+.ask{display:inline-flex;flex-wrap:wrap;gap:8px;align-items:center;padding:6px 10px;border:1.5px dashed #a3321f;border-radius:3px;color:#a3321f;font-size:13px}
+:host([data-theme=dark]) .ask{border-color:#f0a18f;color:#f0a18f}
+.back{display:inline-flex;align-items:center;gap:4px;border:0;padding:4px 0;margin:0 0 14px;color:var(--wa-muted);font-size:13px}
+.back:hover{background:transparent;color:var(--wa-ink)}
+
+/* rail */
+.rail{border-left:1.5px solid var(--wa-ink);padding:26px 20px;overflow:auto;display:flex;flex-direction:column;gap:14px}
+.rail-title{font:10.5px var(--wa-mono);letter-spacing:2px;text-transform:uppercase}
+.rail .room{font:700 16px/1.4 var(--wa-serif);overflow-wrap:anywhere}
+.chart{position:relative;width:150px;height:150px;margin:6px auto 0}
+.chart svg{width:100%;height:100%}
+.chart .num{position:absolute;inset:0;display:grid;place-content:center;text-align:center}
+.chart .num b{font:800 22px/1 var(--wa-serif)}
+.chart .num small{font:9px var(--wa-mono);letter-spacing:1.5px;color:var(--wa-muted);margin-top:4px}
+.rail hr{border:0;border-top:1.5px dashed var(--wa-line);margin:4px 0;width:100%}
+.rail p{margin:0;font-size:12px;color:var(--wa-muted);text-align:justify}
+.rail .row{display:flex;flex-wrap:wrap;gap:6px}
+
+/* automatic updates */
+.auto-line{display:flex;gap:8px;align-items:flex-start}.auto-line .dot{margin-top:6px}
+.dot{display:inline-block;flex:none;width:8px;height:8px;border-radius:50%;border:1.5px solid var(--wa-ink)}
+.dot.on{background:var(--wa-ink)}
+.dot.run{background:var(--wa-ink);animation:blink 1s infinite}
+@keyframes blink{50%{opacity:.25}}
+.err{color:#a3321f;font-size:12.5px}:host([data-theme=dark]) .err{color:#f0a18f}
+.toggle{display:flex;gap:10px;align-items:center;font-size:14px;cursor:pointer}
+.toggle input{appearance:none;-webkit-appearance:none;width:44px;height:24px;border-radius:999px;border:1.5px solid var(--wa-ink);background:var(--wa-field);position:relative;padding:0;flex:none;cursor:pointer}
+.toggle input:before{content:"";position:absolute;top:3px;left:3px;width:15px;height:15px;border-radius:50%;background:var(--wa-ink);transition:transform .15s}
+.toggle input:checked{background:var(--wa-ink)}.toggle input:checked:before{background:var(--wa-paper);transform:translateX(20px)}
+.auto-tag{font:9.5px var(--wa-mono);letter-spacing:1px;margin-left:6px;opacity:.7}
+.hist{list-style:none;margin:0;padding:0}
+.hist li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;padding:12px 0;border-top:1px dashed var(--wa-line)}
+.hist li:first-child{border-top:0}
+.hist .what{overflow-wrap:anywhere}.hist .what b{font-family:var(--wa-serif)}
+.hist .ev{grid-column:1;font-size:12.5px;color:var(--wa-muted);text-align:justify}
+.hist .when{font:10px var(--wa-mono);letter-spacing:1px;color:var(--wa-muted)}
+.hist li.undone .what{text-decoration:line-through;opacity:.55}
+.hist .side-act{grid-row:1/span 3;grid-column:2;align-self:center}
+@media(max-width:1080px){#panel{grid-template-columns:190px minmax(0,1fr)}.rail{display:none}}
+@media(max-width:720px){
+  #panel{inset:0;left:0;top:0;transform:none;width:100vw;height:100dvh;border:0;border-radius:0;grid-template-columns:1fr;grid-template-rows:auto minmax(0,1fr)}
+  .side{padding:12px 12px 8px}
+  .side:after{top:auto;left:8px;right:8px;bottom:-1px;border-right:0;border-bottom:2px dashed #ece8df55}
+  .brand{padding:0 52px 10px 2px}.brand-mark{width:32px;height:32px}.brand b{font-size:16px}
+  .nav-label,.side-bottom{display:none}
+  nav{flex-direction:row;overflow-x:auto;gap:4px;scrollbar-width:none}
+  nav button{width:auto;flex:none;padding:7px 11px;font-size:12.5px;gap:6px}nav button .n{margin-left:2px}
+  nav button .icon{width:15px;height:15px}
+  .top{padding:10px 14px}.top select{max-width:none}
+  #themeToggle{width:36px;height:36px}
+  #close{position:fixed;right:12px;top:12px;z-index:5;background:#f3efe7;color:#151515;border:1.5px solid #151515;width:38px;height:38px}
+  :host([data-theme=dark]) #close{background:#262522;color:#f3efe7;border-color:#f3efe7}
+  main{padding:20px 16px 50px}
+  h1{font-size:23px}
+  .stubs{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .cards{grid-template-columns:1fr}
+  .toolbar{flex-wrap:wrap}.search{max-width:none;flex:1 1 100%}.toolbar>span{display:none}.toolbar>.primary{flex:1}
+  .grid3,.grid2{grid-template-columns:1fr}
+  .extra-row{grid-template-columns:1fr auto}.extra-row textarea{grid-column:1/-1}
+  .paper{padding:16px}
+  .mobile-only{display:block!important}
+}
+.mobile-only{display:none}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+/* 기억 서재의 「세계관」 칸 안: no button, no backdrop, the window fills the tab */
+:host([data-embedded]){display:block;height:100%}
+:host([data-embedded]) #launch,:host([data-embedded]) #backdrop,:host([data-embedded]) #close{display:none!important}
+:host([data-embedded]) #panel{position:relative;left:auto;top:auto;transform:none;width:100%;height:100%;min-height:560px;z-index:auto;box-shadow:none;border-radius:0}
+`;
+
+  // ------------------------------------------------------------------ mount
+  // One screen per call: on its own (target null: the floating button and window, as before) or inside a box that
+  // 기억 서재 gives (embedded). Everything below belongs to that one screen.
+  function boot(target, opts = {}) {
+  const host = document.createElement('div');
+  host.id = target ? 'marinara-world-archive-tab' : 'marinara-world-archive-root';
+  if (target) host.setAttribute('data-embedded', '');
+  const root = host.attachShadow({ mode: 'open' });
+  root.innerHTML = `<style>${CSS}</style>
+    <button id="launch" type="button" aria-label="세계관 설정집 열기" aria-expanded="false">${LAUNCH_ICON}</button>
+    <div id="backdrop" hidden></div>
+    <section id="panel" role="dialog" aria-modal="true" aria-label="세계관 설정집" hidden>
+      <aside class="side"></aside>
+      <div class="work"><div class="top"></div><main></main></div>
+      <aside class="rail"></aside>
+    </section>`;
+  (target || document.body || document.documentElement).append(host);
+  const $ = (s) => root.querySelector(s);
+  const el = { launch: $('#launch'), backdrop: $('#backdrop'), panel: $('#panel'), side: $('.side'), top: $('.top'), main: $('main'), rail: $('.rail') };
+
+  const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+  const store = {
+    get(k, d = '') { try { return localStorage.getItem(k) ?? d; } catch { return d; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch {} },
+  };
+
+  const st = {
+    theme: opts.theme || store.get('world-archive-theme') || (window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'),
+    readOnly: false, // the server's contract level is not the one this screen was made for
+    fields: {},
+    worlds: [],
+    worldId: store.get('world-archive-world') || null,
+    entities: [],
+    room: null,
+    roomName: '',
+    preview: null,
+    view: 'overview', // overview | <type> | world | new-world
+    detail: null, // entityId shown in full
+    editing: null, // entityId | 'new'
+    draft: null, // form values kept while switching kind in the form
+    ask: null, // which delete is waiting for a second press
+    query: '',
+    msg: '',
+    bad: false,
+    busy: false,
+    loaded: false,
+    auto: null, // this room's automatic-update status
+    history: [],
+    connections: null,
+    pairs: [], // 같은 사람일 수 있음: [{ a, b, why }]
+    dupes: false, // the person list shows those pairs instead
+  };
+
+  const activeChatId = () => store.get('marinara-active-chat-id', '');
+  const world = () => st.worlds.find((w) => w.worldId === st.worldId) || null;
+
+  async function api(method, path, body) {
+    if (st.readOnly && method !== 'GET') throw Error(UPDATE_MSG);
+    const init = { method, credentials: 'same-origin', cache: 'no-store', headers: { 'x-marinara-csrf': '1' } };
+    if (method !== 'GET') {
+      init.headers['content-type'] = 'application/json';
+      init.body = JSON.stringify(body ?? {});
+    }
+    let res;
+    try {
+      res = await fetch(path.startsWith('/api/') ? path : BASE + path, init);
+    } catch {
+      throw Error('서버에 연결하지 못했습니다. 마리나라가 다시 켜지는 중이라면 잠시 뒤에 다시 시도해 주세요.');
+    }
+    const text = await res.text();
+    let data = null;
+    try { data = text ? JSON.parse(text) : null; } catch { data = { error: text.slice(0, 200) }; }
+    if (res.status === 404 && path === '/status') throw Error('서버에 World Archive 모듈이 없거나 꺼져 있습니다. 서버 쪽 설치를 먼저 확인해 주세요.');
+    if (res.status === 401) throw Error('마리나라 로그인이 끝났습니다. 페이지를 새로 고쳐 다시 로그인해 주세요.');
+    if (!res.ok) throw Error(data?.error || `서버 오류 (${res.status})`);
+    return data;
+  }
+
+  async function run(fn, ok) {
+    if (st.busy) return;
+    st.busy = true;
+    st.msg = '';
+    try {
+      await fn();
+      if (ok) { st.msg = ok; st.bad = false; }
+    } catch (e) {
+      st.msg = e?.message || String(e);
+      st.bad = true;
+    } finally {
+      st.busy = false;
+      render();
+    }
+  }
+
+  // ------------------------------------------------------------------ loading
+  async function loadWorlds() {
+    st.worlds = (await api('GET', '/worlds')).worlds || [];
+    if (!world()) {
+      const linked = st.room?.worldId && st.worlds.some((w) => w.worldId === st.room.worldId) ? st.room.worldId : null;
+      st.worldId = linked || st.worlds[0]?.worldId || null;
+    }
+    if (st.worldId) store.set('world-archive-world', st.worldId);
+  }
+  async function loadEntities() {
+    st.entities = st.worldId ? (await api('GET', `/worlds/${st.worldId}/entities`)).entities || [] : [];
+    st.relations = st.worldId ? (await api('GET', `/worlds/${st.worldId}/relations`).catch(() => ({ relations: [] }))).relations || [] : [];
+    try { st.pairs = st.worldId ? (await api('GET', `/worlds/${st.worldId}/duplicates`)).pairs || [] : []; } catch { st.pairs = []; }
+    if (st.detail && !st.entities.some((e) => e.entityId === st.detail)) st.detail = null;
+  }
+  async function loadRoom() {
+    const id = activeChatId();
+    st.room = null; st.preview = null; st.roomName = '';
+    if (!id) return;
+    st.room = await api('GET', `/rooms/${encodeURIComponent(id)}`);
+    if (st.room.worldId) st.preview = await api('GET', `/rooms/${encodeURIComponent(id)}/preview`);
+    try { st.roomName = (await api('GET', `/api/chats/${encodeURIComponent(id)}`))?.name || ''; } catch {}
+    st.auto = null;
+    if (st.room.worldId) { try { st.auto = await api('GET', `/rooms/${encodeURIComponent(id)}/auto`); } catch {} }
+    pollAuto();
+  }
+  async function loadHistory() {
+    st.history = st.worldId ? (await api('GET', `/worlds/${st.worldId}/history`)).changes || [] : [];
+  }
+  /** 할 일 11: this room's board (only when the room reads the world on screen and the world has a board). */
+  async function loadScores() {
+    const id = activeChatId();
+    st.scores = id && st.room?.worldId === st.worldId && world()?.scoreboard?.name ? await api('GET', `/rooms/${encodeURIComponent(id)}/scores`) : null;
+  }
+  async function loadConnections() {
+    try { st.connections = (await api('GET', '/connections')).connections || []; } catch { st.connections = []; }
+  }
+  // While this room is being read, ask again every 1.5 s; when it ends, refresh the settings it wrote.
+  let pollTimer = null;
+  function pollAuto() {
+    clearTimeout(pollTimer);
+    if (st.auto?.job?.state !== 'running' || el.panel.hidden) return;
+    pollTimer = setTimeout(async () => {
+      try {
+        const id = activeChatId();
+        st.auto = await api('GET', `/rooms/${encodeURIComponent(id)}/auto`);
+        if (st.auto.job?.state !== 'running') {
+          await loadEntities();
+          st.preview = await api('GET', `/rooms/${encodeURIComponent(id)}/preview`);
+          if (st.view === 'log') await loadHistory();
+          if (st.view === 'scores') await loadScores();
+        }
+      } catch {}
+      if (!st.busy) render();
+      pollAuto();
+    }, 1500);
+  }
+  async function loadAll(followRoom) {
+    const status = await api('GET', '/status');
+    st.fields = status.fields || {};
+    st.serverVersion = status.version || null; // 할 일 8: the screen and the server module should be the same version
+    st.readOnly = Number(status.contract || 1) !== PANEL_CONTRACT; // 연동 v2: another contract level — look, do not change
+    await loadRoom();
+    if (followRoom && st.room?.worldId) st.worldId = st.room.worldId;
+    await loadWorlds();
+    await loadEntities();
+    st.loaded = true;
+  }
+
+  // ------------------------------------------------------------------ pieces
+  const defs = (type) => st.fields[type] || [];
+  const count = (type) => st.entities.filter((e) => e.type === type).length;
+  const fmtDate = (iso) => { const d = new Date(iso); return isNaN(d) ? '' : `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`; };
+  const shortId = (id) => String(id || '').slice(0, 4).toUpperCase();
+  const roomTitle = () => esc(st.roomName || (activeChatId() ? '지금 채팅방' : '열린 채팅방 없음'));
+
+  function sideHtml() {
+    const items = [['overview', '한눈에', 'overview', null], ...KINDS.map((k) => [k.type, k.label, k.icon, count(k.type)]), ...(world()?.scoreboard?.name ? [['scores', '점수판', 'score', null]] : []), ['log', '기록', 'log', null]];
+    return `
+      <div class="brand">${BRAND}<div><b>세계관 설정집</b><small>WORLD ARCHIVE</small></div></div>
+      <div class="nav-label">YOUR WORLD</div>
+      <nav>${items.map(([v, label, ic, n]) => `<button type="button" data-act="go" data-view="${v}" class="${st.view === v ? 'on' : ''}" ${!st.worldId && v !== 'overview' ? 'disabled' : ''}>${icon(ic)}<span>${label}</span>${n == null || !st.worldId ? '' : `<span class="n">${n}</span>`}</button>`).join('')}</nav>
+      <div class="side-bottom">
+        ${st.worldId ? `<button type="button" data-act="go" data-view="world">${icon('world')}세계관 정보 고치기</button>` : ''}
+        <button type="button" data-act="go" data-view="new-world">${icon('star')}새 세계관 만들기</button>
+        <small>세계관 설정집 v${VERSION}</small>
+      </div>`;
+  }
+
+  function topHtml() {
+    const opts = st.worlds.map((w) => `<option value="${esc(w.worldId)}" ${w.worldId === st.worldId ? 'selected' : ''}>${esc(w.name)}${w.worldId === st.room?.worldId ? '  · 이 방' : ''}</option>`).join('');
+    return `${st.worlds.length ? `<select id="worldSelect" aria-label="세계관 고르기">${opts}</select>` : '<span class="sub">아직 세계관이 없습니다</span>'}
+      <span class="grow"></span>
+      <button id="themeToggle" class="round" type="button" data-act="theme" aria-label="${st.theme === 'dark' ? '밝게' : '어둡게'}">${icon(st.theme === 'dark' ? 'sun' : 'moon')}</button>
+      <button id="close" class="round" type="button" data-act="close" aria-label="닫기">${icon('close')}</button>`;
+  }
+
+  function chartSvg(ratio) {
+    const r = 62, c = 2 * Math.PI * r, fill = Math.max(0, Math.min(1, ratio));
+    return `<svg viewBox="0 0 150 150" aria-hidden="true">
+      <circle cx="75" cy="75" r="72" fill="none" stroke="currentColor" stroke-width=".8"/>
+      <circle cx="75" cy="75" r="${r}" fill="none" stroke="currentColor" stroke-width="1" stroke-dasharray="1.5 3" opacity=".55"/>
+      <circle cx="75" cy="75" r="${r}" fill="none" stroke="currentColor" stroke-width="3.2" stroke-dasharray="${(c * fill).toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 75 75)"/>
+      <circle cx="75" cy="75" r="46" fill="none" stroke="currentColor" stroke-width=".6" opacity=".5"/>
+      <path d="M75 0v18M75 132v18M0 75h18M132 75h18" stroke="currentColor" stroke-width=".7"/>
+      <circle cx="122" cy="30" r="1.4" fill="currentColor"/><circle cx="28" cy="118" r="1" fill="currentColor"/><circle cx="125" cy="117" r=".8" fill="currentColor"/></svg>`;
+  }
+
+  function roomState() {
+    if (!activeChatId()) return { kind: 'none' };
+    const linked = st.room?.worldId;
+    if (!linked) return { kind: 'unlinked' };
+    if (linked === st.worldId) return { kind: 'this' };
+    return { kind: 'other', name: st.worlds.find((w) => w.worldId === linked)?.name || '다른 세계관' };
+  }
+  function roomButtons() {
+    const s = roomState();
+    if (s.kind === 'none' || !st.worldId) return '';
+    if (s.kind === 'this') return `<button type="button" data-act="unlink">연결 끊기</button>`;
+    return `<button class="primary" type="button" data-act="link">이 세계관을 읽게 하기</button>`;
+  }
+  function roomLine() {
+    const s = roomState();
+    if (s.kind === 'none') return '채팅방을 하나 열면 여기서 연결할 수 있습니다.';
+    if (s.kind === 'unlinked') return '아직 어떤 세계관도 읽지 않습니다.';
+    if (s.kind === 'this') return '지금 이 세계관을 읽고 있습니다.';
+    return `지금은 「${esc(s.name)}」을(를) 읽고 있습니다.`;
+  }
+
+  function autoHtml(compact) {
+    const s = roomState();
+    if (s.kind !== 'this') return '';
+    const w = world();
+    const a = st.auto;
+    const job = a?.job;
+    if (!w.auto?.enabled) return `<div class="auto-line"><span class="dot"></span><span class="sub">자동 반영이 꺼져 있습니다.</span>${compact ? '' : ' <button class="quiet" type="button" data-act="go" data-view="world">켜기</button>'}</div>`;
+    if (!w.auto.connectionId) return `<div class="auto-line"><span class="dot"></span><span class="sub">자동 반영에 쓸 연결을 골라 주세요.</span> <button class="quiet" type="button" data-act="go" data-view="world">고르기</button></div>`;
+    const running = job?.state === 'running';
+    const status = running
+      ? `${esc(job.stage || '읽는 중')}`
+      : `메시지 ${w.auto.every}개마다 읽습니다${a?.pending != null ? ` · 아직 안 읽은 메시지 ${a.pending}개` : ''}`;
+    const last = job && !running && job.state === 'done' ? `<div class="sub">지난번: 새 설정 ${job.added}개 · 바뀐 칸 ${job.changed}개${job.dropped ? ` · 근거가 없어 뺀 것 ${job.dropped}개` : ''}${job.fieldsDropped ? ` · 근거와 안 맞아 뺀 칸 ${job.fieldsDropped}개` : ''}</div>` : '';
+    const err = job?.state === 'error' ? `<div class="err">${esc(job.error)}</div>` : '';
+    const again = st.ask === 'restart'
+      ? `<span class="ask">이 방을 처음부터 다시 읽을까요? 설정은 지우지 않고, 읽은 위치만 처음으로 돌아갑니다. <button type="button" data-act="read-restart">다시 읽기</button><button class="quiet" type="button" data-act="ask" data-key="">취소</button></span>`
+      : `<button class="quiet" type="button" data-act="ask" data-key="restart">처음부터 다시 읽기</button>`;
+    return `<div class="auto-line"><span class="dot ${running ? 'run' : 'on'}"></span><span class="sub">자동 반영 · ${status}</span></div>${last}${err}
+      ${running ? '' : `<div class="row" style="margin-top:8px"><button type="button" data-act="read-now" ${a?.pending === 0 ? 'disabled' : ''}>지금 읽기</button>${compact ? '' : again}</div>`}`;
+  }
+
+  function railHtml() {
+    const p = st.preview;
+    const s = roomState();
+    return `
+      <div class="rail-title">이 방</div>
+      <div class="room">${roomTitle()}</div>
+      <p>${roomLine()}</p>
+      <div class="row">${roomButtons()}</div>
+      ${autoHtml(true)}
+      ${(s.kind === 'this' || s.kind === 'other') && p ? `
+        <div class="chart">${chartSvg(p.chars / Math.max(1, p.budget))}<div class="num"><b>${p.chars.toLocaleString()}</b><small>/ ${p.budget.toLocaleString()}자</small></div></div>
+        <p>이번 답변에 설정 <b>${p.included.length}개</b>가 들어갑니다.${p.omitted.length ? ` 글자 수 한도 때문에 <b>${p.omitted.length}개</b>가 빠졌습니다. 「늘 먼저 넣기」한 설정이 먼저 들어갑니다.` : ''}</p>` : ''}
+      <hr>
+      <p>프리셋에 <b>{{세계}}</b>를 넣은 자리에 연결한 세계관 설정이 들어갑니다. 설정은 서버에 저장되어 다른 기기에서도 똑같이 보입니다.</p>`;
+  }
+
+  // ------------------------------------------------------------------ views
+  function overviewHtml() {
+    const w = world();
+    // One tile per kind, in the order they go into the prompt: two rows of four (two columns on a phone).
+    const stubs = KINDS.map((k) => [k.type, k.label]);
+    const p = st.preview;
+    return `
+      <div class="eyebrow">WORLD ARCHIVE · V${VERSION}</div>
+      <h1>${esc(w.name)}</h1>
+      <p class="intro">${w.description ? esc(w.description) : '시대·배경 설명이 아직 없습니다. 「세계관 정보 고치기」에서 적어 두면 설정 맨 앞에 함께 들어갑니다.'}</p>
+      <div class="stubs">${stubs.map(([t, label]) => `<button class="stub" type="button" data-act="go" data-view="${t}"><strong>${count(t)}</strong><small>${label}</small></button>`).join('')}</div>
+      <div class="paper">
+        <h2>이 방 · ${roomTitle()}</h2>
+        <p class="sub" style="margin:0 0 12px">${roomLine()}</p>
+        <div class="row">${roomButtons()}</div>
+        ${roomState().kind === 'this' ? `<div style="margin-top:14px;padding-top:12px;border-top:1px dashed var(--wa-line)">${autoHtml(false)}</div>` : ''}
+      </div>
+      ${roomState().kind === 'this' && p ? `
+      <div class="paper">
+        <div class="row" style="justify-content:space-between"><h2 style="margin:0">이번 답변에 들어갈 내용</h2><span class="pill">${p.chars.toLocaleString()} / ${p.budget.toLocaleString()}자</span></div>
+        <p class="sub" style="margin:8px 0 0">설정 ${p.included.length}개${p.omitted.length ? ` · 글자 수 한도 때문에 ${p.omitted.length}개 빠짐` : ''}${p.skipped > 0 ? ` · 장면 밖이라 뺀 것 ${p.skipped}개` : ''}. 프리셋의 {{세계}} 자리에 이대로 들어갑니다.</p>
+        <pre>${esc(p.text) || '(비어 있음)'}</pre>
+      </div>
+      <div class="paper">
+        <h2 style="margin:0">삽화용 외형 · {{세계외형}}</h2>
+        <p class="sub" style="margin:8px 0 0">삽화 에이전트 프롬프트에 <b>{{세계외형}}</b>(또는 {{world_looks}})을 넣으면, 장면에 나온 인물 가운데 외형 칸이 있는 사람만 들어갑니다. 최근 메시지에 나온 사람이 먼저입니다.${p.looks?.omitted?.length ? ` 길이 때문에 ${p.looks.omitted.length}명 빠짐.` : ''}</p>
+        <pre>${esc(p.looks?.text || '') || (p.looks?.sceneKnown ? '(장면에 외형이 적힌 인물이 없음)' : '(다음 답변부터 장면을 압니다)')}</pre>
+      </div>` : ''}
+      <div class="paper mobile-only"><p class="sub" style="margin:0">프리셋에 <b>{{세계}}</b>를 넣은 자리에 연결한 세계관 설정이 들어갑니다.</p></div>`;
+  }
+
+  function cardHtml(e) {
+    const d = defs(e.type);
+    const chips = d.filter((f) => f.kind === 'line' && e.fields?.[f.key]).map((f) => `<span class="chip" title="${esc(f.label)}">${esc(e.fields[f.key])}</span>`).join('');
+    const firstText = d.find((f) => f.kind === 'text' && f.key !== 'state' && e.fields?.[f.key]);
+    const snip = firstText ? e.fields[firstText.key] : e.description;
+    return `<button class="card" type="button" data-act="open" data-id="${esc(e.entityId)}" data-search="${esc([e.name, ...e.aliases].join(' ').toLowerCase())}">
+      ${e.pinned ? '<span class="pill pin">고정</span>' : e.provenance?.source === 'auto' ? '<span class="pill pin">자동</span>' : ''}
+      <div class="nm">${esc(e.name)}</div>
+      ${e.aliases.length ? `<div class="al">${esc(e.aliases.join(' · '))}</div>` : ''}
+      ${chips ? `<div class="chips">${chips}</div>` : ''}
+      ${snip ? `<p class="snip">${esc(snip)}</p>` : ''}
+      <div class="foot"><span>${KIND[e.type].en} · ${shortId(e.entityId)}</span><span>${fmtDate(e.updatedAt)}</span></div>
+    </button>`;
+  }
+
+  function listHtml(type) {
+    const k = KIND[type];
+    const list = st.entities.filter((e) => e.type === type).sort((a, b) => Number(b.pinned) - Number(a.pinned) || a.name.localeCompare(b.name, 'ko'));
+    return `
+      <div class="eyebrow">${k.en} · ${list.length}</div>
+      <h1>${k.label}</h1>
+      <p class="intro">${k.hint}</p>
+      <div class="toolbar">
+        ${list.length ? `<label class="search">${icon('search')}<input id="q" type="search" placeholder="이름 · 다른 이름 · 내용으로 찾기" value="${esc(st.query)}" aria-label="찾기"></label>` : ''}
+        <span style="flex:1"></span>
+        <button class="primary" type="button" data-act="new" data-type="${type}">새 ${k.label}</button>
+      </div>
+      ${type === 'person' && st.pairs.length ? `<p style="margin:-6px 0 14px"><button class="quiet" type="button" data-act="dupes">같은 사람일 수 있음 ${st.pairs.length}쌍</button></p>` : ''}
+      ${list.length ? `<div class="cards">${list.map(cardHtml).join('')}</div><p class="sub" id="noHit" hidden>찾는 이름이 없습니다.</p>`
+        : `<div class="empty"><h2>아직 ${k.label} 설정이 없습니다</h2><p>「새 ${k.label}」으로 첫 항목을 만들어 주세요.</p></div>`}`;
+  }
+
+  /** 「…예요」 after a word without a final consonant, 「…이에요」 after one. */
+  function copula(word) {
+    const c = String(word).trim().slice(-1).charCodeAt(0);
+    return c >= 0xac00 && c <= 0xd7a3 && (c - 0xac00) % 28 ? '이에요' : '예요';
+  }
+
+  function detailHtml(e) {
+    const k = KIND[e.type];
+    const d = defs(e.type);
+    const f = e.fields || {};
+    const src = e.sources || {};
+    const tag = (k) => (src[k] === 'auto' ? '<span class="auto-tag">· 자동</span>' : '');
+    // 할 일 10: the earlier value small under the field; a newer value from the story for a field the person wrote.
+    const was = (k) => (e.past?.[k]?.[0] ? `<small class="past">이전: ${esc(e.past[k][0].value)} <button class="quiet" type="button" data-act="past-prompt" data-id="${esc(e.entityId)}" data-key="${esc(k)}" title="켜면 {{세계}}에 「(과거: …)」가 붙습니다">${e.pastInPrompt?.[k] ? '프롬프트에 넣는 중 · 끄기' : '프롬프트에도 넣기'}</button></small>` : '');
+    const wait = (k) => (e.pending?.[k] ? `<small class="pending">대화에서는 「${esc(e.pending[k].value)}」${copula(e.pending[k].value)} <button class="quiet" type="button" data-act="pending" data-id="${esc(e.entityId)}" data-key="${esc(k)}">적용</button><button class="quiet" type="button" data-act="pending-drop" data-id="${esc(e.entityId)}" data-key="${esc(k)}">무시</button></small>` : '');
+    const facts = d.filter((x) => x.kind === 'line' && f[x.key]).map((x) => `<div class="fact"><small>${esc(x.label)}${tag(x.key)}</small><b>${esc(f[x.key])}</b>${was(x.key)}${wait(x.key)}</div>`).join('');
+    const secs = d.filter((x) => x.kind === 'text' && x.key !== 'state' && f[x.key]).map((x) => `<div class="sec"><small>${esc(x.label)}${tag(x.key)}</small><p>${esc(f[x.key])}</p>${was(x.key)}${wait(x.key)}</div>`).join('');
+    const extra = (e.extra || []).filter((x) => x.value).map((x) => `<div class="sec"><small>${esc(x.label)}</small><p>${esc(x.value)}</p></div>`).join('');
+    const memo = e.description ? `<div class="sec"><small>${d.length ? '메모' : '내용'}${tag('description')}</small><p>${esc(e.description)}</p></div>` : '';
+    // 관계: both directions; a chip opens the other setting.
+    const rels = (st.relations || []).filter((r) => r.from === e.entityId || r.to === e.entityId).map((r) => {
+      const other = st.entities.find((x) => x.entityId === (r.from === e.entityId ? r.to : r.from));
+      if (!other) return '';
+      return `<button class="quiet" type="button" data-act="open" data-id="${esc(other.entityId)}">${esc(r.type)} · ${esc(other.name)}${r.note ? ` (${esc(r.note)})` : ''}${r.source === 'auto' ? '<span class="auto-tag">· 자동</span>' : ''}</button>`;
+    }).join('');
+    const relSec = rels ? `<div class="sec"><small>관계</small><p>${rels}</p></div>` : '';
+    const empty = !facts && !secs && !extra && !memo && !f.state && !rels;
+    const askKey = `entity:${e.entityId}`;
+    return `
+      <button class="back" type="button" data-act="go" data-view="${e.type}">${icon('back')}${k.label} 목록</button>
+      <div class="paper">
+        <div class="sheet-head">
+          <div>
+            <div class="eyebrow">${k.en} · ${shortId(e.entityId)}</div>
+            <h1 style="margin-bottom:6px">${esc(e.name)}</h1>
+            ${e.aliases.length ? `<p class="al">다른 이름 · ${esc(e.aliases.join(', '))}</p>` : ''}
+            ${e.glossaryName && e.glossaryName !== e.name ? `<p class="sub" style="margin:6px 0 0">번역 단어장에는 「${esc(e.glossaryName)}」${copula(e.glossaryName)} <button class="quiet" type="button" data-act="glossary-name" data-id="${esc(e.entityId)}">적용</button></p>` : ''}
+          </div>
+          ${e.pinned ? '<span class="pill">늘 먼저 넣기</span>' : ''}
+        </div>
+        ${facts ? `<div class="facts">${facts}</div>` : ''}
+        ${secs}${extra}${memo}${relSec}
+        ${f.state ? `<div class="state"><small>지금 상태 · 사건으로 바뀐 것${tag('state')}</small><p>${esc(f.state)}</p>${was('state')}${wait('state')}</div>` : ''}
+        ${empty ? '<p class="sub" style="margin-top:16px">아직 적힌 칸이 없습니다. 「고치기」에서 채워 주세요.</p>' : ''}
+        <div class="meta">만든 날 ${fmtDate(e.createdAt)} · 고친 날 ${fmtDate(e.updatedAt)} · ${e.provenance?.source === 'auto' ? '대화에서 자동으로 추가' : '직접 입력'}${e.provenance?.evidence ? `<br>근거 “${esc(e.provenance.evidence)}”` : ''}</div>
+        <div class="actions">
+          <button class="primary" type="button" data-act="edit" data-id="${esc(e.entityId)}">고치기</button>
+          <button type="button" data-act="pin" data-id="${esc(e.entityId)}">${e.pinned ? '고정 풀기' : '늘 먼저 넣기'}</button>
+          <span class="grow"></span>
+          ${st.ask === askKey
+            ? `<span class="ask">정말 지울까요? <button class="danger" type="button" data-act="delete" data-id="${esc(e.entityId)}">지우기</button><button class="quiet" type="button" data-act="ask" data-key="">취소</button></span>`
+            : `<button class="quiet" type="button" data-act="ask" data-key="${askKey}">지우기</button>`}
+        </div>
+      </div>`;
+  }
+
+  // ------------------------------------------------------------------ 같은 사람일 수 있음
+  const clip = (v, n) => { const x = String(v || ''); return x.length > n ? `${x.slice(0, n)}…` : x; };
+  function personSide(e) {
+    const f = e.fields || {};
+    const rows = defs(e.type).filter((x) => f[x.key]).map((x) => `<div class="sec"><small>${esc(x.label)}${e.sources?.[x.key] === 'auto' ? '<span class="auto-tag">· 자동</span>' : ''}</small><p>${esc(clip(f[x.key], 160))}</p></div>`).join('');
+    const memo = e.description ? `<div class="sec"><small>메모</small><p>${esc(clip(e.description, 160))}</p></div>` : '';
+    return `<div>
+      <h2 style="margin:0 0 2px">${esc(e.name)}</h2>
+      ${e.aliases.length ? `<p class="sub" style="margin:0">다른 이름 · ${esc(e.aliases.join(', '))}</p>` : ''}
+      ${rows}${memo}${!rows && !memo ? '<p class="sub" style="margin-top:10px">아직 적힌 칸이 없습니다.</p>' : ''}
+    </div>`;
+  }
+
+  function dupesHtml() {
+    const byId = (id) => st.entities.find((e) => e.entityId === id);
+    const pairs = st.pairs.map((p) => ({ ...p, ea: byId(p.a), eb: byId(p.b) })).filter((p) => p.ea && p.eb);
+    return `
+      <button class="back" type="button" data-act="go" data-view="person">${icon('back')}인물 목록</button>
+      <div class="eyebrow">PEOPLE · SAME PERSON? · ${pairs.length}</div>
+      <h1>같은 사람일 수 있음</h1>
+      <p class="intro">이름이나 다른 이름이 겹치는 인물입니다. 같은 사람이면 「합치기」로 하나로 모을 수 있습니다. 자동으로 합치지는 않습니다. 합친 뒤에도 「기록」에서 되돌릴 수 있습니다.</p>
+      ${pairs.length ? pairs.map(({ a, b, why, ea, eb }) => {
+        const key = `merge:${a}:${b}`;
+        return `<div class="paper">
+          <p class="sub" style="margin:0 0 10px">${esc(why)}</p>
+          <div class="grid2">${personSide(ea)}${personSide(eb)}</div>
+          <div class="actions">
+            ${st.ask === key
+              ? `<span class="ask">어느 이름을 남길까요? 다른 쪽 이름은 다른 이름으로 들어가고, 빈 칸은 다른 쪽 내용으로 채웁니다. 직접 쓴 칸은 그대로 둡니다.
+                  <button class="danger" type="button" data-act="merge" data-keep="${esc(a)}" data-drop="${esc(b)}">「${esc(ea.name)}」 남기기</button>
+                  <button class="danger" type="button" data-act="merge" data-keep="${esc(b)}" data-drop="${esc(a)}">「${esc(eb.name)}」 남기기</button>
+                  <button class="quiet" type="button" data-act="ask" data-key="">취소</button></span>`
+              : `<button class="primary" type="button" data-act="ask" data-key="${key}">합치기</button>
+                 <button type="button" data-act="dismiss" data-a="${esc(a)}" data-b="${esc(b)}">다른 사람이에요</button>`}
+          </div>
+        </div>`;
+      }).join('') : '<div class="empty"><h2>같은 사람일 수 있는 인물이 없습니다</h2><p>이름이나 다른 이름이 겹치는 인물이 생기면 여기에 보입니다.</p></div>'}`;
+  }
+
+  function fieldInput(x, value, hideLabel) {
+    const hint = x.hint ? `<em>${esc(x.hint)}</em>` : '';
+    const label = `<label class="f" for="fd-${x.key}" ${hideLabel ? 'hidden' : ''}>${esc(x.label)}${hint}</label>`;
+    return x.kind === 'line'
+      ? `<div>${label}<input id="fd-${x.key}" data-field="${x.key}" maxlength="200" value="${esc(value)}"></div>`
+      : `<div>${label}<textarea id="fd-${x.key}" data-field="${x.key}" maxlength="2000">${esc(value)}</textarea></div>`;
+  }
+
+  function extraRow(x = { label: '', value: '' }) {
+    return `<div class="extra-row" data-extra><input data-x="label" maxlength="40" placeholder="칸 이름 (예: 좋아하는 것)" value="${esc(x.label)}"><textarea data-x="value" maxlength="2000" rows="1" style="min-height:42px">${esc(x.value)}</textarea><button class="quiet" type="button" data-act="drop-extra">빼기</button></div>`;
+  }
+
+  /** e: the saved setting, or null for a new one. st.draft (if any) wins over e for what is shown. */
+  function formHtml(e, type) {
+    const isNew = st.editing === 'new';
+    const v = st.draft || e || {};
+    const k = KIND[type];
+    const d = defs(type);
+    const f = v.fields || {};
+    const lines = d.filter((x) => x.kind === 'line');
+    const texts = d.filter((x) => x.kind === 'text' && x.key !== 'state');
+    const state = d.find((x) => x.key === 'state');
+    return `
+      <button class="back" type="button" data-act="cancel">${icon('back')}${isNew ? `${k.label} 목록` : '돌아가기'}</button>
+      <div class="eyebrow">${k.en} · ${isNew ? '새로 만들기' : '고치기'}</div>
+      <h1>${isNew ? `새 ${k.label}` : esc(e?.name || '')}</h1>
+      <p class="intro">직접 고친 칸은 그 뒤로 자동 반영이 덮어쓰지 않습니다.</p>
+      <form class="paper" id="entityForm" onsubmit="return false">
+        <div class="grid2">
+          <div><label class="f" for="fd-name">이름</label><input id="fd-name" maxlength="120" value="${esc(v.name || '')}"></div>
+          <div><label class="f" for="fd-type">종류</label><select id="fd-type">${KINDS.map((x) => `<option value="${x.type}" ${x.type === type ? 'selected' : ''}>${x.label}</option>`).join('')}</select></div>
+        </div>
+        <label class="f" for="fd-aliases">다른 이름<em>애칭·영어 표기·직함. 쉼표로 나눠 주세요</em></label>
+        <input id="fd-aliases" value="${esc((v.aliases || []).join(', '))}">
+        ${lines.length ? `<div class="grid3">${lines.map((x) => fieldInput(x, f[x.key] || '')).join('')}</div>` : ''}
+        ${texts.map((x) => fieldInput(x, f[x.key] || '')).join('')}
+        ${state ? `<div class="state"><small>지금 상태 · 사건으로 바뀐 것</small><p class="sub" style="margin:0 0 8px">${esc(state.hint || '')}</p>${fieldInput(state, f.state || '', true)}</div>` : ''}
+        <label class="f">추가 칸<em>이 항목에만 필요한 칸</em></label>
+        <div id="extras">${(v.extra || []).map(extraRow).join('')}</div>
+        <button type="button" data-act="add-extra" style="margin-top:8px">칸 추가</button>
+        <label class="f" for="fd-desc">${d.length ? '메모' : '내용'}</label>
+        <textarea id="fd-desc" maxlength="4000">${esc(v.description || '')}</textarea>
+        <label class="check"><input type="checkbox" id="fd-pinned" ${v.pinned ? 'checked' : ''}> 늘 먼저 넣기 (글자 수가 모자랄 때 이 설정부터 넣습니다)</label>
+        <div class="actions"><button class="primary" type="button" data-act="save">저장</button><button class="quiet" type="button" data-act="cancel">취소</button></div>
+      </form>`;
+  }
+
+  function newWorldHtml(first) {
+    return `
+      <div class="eyebrow">WORLD ARCHIVE · NEW</div>
+      <h1>${first ? '첫 세계관 만들기' : '새 세계관'}</h1>
+      <p class="intro">세계관 하나에 인물·장소·규칙 같은 설정을 모아 두고, 채팅방마다 어떤 세계관을 읽을지 고릅니다. 여러 방이 같은 세계관을 함께 써도 됩니다.</p>
+      <form class="paper" onsubmit="return false">
+        <label class="f" for="nw-name">세계관 이름</label><input id="nw-name" maxlength="120" placeholder="예: 별빛 학원">
+        <label class="f" for="nw-desc">시대·배경<em>설정 맨 앞에 들어갑니다</em></label><textarea id="nw-desc" maxlength="4000" placeholder="예: 1988년, 산 위의 기숙학교."></textarea>
+        <div class="actions"><button class="primary" type="button" data-act="create-world">만들기</button>${first ? '' : '<button class="quiet" type="button" data-act="go" data-view="overview">취소</button>'}</div>
+      </form>`;
+  }
+
+  function worldHtml() {
+    const w = world();
+    return `
+      <div class="eyebrow">WORLD · SETTINGS</div>
+      <h1>세계관 정보</h1>
+      <form class="paper" onsubmit="return false">
+        <label class="f" for="w-name">이름</label><input id="w-name" maxlength="120" value="${esc(w.name)}">
+        <label class="f" for="w-desc">시대·배경<em>설정 맨 앞에 들어갑니다</em></label><textarea id="w-desc" maxlength="4000" style="min-height:120px">${esc(w.description)}</textarea>
+        <label class="f" for="w-budget">프롬프트에 넣을 최대 글자 수<em>300~20000. 넘치면 고정하지 않은 설정부터 빠집니다</em></label><input id="w-budget" type="number" min="300" max="20000" step="100" value="${w.injectChars}" style="max-width:200px">
+        <label class="f" for="w-mode">넣는 방식<em>장면 방식은 최근 메시지 12개에 이름이 나온 설정만 넣습니다</em></label><select id="w-mode" style="max-width:360px"><option value="all" ${w.injectMode === 'scene' ? '' : 'selected'}>전부 넣기</option><option value="scene" ${w.injectMode === 'scene' ? 'selected' : ''}>장면에 나온 것만(고정·규칙·시스템은 늘)</option></select>
+        <div class="grid2">
+          <div><label class="f" for="w-board">점수판 이름<em>비우면 점수를 찾지 않습니다 (예: 기숙사 점수)</em></label><input id="w-board" maxlength="40" value="${esc(w.scoreboard?.name || '')}"></div>
+          <div><label class="f" for="w-unit">단위<em>예: 점</em></label><input id="w-unit" maxlength="10" value="${esc(w.scoreboard?.unit || '')}" style="max-width:140px"></div>
+        </div>
+        <div class="actions"><button class="primary" type="button" data-act="save-world">저장</button></div>
+      </form>
+      <form class="paper" onsubmit="return false">
+        <h2>자동 반영</h2>
+        <p class="sub" style="margin:0 0 4px">이 세계관을 읽는 방에서 답변이 오면, 아직 안 읽은 대화를 읽고 새 인물·장소·규칙과 새로 밝혀진 사실을 바로 설정에 넣습니다. 원문에 근거가 있는 것만 넣고, 직접 쓴 칸은 덮어쓰지 않습니다. 바뀐 내용은 「기록」에서 하나씩 되돌릴 수 있습니다. 가장 최근 메시지 두 개는 리롤될 수 있어 다음 차례에 읽습니다.</p>
+        <label class="toggle" style="margin-top:14px"><input type="checkbox" id="a-on" ${w.auto?.enabled ? 'checked' : ''}> 자동 반영 켜기</label>
+        <div class="grid2">
+          <div><label class="f" for="a-conn">읽을 때 쓸 연결<em>저렴하고 긴 글을 잘 읽는 모델</em></label>
+            <select id="a-conn"><option value="">${st.connections == null ? '불러오는 중…' : '(골라 주세요)'}</option>${(st.connections || []).map((c) => `<option value="${esc(c.id)}" ${c.id === w.auto?.connectionId ? 'selected' : ''}>${esc(c.name)}${c.model ? ` · ${esc(c.model)}` : ''}</option>`).join('')}</select></div>
+          <div><label class="f" for="a-every">몇 메시지마다 읽을까요<em>2~50</em></label><input id="a-every" type="number" min="2" max="50" value="${w.auto?.every ?? 6}" style="max-width:140px"></div>
+        </div>
+        <div class="actions"><button class="primary" type="button" data-act="save-auto">저장</button></div>
+      </form>
+      <div class="paper">
+        <h2>인물 종 채우기 <small>추가 기능</small></h2>
+        <p class="sub" style="margin:0 0 12px">「종」 칸이 생기기 전에 읽은 인물은 종이 비어 있습니다. 누를 때만, 종이 빈 인물의 이름 · 다른 이름 · 외형 · 메모를 모아 100명씩 작은 호출로 묻고, 사람이 아닌 존재(반려동물 · 마법 생물 같은)에만 종을 적습니다. 직접 고친 칸은 건드리지 않고, 기록에서 하나씩 되돌릴 수 있습니다. 자동 반영 연결을 씁니다.</p>
+        <div class="row"><button type="button" data-act="species-fill">인물 종 채우기</button></div>
+      </div>
+      <div class="paper">
+        <h2>백업 · 복원</h2>
+        <p class="sub" style="margin:0 0 12px">이 세계관의 설정 · 관계 · 기록을 파일 하나로 내려받습니다. 복원하면 「(복원)」이 붙은 새 세계관이 생기고, 지금 세계관은 그대로입니다. 방 연결은 복원되지 않습니다.</p>
+        <div class="row"><button type="button" data-act="backup">백업 내려받기</button><label class="quiet" style="cursor:pointer;padding:6px 8px">백업에서 복원<input id="restore-file" type="file" accept="application/json,.json" hidden></label></div>
+      </div>
+      <div class="paper">
+        <h2>세계관 지우기</h2>
+        <p class="sub" style="margin:0 0 12px">설정 ${st.entities.length}개도 함께 지워지고, 이 세계관을 읽던 방들은 연결이 끊깁니다. 서버의 world-archive/trash 폴더에 사본이 남습니다.</p>
+        ${st.ask === 'world' ? `<span class="ask">정말 「${esc(w.name)}」을(를) 지울까요? <button class="danger" type="button" data-act="delete-world">지우기</button><button class="quiet" type="button" data-act="ask" data-key="">취소</button></span>`
+          : '<button class="danger" type="button" data-act="ask" data-key="world">세계관 지우기</button>'}
+      </div>`;
+  }
+
+  const ACTION_TEXT = {
+    create: (c) => `새 ${KIND[c.type]?.label || '설정'} <b>${esc(c.name)}</b>${c.by === 'person' ? ' · 직접 만듦' : ''}`,
+    edit: (c) => {
+      const label = { name: '이름', description: '메모', aliases: '다른 이름', pinned: '고정', extra: '추가 칸', type: '종류' };
+      const keys = (c.keys || []).map((k) => label[k] || (st.fields[c.type] || []).find((f) => f.key === k)?.label || k);
+      return `<b>${esc(c.name)}</b> · 직접 고침${keys.length ? `: ${esc(keys.join(', '))}` : ''}`;
+    },
+    field: (c) => `<b>${esc(c.name)}</b> · ${esc((st.fields[c.type] || []).find((f) => f.key === c.key)?.label || c.key)}: ${c.before ? `${esc(c.before)} → ` : ''}${esc(c.after)}`,
+    alias: (c) => `<b>${esc(c.name)}</b> · 다른 이름 「${esc(c.after)}」`,
+    memo: (c) => `<b>${esc(c.name)}</b> · 메모: ${esc(c.after)}`,
+    merge: (c) => `<b>${esc(c.name)}</b> · 「${esc(c.dropName)}」와(과) 합침`,
+    rename: (c) => `<b>${esc(c.before)}</b> → <b>${esc(c.after)}</b> · 번역 단어장의 이름으로`,
+    'relation-add': (c) => `관계 <b>${esc(c.name)}</b> · ${esc(c.relation?.type || '')}${c.relation?.note ? ` (${esc(c.relation.note)})` : ''}`,
+    'relation-note': (c) => `관계 <b>${esc(c.name)}</b> · ${c.before ? `${esc(c.before)} → ` : ''}${esc(c.after)}`,
+    'relation-flip': (c) => `관계 <b>${esc(c.name)}</b> · ${esc(c.relation?.type || '')} 방향 바뀜`,
+    'relation-remove': (c) => `관계 <b>${esc(c.name)}</b> · ${esc(c.relation?.type || '')} 끝남`,
+    delete: (c) => `<b>${esc(c.name)}</b> 지움${c.relations?.length ? ` · 관계 ${c.relations.length}개도 함께` : ''}`,
+  };
+  /** An evidence sentence in “ ”, without the quote marks it may already carry (the reader often keeps the line's own). */
+  const quoted = (t) => `“${esc(String(t).trim().replace(/^["“”'「『]+|["“”'」』]+$/g, ''))}”`;
+  const fmtTime = (iso) => { const d = new Date(iso); return isNaN(d) ? '' : `${fmtDate(iso)} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
+
+  function historyHtml() {
+    const list = st.history;
+    return `
+      <div class="eyebrow">HISTORY · ${list.length}</div>
+      <h1>기록</h1>
+      <p class="intro">자동 반영이 바꾼 내용과 직접 합친 인물입니다. 잘못 들어간 건 「되돌리기」로 하나씩 되돌릴 수 있습니다. 그 뒤에 다시 바뀌었거나 직접 고친 설정은 되돌리지 않습니다.</p>
+      ${list.length ? `<div class="paper"><ul class="hist">${list.map((c) => `
+        <li class="${c.undoneAt ? 'undone' : ''}">
+          <div class="what">${(ACTION_TEXT[c.action] || (() => esc(c.action)))(c)}</div>
+          ${c.evidence ? `<div class="ev">${quoted(c.evidence)}</div>` : ''}
+          <div class="when">${fmtTime(c.at)}${c.undoneAt ? ' · 되돌림' : ''}</div>
+          <div class="side-act">${c.undoneAt ? '' : `<button class="quiet" type="button" data-act="undo" data-id="${esc(c.id)}">되돌리기</button>`}</div>
+        </li>`).join('')}</ul></div>`
+        : '<div class="empty"><h2>아직 기록이 없습니다</h2><p>자동 반영을 켜면 대화에서 찾은 설정이 여기에 남습니다.</p></div>'}`;
+  }
+
+  /** 할 일 11: totals added up by code, every record with its evidence, 손으로 더하기 · 빼기, 되돌리기. */
+  function scoresHtml() {
+    const w = world();
+    const b = w.scoreboard || {};
+    const unit = esc(b.unit || '');
+    const sc = st.scores;
+    const head = `
+      <div class="eyebrow">SCOREBOARD · ${roomTitle()}</div>
+      <h1>${esc(b.name || '점수판')}</h1>
+      <p class="intro">이 방의 점수입니다. 자동 반영이 대화에서 「누가 몇 점을, 왜」를 근거 문장과 함께 찾고, 합계는 코드가 더합니다. 리롤·수정·삭제로 사라진 메시지의 점수는 합계에서 빠집니다. 합계는 {{세계}}에 「[점수]」 줄로 들어갑니다.</p>`;
+    if (!sc) return head + '<div class="empty"><h2>이 방이 이 세계관을 읽지 않습니다</h2><p>점수판은 방마다 따로입니다. 이 세계관에 연결한 방에서 열어 주세요.</p></div>';
+    const totals = sc.totals.length ? `<div class="stubs">${sc.totals.map((t) => `<div class="stub"><strong>${t.total.toLocaleString()}${unit}</strong><small>${esc(t.target)}</small></div>`).join('')}</div>` : '<p class="sub">아직 점수가 없습니다.</p>';
+    const add = `
+      <form class="paper" onsubmit="return false">
+        <h2>손으로 더하기 · 빼기</h2>
+        <div class="grid2">
+          <div><label class="f" for="sc-target">대상</label><input id="sc-target" maxlength="60" list="sc-targets"><datalist id="sc-targets">${sc.totals.map((t) => `<option value="${esc(t.target)}">`).join('')}</datalist></div>
+          <div><label class="f" for="sc-delta">점수<em>빼려면 -10처럼</em></label><input id="sc-delta" type="number" step="1" style="max-width:140px"></div>
+        </div>
+        <label class="f" for="sc-reason">이유</label><input id="sc-reason" maxlength="200">
+        <div class="actions"><button class="primary" type="button" data-act="score-add">기록하기</button></div>
+      </form>`;
+    const list = sc.events.length ? `<div class="paper"><h2>기록 ${sc.events.length}</h2><ul class="hist">${sc.events.map((e) => `
+        <li class="${e.undoneAt || e.gone ? 'undone' : ''}">
+          <div class="what"><b>${esc(e.target)}</b> ${e.delta > 0 ? '+' : ''}${e.delta}${unit}${e.reason ? ` · ${esc(e.reason)}` : ''}${e.by === 'person' ? ' · 직접' : ''}</div>
+          ${e.evidence ? `<div class="ev">${quoted(e.evidence)}</div>` : ''}
+          <div class="when">${fmtTime(e.at)}${e.gone ? ' · 메시지가 사라져 합계에서 뺌' : ''}${e.undoneAt ? ' · 되돌림' : ''}</div>
+          <div class="side-act">${e.undoneAt ? `<button class="quiet" type="button" data-act="score-undo" data-id="${esc(e.eventId)}" data-undo="0">다시 넣기</button>` : `<button class="quiet" type="button" data-act="score-undo" data-id="${esc(e.eventId)}" data-undo="1">되돌리기</button>`}</div>
+        </li>`).join('')}</ul></div>` : '';
+    return head + `<div class="paper">${totals}</div>` + add + list;
+  }
+
+  function mainHtml() {
+    if (!st.loaded) return st.bad ? '' : '<p class="sub">불러오는 중…</p>';
+    if (st.view === 'new-world' || !world()) return newWorldHtml(!st.worlds.length);
+    if (st.view === 'world') return worldHtml();
+    if (st.view === 'log') return historyHtml();
+    if (st.view === 'scores') return scoresHtml();
+    if (KIND[st.view]) {
+      if (st.editing === 'new') return formHtml(null, st.view);
+      const e = st.entities.find((x) => x.entityId === (st.editing || st.detail));
+      if (e && st.editing) return formHtml(e, st.view);
+      if (e) return detailHtml(e);
+      if (st.view === 'person' && st.dupes) return dupesHtml();
+      return listHtml(st.view);
+    }
+    return overviewHtml();
+  }
+
+  let lastScreen = '';
+  function render() {
+    host.setAttribute('data-theme', st.theme);
+    el.side.innerHTML = sideHtml();
+    el.top.innerHTML = topHtml();
+    el.rail.innerHTML = railHtml();
+    const screen = `${st.view}|${st.worldId}|${st.detail}|${st.editing}|${st.dupes}`;
+    const keep = screen === lastScreen ? el.main.scrollTop : 0;
+    const skew = st.readOnly
+      ? `<p class="msg bad" role="status">${esc(UPDATE_MSG)}</p>`
+      : !target && st.serverVersion && st.serverVersion !== VERSION
+      ? `<p class="msg bad" role="status">서버 쪽 World Archive(v${esc(st.serverVersion)})와 이 화면(v${esc(VERSION)})의 판이 달라요. 서버 쪽을 업데이트해 주세요 — 서버에서 설치 명령을 다시 실행하면 됩니다.</p>`
+      : '';
+    el.main.innerHTML = skew + (st.msg && !(st.readOnly && st.msg === UPDATE_MSG) ? `<p class="msg ${st.bad ? 'bad' : ''}" role="status">${esc(st.msg)}</p>` : '') + mainHtml();
+    el.main.scrollTop = keep;
+    lastScreen = screen;
+    if (st.query) filterCards();
+    if (st.busy) root.querySelectorAll('main button, .rail button').forEach((b) => { b.disabled = true; });
+  }
+
+  // 할 일 6 — 검색: the server finds names, other names, field values and memos (and the glossary's English names);
+  // the cards of this list are shown in its order with the matched part marked. Until it answers, names filter locally.
+  let searchTimer = null;
+  let searchSeq = 0;
+  function runSearch() {
+    clearTimeout(searchTimer);
+    const q = st.query.trim();
+    if (!q || !st.worldId) { st.hits = null; filterCards(); return; }
+    filterCards();
+    const seq = ++searchSeq;
+    searchTimer = setTimeout(async () => {
+      try {
+        const r = await api('GET', `/worlds/${st.worldId}/search?q=${encodeURIComponent(q)}&types=${encodeURIComponent(KIND[st.view] ? st.view : '')}`);
+        if (seq !== searchSeq) return;
+        st.hits = new Map((r.results || []).map((x, i) => [x.entityId, { ...x, order: i }]));
+        filterCards();
+      } catch { /* keep the local filter */ }
+    }, 200);
+  }
+  const marked = (h) => `${h.label ? `${esc(h.label)} · ` : ''}${esc(h.text.slice(0, h.start))}<mark>${esc(h.text.slice(h.start, h.end))}</mark>${esc(h.text.slice(h.end))}`;
+
+  function filterCards() {
+    const q = st.query.trim().toLowerCase();
+    let shown = 0;
+    root.querySelectorAll('.card').forEach((c) => {
+      const found = q && st.hits ? st.hits.get(c.dataset.id) : null;
+      const hit = !q || (st.hits ? !!found : c.dataset.search.includes(q));
+      c.hidden = !hit;
+      c.style.order = found ? String(found.order) : '';
+      c.querySelector('.hit')?.remove();
+      const show = found?.hits.find((h) => h.where !== 'name');
+      if (show) c.querySelector('.nm')?.insertAdjacentHTML('afterend', `<p class="hit">${marked(show)}</p>`);
+      if (hit) shown++;
+    });
+    const none = $('#noHit');
+    if (none) none.hidden = shown > 0;
+  }
+
+  // ------------------------------------------------------------------ actions
+  const val = (id) => root.getElementById(id)?.value ?? '';
+  function readForm() {
+    const fields = {};
+    root.querySelectorAll('[data-field]').forEach((x) => { fields[x.dataset.field] = x.value; });
+    const extra = [...root.querySelectorAll('[data-extra]')].map((r) => ({ label: r.querySelector('[data-x=label]').value, value: r.querySelector('[data-x=value]').value }));
+    return {
+      name: val('fd-name'),
+      type: val('fd-type'),
+      aliases: val('fd-aliases').split(/[,，、]/).map((x) => x.trim()).filter(Boolean),
+      fields,
+      extra,
+      description: val('fd-desc'),
+      pinned: !!root.getElementById('fd-pinned')?.checked,
+    };
+  }
+
+  const go = (view) => { st.view = view; st.hits = null; st.dupes = false; st.detail = null; st.editing = null; st.draft = null; st.ask = null; st.query = ''; st.msg = ''; };
+
+  const actions = {
+    go: (b) => {
+      go(b.dataset.view);
+      if (b.dataset.view === 'log') return run(loadHistory);
+      if (b.dataset.view === 'scores') return run(loadScores);
+      if (b.dataset.view === 'world' && st.connections == null) { render(); return run(loadConnections); }
+      render();
+    },
+    'read-now': () => run(async () => {
+      st.auto = await api('POST', `/rooms/${encodeURIComponent(activeChatId())}/auto`, { all: true });
+      if (st.auto.job?.state !== 'running') { await loadEntities(); await loadRoom(); }
+      pollAuto();
+    }),
+    'read-restart': () => run(async () => {
+      st.ask = null;
+      st.auto = await api('POST', `/rooms/${encodeURIComponent(activeChatId())}/auto`, { all: true, restart: true });
+      if (st.auto.job?.state !== 'running') { await loadEntities(); await loadRoom(); }
+      pollAuto();
+    }),
+    undo: (b) => run(async () => {
+      await api('POST', `/worlds/${st.worldId}/history/${b.dataset.id}/undo`, {});
+      await loadHistory();
+      await loadEntities();
+      await loadRoom();
+    }, '되돌렸습니다.'),
+    dupes: () => { st.dupes = true; st.detail = null; st.editing = null; st.ask = null; st.msg = ''; render(); },
+    merge: (b) => run(async () => {
+      const keep = st.entities.find((x) => x.entityId === b.dataset.keep);
+      const drop = st.entities.find((x) => x.entityId === b.dataset.drop);
+      if (!keep || !drop) throw Error('설정을 찾지 못했습니다. 새로 불러온 뒤 다시 해 주세요.');
+      st.ask = null;
+      await api('POST', `/worlds/${st.worldId}/merge`, { keepId: keep.entityId, dropId: drop.entityId, keepRevision: keep.revision, dropRevision: drop.revision });
+      await loadEntities();
+      await loadRoom();
+    }, '합쳤습니다. 잘못 합쳤다면 「기록」에서 되돌릴 수 있습니다.'),
+    dismiss: (b) => run(async () => {
+      await api('POST', `/worlds/${st.worldId}/duplicates/dismiss`, { a: b.dataset.a, b: b.dataset.b });
+      await loadEntities();
+    }, '다른 사람으로 두었습니다. 이 두 사람은 다시 묻지 않습니다.'),
+    'save-auto': () => run(async () => {
+      const w = world();
+      const enabled = !!root.getElementById('a-on')?.checked;
+      const connectionId = val('a-conn') || null;
+      if (enabled && !connectionId) throw Error('자동 반영에 쓸 연결을 골라 주세요.');
+      await api('PATCH', `/worlds/${w.worldId}`, { auto: { enabled, connectionId, every: Number(val('a-every')) }, revision: w.revision });
+      await loadWorlds();
+      await loadRoom();
+    }, '저장했습니다.'),
+    theme: () => { st.theme = st.theme === 'dark' ? 'light' : 'dark'; store.set('world-archive-theme', st.theme); render(); },
+    close: () => toggle(false),
+    open: (b) => { st.detail = b.dataset.id; st.editing = null; st.ask = null; st.msg = ''; render(); },
+    new: (b) => { st.view = b.dataset.type; st.editing = 'new'; st.detail = null; st.draft = null; st.msg = ''; render(); },
+    edit: (b) => { st.editing = b.dataset.id; st.detail = b.dataset.id; st.draft = null; st.msg = ''; render(); },
+    cancel: () => { if (st.editing !== 'new') st.view = st.entities.find((x) => x.entityId === st.editing)?.type || st.view; st.editing = null; st.draft = null; st.msg = ''; render(); },
+    ask: (b) => { st.ask = b.dataset.key || null; render(); },
+    'add-extra': () => { root.getElementById('extras').insertAdjacentHTML('beforeend', extraRow()); root.querySelector('#extras [data-extra]:last-child input')?.focus(); },
+    'drop-extra': (b) => b.closest('[data-extra]').remove(),
+    save: () => run(async () => {
+      const v = readForm();
+      let e;
+      if (st.editing === 'new') e = await api('POST', `/worlds/${st.worldId}/entities`, v);
+      else {
+        const old = st.entities.find((x) => x.entityId === st.editing);
+        e = await api('PATCH', `/worlds/${st.worldId}/entities/${old.entityId}`, { ...v, revision: old.revision });
+      }
+      st.view = e.type; st.detail = e.entityId; st.editing = null; st.draft = null;
+      await loadEntities();
+      await loadRoom();
+    }, '저장했습니다.'),
+    // 「번역 단어장에는 ○○예요 [적용]」: an ordinary rename by the person; the old name stays as an other name.
+    'glossary-name': (b) => run(async () => {
+      const e = st.entities.find((x) => x.entityId === b.dataset.id);
+      if (!e?.glossaryName) throw Error('설정을 찾지 못했습니다. 새로 불러온 뒤 다시 해 주세요.');
+      const name = e.glossaryName;
+      const aliases = [...e.aliases, e.name].filter((a, i, all) => a !== name && all.indexOf(a) === i).slice(0, 20);
+      await api('PATCH', `/worlds/${st.worldId}/entities/${e.entityId}`, { name, aliases, revision: e.revision });
+      await loadEntities();
+      await loadRoom();
+    }, '번역 단어장의 이름으로 바꿨습니다.'),
+    pin: (b) => run(async () => {
+      const e = st.entities.find((x) => x.entityId === b.dataset.id);
+      await api('PATCH', `/worlds/${st.worldId}/entities/${e.entityId}`, { pinned: !e.pinned, revision: e.revision });
+      await loadEntities();
+      await loadRoom();
+    }),
+    delete: (b) => run(async () => {
+      const e = st.entities.find((x) => x.entityId === b.dataset.id);
+      await api('DELETE', `/worlds/${st.worldId}/entities/${e.entityId}`, { revision: e.revision });
+      go(e.type);
+      await loadEntities();
+      await loadRoom();
+    }, '지웠습니다.'),
+    link: () => run(async () => {
+      await api('PUT', `/rooms/${encodeURIComponent(activeChatId())}`, { worldId: st.worldId });
+      await loadRoom();
+    }, '이제 이 방이 이 세계관을 읽습니다.'),
+    unlink: () => run(async () => {
+      await api('PUT', `/rooms/${encodeURIComponent(activeChatId())}`, { worldId: null });
+      await loadRoom();
+    }, '연결을 끊었습니다.'),
+    'create-world': () => run(async () => {
+      const w = await api('POST', '/worlds', { name: val('nw-name'), description: val('nw-desc') });
+      st.worldId = w.worldId;
+      store.set('world-archive-world', w.worldId);
+      go('overview');
+      await loadWorlds();
+      await loadEntities();
+    }, '세계관을 만들었습니다.'),
+    'save-world': () => run(async () => {
+      const w = world();
+      await api('PATCH', `/worlds/${w.worldId}`, { name: val('w-name'), description: val('w-desc'), injectChars: Number(val('w-budget')), injectMode: val('w-mode') === 'scene' ? 'scene' : 'all', scoreboard: { name: val('w-board'), unit: val('w-unit') }, revision: w.revision });
+      await loadWorlds();
+      await loadRoom();
+    }, '저장했습니다.'),
+    pending: (b) => run(async () => {
+      const e = st.entities.find((x) => x.entityId === b.dataset.id);
+      await api('POST', `/worlds/${st.worldId}/entities/${e.entityId}/pending/${encodeURIComponent(b.dataset.key)}`, { revision: e.revision });
+      await loadEntities();
+    }, '대화의 값으로 바꿨습니다. 기록에서 되돌릴 수 있습니다.'),
+    'pending-drop': (b) => run(async () => {
+      const e = st.entities.find((x) => x.entityId === b.dataset.id);
+      await api('POST', `/worlds/${st.worldId}/entities/${e.entityId}/pending/${encodeURIComponent(b.dataset.key)}`, { revision: e.revision, discard: true });
+      await loadEntities();
+    }),
+    'past-prompt': (b) => run(async () => {
+      const e = st.entities.find((x) => x.entityId === b.dataset.id);
+      if (!e) throw Error('설정을 찾지 못했습니다. 새로 불러온 뒤 다시 해 주세요.');
+      const k = b.dataset.key;
+      await api('PATCH', `/worlds/${st.worldId}/entities/${e.entityId}`, { pastInPrompt: { ...(e.pastInPrompt || {}), [k]: !e.pastInPrompt?.[k] }, revision: e.revision });
+      await loadEntities();
+      await loadRoom();
+    }),
+    'score-add': () => run(async () => {
+      const delta = Number(val('sc-delta'));
+      if (!val('sc-target').trim() || !Number.isInteger(delta) || !delta) throw Error('대상과 점수(0이 아닌 정수)를 적어 주세요.');
+      await api('POST', `/rooms/${encodeURIComponent(activeChatId())}/scores`, { target: val('sc-target'), delta, reason: val('sc-reason') || '손으로 고침' });
+      await loadScores();
+      await loadRoom();
+    }, '기록했습니다.'),
+    'score-undo': (b) => run(async () => {
+      await api('POST', `/rooms/${encodeURIComponent(activeChatId())}/scores/${encodeURIComponent(b.dataset.id)}/undo`, { undo: b.dataset.undo === '1' });
+      await loadScores();
+      await loadRoom();
+    }),
+    'species-fill': () => run(async () => {
+      const r = await api('POST', `/worlds/${st.worldId}/species-fill`);
+      await loadEntities();
+      st.bad = false;
+      st.msg = r.filled.length ? `종을 채웠습니다(${r.filled.length}명): ${r.filled.map((x) => `${x.name} — ${x.species}`).join(', ')}. 기록에서 되돌릴 수 있습니다.` : `종이 빈 인물 ${r.asked}명 가운데 사람이 아닌 존재를 찾지 못했습니다.`;    }),
+    backup: () => run(async () => {
+      const w = world();
+      const file = await api('GET', `/worlds/${w.worldId}/export`);
+      const url = URL.createObjectURL(new Blob([JSON.stringify(file, null, 1)], { type: 'application/json' }));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `세계관-${w.name.replace(/[\/:*?"<>|]+/g, '_')}-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+    }, '백업 파일을 내려받았습니다.'),
+    'delete-world': () => run(async () => {
+      const w = world();
+      await api('DELETE', `/worlds/${w.worldId}`, { revision: w.revision });
+      st.worldId = null;
+      go('overview');
+      await loadWorlds();
+      await loadEntities();
+      await loadRoom();
+    }, '지웠습니다.'),
+  };
+
+  root.addEventListener('click', (ev) => {
+    const b = ev.target.closest('button');
+    if (!b || b.disabled) return;
+    if (b === el.launch) return toggle();
+    const act = b.dataset.act;
+    if (act && actions[act]) actions[act](b);
+  });
+  root.addEventListener('change', (ev) => {
+    if (ev.target.id === 'worldSelect') {
+      st.worldId = ev.target.value;
+      store.set('world-archive-world', st.worldId);
+      const keep = KIND[st.view] || st.view === 'log' ? st.view : 'overview';
+      go(keep);
+      run(async () => { await loadEntities(); if (keep === 'log') await loadHistory(); });
+      st.scores = null;
+    } else if (ev.target.id === 'fd-type' && st.editing) {
+      // Switching kind in the form keeps everything typed; fields the new kind has keep their text.
+      const now = readForm();
+      // Fields the new kind lacks stay in the draft, so switching back brings them back. Saving sends only the
+      // fields on screen.
+      st.draft = { ...now, fields: { ...(st.draft?.fields || {}), ...now.fields } };
+      st.view = now.type;
+      render();
+    }
+  });
+  root.addEventListener('change', (ev) => {
+    if (ev.target.id !== 'restore-file' || !ev.target.files?.[0]) return;
+    const f = ev.target.files[0];
+    ev.target.value = '';
+    run(async () => {
+      let file;
+      try { file = JSON.parse(await f.text()); } catch { throw Error('백업 파일을 읽지 못했습니다.'); }
+      const r = await api('POST', '/worlds/import', file);
+      await loadWorlds();
+      st.worldId = r.world.worldId;
+      go('overview');
+      await loadEntities();
+      await loadRoom();
+    }, '새 세계관으로 복원했습니다.');
+  });
+  root.addEventListener('input', (ev) => {
+    if (ev.target.id === 'q') { st.query = ev.target.value; runSearch(); }
+  });
+  el.backdrop.addEventListener('click', () => toggle(false));
+  root.addEventListener('keydown', (ev) => { if (!target && ev.key === 'Escape' && !el.panel.hidden) toggle(false); });
+
+  let watch = null;
+  let lastChat = '';
+  function toggle(open = el.panel.hidden) {
+    el.panel.hidden = !open;
+    el.backdrop.hidden = !open;
+    el.launch.hidden = open || tabShown();
+    el.launch.setAttribute('aria-expanded', String(open));
+    clearInterval(watch);
+    clearTimeout(pollTimer);
+    if (!open) return;
+    lastChat = activeChatId();
+    render();
+    run(() => loadAll(true));
+    // Marinara keeps the open chat in localStorage; follow it while the window is open.
+    watch = setInterval(() => {
+      const now = activeChatId();
+      if (now !== lastChat && !st.busy) { lastChat = now; run(loadRoom); }
+    }, 1000);
+  }
+  // On its own: while 기억 서재 shows its 「세계관」 tab, this floating button hides (the same screen twice is too many).
+  function tabShown() { return !target && document.documentElement.dataset.memoryWorldTab === 'on'; }
+  if (!target) setInterval(() => { if (el.panel.hidden) el.launch.hidden = tabShown(); }, 2000);
+  if (target) toggle(true);
+  else render();
+  return { host, setTheme(t) { if (t === 'dark' || t === 'light') { st.theme = t; render(); } } };
+  }
+
+  if (EMBEDDED) globalThis.__memoryWorldPanel = { version: VERSION, contract: PANEL_CONTRACT, start: (target, opts) => boot(target, opts) };
+  else boot(null);
+})();
+
+})();

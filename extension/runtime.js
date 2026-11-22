@@ -32,6 +32,8 @@
     ['todo', '할 일', 'note', ['ledger', 'promises', 'life']],
     ['search', '검색', 'search', ['search']],
     ['inject', '주입 확인', 'search', ['inject']],
+    // 세계관 설정집 연동 v2: World Archive's own screen, shown only while its server answers (worldTab).
+    ['worldarchive', '세계관', 'globe', ['worldarchive']],
     ['settings', '설정', 'settings', ['settings']],
   ];
   const SUBTAB = { timeline: '시간순', lines: '줄기', scenes: '장면·챕터', setup: '배경 설정', person: '인물별', facts: '알게 된 사실', notebook: '수첩', world: '상태·장소·물건', names: '이름 정리', ledger: '끝나지 않은 일', promises: '약속', life: '최근 생활' };
@@ -174,6 +176,7 @@
       close: '<path d="m6 6 12 12M6 18 18 6"/>',
       refresh: '<path d="M20 7v5h-5M4 17v-5h5"/><path d="M6 6a8 8 0 0 1 14 6M4 12a8 8 0 0 0 14 6"/>',
       spark: '<path d="m12 3 2.4 6.6L21 12l-6.6 2.4L12 21l-2.4-6.6L3 12l6.6-2.4z"/>',
+      globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
     };
     return `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name] || paths.note}</svg>`;
   }
@@ -2341,7 +2344,7 @@
     return `<div class="paper"><h2>섹션별 분량</h2>${merged.map(([name, size]) => `<div class="bar-row"><span>${esc(name)}</span><span class="bar"><span style="width:${Math.max(1, Math.round((size / total) * 100))}%"></span></span><small>${Math.round((size / total) * 100)}%</small></div>`).join('')}</div>`;
   }
 
-  const VIEWS = { timeline: viewTimeline, lines: viewLines, person: viewPerson, notebook: viewNotebook, home: viewHome, setup: viewSetup, scenes: viewScenes, search: viewSearch, facts: viewFacts, ledger: viewLedger, promises: viewPromises, life: viewLife, world: viewWorld, names: viewNames, inject: viewInject, settings: viewSettings };
+  const VIEWS = { timeline: viewTimeline, lines: viewLines, person: viewPerson, notebook: viewNotebook, home: viewHome, setup: viewSetup, scenes: viewScenes, search: viewSearch, facts: viewFacts, ledger: viewLedger, promises: viewPromises, life: viewLife, world: viewWorld, names: viewNames, inject: viewInject, settings: viewSettings, worldarchive: () => '' };
 
   /** The screens of the current tab, as a row of chips under the panel's top (nothing for a one-screen tab). */
   function subTabs() {
@@ -2364,6 +2367,7 @@
     for (const b of root.querySelectorAll('nav button')) {
       const g = GROUPS.find((x) => x[0] === b.dataset.groupTab);
       if (!g) { b.classList.toggle('selected', b.dataset.tab === tab); continue; }
+      if (g[0] === 'worldarchive') b.hidden = !worldTab.available;
       b.classList.toggle('selected', g === here);
       b.dataset.tab = lastIn[g[0]] || g[3][0];
     }
@@ -2387,6 +2391,7 @@
     const translation = trPending || trError ? `<div class="note" role="status">${trError ? `한국어 번역을 마치지 못했습니다. ${esc(trError)}` : trWorking ? '한국어 번역 중입니다.' : trAuto ? '한국어 번역이 남아 있습니다.' : '자동 번역이 꺼져 있어 일부 항목이 영어로 보입니다.'} ${trPending ? `남은 항목: ${trPending}개.` : ''} <button data-act="retryTranslation">${trAuto || trError ? '남은 항목 다시 번역' : '지금 번역'}</button></div>` : '';
     content.innerHTML = warning + translation + subTabs() + VIEWS[tab]();
     content.scrollTop = scroll;
+    showWorldTab(content);
     root.querySelector('#inspector').innerHTML = inspector();
     const n = root.querySelector('#themeToggle');
     n.innerHTML = icon(theme === 'dark' ? 'sun' : 'moon');
@@ -3384,9 +3389,44 @@
     return button;
   }
 
+  /*
+   * 세계관 설정집 연동 v2: World Archive's screen as the 「세계관」 tab. build.py builds its extension.js in (vendor/
+   * world-panel.js, embedded: it starts only here, inside #worldMount). The tab is there while the World Archive
+   * server answers /status; without it (not installed, turned off) the tab is gone and nothing else changes. While the
+   * tab is there, World Archive's own floating button hides (document data-memory-world-tab="on").
+   */
+  const worldTab = { available: false, checkedAt: 0, instance: null, timer: null };
+  async function checkWorldTab(force = false) {
+    if (!force && Date.now() - worldTab.checkedAt < 60_000) return;
+    worldTab.checkedAt = Date.now();
+    let ok = false;
+    try {
+      const r = await fetch('/api/world-archive/status', { credentials: 'same-origin', cache: 'no-store', headers: { 'x-marinara-csrf': '1' } });
+      ok = r.ok && Boolean((await r.json())?.version);
+    } catch {}
+    ok = ok && Boolean(globalThis.__memoryWorldPanel?.start);
+    const was = worldTab.available;
+    worldTab.available = ok;
+    try { if (ok) document.documentElement.dataset.memoryWorldTab = 'on'; else delete document.documentElement.dataset.memoryWorldTab; } catch {}
+    if (!ok && tab === 'worldarchive') tab = 'home';
+    if (was !== ok) render();
+  }
+  function showWorldTab(content) {
+    const box = root.querySelector('#worldMount');
+    const here = tab === 'worldarchive' && worldTab.available;
+    content.hidden = here;
+    box.hidden = !here;
+    if (!here) return;
+    if (!worldTab.instance) {
+      try { worldTab.instance = globalThis.__memoryWorldPanel.start(box, { theme }); } catch (error) { box.textContent = `세계관 칸을 열지 못했습니다: ${error?.message || error}`; }
+    } else worldTab.instance.setTheme?.(theme);
+  }
+
   function openLibrary() {
     if (open || disposed) return;
     open = true;
+    void checkWorldTab(true);
+    if (typeof setInterval === 'function') worldTab.timer ||= setInterval(() => { if (open) void checkWorldTab(); }, 60_000);
     const current = activeChatId();
     if (current && current !== room) {
       room = current;
@@ -3474,6 +3514,7 @@
             <button id="close" class="close" aria-label="기억 서재 닫기" title="닫기">${icon('close')}</button></header>
           <div id="status" role="status"></div><div id="error" hidden></div>
           <main id="content"></main>
+          <div id="worldMount" class="world-mount" hidden></div>
         </div>
         <aside class="inspector" id="inspector"></aside>
         <div class="resize-edge resize-r" id="resizeRight" aria-hidden="true"></div><div class="resize-edge resize-b" id="resizeBottom" aria-hidden="true"></div><div class="resize-grip" id="resizeCorner" title="끌어서 크기 바꾸기" aria-hidden="true"></div>
@@ -3484,6 +3525,9 @@
     launcher?.setAttribute('data-theme', theme);
     installSelectionButton();
     setupPanelMove();
+    // 세계관 설정집 연동 v2: whether the 「세계관」 tab is there is known from the start, so World Archive's own
+    // floating button hides even before this screen is first opened.
+    void checkWorldTab(true);
 
     // Shadow DOM retargets input events to our DIV at the page boundary. Keep
     // host shortcuts from treating typing (notably '?') as a page command.
@@ -3856,6 +3900,7 @@
   }
 
   const EXTRA_CSS = `
+.world-mount{display:block;height:calc(100% - 8px);min-height:560px;overflow:hidden}.world-mount[hidden]{display:none!important}#content[hidden]{display:none!important}
     .memory-search{margin-bottom:18px}.memory-search input{flex:1;min-width:120px}.memory-search .buttons{flex-wrap:wrap}
     #launch{position:fixed;right:18px;bottom:122px;width:64px;height:64px;padding:0;border:0;border-radius:0;place-items:center;color:inherit;
       background:transparent!important;box-shadow:none!important;filter:drop-shadow(0 3px 5px #00000040);transition:transform .18s,filter .18s}
