@@ -1,4 +1,4 @@
-/* Copied from tlsiddl/marinara-world-archive main fc40f6c (extension/extension.js, v0.7.6 · 인물 카드 네 칸 · 「보기: 원문 · 한국어」 · 계약 수준 2). Do not edit here: change it there and copy again. */
+/* Copied from tlsiddl/marinara-world-archive main 5ec6481 (extension/extension.js, v0.8.4-beta · 정리 모델 고르기 찾기 쉽게 · 계약 수준 2). Do not edit here: change it in World Archive and copy again. */
 /* 세계관 설정집 · Marinara World Archive — personal extension UI.
  * Talks only to /api/world-archive on the same server. Visual language follows its sister module 기억 서재
  * (paper grain, ticket notches, ink shadows); the motif here is a star chart instead of a record. */
@@ -8,7 +8,7 @@
   // __WORLD_ARCHIVE_EMBEDDED__ = true; then nothing starts here and the tab calls __memoryWorldPanel.start(box).
   const EMBEDDED = typeof __WORLD_ARCHIVE_EMBEDDED__ !== 'undefined' && __WORLD_ARCHIVE_EMBEDDED__ === true;
   if (!EMBEDDED && document.getElementById('marinara-world-archive-root')) return;
-  const VERSION = '0.7.6';
+  const VERSION = '0.8.4-beta';
   /** The contract level this screen is made for (the server's status.contract). Another level: read only. */
   const PANEL_CONTRACT = 2;
   const UPDATE_MSG = '세계관 칸을 쓰려면 기억 서재(또는 설정집)를 업데이트해 주세요. 지금은 보기만 할 수 있습니다.';
@@ -219,6 +219,14 @@ pre{white-space:pre-wrap;word-break:break-word;font:12.5px/1.65 var(--wa-mono);m
 
 /* automatic updates */
 .auto-line{display:flex;gap:8px;align-items:flex-start}.auto-line .dot{margin-top:6px}
+/* v0.8.4: 정리할 모델 band — the one coloured strip on the page */
+.model-band{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;justify-content:space-between;margin:0 0 18px;padding:10px 14px;background:#f5e3b5;color:#3d2a05;border:1.5px solid #a8741a;border-left-width:6px;border-radius:3px;font:600 13.5px/1.5 var(--wa-serif)}
+.model-band button{flex:none;background:#a8741a;color:#fff8e6;border:1.5px solid #a8741a;font-weight:700}
+.model-band button:hover{background:#8a5e12;border-color:#8a5e12}
+.model-band.small{margin:0;padding:8px 10px;font-size:12px}
+:host([data-theme=dark]) .model-band{background:#3b2d12;color:#f6e2b0;border-color:#d9a640}
+:host([data-theme=dark]) .model-band button{background:#d9a640;color:#241a05;border-color:#d9a640}
+.pick-flash{outline:3px solid #d9a640;outline-offset:2px}
 .dot{display:inline-block;flex:none;width:8px;height:8px;border-radius:50%;border:1.5px solid var(--wa-ink)}
 .dot.on{background:var(--wa-ink)}
 .dot.run{background:var(--wa-ink);animation:blink 1s infinite}
@@ -300,6 +308,7 @@ button.cap:hover{background:var(--wa-soft)}.cap.ghost{border-style:dashed;color:
 .view-lang button{border:0;border-radius:999px;padding:3px 11px;background:transparent;color:var(--wa-ink);font:12.5px/1.5 var(--wa-sans);letter-spacing:0;cursor:pointer}.view-lang button.on{background:var(--wa-ink);color:var(--wa-paper)}
 .back-check{margin:14px 0 0;padding:12px 14px;border:1px solid var(--wa-ink);border-radius:10px}.back-check h4{margin:0 0 8px;font:700 14px/1.45 var(--wa-serif)}.back-check dl{margin:0}.back-check dt{font-size:12.5px;color:var(--wa-muted);margin-top:8px}.back-check dd{margin:2px 0 0}.back-check dd.to{font-family:var(--wa-serif)}
 .wt-rgrp{margin:16px 0 2px;font:700 14px/1.45 var(--wa-serif);letter-spacing:0;color:var(--wa-ink)}.wt-rgrp small{font:12.5px var(--wa-sans);color:var(--wa-muted);margin-left:6px}
+.caps button .rec{font-size:10.5px;margin-left:6px;padding:0 6px;border:1px dashed currentColor;border-radius:9px;opacity:.85;font-weight:600}.budget-rec{margin:6px 0 0}.law-out{margin:6px 0 0}
 .topic-bar{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 8px}.topic-bar .cap{font-size:12.5px;padding:3px 12px;border-color:var(--wa-line);color:var(--wa-ink);cursor:pointer}
 .topic-bar .cap.on{background:var(--wa-ink);border-color:var(--wa-ink);color:var(--wa-paper)}.topic-bar .cap small{opacity:.7;margin-left:3px}.topic-bar .cap.opt{border-style:dashed}
 .wt-empty{color:var(--wa-muted);font-size:12.5px;margin:6px 0}
@@ -538,7 +547,10 @@ button.cap:hover{background:var(--wa-soft)}.cap.ghost{border-style:dashed;color:
 
   // ------------------------------------------------------------------ pieces
   // v0.7.6: an optional field (기숙사 · 학년) only in a world that turns it on
-  const defs = (type) => (st.fields[type] || []).filter((x) => !x.optional || (world()?.personFields || []).includes(x.key));
+  // v0.7.8 C: an animal (its 종 names one) has 털 · 깃털 where a person has 머리색 — the same key, another label
+  const ANIMAL_RE = /\b(?:cats?|kittens?|dogs?|pupp(?:y|ies)|hounds?|wol(?:f|ves)|fox(?:es)?|owls?|ravens?|crows?|snakes?|serpents?|rats?|mice|mouse|toads?|phoenix(?:es)?|dragons?|stags?|deer|bears?|rabbits?|hares?|horses?|ponies|pony|kneazles?|half-kneazle|leopards?|panthers?|birds?|ferrets?)\b|고양이|강아지|늑대|여우|부엉이|올빼미|까마귀|뱀|쥐|두꺼비|불사조|드래곤|사슴|곰|토끼|니즐|표범|새$|개$|말$|용$/i;
+  const isAnimal = (e) => ANIMAL_RE.test(String(e?.fields?.species || '').trim());
+  const defs = (type, e) => (st.fields[type] || []).filter((x) => !x.optional || (world()?.personFields || []).includes(x.key)).map((x) => (x.key === 'hair' && isAnimal(e) ? { ...x, label: '털 · 깃털' } : x));
   const count = (type) => st.entities.filter((e) => e.type === type).length;
   const fmtDate = (iso) => { const d = new Date(iso); return isNaN(d) ? '' : `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`; };
   const shortId = (id) => String(id || '').slice(0, 4).toUpperCase();
@@ -603,14 +615,25 @@ button.cap:hover{background:var(--wa-soft)}.cap.ghost{border-style:dashed;color:
     return `지금은 「${esc(s.name)}」을(를) 읽고 있습니다.`;
   }
 
+  /**
+   * v0.8.4: the model that organizes this world is its own (world.auto.connectionId), not 기억 서재's — a coloured band
+   * while none is picked or automatic updates are off; [고르기] goes to 세계관 정보 · 자동 반영 with the picker focused.
+   */
+  function modelBandHtml(small) {
+    const w = world();
+    if (!w || st.readOnly || (w.auto?.enabled && w.auto?.connectionId)) return '';
+    const has = !!w.auto?.connectionId;
+    const text = has ? '자동 반영이 꺼져 있어요 — 정리할 모델은 기억 서재와 따로예요' : '정리할 모델을 아직 안 골랐어요 — 기억 서재와 따로 골라요';
+    return `<div class="model-band${small ? ' small' : ''}" role="status"><span>${text}</span><button type="button" data-act="pick-model">${has ? '켜기' : '고르기'}</button></div>`;
+  }
+
   function autoHtml(compact) {
     const s = roomState();
     if (s.kind !== 'this') return '';
     const w = world();
     const a = st.auto;
     const job = a?.job;
-    if (!w.auto?.enabled) return `<div class="auto-line"><span class="dot"></span><span class="sub">자동 반영이 꺼져 있습니다.</span>${compact ? '' : ' <button class="quiet" type="button" data-act="go" data-view="world">켜기</button>'}</div>`;
-    if (!w.auto.connectionId) return `<div class="auto-line"><span class="dot"></span><span class="sub">자동 반영에 쓸 연결을 골라 주세요.</span> <button class="quiet" type="button" data-act="go" data-view="world">고르기</button></div>`;
+    if (!w.auto?.enabled || !w.auto.connectionId) return modelBandHtml(compact);
     const running = job?.state === 'running';
     const status = running
       ? `${esc(job.stage || '읽는 중')}`
@@ -662,7 +685,7 @@ button.cap:hover{background:var(--wa-soft)}.cap.ghost{border-style:dashed;color:
       ${roomState().kind === 'this' && p ? `
       <div class="paper">
         <div class="row" style="justify-content:space-between"><h2 style="margin:0">이번 답변에 들어갈 내용</h2><span class="pill">${p.chars.toLocaleString()} / ${p.budget.toLocaleString()}자</span></div>
-        <p class="sub" style="margin:8px 0 0">설정 ${p.included.length}개${p.omitted.length ? ` · 글자 수 한도 때문에 ${p.omitted.length}개 빠짐` : ''}${p.skipped > 0 ? ` · 장면 밖이라 뺀 것 ${p.skipped}개` : ''}. 프리셋의 {{세계}} 자리에 이대로 들어갑니다.</p>
+        <p class="sub" style="margin:8px 0 0">설정 ${p.included.length}개${p.omitted.length ? ` · 글자 수 한도 때문에 ${p.omitted.length}개 빠짐` : ''}${p.skipped > 0 ? ` · 장면 밖이라 뺀 것 ${p.skipped}개` : ''}. 프리셋의 {{세계}} 자리에 이대로 들어갑니다.</p>${lawOutHtml(p)}
         <pre>${esc(p.text) || '(비어 있음)'}</pre>
       </div>
       <div class="paper">
@@ -929,7 +952,7 @@ button.cap:hover{background:var(--wa-soft)}.cap.ghost{border-style:dashed;color:
 
   function detailHtml(e) {
     const k = KIND[e.type];
-    const d = defs(e.type);
+    const d = defs(e.type, e);
     const f = e.fields || {};
     const src = e.sources || {};
     // v0.7.0 6: no 「자동」 stamp by each field (the bottom says where it came from); 숨은 설정 as a dashed capsule
@@ -956,6 +979,9 @@ button.cap:hover{background:var(--wa-soft)}.cap.ghost{border-style:dashed;color:
     // v0.6.2 ②: a rule or system one batch spoke of — kept, not in {{세계}}
     const once = isOnce(e)
       ? '<div class="sec"><small>한 번 나옴</small><p>대화의 한 묶음에서만 나왔어요. 설정집에는 두고 {{세계}}에는 넣지 않아요. 다시 나오거나 고정하면 들어가요.</p></div>' : '';
+    // v0.7.8 B: a 위치 relation read both ways — it stays as it is until the person chooses
+    const nameOfRel = (id) => st.entities.find((x) => x.entityId === id)?.name || '?';
+    const relDiffers = (st.relations || []).filter((r) => r.differs && (r.from === e.entityId || r.to === e.entityId)).map((r) => `<div class="sec"><small>${esc(r.type)} · 서로 다른 말을 해요</small><p>지금: <b>${esc(nameOfRel(r.from))}</b> → <b>${esc(nameOfRel(r.to))}</b> 안 ↔ 다른 말: <b>${esc(nameOfRel(r.differs.from))}</b> → <b>${esc(nameOfRel(r.differs.to))}</b> 안</p>${r.differs.evidence ? `<p class="ev">${quoted(r.differs.evidence)}</p>` : ''}${st.readOnly ? '' : `<div class="row"><button class="quiet" type="button" data-act="rel-keep" data-id="${esc(r.relationId)}">지금대로 두기</button><button class="quiet" type="button" data-act="rel-flip" data-id="${esc(r.relationId)}">방향 바꾸기</button></div>`}</div>`).join('');
     const differs = Object.entries(e.differs || {}).map(([k, x]) => `<div class="sec"><small>${esc(d.find((y) => y.key === k)?.label || k)} · 서로 다른 말을 해요</small><p>${esc(e.fields?.[k] || '')} ↔ ${esc(x.value)}</p>${x.evidence ? `<p class="ev">${quoted(x.evidence)}</p>` : ''}</div>`).join('');
     const rumors = Object.entries(e.rumors || {}).map(([k, r]) => `<div class="sec"><small>${esc(d.find((x) => x.key === k)?.label || k)} · 확인 안 됨 · ${esc(r.by || '소문')}의 말</small><p>${esc(r.value)}</p></div>`).join('');
     // 관계: both directions; a chip opens the other setting.
@@ -983,7 +1009,7 @@ button.cap:hover{background:var(--wa-soft)}.cap.ghost{border-style:dashed;color:
           ${e.pinned ? '<span class="pill">늘 먼저 넣기</span>' : ''}${e.nameCheck ? `<span class="pill" title="근거 문장에는 「${esc(e.nameCheck.said)}」이(가) 나옵니다. 이름을 확인해 주세요(고치면 사라집니다).">이름 확인 필요</span>` : ''}
         </div>
         ${facts ? `<div class="fact-caps">${facts}</div>` : ''}
-        ${once}${differs}${rumors}${e.type === 'rule' || e.type === 'system' ? appliesHtml(e) : ''}${e.type === 'group' ? baseHtml(e) : ''}${e.type === 'place' ? stayingHtml(e) : ''}${e.timetable ? timetableHtml(e) : ''}${e.calendar ? calendarHtml(e) : ''}${secs}${extra}${memo}${e.type === 'group' ? rosterHtml(e) : ''}
+        ${once}${differs}${relDiffers}${rumors}${e.type === 'rule' || e.type === 'system' ? appliesHtml(e) : ''}${e.type === 'group' ? baseHtml(e) : ''}${e.type === 'place' ? stayingHtml(e) : ''}${e.timetable ? timetableHtml(e) : ''}${e.calendar ? calendarHtml(e) : ''}${secs}${extra}${memo}${e.type === 'group' ? rosterHtml(e) : ''}
         ${f.state ? `<div class="state"><small>지금${tag('state')}</small><p>${esc(f.state)}</p>${was('state')}${wait('state')}</div>` : ''}
         ${relSec}
         ${empty ? '<p class="sub" style="margin-top:16px">아직 적힌 칸이 없습니다. 「고치기」에서 채워 주세요.</p>' : ''}
@@ -1100,7 +1126,7 @@ button.cap:hover{background:var(--wa-soft)}.cap.ghost{border-style:dashed;color:
     const isNew = st.editing === 'new';
     const v = st.draft || e || {};
     const k = KIND[type];
-    const d = defs(type);
+    const d = defs(type, v);
     const f = v.fields || {};
     const lines = d.filter((x) => x.kind === 'line');
     const texts = d.filter((x) => x.kind === 'text' && x.key !== 'state');
@@ -1137,7 +1163,23 @@ button.cap:hover{background:var(--wa-soft)}.cap.ghost{border-style:dashed;color:
       </form>`;
   }
 
+  /** v0.8.4: one model picker for 새 세계관 · 세계관 정보 (only one connection → it is picked already in 새 세계관). */
+  function connSelectHtml(id, chosen, single) {
+    const list = st.connections || [];
+    const pick = chosen || (single && list.length === 1 ? list[0].id : '');
+    return `<select id="${id}"><option value="">${st.connections == null ? '불러오는 중…' : list.length ? '(골라 주세요)' : '(마리나라에 연결이 없어요)'}</option>${list.map((c) => `<option value="${esc(c.id)}" ${c.id === pick ? 'selected' : ''}>${esc(c.name)}${c.model ? ` · ${esc(c.model)}` : ''}</option>`).join('')}</select>`;
+  }
+
   function newWorldHtml(first) {
+    // the first world has no 「새 세계관 만들기」 press to load the connections: load them here, then swap only the picker
+    if (st.connections == null && !st.connLoading) {
+      st.connLoading = true;
+      loadConnections().finally(() => {
+        st.connLoading = false;
+        const old = root.getElementById('nw-conn');
+        if (old && !old.value) old.outerHTML = connSelectHtml('nw-conn', '', true);
+      });
+    }
     return `
       <div class="eyebrow">WORLD ARCHIVE · NEW</div>
       <h1>${first ? '첫 세계관 만들기' : '새 세계관'}</h1>
@@ -1145,20 +1187,30 @@ button.cap:hover{background:var(--wa-soft)}.cap.ghost{border-style:dashed;color:
       <form class="paper" onsubmit="return false">
         <label class="f" for="nw-name">세계관 이름</label><input id="nw-name" maxlength="120" placeholder="예: 별빛 학원">
         <label class="f" for="nw-desc">시대·배경<em>설정 맨 앞에 들어갑니다</em></label><textarea id="nw-desc" maxlength="4000" placeholder="예: 1988년, 산 위의 기숙학교."></textarea>
+        <label class="f" for="nw-conn">정리할 모델(마리나라 연결)<em>대화를 읽고 설정을 정리할 모델이에요. 기억 서재가 쓰는 모델과 따로입니다. 같은 걸 골라도 돼요. 나중에 「세계관 정보」에서 골라도 돼요</em></label>
+        <div style="max-width:420px">${connSelectHtml('nw-conn', '', true)}</div>
+        <label class="toggle" style="margin-top:14px"><input type="checkbox" id="nw-auto" checked> 자동 반영 켜기</label>
         <div class="actions"><button class="primary" type="button" data-act="create-world">만들기</button>${first ? '' : '<button class="quiet" type="button" data-act="go" data-view="overview">취소</button>'}</div>
       </form>`;
   }
 
   /** v0.7.0 2: {{세계}} 글자 수 — the person picks; what goes in now and what did not fit, from this room's preview. */
-  const BUDGETS = [3000, 5000, 8000, 12000];
+  // v0.8.2: 6,000 added; one step marked 「추천」 for the language the world is organized in (measured on six test worlds)
+  const BUDGETS = [3000, 5000, 6000, 8000, 12000, 20000, 30000];
+  const BUDGET_REC = { ko: 3000, en: 6000 };
+  /** v0.8.2: 「규칙 · 시스템 N개가 글자 수 때문에 빠졌어요 — 추천 ○○자」 (the server works out the smallest step). */
+  const lawOutHtml = (p) => (p?.lawOmitted ? `<p class="sub law-out"><b>규칙 · 시스템 ${p.lawOmitted}개가 글자 수 때문에 빠졌어요</b> — ${p.suggest === 'pin' ? '30,000자로도 다 안 들어가요. 꼭 필요한 규칙은 카드에서 「늘 먼저 넣기」를 켜 주세요' : `추천 ${Number(p.suggest).toLocaleString()}자`}</p>` : '');
   function budgetHtml(w) {
     const cur = w.injectChars;
     const custom = st.budgetCustom || !BUDGETS.includes(cur);
     const p = st.preview && st.preview.worldId === w.worldId ? st.preview : null;
-    const now = p ? `<p class="sub budget-now">지금 들어가는 글: ${Number(p.chars || 0).toLocaleString()}자 / ${Number(p.budget || cur).toLocaleString()}자${p.omitted?.length ? ` · <b>글자가 모자라 설정 ${p.omitted.length}개가 빠졌어요</b>` : ''}</p>` : '';
+    const lang = w.summaryLang === 'en' || w.summaryLang === 'ko' ? w.summaryLang : p?.lang || 'ko';
+    const rec = BUDGET_REC[lang];
+    const now = p ? `<p class="sub budget-now">지금 들어가는 글: ${Number(p.chars || 0).toLocaleString()}자 / ${Number(p.budget || cur).toLocaleString()}자${p.omitted?.length ? ` · <b>글자가 모자라 설정 ${p.omitted.length}개가 빠졌어요</b>` : ''}</p>${lawOutHtml(p)}` : '';
     return `<label class="f" for="w-budget">{{세계}}에 넣을 글자 수<em>넘치면 고정하지 않은 설정부터 빠집니다. 늘리면 모델에 보내는 글도 그만큼 길어져요</em></label>
-        <div class="caps" role="radiogroup" aria-label="{{세계}}에 넣을 글자 수">${BUDGETS.map((n) => `<button type="button" role="radio" aria-checked="${!custom && cur === n}" class="${!custom && cur === n ? 'on' : ''}" data-act="budget" data-n="${n}">${n.toLocaleString()}자</button>`).join('')}<button type="button" role="radio" aria-checked="${custom}" class="${custom ? 'on' : ''}" data-act="budget" data-n="custom">직접 입력</button></div>
-        <input id="w-budget" type="number" min="300" max="20000" step="100" value="${cur}" style="max-width:200px" ${custom ? '' : 'hidden'} aria-label="직접 입력(300~20000자)">${now}`;
+        <div class="caps" role="radiogroup" aria-label="{{세계}}에 넣을 글자 수">${BUDGETS.map((n) => `<button type="button" role="radio" aria-checked="${!custom && cur === n}" class="${!custom && cur === n ? 'on' : ''}" data-act="budget" data-n="${n}">${n.toLocaleString()}자${n === rec ? '<small class="rec">추천</small>' : ''}</button>`).join('')}<button type="button" role="radio" aria-checked="${custom}" class="${custom ? 'on' : ''}" data-act="budget" data-n="custom">직접 입력</button></div>
+        <p class="sub budget-rec">추천: ${lang === 'en' ? '영어로 정리하는 세계관은 6,000자(설정이 많으면 8,000자)' : '한국어로 정리하는 세계관은 3,000자(설정이 많으면 5,000자)'}. 영어는 같은 내용이 글자로 약 2배 길어요 — 영어 6,000자 ≈ 1,600토큰, 한국어 3,000자 ≈ 1,200토큰.</p>
+        <input id="w-budget" type="number" min="300" max="40000" step="100" value="${cur}" style="max-width:200px" ${custom ? '' : 'hidden'} aria-label="직접 입력(300~40000자)">${now}`;
   }
 
   function worldHtml() {
@@ -1170,7 +1222,7 @@ button.cap:hover{background:var(--wa-soft)}.cap.ghost{border-style:dashed;color:
         <label class="f" for="w-name">이름</label><input id="w-name" maxlength="120" value="${esc(w.name)}">
         <label class="f" for="w-desc">시대·배경<em>설정 맨 앞에 들어갑니다</em></label><textarea id="w-desc" maxlength="4000" style="min-height:120px">${esc(w.description)}</textarea>
         ${budgetHtml(w)}
-        <label class="f" for="w-mode">넣는 방식<em>장면 방식은 최근 메시지 12개에 이름이 나온 설정만 넣습니다</em></label><select id="w-mode" style="max-width:360px"><option value="all" ${w.injectMode === 'scene' ? '' : 'selected'}>전부 넣기</option><option value="scene" ${w.injectMode === 'scene' ? 'selected' : ''}>장면에 나온 것만(고정·규칙·시스템은 늘)</option></select>
+        <label class="f" for="w-mode">넣는 방식<em>어느 쪽이든 고정 → 장면 인물(짧게라도) → 규칙 · 시스템(짧게라도) → 자세히 → 남는 자리에 나머지 순서예요. 장면 방식은 최근 메시지 12개에 이름이 나온 것과 그곳의 규칙을 먼저 넣고, 다른 곳의 규칙은 넣지 않아요</em></label><select id="w-mode" style="max-width:360px"><option value="all" ${w.injectMode === 'scene' ? '' : 'selected'}>전부 넣기</option><option value="scene" ${w.injectMode === 'scene' ? 'selected' : ''}>장면에 나온 것 먼저(남는 자리에 나머지)</option></select>
         <label class="f" for="w-year">학년도 시작 달<em>시간표와 학사일정을 학년도로 나눕니다(이야기 속 날짜를 알 때)</em></label><select id="w-year" style="max-width:200px">${Array.from({ length: 12 }, (_, i) => `<option value="${i + 1}" ${(w.yearStart || 9) === i + 1 ? 'selected' : ''}>${i + 1}월</option>`).join('')}</select>
         <label class="f">{{세계}} 맨 끝 두 줄<em>글자 수 안에서 고정 설정 다음으로 먼저 자리를 잡습니다</em></label>
         <label class="check"><input type="checkbox" id="w-tail-cast" ${w.tail?.cast !== false ? 'checked' : ''}> [이미 있는 인물] — 이름 목록(600자까지, 최근 순 · 넘으면 「외 N명」)</label>
@@ -1188,10 +1240,11 @@ button.cap:hover{background:var(--wa-soft)}.cap.ghost{border-style:dashed;color:
       <form class="paper" onsubmit="return false">
         <h2>자동 반영</h2>
         <p class="sub" style="margin:0 0 4px">이 세계관을 읽는 방에서 답변이 오면, 아직 안 읽은 대화를 읽고 새 인물·장소·규칙과 새로 밝혀진 사실을 바로 설정에 넣습니다. 원문에 근거가 있는 것만 넣고, 직접 쓴 칸은 덮어쓰지 않습니다. 바뀐 내용은 「기록」에서 하나씩 되돌릴 수 있습니다. 가장 최근 메시지 두 개는 리롤될 수 있어 다음 차례에 읽습니다.</p>
+        <p class="sub" style="margin:0 0 4px"><b>기억 서재가 쓰는 모델과 따로입니다. 같은 걸 골라도 돼요.</b></p>
         <label class="toggle" style="margin-top:14px"><input type="checkbox" id="a-on" ${w.auto?.enabled ? 'checked' : ''}> 자동 반영 켜기</label>
         <div class="grid2">
-          <div><label class="f" for="a-conn">읽을 때 쓸 연결<em>저렴하고 긴 글을 잘 읽는 모델</em></label>
-            <select id="a-conn"><option value="">${st.connections == null ? '불러오는 중…' : '(골라 주세요)'}</option>${(st.connections || []).map((c) => `<option value="${esc(c.id)}" ${c.id === w.auto?.connectionId ? 'selected' : ''}>${esc(c.name)}${c.model ? ` · ${esc(c.model)}` : ''}</option>`).join('')}</select></div>
+          <div><label class="f" for="a-conn">정리할 모델(마리나라 연결)<em>저렴하고 긴 글을 잘 읽는 모델</em></label>
+            ${connSelectHtml('a-conn', w.auto?.connectionId || '', false)}</div>
           <div><label class="f" for="a-every">몇 메시지마다 읽을까요<em>2~50</em></label><input id="a-every" type="number" min="2" max="50" value="${w.auto?.every ?? 6}" style="max-width:140px"></div>
         </div>
         <div class="actions"><button class="primary" type="button" data-act="save-auto">저장</button></div>
@@ -1230,6 +1283,7 @@ button.cap:hover{background:var(--wa-soft)}.cap.ghost{border-style:dashed;color:
     rename: (c) => `<b>${esc(c.before)}</b> → <b>${esc(c.after)}</b> · 번역 단어장의 이름으로`,
     'relation-add': (c) => `관계 <b>${esc(c.name)}</b> · ${esc(c.relation?.type || '')}${c.relation?.note ? ` (${esc(c.relation.note)})` : ''}`,
     'relation-note': (c) => `관계 <b>${esc(c.name)}</b> · ${c.before ? `${esc(c.before)} → ` : ''}${esc(c.after)}`,
+    'relation-differs': (c) => `관계 <b>${esc(c.name)}</b> · ${esc(c.relation?.type || '')} 서로 다른 말 — 그대로 둠`,
     'relation-flip': (c) => `관계 <b>${esc(c.name)}</b> · ${esc(c.relation?.type || '')} 방향 바뀜`,
     'relation-remove': (c) => `관계 <b>${esc(c.name)}</b> · ${esc(c.relation?.type || '')} 끝남`,
     cell: (c) => `<b>${esc(c.name)}</b> · ${esc(String(c.key || '').replace('|', ' '))}: ${c.before ? `${esc(c.before)} → ` : ''}${c.after ? esc(c.after) : '지움'}${c.moved ? ` · 시간표로 옮김(${esc((st.fields[c.moved.type] || []).find((f) => f.key === c.moved.key)?.label || c.moved.key)} 칸에서)` : ''}`,
@@ -1381,7 +1435,8 @@ button.cap:hover{background:var(--wa-soft)}.cap.ghost{border-style:dashed;color:
   // v0.6.2 ②: a rule or system one batch spoke of — kept, not in {{세계}} (the same test as the server's)
   const LAW_NAME = /([^\s마]법(\s|$)|령(\s|$)|규칙|제도)|\b(?:laws?|decrees?|statutes?|acts?|codes?|charters?|treaty|treaties|rules?|regulations?|edicts?)\b/i; // the server's (inject.cjs)
   function isOnce(e) {
-    return ['rule', 'system', 'custom', 'history'].includes(e.type) && !(e.appliesTo && e.appliesTo !== 'world') && !e.pinned && e.provenance?.source !== 'manual' && !Object.values(e.sources || {}).includes('manual') && !LAW_NAME.test(e.name) && Number.isFinite(e.seen?.n) && e.seen.n < 2;
+    // v0.8.0: only once the world has been read long enough (the server's onceReady)
+    return world()?.onceReady !== false && ['rule', 'system', 'custom', 'history'].includes(e.type) && !(e.appliesTo && e.appliesTo !== 'world') && !e.pinned && e.provenance?.source !== 'manual' && !Object.values(e.sources || {}).includes('manual') && !LAW_NAME.test(e.name) && Number.isFinite(e.seen?.n) && e.seen.n < 2;
   }
   const topicRank = (t) => { const i = (st.topics || []).indexOf(t); return i < 0 ? 99 : i; };
   const ruleRow = (e) => `<div class="wt-rule" data-q="${esc(`${e.name} ${ruleText(e)} ${e.topic || ''}`.toLowerCase())}"><span class="tcap${e.topic ? '' : ' none'}">${esc(e.topic || '주제 없음')}</span><div class="rb"><button class="rt" type="button" data-act="open" data-id="${esc(e.entityId)}">${esc(e.name)}</button>${st.ruleKind ? `<small class="kind">${e.type === 'system' ? '시스템' : '규칙'}</small>` : ''}${ruleText(e) ? `<p class="rd">${esc(clip(ruleText(e), 220))}</p>` : ''}</div></div>`;
@@ -1688,7 +1743,9 @@ button.cap:hover{background:var(--wa-soft)}.cap.ghost{border-style:dashed;color:
       : '';
     const nav = EMBEDDED && st.loaded && world() && st.view !== 'tabs' && !st.detail && !st.editing && (['log', 'scores', 'world', 'overview'].includes(st.view) || KIND[st.view]) ? subtabsHtml(worldMap(), null) : '';
     const viewBar = EMBEDDED && st.loaded && st.worldId ? `<div class="emb-view" data-no-tr>${viewLangHtml()}</div>` : '';
-    el.main.innerHTML = viewBar + skew + (st.msg && !(st.readOnly && st.msg === UPDATE_MSG) ? `<p class="msg ${st.bad ? 'bad' : ''}" role="status">${esc(st.msg)}</p>` : '') + nav + mainHtml();
+    // v0.8.4: the band on every screen of a world (한눈에 with this room linked has it in its 자동 반영 box instead)
+    const band = st.loaded && st.view !== 'new-world' && !(st.view === 'overview' && roomState().kind === 'this') ? modelBandHtml(false) : '';
+    el.main.innerHTML = band + viewBar + skew + (st.msg && !(st.readOnly && st.msg === UPDATE_MSG) ? `<p class="msg ${st.bad ? 'bad' : ''}" role="status">${esc(st.msg)}</p>` : '') + nav + mainHtml();
     el.main.scrollTop = keep;
     lastScreen = screen;
     if (st.query) filterCards();
@@ -1696,6 +1753,19 @@ button.cap:hover{background:var(--wa-soft)}.cap.ghost{border-style:dashed;color:
     if (st.busy) root.querySelectorAll('main button, .rail button').forEach((b) => { b.disabled = true; });
     koFix([el.side, el.top, el.rail, el.main]);
     if (st.viewKo) koView();
+    // v0.8.4: from the band — straight to 자동 반영, the switch on (saved only with 저장), the picker focused
+    if (st.pickModel && st.view === 'world' && !st.busy && st.connections != null) {
+      st.pickModel = false;
+      const on = root.getElementById('a-on');
+      const sel = root.getElementById('a-conn');
+      if (on) on.checked = true;
+      if (sel) {
+        sel.closest('form')?.scrollIntoView({ block: 'start' });
+        sel.focus({ preventScroll: true });
+        sel.classList.add('pick-flash');
+        setTimeout(() => sel.classList.remove('pick-flash'), 1600);
+      }
+    }
   }
   // ------------------------------------------------------------------ v0.7.0 3: 「보기: 한국어」
   // Only a view: text nodes on the screen that are not Korean show their Korean (cache by text, then small calls on
@@ -1833,7 +1903,13 @@ button.cap:hover{background:var(--wa-soft)}.cap.ghost{border-style:dashed;color:
       go(b.dataset.view);
       if (b.dataset.view === 'log') return run(loadHistory);
       if (b.dataset.view === 'scores') return run(loadScores);
-      if (b.dataset.view === 'world' && st.connections == null) { render(); return run(loadConnections); }
+      if ((b.dataset.view === 'world' || b.dataset.view === 'new-world') && st.connections == null) { render(); return run(loadConnections); }
+      render();
+    },
+    'pick-model': () => {
+      go('world');
+      st.pickModel = true;
+      if (st.connections == null) { render(); return run(loadConnections); }
       render();
     },
     'read-now': () => run(async () => {
@@ -2010,7 +2086,8 @@ button.cap:hover{background:var(--wa-soft)}.cap.ghost{border-style:dashed;color:
       await loadRoom();
     }, '연결을 끊었습니다.'),
     'create-world': () => run(async () => {
-      const w = await api('POST', '/worlds', { name: val('nw-name'), description: val('nw-desc') });
+      // v0.8.4: the model that organizes it and 자동 반영 (on by default) at once; no model is fine (the band asks later)
+      const w = await api('POST', '/worlds', { name: val('nw-name'), description: val('nw-desc'), auto: { enabled: !!root.getElementById('nw-auto')?.checked, connectionId: val('nw-conn') || null } });
       st.worldId = w.worldId;
       store.set('world-archive-world', w.worldId);
       go('overview');
@@ -2121,6 +2198,10 @@ button.cap:hover{background:var(--wa-soft)}.cap.ghost{border-style:dashed;color:
       await api('DELETE', `/worlds/${st.worldId}/relations/${b.dataset.id}`);
       await loadEntities();
     }, '관계를 뺐습니다. 기록에서 되돌릴 수 있습니다.'),
+    'rel-keep': (b) => run(async () => {
+      await api('PATCH', `/worlds/${st.worldId}/relations/${b.dataset.id}`, { differs: null });
+      await loadEntities();
+    }, '지금 방향 그대로 둡니다.'),
     'rel-flip': (b) => run(async () => {
       const x = (st.relations || []).find((y) => y.relationId === b.dataset.id);
       if (!x) return;
