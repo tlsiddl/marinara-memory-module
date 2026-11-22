@@ -126,7 +126,9 @@ test('the memory text and the deadline list count days from the same story date'
   assert.match(L.renderCompact(ledger, { today }), /기한: .*오늘/);
   assert.equal(L.deadlineList(ledger, today)[0].state, 'today');
   T.storyDays.set('room', '2024-10-01');
-  assert.equal(T.storyToday('room', ledger), '2024-10-18', 'never earlier than what the ledger has read');
+  assert.equal(T.storyToday('room', ledger), '2024-10-01', 'the story went back (or the tracker put a wrong start right): followed');
+  T.storyDays.delete('room');
+  assert.equal(T.storyToday('room', ledger), '2024-10-18', 'nothing shown yet: what the ledger has read');
 });
 
 test('a hand fix of a tracker date or weather is a change to read again; older saves without it are left alone', () => {
