@@ -1228,7 +1228,7 @@ function setRoomMode(chatId, mode) {
  * World Archive (세계관 설정집) linked to this room with 연동 v2 (계약 수준 2): its api, or null. Read only — the
  * memory module never writes to it.
  */
-function worldLink(chatId) {
+function worldLinked(chatId) {
   try {
     const api = globalThis.__marinaraWorldArchive?.api;
     if (!api || !(Number(api.contract) >= 2) || typeof api.roomRelations !== 'function') return null;
@@ -1236,6 +1236,20 @@ function worldLink(chatId) {
   } catch {
     return null;
   }
+}
+/** The room's 「설정집 연동」 switch (on unless turned off; only shown for a room linked to a world). */
+const worldLinkOn = (chatId) => settings().chats?.[chatId]?.worldLink !== 'off';
+/** World Archive's api for this room when it is linked and the room's switch is on; null otherwise (then: as without it). */
+function worldLink(chatId) {
+  return worldLinkOn(chatId) ? worldLinked(chatId) : null;
+}
+function setWorldLink(chatId, on) {
+  const next = settings();
+  const room = { ...(next.chats?.[chatId] || {}) };
+  if (on) delete room.worldLink; else room.worldLink = 'off';
+  next.chats = { ...next.chats, [chatId]: room };
+  saveSettings(next);
+  worldRelCache.delete(chatId);
 }
 /** The room's relations from World Archive (who knows whom from the start), kept a minute. [] when not linked. */
 const worldRelCache = new Map();
@@ -4624,6 +4638,7 @@ async function routes(app) {
       selectedStamp: fileStamp(selectedFile(chatId)),
       speakerNames: speakerNamesOn(chatId),
       mode: roomMode(chatId),
+      worldLink: { linked: Boolean(worldLinked(chatId)), on: worldLinkOn(chatId) },
       organize: settings().chats?.[chatId]?.organize || { npcCoverage: 'standard', quoteMode: 'dialogue', detailLevel: 'standard' },
       routine: ledger ? L.renderRoutine(ledger, storyNow.get(chatId) || ledger.storyTime || null, { only: routinePeople(chatId) }) : '',
       routineItems: (ledger?.routine || []).map((r) => ({ ...r, displayWhat: L.routineDisplayKind(r), key: L.routineKey(r) })),
@@ -5634,6 +5649,14 @@ async function routes(app) {
     setRoomMode(chatId, mode);
     return { mode: roomMode(chatId) };
   }));
+  // 「설정집 연동」: off stops the 「처음부터 아는 사이」 lines, World Archive's name pairs and its 종 for this room
+  // (names merged before stay; they are taken back in 이름 정리 as before).
+  app.post('/chats/:id/world-link', guard(async (req) => {
+    const chatId = safeChatId(req.params.id);
+    setWorldLink(chatId, req.body?.on !== false);
+    recalls.delete(chatId);
+    return { worldLink: { linked: Boolean(worldLinked(chatId)), on: worldLinkOn(chatId) } };
+  }));
   app.post('/chats/:id/speaker-names', guard(async (req) => {
     const on = req.body?.on === true;
     setSpeakerNames(safeChatId(req.params.id), on);
@@ -5975,7 +5998,7 @@ function attach(app) {
   log('admin API ready at /api/memory-module');
 }
 
-module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { loadAddress, saveAddress, refreshAddress, presentPeople, Addr, loadState, saveState, loadPlaces, savePlaces, loadKeepsakes, saveKeepsakes, loadTrackers, saveTrackers, Tk, loadConflicts, saveConflicts, refreshConflicts, refreshWorld, Cf, Ks, organizeFor, sceneTokens, lastScenePeople, St, Pl, listRooms, purgeChatMemory, purgeIfGone, deleteOnSend, deletePrepare, listOrphans, deleteOrphans, goneChats, loadNames, saveNames, enqueue, foldScenes, reviewAttributions, loadAttributionLog, sceneJobs, selectedForView, loadSelected, recalls, windows, loadRecallPrefs, saveRecallPrefs, recallReport, recallCandidates, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, loadTranslations, saveTranslations, chatLangs, langRecords, loadLang, noteLanguage, LANG_REFRESH_EVERY, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, routinePeople, noteSourceKo, sourceKo, sourceQuoteItems, quoteHints, roomSetup, setupNote, withSetup, nameInstructions, jobs, writeLanguage, roomWriteLanguage, memoryCallOptions, routineSetting, routineEnabled, attributionSetting, featureOn, featureSetting, F, B, clearRoomCaches, promptLanguage, translateDisplayLater, loadNotebook, saveNotebook, Nb, fixNoteLanguages, rebuildNotebook, notebookJobStatus, notebookLanguageOf, notebookLanguageSetting, planAnswersOn, tidySteps, tidyLedger, noteUsage, usageSummary, RESTORE_UNDO_DIR, notebookRunning: (id) => notebookJobs.get(id)?.state === 'running', translationRun: (id, texts) => translateMissing(id, "ko", texts), flushTranslations, clearTranslationFailures, translationGaveUp, staleNames, autoMergeByGlossary, roomMode, setRoomMode, roomPeople, stampMode, worldArchivePeople, waPeopleCache, simulatorExample, petNotes, askModel, worldLink, worldRelations, worldRelCache, worldSpecies, sceneOptions } };
+module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { loadAddress, saveAddress, refreshAddress, presentPeople, Addr, loadState, saveState, loadPlaces, savePlaces, loadKeepsakes, saveKeepsakes, loadTrackers, saveTrackers, Tk, loadConflicts, saveConflicts, refreshConflicts, refreshWorld, Cf, Ks, organizeFor, sceneTokens, lastScenePeople, St, Pl, listRooms, purgeChatMemory, purgeIfGone, deleteOnSend, deletePrepare, listOrphans, deleteOrphans, goneChats, loadNames, saveNames, enqueue, foldScenes, reviewAttributions, loadAttributionLog, sceneJobs, selectedForView, loadSelected, recalls, windows, loadRecallPrefs, saveRecallPrefs, recallReport, recallCandidates, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, loadTranslations, saveTranslations, chatLangs, langRecords, loadLang, noteLanguage, LANG_REFRESH_EVERY, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, routinePeople, noteSourceKo, sourceKo, sourceQuoteItems, quoteHints, roomSetup, setupNote, withSetup, nameInstructions, jobs, writeLanguage, roomWriteLanguage, memoryCallOptions, routineSetting, routineEnabled, attributionSetting, featureOn, featureSetting, F, B, clearRoomCaches, promptLanguage, translateDisplayLater, loadNotebook, saveNotebook, Nb, fixNoteLanguages, rebuildNotebook, notebookJobStatus, notebookLanguageOf, notebookLanguageSetting, planAnswersOn, tidySteps, tidyLedger, noteUsage, usageSummary, RESTORE_UNDO_DIR, notebookRunning: (id) => notebookJobs.get(id)?.state === 'running', translationRun: (id, texts) => translateMissing(id, "ko", texts), flushTranslations, clearTranslationFailures, translationGaveUp, staleNames, autoMergeByGlossary, roomMode, setRoomMode, roomPeople, stampMode, worldArchivePeople, waPeopleCache, simulatorExample, petNotes, askModel, worldLink, worldRelations, worldRelCache, worldSpecies, sceneOptions, worldLinked, worldLinkOn, setWorldLink } };
 
 
 

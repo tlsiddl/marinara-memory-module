@@ -177,3 +177,41 @@ test('a 종 is not "an animal": a ghost, a house-elf or a goblin who talks keeps
   const found = Pets.targets(store, store.scenes, batch, { species });
   assert.deepEqual(found.map((f) => f.names), [[CAT]]);
 });
+
+test('「설정집 연동」 switch: on by default in a linked room; off → no 「아는 사이」 lines, no World Archive name pairs, no 종 — the prompt is exactly as without World Archive', async () => {
+  const room = 'wl_switch';
+  globalThis.__marinaraWorldArchive = { api: linkedApi() };
+  X.worldRelCache.clear();
+  try {
+    assert.equal(X.worldLinkOn(room), true, 'on unless turned off');
+    assert.ok(X.worldLink(room));
+    const character = { ...S.emptyStore(), cast: [C.NARRATOR], personas: [USER] };
+    assert.match(S.buildScenePrompt(character, slice(), 2, null, X.sceneOptions(room))[1].content, /\[설정집 관계/);
+    X.setWorldLink(room, false);
+    assert.equal(X.settings().chats[room].worldLink, 'off');
+    assert.ok(X.worldLinked(room), 'still linked to a world (the switch shows)');
+    assert.equal(X.worldLink(room), null, 'but not used');
+    assert.equal(X.worldSpecies(room), null);
+    assert.equal(JSON.stringify(S.buildScenePrompt(character, slice(), 2, null, X.sceneOptions(room))), JSON.stringify(S.buildScenePrompt(character, slice(), 2, null, X.organizeFor(room))), 'off: not one character differs from no World Archive');
+    // Names: with the switch off, World Archive's pair is not used (no glossary here: nothing to merge).
+    X.saveScenes(room, { ...S.emptyStore(), cast: [C.NARRATOR], scenes: [{ id: 'S1', start: 1, end: 1, title: 't', summary: '', present: ['Julian Avery', JULIAN], recollections: [], events: [{ text: 'x', with: [], quotes: [{ q: 'a', by: 'Julian Avery', kind: 'dialogue' }, { q: 'b', by: JULIAN, kind: 'dialogue' }] }] }] });
+    assert.equal(await X.autoMergeByGlossary(room), 0);
+    X.setWorldLink(room, true);
+    assert.equal(X.settings().chats[room].worldLink, undefined, 'on stores nothing');
+    assert.equal(await X.autoMergeByGlossary(room), 1, 'on again: World Archive\'s pair merges them');
+  } finally {
+    delete globalThis.__marinaraWorldArchive;
+    X.worldRelCache.clear();
+  }
+});
+
+test('the screen: the switch only for a linked room; World Archive\'s status asked once when the page loads (a 404 is final), again on opening only while it was there; an unlinked room\'s tab only links it', () => {
+  const rt = require('node:fs').readFileSync(require('node:path').join(__dirname, '../extension/runtime.js'), 'utf8');
+  assert.match(rt, /\$\{info\.worldLink\?\.linked \? `<label class="setting-switch"><span>설정집 연동/);
+  assert.match(rt, /if \(!ok\) worldTab\.gone = true;/);
+  assert.match(rt, /if \(worldTab\.gone\) return;/);
+  assert.match(rt, /if \(worldTab\.available\) \{ worldTab\.linkRoom = ''; void checkWorldTab\(\); \}/);
+  assert.doesNotMatch(rt, /setInterval\([^)]*checkWorldTab/, 'no checking every minute');
+  assert.match(rt, /이 방을 세계관에 연결하기/);
+  assert.match(rt, /case 'worldLinkRoom':/);
+});
