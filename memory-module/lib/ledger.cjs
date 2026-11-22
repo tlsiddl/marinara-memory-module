@@ -1037,10 +1037,14 @@ function buildPrompt(ledger, batch, context = [], { routine = true } = {}) {
   const open = ledger.threads.filter((t) => t.status === 'open');
   const parts = [];
   const personas = personaNames([...context, ...batch]);
-  const cast = groupCast(ledger).filter((n) => !personas.includes(n));
+  // 세계 시뮬레이터 방: the narrator is no person; only the people these messages name (≤40, latest first).
+  const sim = ledger.mode === 'simulator';
+  const everyone = groupCast(ledger).filter((n) => !personas.includes(n));
+  const cast = sim ? require('./simulator.cjs').batchCast(everyone, [...context, ...batch], ledger.castAliases) : everyone;
+  if (sim && (ledger.narrators || []).length) parts.push(require('./simulator.cjs').narratorLine(ledger.narrators));
   if (cast.length >= 2) parts.push(`[등장인물] ${cast.join(', ')}`);
   if (personas.length) parts.push(`[사용자 캐릭터] ${personas.join(', ')}`);
-  if (personas.length || cast.length >= 2) parts.push('');
+  if (personas.length || cast.length >= 2 || (sim && (ledger.narrators || []).length)) parts.push('');
   parts.push('## 현재 장부 (열린 항목)', open.length ? open.map((t) => describeThread(t, ledger.storyDate)).join('\n') : '(비어 있음)');
   const recentlyClosed = ledger.threads
     .filter((t) => t.status === 'closed' && !t.mergedInto)

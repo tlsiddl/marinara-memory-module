@@ -5,6 +5,7 @@
 // Pure logic only; the engine side lives in service.cjs.
 
 const L = require('./ledger.cjs');
+const Sim = require('./simulator.cjs');
 const A = require('./aliases.cjs');
 const St = require('./state.cjs');
 const Pl = require('./places.cjs');
@@ -400,9 +401,12 @@ function absentFrom(scene, cast) {
 function buildScenePrompt(store, slice, required, problem = null, preferences = {}) {
   const parts = [];
   const known = liveFacts(store).slice(-80);
-  const cast = castOf(store);
+  const sim = store.mode === 'simulator';
+  const cast = sim ? Sim.batchCast(castOf(store), slice, store.castAliases) : castOf(store);
   const group = cast.length >= 2;
-  const unawareNote = (f) => (group ? [f.unaware?.length ? ` (모름: ${f.unaware.join('·')})` : '', f.guess?.length ? ` (짐작만: ${f.guess.join('·')})` : ''].join('') : '');
+  // 세계 시뮬레이터: who does not know a fact is everyone else in the room (dozens); the prompt shows only this batch's people.
+  const here = (list) => (sim ? (list || []).filter((n) => cast.includes(n)) : list);
+  const unawareNote = (f) => (group ? [here(f.unaware)?.length ? ` (모름: ${here(f.unaware).join('·')})` : '', here(f.guess)?.length ? ` (짐작만: ${here(f.guess).join('·')})` : ''].join('') : '');
   parts.push('## 이미 아는 사실', known.length ? known.map((f) => `- ${f.id} ${f.about ? `${f.about}: ` : ''}${f.text}${unawareNote(f)}`).join('\n') : '(없음)');
   // Earlier scenes by number: a later reveal can point back at one, and who missed it is shown in a group story.
   const list = store.scenes.slice(-PRESENCE_SCENES);
@@ -425,6 +429,7 @@ function buildScenePrompt(store, slice, required, problem = null, preferences = 
   }
   const personas = L.personaNames(slice);
   const head = [];
+  if (sim && Sim.narratorLine(store.narrators)) head.push(Sim.narratorLine(store.narrators));
   if (cast.length) head.push(`[등장인물] ${cast.join(', ')}`);
   if (personas.length) head.push(`[사용자 캐릭터] ${personas.join(', ')}`);
   if (head.length) parts.unshift(...head, '');
@@ -447,6 +452,7 @@ function buildScenePrompt(store, slice, required, problem = null, preferences = 
   if (preferences.quoteMode === 'both') guidance.push(`사건의 대사와 중요한 서술을 모두 인용해. 각 사건에서 중요한 대사와 행동·표정·접촉·상황 변화의 서술을 각각 원문 문장 번호로 인용해. 대사가 있는 사건도 관련 서술이 있으면 최소 한 문장을 별도 quotes 항목으로 넣어. 원문에 없으면 만들지 마. 사건마다 최대 ${quoteLimit('both')}개. 질문과 답변은 함께 보존하고 서술의 by와 to는 null로 둬. 이름·철자 공개 뒤의 질문과 반응처럼 새 전개가 있으면 별도 사건을 만들어 그 대사를 직접 연결해.`);
   // Optional records (인물 상태, 장소): added only while the room's switch is on, so a room without them gets the same prompt as before.
   const extras = [LINES_PROMPT];
+  if (sim) extras.push(Sim.NARRATOR_PROMPT);
   if (preferences.characterState) extras.push(St.PROMPT);
   if (preferences.places) extras.push(Pl.PROMPT);
   if (preferences.keepsakes) extras.push(Ks.PROMPT);
@@ -1076,7 +1082,23 @@ function sceneNotesOf(raw, scenePlace) {
  * Turn a model result into scenes for this slice. Scenes follow each other with no gap, from the slice start,
  * and the last one must reach `required`. Returns { scenes, facts, covered } or { error }.
  */
-function applyScenes(store, result, slice, required, now = new Date().toISOString(), { partial = false, quoteMode = 'dialogue', verifyAttribution = false, strictCoverage = false, characterState = false, places = false, keepsakes = false, dateHints = false, notebook = false, notebookStats = null, notebookLang = 'character' } = {}) {
+function applyScenes(store, result, slice, required, now, options) {
+  if (store.mode !== 'simulator') return applySceneReply(store, result, slice, required, now, options);
+  // Each newcomer under the name the room's name table keeps them by ("Minerva McGonagall" linked to 미네르바 맥고나걸
+  // by the glossary joins as 미네르바 맥고나걸), so the reply's two forms of them count as one person.
+  const newcomers = Sim.canonCast(Sim.newPeople(store, Array.isArray(result?.scenes) ? result.scenes : [], slice)).filter((n) => !(store.cast || []).some((c) => A.canonical(c) === n));
+  if (!newcomers.length) return applySceneReply(store, result, slice, required, now, options);
+  const before = store.cast;
+  store.cast = [...(before || []), ...newcomers];
+  try {
+    const out = applySceneReply(store, result, slice, required, now, options);
+    return out.error ? out : { ...out, people: newcomers };
+  } finally {
+    store.cast = before;
+  }
+}
+
+function applySceneReply(store, result, slice, required, now = new Date().toISOString(), { partial = false, quoteMode = 'dialogue', verifyAttribution = false, strictCoverage = false, characterState = false, places = false, keepsakes = false, dateHints = false, notebook = false, notebookStats = null, notebookLang = 'character' } = {}) {
   const raw = Array.isArray(result?.scenes) ? result.scenes : null;
   if (!raw || !raw.length) return { error: '장면이 비어 있습니다' };
   // OOC talk is never a quote, a fact's evidence or a note's evidence.
@@ -2995,12 +3017,25 @@ function applyLearned(store, learned) {
 }
 
 function commitScenes(store, applied) {
+  // 세계 시뮬레이터: a person listed both as knowing and, in their other script, as not knowing knows it (the two forms
+  // become one name just below).
+  if (store.mode === 'simulator') {
+    for (const f of applied.facts || []) {
+      if (!Array.isArray(f.unaware) || !Array.isArray(f.knownBy)) continue;
+      f.unaware = f.unaware.filter((u) => !f.knownBy.some((k) => k !== u && A.canonical(k) === A.canonical(u)));
+    }
+  }
   // People renamed by hand keep the name the user chose in what the model writes next.
   A.rewriteDeep(applied.scenes);
   A.rewriteDeep(applied.facts);
   A.rewriteDeep(applied.later);
   A.rewriteDeep(applied.learned);
   store.scenes.push(...applied.scenes);
+  // 세계 시뮬레이터: the people this reply brought in join the room now (not when a reply is only tried).
+  for (const raw of applied.people || []) {
+    const name = A.canonical(raw);
+    if (Array.isArray(store.cast) && !store.cast.some((c) => A.canonical(c) === name) && store.cast.length < Sim.ROOM_CAST_MAX) store.cast.push(name);
+  }
   for (const f of applied.facts) {
     const old = f.replaces && store.facts.find((k) => k.id === f.replaces);
     if (old && !old.edited) old.replacedBy = f.id;

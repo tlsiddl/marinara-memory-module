@@ -24,6 +24,7 @@ const Ks = require('./keepsakes.cjs');
 const Nb = require('./notebook.cjs');
 const Tk = require('./trackers.cjs');
 const Rp = require('./reasons.cjs');
+const Sim = require('./simulator.cjs');
 
 /**
  * Marinara's own data folder, found the way Marinara finds it: DATA_DIR (relative to the server package) if set,
@@ -1204,6 +1205,80 @@ function setSpeakerTags(chatId, on) {
 }
 
 function speakerNamesOn(chatId) { return settings().chats?.[chatId]?.speakerNames === true; }
+
+/*
+ * 기억 관리 모드 (방마다): 'character' (캐릭터 RP, the default — what the module always did) or 'simulator'
+ * (세계 시뮬레이터: the card is the narrator, the NPCs it voices are the people). Changing it deletes nothing.
+ */
+function roomMode(chatId) {
+  return Sim.mode(settings().chats?.[chatId]?.mode);
+}
+function setRoomMode(chatId, mode) {
+  const next = settings();
+  const room = { ...(next.chats?.[chatId] || {}) };
+  if (mode === 'simulator') room.mode = 'simulator';
+  else delete room.mode;
+  next.chats = { ...next.chats, [chatId]: room };
+  saveSettings(next);
+}
+
+/** People World Archive (세계관 설정집) knows for this room: [{ name, aliases }] — read only, kept a minute. */
+const waPeopleCache = new Map();
+function worldArchivePeople(chatId) {
+  const hit = waPeopleCache.get(chatId);
+  if (hit && Date.now() - hit.at < 60_000) return hit.people;
+  let people = [];
+  try {
+    const api = globalThis.__marinaraWorldArchive?.api;
+    const got = typeof api?.roomEntities === 'function' ? api.roomEntities(chatId) : null;
+    people = (Array.isArray(got?.entities) ? got.entities : [])
+      .filter((e) => e?.type === 'person' && typeof e.name === 'string' && e.name.trim() && !Sim.isDescribedName(e.name))
+      .map((e) => ({ name: e.name.trim(), aliases: (Array.isArray(e.aliases) ? e.aliases : []).filter((a) => typeof a === 'string' && a.trim()) }));
+  } catch {}
+  waPeopleCache.set(chatId, { at: Date.now(), people });
+  return people;
+}
+
+/**
+ * The room's people for the memory's calls. Character mode: the chat's characters (as always). Simulator: the
+ * characters are the narrators; the people are the ones the scenes named before (kept in the store) and World
+ * Archive's people, without the narrators. Returns { cast, narrators, aliases }.
+ */
+async function roomPeople(chatId, store) {
+  const cards = await chatCast(chatId);
+  if (roomMode(chatId) !== 'simulator') return { cast: cards, narrators: null, aliases: null };
+  const aliases = {};
+  const cast = [];
+  const add = (name, other = []) => {
+    // Under the name the room's name table keeps them by (one person, one entry), and only a card of the list is a card.
+    name = A.canonical(name);
+    if (!name || Sim.inList(name, cards) || cast.length >= Sim.ROOM_CAST_MAX) return;
+    const have = cast.find((c) => A.canonical(c) === name);
+    if (!have) cast.push(name);
+    const key = have || name;
+    if (other.length) aliases[key] = [...new Set([...(aliases[key] || []), ...other])].slice(0, 20);
+  };
+  // The people the scenes named before: the cast while the room was a simulator, kept as simCast while it is not.
+  const before = store?.mode === 'simulator' ? store.cast : store?.simCast;
+  for (const name of Array.isArray(before) ? before : []) add(name);
+  for (const p of worldArchivePeople(chatId)) add(p.name, p.aliases);
+  return { cast, narrators: cards, aliases };
+}
+
+/** Puts the room's mode and people on a scene store or a ledger. Character mode leaves no new keys behind. */
+function stampMode(target, people) {
+  if (people.narrators) {
+    target.mode = 'simulator';
+    target.narrators = people.narrators;
+    target.castAliases = people.aliases;
+  } else {
+    // Back to character mode: the people the simulator found are kept (simCast), so turning it on again loses nothing.
+    if (target.mode === 'simulator' && Array.isArray(target.cast)) target.simCast = target.cast.slice();
+    delete target.mode;
+    delete target.narrators;
+    delete target.castAliases;
+  }
+}
 /** The people the room chose for 최근 생활 (none chosen: everyone with a record). */
 function routinePeople(chatId) {
   const list = settings().chats?.[chatId]?.routinePeople;
@@ -2060,7 +2135,10 @@ function processChat(chatId, { rebuild = false, reason = 'auto' } = {}) {
       let ledger = rebuild ? L.emptyLedger() : structuredClone(loadLedger(chatId) || L.emptyLedger());
       // Reading everything again with daily life off keeps what it recorded before.
       if (rebuild && !routine) ledger.routine = structuredClone(loadLedger(chatId)?.routine || []);
-      ledger.cast = await chatCast(chatId);
+      const people = await roomPeople(chatId, loadScenes(chatId));
+      stampMode(ledger, people);
+      delete ledger.simCast; // the scenes keep the simulator's people; the ledger reads them from there
+      ledger.cast = people.cast;
       ledger.personas = L.personaNames(messages);
       seedNames(chatId, [...ledger.cast, ...ledger.personas]);
       L.tidyKnowledge(ledger);
@@ -2601,8 +2679,11 @@ function processScenes(chatId, { rebuild = false, reason = 'auto' } = {}) {
         if (voiced) recalls.delete(chatId);
         const translated = S.attachTranslations(store, messages) + S.tidyKnowledge(store);
         const personas = L.personaNames(messages);
-        const cast = await chatCast(chatId);
-        const personasChanged = JSON.stringify(personas) !== JSON.stringify(store.personas || []) || JSON.stringify(cast) !== JSON.stringify(store.cast || []);
+        const people = await roomPeople(chatId, store);
+        const cast = people.cast;
+        const modeBefore = JSON.stringify([store.mode, store.narrators, store.castAliases]);
+        stampMode(store, people);
+        const personasChanged = JSON.stringify(personas) !== JSON.stringify(store.personas || []) || JSON.stringify(cast) !== JSON.stringify(store.cast || []) || modeBefore !== JSON.stringify([store.mode, store.narrators, store.castAliases]);
         if (personasChanged) {
           store.personas = personas;
           store.cast = cast;
@@ -4469,6 +4550,7 @@ async function routes(app) {
       selectedCount: fs.existsSync(selectedFile(chatId)) ? loadSelected(chatId, { readonly: true }).items.length : 0,
       selectedStamp: fileStamp(selectedFile(chatId)),
       speakerNames: speakerNamesOn(chatId),
+      mode: roomMode(chatId),
       organize: settings().chats?.[chatId]?.organize || { npcCoverage: 'standard', quoteMode: 'dialogue', detailLevel: 'standard' },
       routine: ledger ? L.renderRoutine(ledger, storyNow.get(chatId) || ledger.storyTime || null, { only: routinePeople(chatId) }) : '',
       routineItems: (ledger?.routine || []).map((r) => ({ ...r, displayWhat: L.routineDisplayKind(r), key: L.routineKey(r) })),
@@ -5472,6 +5554,13 @@ async function routes(app) {
     setSpeakerTags(safeChatId(req.params.id), on);
     return { speakerTags: on };
   }));
+  app.post('/chats/:id/mode', guard(async (req) => {
+    const mode = req.body?.mode;
+    if (!Sim.MODES.includes(mode)) throw Object.assign(new Error("mode는 'character' 또는 'simulator'입니다."), { statusCode: 400 });
+    const chatId = safeChatId(req.params.id);
+    setRoomMode(chatId, mode);
+    return { mode: roomMode(chatId) };
+  }));
   app.post('/chats/:id/speaker-names', guard(async (req) => {
     const on = req.body?.on === true;
     setSpeakerNames(safeChatId(req.params.id), on);
@@ -5595,8 +5684,15 @@ function nameInstructions(chatId, names) {
   const parts = [];
   const rules = roomSetup(chatId).rules;
   if (rules) parts.push(`${SETUP_RULES_HEAD}\n${rules}`);
-  if (speakerNamesOn(chatId)) parts.push(SP.namePrefixInstructions(names));
+  if (speakerNamesOn(chatId)) parts.push(SP.namePrefixInstructions(roomMode(chatId) === 'simulator' ? simulatorExample(chatId) : names));
   return parts.filter(Boolean).join('\n\n');
+}
+
+/** A person of a simulator room for the name-label example (never the narrator). */
+function simulatorExample(chatId) {
+  const store = loadScenes(chatId);
+  const cast = Array.isArray(store?.cast) && store.mode === 'simulator' ? store.cast : [];
+  return cast.length ? [cast[0]] : ['Name'];
 }
 
 /** From Marinara's reply cleanup (synchronous): merged roleplay group replies in chats that color speakers. */
@@ -5611,7 +5707,8 @@ function fixSpeakers(text, o) {
     fixed = SP.dedupeDialogueNames(fixed, names);
     fixed = SP.prefixTaggedDialogue(fixed, names);
     if (o.isGroupChat) fixed = SP.restoreContextSpeakerTags(fixed, names, true);
-    if (!o.isGroupChat && names.length === 1) fixed = SP.prefixSingleCharacterDialogue(fixed, names[0]);
+    // A narrator card is no speaker: its standalone quotes are the NPCs' lines, never labelled with its name.
+    if (!o.isGroupChat && names.length === 1 && roomMode(o.chatId) !== 'simulator') fixed = SP.prefixSingleCharacterDialogue(fixed, names[0]);
     if (o.isGroupChat && o.usesIndividualGroupGeneration && o.targetCharId) {
       const target = (o.charInfo || []).find(c => c.id === o.targetCharId);
       if (target?.name) fixed = SP.prefixSingleCharacterDialogue(fixed, target.name);
@@ -5805,7 +5902,7 @@ function attach(app) {
   log('admin API ready at /api/memory-module');
 }
 
-module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { loadAddress, saveAddress, refreshAddress, presentPeople, Addr, loadState, saveState, loadPlaces, savePlaces, loadKeepsakes, saveKeepsakes, loadTrackers, saveTrackers, Tk, loadConflicts, saveConflicts, refreshConflicts, refreshWorld, Cf, Ks, organizeFor, sceneTokens, lastScenePeople, St, Pl, listRooms, purgeChatMemory, purgeIfGone, deleteOnSend, deletePrepare, listOrphans, deleteOrphans, goneChats, loadNames, saveNames, enqueue, foldScenes, reviewAttributions, loadAttributionLog, sceneJobs, selectedForView, loadSelected, recalls, windows, loadRecallPrefs, saveRecallPrefs, recallReport, recallCandidates, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, loadTranslations, saveTranslations, chatLangs, langRecords, loadLang, noteLanguage, LANG_REFRESH_EVERY, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, routinePeople, noteSourceKo, sourceKo, sourceQuoteItems, quoteHints, roomSetup, setupNote, withSetup, nameInstructions, jobs, writeLanguage, roomWriteLanguage, memoryCallOptions, routineSetting, routineEnabled, attributionSetting, featureOn, featureSetting, F, B, clearRoomCaches, promptLanguage, translateDisplayLater, loadNotebook, saveNotebook, Nb, fixNoteLanguages, rebuildNotebook, notebookJobStatus, notebookLanguageOf, notebookLanguageSetting, planAnswersOn, tidySteps, tidyLedger, noteUsage, usageSummary, RESTORE_UNDO_DIR, notebookRunning: (id) => notebookJobs.get(id)?.state === 'running', translationRun: (id, texts) => translateMissing(id, "ko", texts), flushTranslations, clearTranslationFailures, translationGaveUp, staleNames, autoMergeByGlossary } };
+module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { loadAddress, saveAddress, refreshAddress, presentPeople, Addr, loadState, saveState, loadPlaces, savePlaces, loadKeepsakes, saveKeepsakes, loadTrackers, saveTrackers, Tk, loadConflicts, saveConflicts, refreshConflicts, refreshWorld, Cf, Ks, organizeFor, sceneTokens, lastScenePeople, St, Pl, listRooms, purgeChatMemory, purgeIfGone, deleteOnSend, deletePrepare, listOrphans, deleteOrphans, goneChats, loadNames, saveNames, enqueue, foldScenes, reviewAttributions, loadAttributionLog, sceneJobs, selectedForView, loadSelected, recalls, windows, loadRecallPrefs, saveRecallPrefs, recallReport, recallCandidates, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, loadTranslations, saveTranslations, chatLangs, langRecords, loadLang, noteLanguage, LANG_REFRESH_EVERY, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, routinePeople, noteSourceKo, sourceKo, sourceQuoteItems, quoteHints, roomSetup, setupNote, withSetup, nameInstructions, jobs, writeLanguage, roomWriteLanguage, memoryCallOptions, routineSetting, routineEnabled, attributionSetting, featureOn, featureSetting, F, B, clearRoomCaches, promptLanguage, translateDisplayLater, loadNotebook, saveNotebook, Nb, fixNoteLanguages, rebuildNotebook, notebookJobStatus, notebookLanguageOf, notebookLanguageSetting, planAnswersOn, tidySteps, tidyLedger, noteUsage, usageSummary, RESTORE_UNDO_DIR, notebookRunning: (id) => notebookJobs.get(id)?.state === 'running', translationRun: (id, texts) => translateMissing(id, "ko", texts), flushTranslations, clearTranslationFailures, translationGaveUp, staleNames, autoMergeByGlossary, roomMode, setRoomMode, roomPeople, stampMode, worldArchivePeople, waPeopleCache, simulatorExample } };
 
 
 

@@ -1835,6 +1835,7 @@
       </div>
       <div class="paper"><h2>이 방</h2>
         <label class="setting-switch"><span>기억 사용<small>켜면 답변마다 장부와 장면을 자동으로 갱신합니다.</small></span><input type="checkbox" id="setEnabled" ${info.enabled ? 'checked' : ''}></label>
+        <label>기억 관리 모드<select id="setRoomMode"><option value="character" ${info.mode !== 'simulator' ? 'selected' : ''}>캐릭터 RP</option><option value="simulator" ${info.mode === 'simulator' ? 'selected' : ''}>세계 시뮬레이터</option></select></label><p class="hint">세계 시뮬레이터는 봇 카드를 이야기를 진행하는 내레이터로 보고, 카드가 연기하는 NPC들을 한 명씩 인물로 기억합니다(수첩·아는 사람·관계). 카드 이름으로는 인물·수첩을 만들지 않고, 대사 앞 이름도 카드 이름으로 붙이지 않습니다. 세계관 설정집이 이 방에 연결돼 있으면 그 인물 목록을 읽어 씁니다. 바꿔도 지우는 기억은 없고, 다음 정리부터 적용됩니다.</p>
         <label class="setting-switch"><span>말풍선 태그 되살리기<small>화자 색상이 켜진 '합쳐서' 그룹 RP에서 모델이 원래의 숨은 화자 태그를 출력하도록 지침을 보강합니다. 보이는 이름표 없이 따옴표만 쓰는 대사에도 적용됩니다.</small></span><input type="checkbox" id="setTags" ${info.speakerTags ? 'checked' : ''}></label>
         <label class="setting-switch"><span>대사 앞에 이름 표시<small>캐릭터 대사에 '이름 | 대사'를 출력하도록 요청합니다. 말풍선 태그 기능과 독립적으로 설정할 수 있습니다.</small></span><input type="checkbox" id="setSpeakerNames" ${info.speakerNames ? 'checked' : ''}></label>
         <label>장면의 디테일<select id="setDetailLevel"><option value="standard" ${!info.organize?.detailLevel || info.organize.detailLevel === 'standard' ? 'selected' : ''}>보통</option><option value="detailed" ${info.organize?.detailLevel === 'detailed' ? 'selected' : ''}>자세히</option><option value="very_detailed" ${info.organize?.detailLevel === 'very_detailed' ? 'selected' : ''}>아주 자세히</option></select></label><p class="hint">자세할수록 행동과 반응, 사건의 앞뒤를 더 세밀하게 기록하도록 요청합니다. 정리와 회상에 쓰이는 토큰이 늘어날 수 있습니다.</p>
@@ -3621,6 +3622,10 @@
           localStorage.setItem('memory-module-font', font);
         } catch {}
         return render();
+      }
+      if (e.target.id === 'setRoomMode') {
+        const mode = e.target.value === 'simulator' ? 'simulator' : 'character';
+        void act(() => api('POST', `/chats/${encodeURIComponent(room)}/mode`, { mode }), mode === 'simulator' ? '세계 시뮬레이터로 바꿨습니다. 다음 정리부터 적용됩니다.' : '캐릭터 RP로 바꿨습니다. 다음 정리부터 적용됩니다.');
       }
       if (e.target.id === 'setSpeakerNames') {
         const on = e.target.checked;
