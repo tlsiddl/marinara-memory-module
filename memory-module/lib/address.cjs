@@ -14,6 +14,9 @@
 //   suggestions  what the user's own corrections suggest: { id, kind: 'address' | 'alias', ..., status: 'open' |
 //                'ignored' | 'done' }. Nothing here changes any rule until the user accepts it.
 //   edits        a short record of listeners the user changed after the module had only guessed them.
+//   blocked      calls the user deleted: { key (from|to|term), from, to, term, at }. A scan never puts one back (a
+//                line or a translation set off like a call, "대니 차례!", came back after every delete); the user can
+//                let one come back (unblock), and adding it by hand lets it back too.
 // Both are part of the module (no switch since 0.11.59). Pure logic; the service loads and saves the file.
 
 const crypto = require('node:crypto');
@@ -46,11 +49,14 @@ const entryId = (e) => hash('entry', entryKey(e));
 const before = (a, b) => a.number < b.number || (a.number === b.number && a.sentence < b.sentence);
 
 /** Entries of a book as stored, with every name read through the room's name table and duplicates merged. */
+const blockedKeys = (book) => new Set((book.blocked || []).map((b) => b.key));
 function normalize(book) {
   const merged = new Map();
+  const blocked = blockedKeys(book);
   for (const raw of book.entries || []) {
     const from = A.canonical(raw.from), to = A.canonical(raw.to), term = tidy(raw.term);
     if (!from || !to || !term || from === to) continue;
+    if (!isOwn(raw) && blocked.has(`${from}|${to}|${keyOfTerm(term)}`)) continue;
     // An automatic entry that is really a discourse word or a verb is dropped (the user's own entries never are).
     if (!isOwn(raw) && !S.plausibleTerm(term)) continue;
     const e = { ...raw, from, to, term };
@@ -328,10 +334,12 @@ function refresh(book, store) {
   const found = tally(store);
   const old = new Map(normalize(book).map((e) => [entryKey(e), e]));
   const next = [];
+  const blocked = blockedKeys(book);
   for (const [key, row] of found) {
     const prev = old.get(key);
     if (isOwn(prev)) continue;
     if (row.count < MIN_COUNT) continue;
+    if (blocked.has(entryKey(row))) continue;
     next.push({ id: entryId(row), from: row.from, to: row.to, term: prev?.term || row.term, count: row.count, firstSeen: row.firstSeen, lastSeen: row.lastSeen, source: 'auto', useForCheck: prev?.useForCheck === false ? false : true });
   }
   for (const [key, prev] of old) {
@@ -448,6 +456,8 @@ function addEntry(book, input) {
   const { from, to, term, note } = checkEntry(input);
   const entries = normalize(book);
   const key = entryKey({ from, to, term });
+  // Added by hand after it was deleted: it is the user's now, and no longer kept out.
+  if ((book.blocked || []).some((b) => b.key === key)) book.blocked = book.blocked.filter((b) => b.key !== key);
   const found = entries.find((e) => entryKey(e) === key);
   if (found) {
     found.source = 'user';
@@ -478,14 +488,27 @@ function editEntry(book, id, input) {
   return moved;
 }
 
-function deleteEntry(book, id) {
+const MAX_BLOCKED = 300;
+/** Deleted, and not made again by a scan (see `blocked`); a pair goes as one. */
+function deleteEntry(book, id, { now = new Date().toISOString() } = {}) {
   const entries = normalize(book);
   const found = entries.find((e) => e.id === id);
   if (!found) throw Error('해당 호칭을 찾지 못했습니다.');
   const other = partnerOf(entries, found); // a pair goes as one
   book.entries = entries.filter((e) => e.id !== id && e.id !== other?.id);
-  book.updatedAt = new Date().toISOString();
+  const gone = [found, other].filter(Boolean).map((e) => ({ key: entryKey(e), from: e.from, to: e.to, term: e.term, at: now }));
+  const keys = new Set(gone.map((b) => b.key));
+  book.blocked = [...(book.blocked || []).filter((b) => !keys.has(b.key)), ...gone].slice(-MAX_BLOCKED);
+  book.updatedAt = now;
   return found;
+}
+/** A deleted call may come back (the next scan finds it again if the dialogue still shows it). */
+function unblockEntry(book, key) {
+  const before = (book.blocked || []).length;
+  book.blocked = (book.blocked || []).filter((b) => b.key !== key);
+  if (book.blocked.length === before) throw Error('해당 지운 호칭을 찾지 못했습니다.');
+  book.updatedAt = new Date().toISOString();
+  return { key };
 }
 
 function toggleEntry(book, id, on) {
@@ -706,10 +729,11 @@ function view(book, { addressBook, learnFromEdits }) {
     suggestions: (book.suggestions || []).filter((s) => s.status === 'open'),
     applied: appliedView(book),
     edits: (book.edits || []).slice(-10),
+    blocked: (book.blocked || []).slice().reverse(),
   };
 }
 
 module.exports = {
   ADDRESS_VERSION, MIN_COUNT, INJECT_CHARS, emptyBook, isBook, normalize, tally, refresh, termMap, injectionBlock,
-  MAX_APPLIED, autoApply, undoApplied, appliedView, addEntry, editEntry, deleteEntry, toggleEntry, splitPair, pairUp, pushSuggestion, answerSuggestion, recordEdit, learnFromSceneEdit, view, entryKey, keyOfTerm,
+  MAX_APPLIED, autoApply, undoApplied, appliedView, addEntry, editEntry, deleteEntry, unblockEntry, toggleEntry, splitPair, pairUp, pushSuggestion, answerSuggestion, recordEdit, learnFromSceneEdit, view, entryKey, keyOfTerm,
 };

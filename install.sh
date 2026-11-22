@@ -142,7 +142,19 @@ install_mm() { # install_mm <folder> <container>
   mv -f "$1/memory-module/mm.download" "$1/memory-module/mm"
   sed -i.bak "s/marinara-engine-marinara-1/$2/" "$1/memory-module/mm" 2>/dev/null && rm -f "$1/memory-module/mm.bak"
   chmod +x "$1/memory-module/mm"
-  if install -m 755 "$1/memory-module/mm" /usr/local/bin/mm 2>/dev/null; then say "      짧은 명령어 mm 도 설치했습니다 (예: mm status)."; fi
+  # A server can run more than one Marinara (a test copy beside the real one). The mm already installed keeps
+  # pointing at its own container while that container still exists; this one is installed as mm-<container>.
+  TARGET=/usr/local/bin/mm
+  if [ -f "$TARGET" ]; then
+    OLD="$(sed -n 's/^C="\${MARINARA_CONTAINER:-\(.*\)}"$/\1/p' "$TARGET" | head -n 1)"
+    if [ -n "$OLD" ] && [ "$OLD" != "$2" ] && docker inspect "$OLD" >/dev/null 2>&1; then
+      TARGET="/usr/local/bin/mm-$2"
+    fi
+  fi
+  if install -m 755 "$1/memory-module/mm" "$TARGET" 2>/dev/null; then
+    if [ "$TARGET" = /usr/local/bin/mm ]; then say "      짧은 명령어 mm 도 설치했습니다 (예: mm status).";
+    else say "      mm 은 원래대로 $OLD 컨테이너를 가리킵니다. 이 컨테이너는 $(basename "$TARGET") 로 부르세요 (예: $(basename "$TARGET") status)."; fi
+  fi
 }
 
 # ---------------------------------------------------------------- 도커

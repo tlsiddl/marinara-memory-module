@@ -585,7 +585,8 @@
         if (!busy) {
           // Idle: only the small status is asked for; the whole room is loaded while a run is on and when it ends.
           if (was) {
-            store = null;
+            // The scenes on screen stay until the new ones arrive (emptied first, the page became "불러오는 중"
+            // for a moment every 3 seconds and the reader was thrown back to the top).
             storeRoom = '';
             await loadRoom(room);
           }
@@ -618,6 +619,35 @@
     }, was || info?.translationPrep?.working || info?.displayTranslating || info?.notebookJob?.state === 'running' ? 3000 : 10000);
   }
 
+  /**
+   * Which folding sections (<details>) the reader has opened or closed, so a redraw (the check every few seconds,
+   * the first press of a two-press button) leaves them as they were. Without it, every redraw folded them all:
+   * the page got shorter, the reader was thrown up, and a 「끝난 일로 닫기」 pressed once was folded away before the
+   * second press. Known by the tab and the summary's words (and which one of the same words it is).
+   */
+  let foldTab = '';
+  function foldKeys(content) {
+    const seen = new Map();
+    if (typeof content?.querySelectorAll !== 'function') return [];
+    return [...(content.querySelectorAll('details') || [])].map((d) => {
+      const summary = d.querySelector(':scope > summary');
+      // Its own id when it has one (a 할 일 item, a list, a scene), else the summary's words.
+      const own = Object.entries(d.dataset).find(([k, v]) => v && k !== 'act')?.join(':');
+      const words = (own || summary?.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 120);
+      const n = (seen.get(words) || 0) + 1;
+      seen.set(words, n);
+      return [d, `${words}#${n}`];
+    });
+  }
+  function foldState(content) {
+    if (foldTab !== tab) { foldTab = tab; return null; }
+    return new Map(foldKeys(content).map(([d, key]) => [key, d.open]));
+  }
+  function restoreFolds(content, folds) {
+    if (!folds?.size) return;
+    for (const [d, key] of foldKeys(content)) if (folds.has(key) && d.open !== folds.get(key)) d.open = folds.get(key);
+  }
+
   /** Someone is typing in the library: a background check must not redraw the form under them. */
   function editing() {
     const el = root?.activeElement;
@@ -641,7 +671,7 @@
       await fn();
       if (done) notice = done;
       if (options.reload !== false) {
-        store = null;
+        // Reloaded in place (see schedulePoll): the page keeps its length and the reader's place.
         storeRoom = '';
         await loadRoom(room);
       }
@@ -1654,6 +1684,7 @@
     const book = a.addressBook ? `<div class="paper"><h2>호칭 사전 · ${entries.length}개</h2>
       <p class="hint">누가 누구를 어떻게 부르는지입니다. 저장된 대사에서 같은 부르는 말을 두 번 이상 쓴 것만 자동으로 올라오고(모델을 부르지 않습니다), 직접 추가한 것은 횟수와 상관없이 남습니다. ‘대사 확인에 쓰기’를 켜 둔 말은 대사의 화자·상대를 확인할 때 쓰입니다(그 말로 불린 사람은 상대이고 화자가 아님). 자동으로 올라온 항목은 다음 정리 때 대사에 맞게 다시 계산되고, 고치면 직접 추가한 것이 됩니다.</p>
       ${entries.length ? entries.map(row).join('') : '<p class="hint">아직 없습니다.</p>'}
+      ${(a.blocked || []).length ? `<details class="address-blocked" data-list="address-blocked"><summary>지운 호칭 · ${a.blocked.length}개 (다시 자동으로 만들지 않음)</summary><p class="hint">지운 호칭은 저장된 대사에 다시 나와도 자동으로 올리지 않습니다. 되살리면 다음 정리 때 대사에 있으면 다시 올라옵니다(직접 추가해도 됩니다).</p>${a.blocked.map((b) => `<div class="routine-row"><span><b>${esc(b.from)}</b> → <b>${esc(b.to)}</b>: ${esc(b.term)}</span><button class="ghost" data-act="addressUnblock" data-key="${esc(b.key)}">되살리기</button></div>`).join('')}</details>` : ''}
       <h3>${f.id ? '호칭 고치기' : '호칭 직접 추가'}</h3>
       <div class="routine-row address-form"><input id="addrFrom" list="addrPeople" value="${esc(f.from)}" placeholder="부르는 사람" aria-label="부르는 사람"><input id="addrTo" list="addrPeople" value="${esc(f.to)}" placeholder="불리는 사람" aria-label="불리는 사람"><input id="addrTerm" value="${esc(f.term)}" placeholder="부르는 말 (예: 보스)" aria-label="부르는 말"><input id="addrNote" value="${esc(f.note)}" placeholder="메모(선택)" aria-label="메모">
         <datalist id="addrPeople">${people}</datalist>
@@ -2473,10 +2504,12 @@
     err.textContent = lastError;
     const content = root.querySelector('#content');
     const scroll = content.scrollTop;
+    const folds = foldState(content);
     const jobError = info?.job?.error || info?.sceneJob?.error;
     const warning = jobError ? `<div class="note" role="alert">기억 정리를 마치지 못했습니다. ${esc(jobError)}</div>` : '';
     const translation = trPending || trError ? `<div class="note" role="status">${trError ? `한국어 번역을 마치지 못했습니다. ${esc(trError)}` : trWorking ? '한국어 번역 중입니다.' : trAuto ? '한국어 번역이 남아 있습니다.' : '자동 번역이 꺼져 있어 일부 항목이 영어로 보입니다.'} ${trPending ? `남은 항목: ${trPending}개.` : ''} <button data-act="retryTranslation">${trAuto || trError ? '남은 항목 다시 번역' : '지금 번역'}</button></div>` : '';
     content.innerHTML = warning + translation + subTabs() + VIEWS[tab]();
+    restoreFolds(content, folds);
     content.scrollTop = scroll;
     showWorldTab(content);
     root.querySelector('#inspector').innerHTML = inspector();
@@ -3022,7 +3055,14 @@
           await api('POST', `/chats/${chat}/address`, { action: 'delete', id });
           if (addressForm.id === id) addressForm = { id: '', from: '', to: '', term: '', note: '' };
           names = null;
-        }, '호칭을 지웠습니다.');
+        }, '호칭을 지웠습니다. 대사에 다시 나와도 자동으로 만들지 않습니다(아래 「지운 호칭」에서 되살릴 수 있습니다).');
+      case 'addressUnblock': {
+        const key = el.dataset.key || '';
+        return act(async () => {
+          await api('POST', `/chats/${chat}/address`, { action: 'unblock', key });
+          names = null;
+        }, '지운 호칭을 되살렸습니다. 다음 정리 때 대사에 있으면 다시 올라옵니다.');
+      }
       case 'suggestAccept':
       case 'suggestIgnore': {
         const accept = actName === 'suggestAccept';

@@ -71,3 +71,12 @@ test('a room can read dates from the tracker and hand fixes only', async () => {
   await post('d2', { fromText: true });
   assert.equal((await T.chatMessages('d2'))[0].clock?.date, '2024-03-01');
 });
+
+test('numbers in a status line are not days: four digits, scores, or eight digits under an amount\'s label', () => {
+  for (const x of ['3000', '💰 3000', '[골드|3000]', '[골드|3000|체력|1200]', 'HP 3000/5000', '[RP|3000|카페]', '[3000|19:35|카페]', '[서아|3/10|기분 좋음]', '[금화|20241018]', '💰 12345678']) {
+    assert.equal(L.dateInText(x, '2024-01-01'), null, x);
+  }
+  for (const [x, day] of [['[20241018|19:25]', '2024-10-18'], ['[RP|20241018|카페]', '2024-10-18'], ['[날짜|20241018]', '2024-10-18'], ['[금화|20241018|19:00]', '2024-10-18'], ['[3000.12.25|19:00]', '3000-12-25'], ['[RP|3월 10일|카페]', '2024-03-10']]) {
+    assert.equal(L.dateInText(x, '2024-01-01')?.date, day, x);
+  }
+});

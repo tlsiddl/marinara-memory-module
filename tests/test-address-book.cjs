@@ -434,3 +434,26 @@ test('a reply at the start of a line ("Ricevuto, signore.") is not a term of add
   assert.ok(!got.includes('Ricevuto'), JSON.stringify(got));
   assert.ok(!S.vocativeTerms('"Roger, I am on it."', ['아델']).map((t) => t.term).includes('Roger'));
 });
+
+test('a deleted call is not made again by the next scan; it can be let back, and adding it by hand lets it back', () => {
+  const store = storeOf([
+    dq(1, 1, '"대니 차례!"', ADEL, VITO), dq(2, 1, '"대니 차례!"', ADEL, VITO),
+    dq(3, 1, '"쭈쭈야, 이리 와."', ADEL, VITO), dq(4, 1, '"쭈쭈야, 앉아."', ADEL, VITO),
+  ]);
+  const book = Addr.emptyBook();
+  A.using(null, () => Addr.refresh(book, store));
+  const terms = () => Addr.normalize(book).map((e) => e.term).sort();
+  assert.deepEqual(terms(), ['쭈쭈'], '"대니 차례" is a name and "turn", not a call');
+  const id = Addr.normalize(book).find((e) => e.term === '쭈쭈').id;
+  Addr.deleteEntry(book, id);
+  A.using(null, () => Addr.refresh(book, store));
+  assert.deepEqual(terms(), [], 'not made again');
+  assert.equal(Addr.view(book, {}).blocked[0].term, '쭈쭈');
+  Addr.unblockEntry(book, book.blocked[0].key);
+  A.using(null, () => Addr.refresh(book, store));
+  assert.deepEqual(terms(), ['쭈쭈'], 'let back: found again');
+  Addr.deleteEntry(book, Addr.normalize(book)[0].id);
+  Addr.addEntry(book, { from: ADEL, to: VITO, term: '쭈쭈' });
+  assert.equal((book.blocked || []).length, 0, 'added by hand: no longer kept out');
+  assert.equal(Addr.normalize(book)[0].source, 'user');
+});

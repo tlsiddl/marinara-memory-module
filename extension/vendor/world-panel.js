@@ -1,4 +1,4 @@
-/* Copied from tlsiddl/marinara-world-archive main bb60484 (extension/extension.js, v0.6.1 · 세계관 칸 화면 · 연동 v2 · 계약 수준 2). Do not edit here: change it there and copy again. */
+/* Copied from tlsiddl/marinara-world-archive main fc40f6c (extension/extension.js, v0.7.6 · 인물 카드 네 칸 · 「보기: 원문 · 한국어」 · 계약 수준 2). Do not edit here: change it there and copy again. */
 /* 세계관 설정집 · Marinara World Archive — personal extension UI.
  * Talks only to /api/world-archive on the same server. Visual language follows its sister module 기억 서재
  * (paper grain, ticket notches, ink shadows); the motif here is a star chart instead of a record. */
@@ -8,7 +8,7 @@
   // __WORLD_ARCHIVE_EMBEDDED__ = true; then nothing starts here and the tab calls __memoryWorldPanel.start(box).
   const EMBEDDED = typeof __WORLD_ARCHIVE_EMBEDDED__ !== 'undefined' && __WORLD_ARCHIVE_EMBEDDED__ === true;
   if (!EMBEDDED && document.getElementById('marinara-world-archive-root')) return;
-  const VERSION = '0.6.1';
+  const VERSION = '0.7.6';
   /** The contract level this screen is made for (the server's status.contract). Another level: read only. */
   const PANEL_CONTRACT = 2;
   const UPDATE_MSG = '세계관 칸을 쓰려면 기억 서재(또는 설정집)를 업데이트해 주세요. 지금은 보기만 할 수 있습니다.';
@@ -75,10 +75,28 @@ button.quiet{border-color:transparent;color:var(--wa-muted);padding:6px 8px}butt
 button.danger{color:#a3321f;border-color:#a3321f}:host([data-theme=dark]) button.danger{color:#f0a18f;border-color:#f0a18f}
 :focus-visible{outline:3px solid #8fa3c9;outline-offset:2px}
 .icon{width:18px;height:18px;flex:none;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
-input,select,textarea{width:100%;border-radius:3px;background:var(--wa-field);border:1px solid var(--wa-field-line);padding:9px 11px;line-height:1.55}
+input,select,textarea{width:100%;border-radius:3px;background:var(--wa-field);border:1px solid var(--wa-field-line);padding:9px 11px;line-height:1.55;font-size:15px}
 textarea{min-height:84px;resize:vertical}
-label.f{display:block;font:11px/1.4 var(--wa-mono);letter-spacing:1.5px;color:var(--wa-muted);margin:14px 0 6px}
-label.f em{font:12px var(--wa-sans);letter-spacing:0;font-style:normal;opacity:.85;margin-left:6px}
+label.f{display:block;font:700 14px/1.45 var(--wa-serif);letter-spacing:0;color:var(--wa-ink);margin:16px 0 6px}
+label.f em{display:block;font:12.5px/1.5 var(--wa-sans);letter-spacing:0;font-style:normal;color:var(--wa-muted);margin:2px 0 0}
+.c-line{margin:6px 0 0;font:600 13.5px/1.5 var(--wa-serif);color:var(--wa-ink)}
+.c-two{margin:6px 0 0;font-size:13px;line-height:1.55;color:var(--wa-muted);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.c-hid{display:flex;flex-wrap:wrap;gap:5px;margin-top:10px}
+.hid-cap{display:inline-block;margin-left:8px;font:12px/1.5 var(--wa-sans);color:var(--wa-muted);border:1px dashed var(--wa-muted);border-radius:999px;padding:0 9px;vertical-align:middle}.c-hid .hid-cap{margin-left:0}
+.list-bar{margin:4px 0 16px}.bar-gap{flex:0 0 14px}
+h3.grp{font:700 16px/1.4 var(--wa-serif);margin:22px 0 10px;display:flex;align-items:baseline;gap:8px}h3.grp small{font:12px var(--wa-sans);color:var(--wa-muted)}
+.fact-caps{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 10px}
+.fact-cap{display:inline-flex;align-items:baseline;gap:7px;border:1.2px solid var(--wa-ink);border-radius:999px;padding:4px 13px;font:600 14px/1.45 var(--wa-serif);background:transparent;color:var(--wa-ink)}.fact-cap small{font:12px var(--wa-sans);color:var(--wa-muted);font-weight:400}button.fact-cap{cursor:pointer}
+.rel-caps{display:flex;flex-wrap:wrap;gap:8px}.rel-cap{border:1px solid var(--wa-line);border-radius:999px;padding:4px 12px;background:transparent;color:var(--wa-ink);font:13.5px/1.45 var(--wa-sans);cursor:pointer;white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}.rel-cap b{font-family:var(--wa-serif)}.rel-cap small{color:var(--wa-muted);font-size:12px}.rel-cap .note-dot{font-style:normal;color:var(--wa-muted);margin-left:4px}
+small.was,.past.was{color:#2f5fa8}
+.hid-toggle{display:inline-flex;align-items:center;gap:6px;margin:6px 0 0;font:12.5px var(--wa-sans);color:var(--wa-muted);border:1px dashed var(--wa-line);border-radius:999px;padding:2px 10px}.hid-toggle input{width:auto;margin:0}
+.rel-row{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:6px 0;border-bottom:1px dashed var(--wa-line)}.rel-row span{flex:1;min-width:180px}.rel-row select{width:auto;max-width:220px;padding:5px 8px}.rel-row.add{border-bottom:0}
+.cal-form input{max-width:200px}
+.caps{display:flex;flex-wrap:wrap;gap:6px;margin:2px 0 8px}.caps button{border:1px solid var(--wa-line);border-radius:999px;padding:5px 13px;background:transparent;font:14px/1.4 var(--wa-serif);color:var(--wa-ink);cursor:pointer}.caps button.on{background:var(--wa-ink);color:var(--wa-paper);border-color:var(--wa-ink)}
+.budget-now{margin:4px 0 0;font-size:13px}.budget-now b{color:#a33a2a;font-weight:600}
+.ko{font-family:var(--wa-serif)!important;letter-spacing:0!important;text-transform:none!important}
+.ko.lab{font-weight:700!important;font-size:14px!important;line-height:1.45!important;color:var(--wa-ink)!important;opacity:1!important}
+.ko.sm{font-size:12.5px!important;line-height:1.5!important}
 
 #launch{position:fixed;right:18px;bottom:196px;z-index:2147483600;width:64px;height:64px;padding:0;border:0;background:transparent;filter:drop-shadow(0 3px 6px #0005);transition:transform .2s}
 #launch:hover{background:transparent;transform:translateY(-2px) rotate(3deg)}
@@ -271,8 +289,19 @@ button.cap:hover{background:var(--wa-soft)}.cap.ghost{border-style:dashed;color:
 .world-card{border-top:1px solid var(--wa-line);padding:12px 0}.world-card h3{margin:0 0 6px;display:flex;align-items:center;gap:8px;font:700 15px var(--wa-serif)}.world-card h3 button{border:0;padding:0;font:inherit}
 .world-field{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:4px 0}.world-field>span{flex:0 0 64px;font-size:11px}
 .wt-grp{font-size:11px;color:var(--wa-muted);margin:6px 0 3px}
-.wt-rule{display:flex;gap:10px;padding:9px 0;border-bottom:1px solid var(--wa-line);font-size:13px}.wt-rule b{min-width:150px;flex:none;font-family:var(--wa-serif)}.wt-rule button{border:0;padding:0;text-align:left;font:inherit;font-weight:700;min-width:150px;flex:none}
-.wt-rule span{color:var(--wa-ink);overflow-wrap:anywhere}.wt-rule small{color:var(--wa-muted)}
+.wt-rule{display:flex;align-items:flex-start;gap:12px;padding:11px 0;border-bottom:1px solid var(--wa-line)}
+.wt-rule .tcap{flex:none;width:74px;box-sizing:border-box;text-align:center;border:1px solid var(--wa-line);border-radius:999px;padding:2px 6px;margin-top:2px;font:12px/1.5 var(--wa-sans);letter-spacing:0;color:var(--wa-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wt-rule .tcap.none{border-style:dashed;color:var(--wa-muted)}
+.wt-rule .rb{min-width:0;flex:1}.wt-rule .rt{display:inline;border:0;padding:0;background:transparent;text-align:left;color:var(--wa-ink);font:700 15px/1.45 var(--wa-serif);letter-spacing:0;cursor:pointer}
+.wt-rule .rt:hover{text-decoration:underline}.wt-rule .kind{margin-left:6px;font-size:12px;color:var(--wa-muted)}
+.wt-rule .rd{margin:3px 0 0;color:var(--wa-ink);opacity:.86;font-size:13.5px;line-height:1.6;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.emb-view{display:flex;justify-content:flex-end;margin:-6px 0 10px}.emb-view .view-lang{margin-right:0}
+.view-lang{display:inline-flex;flex:none;white-space:nowrap;align-items:center;gap:2px;border:1px solid var(--wa-line);border-radius:999px;padding:2px;margin-right:8px}.view-lang small{font-size:12px;color:var(--wa-muted);padding:0 6px 0 8px}
+.view-lang button{border:0;border-radius:999px;padding:3px 11px;background:transparent;color:var(--wa-ink);font:12.5px/1.5 var(--wa-sans);letter-spacing:0;cursor:pointer}.view-lang button.on{background:var(--wa-ink);color:var(--wa-paper)}
+.back-check{margin:14px 0 0;padding:12px 14px;border:1px solid var(--wa-ink);border-radius:10px}.back-check h4{margin:0 0 8px;font:700 14px/1.45 var(--wa-serif)}.back-check dl{margin:0}.back-check dt{font-size:12.5px;color:var(--wa-muted);margin-top:8px}.back-check dd{margin:2px 0 0}.back-check dd.to{font-family:var(--wa-serif)}
+.wt-rgrp{margin:16px 0 2px;font:700 14px/1.45 var(--wa-serif);letter-spacing:0;color:var(--wa-ink)}.wt-rgrp small{font:12.5px var(--wa-sans);color:var(--wa-muted);margin-left:6px}
+.topic-bar{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 8px}.topic-bar .cap{font-size:12.5px;padding:3px 12px;border-color:var(--wa-line);color:var(--wa-ink);cursor:pointer}
+.topic-bar .cap.on{background:var(--wa-ink);border-color:var(--wa-ink);color:var(--wa-paper)}.topic-bar .cap small{opacity:.7;margin-left:3px}.topic-bar .cap.opt{border-style:dashed}
 .wt-empty{color:var(--wa-muted);font-size:12.5px;margin:6px 0}
 /* 시간표 (시안 E) */
 .wt-tt{width:100%;border-collapse:separate;border-spacing:6px 0;table-layout:fixed;margin:0 -6px}
@@ -327,7 +356,8 @@ button.cap:hover{background:var(--wa-soft)}.cap.ghost{border-style:dashed;color:
 :host([data-embedded]) main{padding:24px 30px 40px}
 @media(max-width:720px){
   .wt-tt{display:none}.wt-dtab{display:flex}.wt-day.on{display:block}
-  .wt-rule{flex-direction:column;gap:2px}.wt-rule b,.wt-rule button{min-width:0}
+  .wt-rule{gap:10px}.wt-rule .tcap{width:64px;font-size:11.5px}
+  .view-lang{margin-right:4px}.view-lang small{display:none}.view-lang button{padding:3px 8px}
   .wt-ev{grid-template-columns:46px minmax(0,1fr) auto;gap:8px;padding:8px 10px}.wt-ev .k{font-size:10px;padding:2px 7px}
   :host([data-embedded]) main{padding:16px 14px 40px}
 }
@@ -360,6 +390,7 @@ button.cap:hover{background:var(--wa-soft)}.cap.ghost{border-style:dashed;color:
   };
 
   const st = {
+    viewKo: store.get('world-archive-view') === 'ko',
     theme: opts.theme || store.get('world-archive-theme') || (window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'),
     readOnly: false, // the server's contract level is not the one this screen was made for
     fields: {},
@@ -446,7 +477,7 @@ button.cap:hover{background:var(--wa-soft)}.cap.ghost{border-style:dashed;color:
     st.entities = st.worldId ? (await api('GET', `/worlds/${st.worldId}/entities`)).entities || [] : [];
     st.relations = st.worldId ? (await api('GET', `/worlds/${st.worldId}/relations`).catch(() => ({ relations: [] }))).relations || [] : [];
     st.rosters = {};
-    try { st.pairs = st.worldId ? (await api('GET', `/worlds/${st.worldId}/duplicates`)).pairs || [] : []; } catch { st.pairs = []; }
+    try { const d = st.worldId ? await api('GET', `/worlds/${st.worldId}/duplicates`) : {}; st.pairs = d.pairs || []; st.differ = d.differ || []; } catch { st.pairs = []; st.differ = []; }
     try { st.groupSuggest = st.worldId ? (await api('GET', `/worlds/${st.worldId}/group-suggestions`)).suggestions || [] : []; } catch { st.groupSuggest = []; }
     if (st.detail && !st.entities.some((e) => e.entityId === st.detail)) st.detail = null;
   }
@@ -495,6 +526,7 @@ button.cap:hover{background:var(--wa-soft)}.cap.ghost{border-style:dashed;color:
   async function loadAll(followRoom) {
     const status = await api('GET', '/status');
     st.fields = status.fields || {};
+    st.topics = status.topics || []; // v0.7.0 5
     st.serverVersion = status.version || null; // 할 일 8: the screen and the server module should be the same version
     st.readOnly = Number(status.contract || 1) !== PANEL_CONTRACT; // 연동 v2: another contract level — look, do not change
     await loadRoom();
@@ -505,7 +537,8 @@ button.cap:hover{background:var(--wa-soft)}.cap.ghost{border-style:dashed;color:
   }
 
   // ------------------------------------------------------------------ pieces
-  const defs = (type) => st.fields[type] || [];
+  // v0.7.6: an optional field (기숙사 · 학년) only in a world that turns it on
+  const defs = (type) => (st.fields[type] || []).filter((x) => !x.optional || (world()?.personFields || []).includes(x.key));
   const count = (type) => st.entities.filter((e) => e.type === type).length;
   const fmtDate = (iso) => { const d = new Date(iso); return isNaN(d) ? '' : `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`; };
   const shortId = (id) => String(id || '').slice(0, 4).toUpperCase();
@@ -524,10 +557,16 @@ button.cap:hover{background:var(--wa-soft)}.cap.ghost{border-style:dashed;color:
       </div>`;
   }
 
+  /** v0.7.0 3: 「보기: 원문 · 한국어」 — in the top bar, and (기억 서재 칸, no top bar) at the top of the page. */
+  function viewLangHtml() {
+    return st.worldId ? `<span class="view-lang" role="group" aria-label="보기"><small>보기</small><button type="button" data-act="view-lang" data-lang="orig" aria-pressed="${!st.viewKo}" class="${st.viewKo ? '' : 'on'}">원문</button><button type="button" data-act="view-lang" data-lang="ko" aria-pressed="${!!st.viewKo}" class="${st.viewKo ? 'on' : ''}">한국어${st.koBusy ? ' …' : ''}</button></span>` : '';
+  }
+  const refreshViewLang = () => root.querySelectorAll('.view-lang').forEach((x) => { x.outerHTML = viewLangHtml(); });
   function topHtml() {
     const opts = st.worlds.map((w) => `<option value="${esc(w.worldId)}" ${w.worldId === st.worldId ? 'selected' : ''}>${esc(w.name)}${w.worldId === st.room?.worldId ? '  · 이 방' : ''}</option>`).join('');
     return `${st.worlds.length ? `<select id="worldSelect" aria-label="세계관 고르기">${opts}</select>` : '<span class="sub">아직 세계관이 없습니다</span>'}
       <span class="grow"></span>
+      ${viewLangHtml()}
       <button id="themeToggle" class="round" type="button" data-act="theme" aria-label="${st.theme === 'dark' ? '밝게' : '어둡게'}">${icon(st.theme === 'dark' ? 'sun' : 'moon')}</button>
       <button id="close" class="round" type="button" data-act="close" aria-label="닫기">${icon('close')}</button>`;
   }
@@ -634,24 +673,86 @@ button.cap:hover{background:var(--wa-soft)}.cap.ghost{border-style:dashed;color:
       <div class="paper mobile-only"><p class="sub" style="margin:0">프리셋에 <b>{{세계}}</b>를 넣은 자리에 연결한 세계관 설정이 들어갑니다.</p></div>`;
   }
 
+  /**
+   * v0.7.0 6: a card says who it is in four lines — the name; 「나이 · 성별 · 지내는 곳」 (other kinds: their short
+   * fields); 외형 · 성격 in two lines (other kinds: their first texts or 메모); 숨은 설정 as dashed capsules. No 「자동」
+   * stamp, number or date here (they are small at the bottom of the page).
+   */
+  const nameOfId = (id) => st.entities.find((x) => x.entityId === id)?.name || '';
+  function cardLine(e) {
+    const f = e.fields || {};
+    if (e.type === 'person') {
+      const where = e.room ? `지내는 곳 ${nameOfId(e.room)}` : e.work ? `일하는 곳 ${nameOfId(e.work)}` : '';
+      // v0.7.6: 기숙사 · 학년 in the line (a world that has them)
+      const on = world()?.personFields || [];
+      const year = on.includes('year') && f.year ? (/^\d+$/.test(String(f.year).trim()) ? `${String(f.year).trim()}학년` : f.year) : '';
+      return [f.age, f.gender, on.includes('house') ? f.house : '', year, where].filter(Boolean).join(' · ');
+    }
+    return defs(e.type).filter((x) => x.kind === 'line' && f[x.key]).slice(0, 3).map((x) => f[x.key]).join(' · ');
+  }
+  function cardTwo(e) {
+    const f = e.fields || {};
+    if (e.type === 'person') return [f.appearance, f.personality].filter(Boolean);
+    const texts = defs(e.type).filter((x) => x.kind === 'text' && x.key !== 'state' && f[x.key]).map((x) => f[x.key]);
+    return [...texts, e.description].filter(Boolean).slice(0, 2);
+  }
   function cardHtml(e) {
-    const d = defs(e.type);
-    const chips = d.filter((f) => f.kind === 'line' && e.fields?.[f.key]).map((f) => `<span class="chip" title="${esc(f.label)}">${esc(e.fields[f.key])}</span>`).join('');
-    const firstText = d.find((f) => f.kind === 'text' && f.key !== 'state' && e.fields?.[f.key]);
-    const snip = firstText ? e.fields[firstText.key] : e.description;
+    const line = cardLine(e);
+    const two = cardTwo(e);
+    const hid = Object.keys(e.hidden || {}).map((k) => defs(e.type).find((x) => x.key === k)?.label || k);
     return `<button class="card" type="button" data-act="open" data-id="${esc(e.entityId)}" data-search="${esc([e.name, ...e.aliases].join(' ').toLowerCase())}">
-      ${e.pinned ? '<span class="pill pin">고정</span>' : e.provenance?.source === 'auto' ? '<span class="pill pin">자동</span>' : ''}
+      ${e.pinned ? '<span class="pill pin">고정</span>' : ''}
       <div class="nm">${esc(e.name)}</div>
-      ${e.aliases.length ? `<div class="al">${esc(e.aliases.join(' · '))}</div>` : ''}
-      ${chips ? `<div class="chips">${chips}</div>` : ''}
-      ${snip ? `<p class="snip">${esc(snip)}</p>` : ''}
-      <div class="foot"><span>${KIND[e.type].en} · ${shortId(e.entityId)}</span><span>${fmtDate(e.updatedAt)}</span></div>
+      ${line ? `<p class="c-line">${esc(line)}</p>` : ''}
+      ${two.map((t) => `<p class="c-two">${esc(t)}</p>`).join('')}
+      ${hid.length ? `<div class="c-hid">${hid.map((h) => `<span class="hid-cap">${esc(h)} · 숨은 설정</span>`).join('')}</div>` : ''}
     </button>`;
+  }
+
+  /**
+   * v0.7.0 6: how a list is laid out — 집단으로 묶기 · 장소로 묶기 · 가나다, and 숨은 설정 있음 · 반복 등장만. In a group,
+   * 「맡은 사람 · 선생님」 and 「함께 사는 동물」 apart from the members.
+   */
+  const LIST_MODES = { person: [['group', '집단으로 묶기'], ['place', '장소로 묶기'], ['abc', '가나다']], other: [['place', '장소로 묶기'], ['abc', '가나다']] };
+  function listGroups(type, list) {
+    const mode = st.listMode?.[type] || (type === 'person' ? 'group' : 'abc');
+    if (mode === 'abc') return [[null, list]];
+    const out = new Map();
+    const put = (k, e) => { if (!out.has(k)) out.set(k, []); out.get(k).push(e); };
+    if (mode === 'group' && type === 'person') {
+      // the same as each group's 명단 (server roster.cjs): 구성원 / 맡은 사람 · 선생님 / 지난 구성원 / 함께 사는 동물
+      const groups = st.entities.filter((x) => x.type === 'group');
+      for (const g of groups) if (!st.rosters?.[g.entityId]) void loadRoster(g.entityId);
+      const where = new Map(); // personId → [group name, kind] — the first group (by name) that lists them
+      for (const g of [...groups].sort((a, b) => a.name.localeCompare(b.name, 'ko'))) {
+        for (const m of st.rosters?.[g.entityId]?.members || []) if (!where.has(m.entityId)) where.set(m.entityId, [g.name, m.kind]);
+      }
+      const KIND_WORD = { member: '', staff: ' · 맡은 사람 · 선생님', past: ' · 지난 구성원', animal: ' · 함께 사는 동물' };
+      for (const e of list) {
+        const at = where.get(e.entityId);
+        put(at ? `${at[0]}${KIND_WORD[at[1]] ?? ''}` : '소속 없음', e);
+      }
+    } else {
+      const m = worldMap();
+      for (const e of list) {
+        const at = e.type === 'person' ? e.room || e.work : e.type === 'place' ? m.top(e.entityId) : e.appliesTo && e.appliesTo !== 'world' ? e.appliesTo : e.base || null;
+        put(at ? nameOfId(at) || '어디인지 모름' : e.appliesTo === 'world' ? '세계 전체' : '어디인지 모름', e);
+      }
+    }
+    const last = (k) => /^(소속 없음|어디인지 모름)/.test(k);
+    return [...out].sort(([a], [b]) => Number(last(a)) - Number(last(b)) || a.localeCompare(b, 'ko'));
+  }
+  function listBar(type) {
+    const mode = st.listMode?.[type] || (type === 'person' ? 'group' : 'abc');
+    const fl = st.listFilter || {};
+    const cap = (act, key, label, on) => `<button type="button" class="${on ? 'on' : ''}" data-act="${act}" data-type="${type}" data-key="${key}" aria-pressed="${on}">${label}</button>`;
+    return `<div class="caps list-bar">${(LIST_MODES[type] || LIST_MODES.other).map(([k, l]) => cap('list-mode', k, l, mode === k)).join('')}<span class="bar-gap"></span>${cap('list-filter', 'hidden', '숨은 설정 있음', fl.hidden)}${type === 'person' ? cap('list-filter', 'recur', '반복 등장만', fl.recur) : ''}</div>`;
   }
 
   function listHtml(type) {
     const k = KIND[type];
-    const list = st.entities.filter((e) => e.type === type).sort((a, b) => Number(b.pinned) - Number(a.pinned) || a.name.localeCompare(b.name, 'ko'));
+    const fl = st.listFilter || {};
+    const list = st.entities.filter((e) => e.type === type && (!fl.hidden || Object.keys(e.hidden || {}).length) && (!fl.recur || type !== 'person' || e.pinned || (e.seen?.n || 0) >= 2)).sort((a, b) => Number(b.pinned) - Number(a.pinned) || a.name.localeCompare(b.name, 'ko'));
     return `
       <div class="eyebrow">${k.en} · ${list.length}</div>
       <h1>${k.label}</h1>
@@ -663,8 +764,9 @@ button.cap:hover{background:var(--wa-soft)}.cap.ghost{border-style:dashed;color:
       </div>
       ${type === 'group' && st.groupSuggest?.length ? `<p class="sub" style="margin:-6px 0 14px">소속 칸에만 있는 이름 · ${st.groupSuggest.map((g) => `<button class="quiet" type="button" data-act="group-make" data-name="${esc(g.name)}" title="${esc(g.people.join(', '))}의 소속 칸${g.owner ? ` · 지금은 「${esc(g.owner)}」의 다른 이름` : ''}">${esc(g.name)} · 집단으로 만들기</button>`).join(' ')}</p>` : ''}
       ${type === 'schedule' && !st.readOnly ? `<p class="sub" style="margin:-6px 0 14px"><button class="quiet" type="button" data-act="cal-gather" title="날짜가 정해진 한 번뿐인 행사 일정을 그 집단·장소의 학사일정으로 옮깁니다(코드로)">학사일정으로 모으기</button> <button class="quiet" type="button" data-act="tt-gather" title="요일·시간이 정해진 수업·일과 일정을 그 집단·사람의 시간표 칸으로 옮깁니다. 코드로 먼저 하고, 안 되는 것만 작은 호출 한 번">시간표로 모으기</button></p>` : ''}
-      ${pairsOf(type).length ? `<p style="margin:-6px 0 14px"><button class="quiet" type="button" data-act="dupes">${type === 'person' ? '같은 사람일 수 있음' : '같은 것일 수 있음'} ${pairsOf(type).length}쌍</button></p>` : ''}
-      ${list.length ? `<div class="cards">${list.map(cardHtml).join('')}</div><p class="sub" id="noHit" hidden>찾는 이름이 없습니다.</p>`
+      ${pairsOf(type).length || ((type === 'rule' || type === 'system') && (st.differ || []).length) ? `<p style="margin:-6px 0 14px"><button class="quiet" type="button" data-act="dupes">${type === 'person' ? '같은 사람일 수 있음' : '같은 것일 수 있음'} ${pairsOf(type).length}쌍${(type === 'rule' || type === 'system') && (st.differ || []).length ? ` · 서로 다른 말 ${st.differ.length}묶음` : ''}</button></p>` : ''}
+      ${listBar(type)}
+      ${list.length ? `${listGroups(type, list).map(([g, items]) => `${g ? `<h3 class="grp">${esc(g)} <small>${items.length}</small></h3>` : ''}<div class="cards">${items.map(cardHtml).join('')}</div>`).join('')}<p class="sub" id="noHit" hidden>찾는 이름이 없습니다.</p>`
         : `<div class="empty"><h2>아직 ${k.label} 설정이 없습니다</h2><p>「새 ${k.label}」으로 첫 항목을 만들어 주세요.</p></div>`}`;
   }
 
@@ -683,22 +785,40 @@ button.cap:hover{background:var(--wa-soft)}.cap.ghost{border-style:dashed;color:
     if (st.rosters[id]) return;
     st.rosters[id] = { loading: true };
     try { st.rosters[id] = await api('GET', `/worlds/${st.worldId}/entities/${id}/members`); } catch { st.rosters[id] = { members: [], failed: true }; }
-    if (st.detail === id || st.view === 'tabs') render();
+    if (st.detail === id || st.view === 'tabs' || (st.view === 'person' && !st.detail)) render();
   }
+  /** v0.7.0 7: the pickers (지내는 곳 · 적용되는 곳 · 본거지 · 시간표 칸 · 명단 더하기 …) show only in 「고치기」. */
+  let EDIT_ON = false;
+  const editOn = () => EDIT_ON && !st.readOnly;
+  const REL_TYPES_C = ['가족', '소속', '친구', '적대', '연인', '스승·제자', '위치', '기타'];
+  /** v0.7.0 7: 관계 — add, take off, turn around, another kind (each saved at once, in 기록). */
+  function relEditHtml(e) {
+    const rels = (st.relations || []).filter((x) => x.from === e.entityId || x.to === e.entityId);
+    const nameOf = (id) => st.entities.find((x) => x.entityId === id)?.name || '?';
+    const row = (x) => `<div class="rel-row"><span><b>${esc(nameOf(x.from))}</b> → <b>${esc(nameOf(x.to))}</b></span><select data-rel-type="${esc(x.relationId)}" aria-label="관계 종류">${REL_TYPES_C.map((t) => `<option ${t === x.type ? 'selected' : ''}>${t}</option>`).join('')}</select><button class="quiet" type="button" data-act="rel-type" data-id="${esc(x.relationId)}">종류 바꾸기</button><button class="quiet" type="button" data-act="rel-flip" data-id="${esc(x.relationId)}">방향 바꾸기</button><button class="quiet" type="button" data-act="rel-del" data-id="${esc(x.relationId)}">빼기</button></div>`;
+    const others = st.entities.filter((x) => x.entityId !== e.entityId).sort((a, b) => a.name.localeCompare(b.name, 'ko'));
+    return `<div class="sec rel-edit"><small>관계</small>${rels.map(row).join('') || '<p class="sub">아직 이어진 관계가 없습니다.</p>'}
+      <div class="rel-row add"><select id="relTo" aria-label="이을 설정">${others.map((x) => `<option value="${esc(x.entityId)}">${esc(x.name)} · ${esc(KIND[x.type]?.label || '')}</option>`).join('')}</select><select id="relType" aria-label="관계 종류">${REL_TYPES_C.map((t) => `<option>${t}</option>`).join('')}</select><button type="button" data-act="rel-add" data-id="${esc(e.entityId)}">관계 더하기</button></div></div>`;
+  }
+  /** v0.7.0 7: 학사일정 — a new day by hand (the reader's stay as they are). */
+  function calAddHtml(e) {
+    return `<div class="tt-form cal-form"><input id="calDate" maxlength="10" placeholder="날짜(1891-09-01)" aria-label="날짜"><input id="calName" maxlength="60" placeholder="행사 이름" aria-label="행사 이름"><input id="calPlace" maxlength="60" placeholder="장소(비워도 돼요)" aria-label="장소"><button type="button" data-act="cal-add" data-id="${esc(e.entityId)}">일정 더하기</button></div>`;
+  }
+
   function rosterHtml(g) {
     const r = st.rosters?.[g.entityId];
     if (!r || r.loading) { if (!r) void loadRoster(g.entityId); return '<div class="sec"><small>구성원 명단</small><p class="sub">불러오는 중…</p></div>'; }
     const list = r.members || [];
     const inList = new Set(list.map((m) => m.entityId));
-    const chip = (m) => `<button class="quiet" type="button" data-act="open" data-id="${esc(m.entityId)}">${esc(m.name)}${m.unnamed ? ' <small>(이름 모름)</small>' : ''}${m.via ? ` <small>· ${esc(m.via)}</small>` : ''}</button><button class="quiet" type="button" data-act="member-off" data-group="${esc(m.viaId || g.entityId)}" data-id="${esc(m.entityId)}" title="${esc(m.via || g.name)}의 명단에서 빼기 — 그 인물의 소속 칸에서 이 이름을 지웁니다" aria-label="${esc(m.name)} 빼기">×</button>`;
+    const chip = (m) => `<button class="quiet" type="button" data-act="open" data-id="${esc(m.entityId)}">${esc(m.name)}${m.unnamed ? ' <small>(이름 모름)</small>' : ''}${m.via ? ` <small>· ${esc(m.via)}</small>` : ''}</button>${editOn() ? `<button class="quiet" type="button" data-act="member-off" data-group="${esc(m.viaId || g.entityId)}" data-id="${esc(m.entityId)}" title="${esc(m.via || g.name)}의 명단에서 빼기 — 그 인물의 소속 칸에서 이 이름을 지웁니다" aria-label="${esc(m.name)} 빼기">×</button>` : ''}`;
     const part = (kind, label) => {
       const rows = list.filter((m) => m.kind === kind);
       return rows.length ? `<p><small>${label} ${rows.length}</small><br>${rows.map(chip).join('')}</p>` : '';
     };
     const named = list.filter((m) => !m.unnamed).length;
     const others = st.entities.filter((x) => x.type === 'person' && !inList.has(x.entityId)).sort((a, b) => a.name.localeCompare(b.name, 'ko'));
-    const add = others.length ? `<span class="roster-add"><select id="rosterPick" aria-label="명단에 더할 인물">${others.map((x) => `<option value="${esc(x.entityId)}">${esc(x.name)}</option>`).join('')}</select><button class="quiet" type="button" data-act="member-add" data-group="${esc(g.entityId)}">명단에 더하기</button></span>` : '';
-    const body = list.length ? part('member', '구성원') + part('staff', '맡은 사람') + part('past', '지난 구성원') : '<p class="sub">아직 이 집단에 소속된 인물이 없습니다.</p>';
+    const add = editOn() && others.length ? `<span class="roster-add"><select id="rosterPick" aria-label="명단에 더할 인물">${others.map((x) => `<option value="${esc(x.entityId)}">${esc(x.name)}</option>`).join('')}</select><button class="quiet" type="button" data-act="member-add" data-group="${esc(g.entityId)}">명단에 더하기</button></span>` : '';
+    const body = list.length ? part('member', '구성원') + part('staff', '맡은 사람') + part('past', '지난 구성원') + part('animal', '함께 사는 동물') : '<p class="sub">아직 이 집단에 소속된 인물이 없습니다.</p>';
     // v0.5.1 J: with a 전체 인원 — 「이름 아는 사람 M명 / 전체 N명」
     const head = r.counts?.total ? `이름 아는 사람 ${r.counts.known}명 / 전체 ${r.counts.total}명` : `${list.length}명${named !== list.length ? ` (이름 아는 사람 ${named}명)` : ''}`;
     return `<div class="sec"><small>구성원 명단 · ${head} · 인물마다 적힌 소속으로 모음</small>${body}${add}</div>`;
@@ -741,7 +861,7 @@ button.cap:hover{background:var(--wa-soft)}.cap.ghost{border-style:dashed;color:
     const clash = (e.timetable.overlaps || []).filter(([a, b]) => e.timetable.cells[a] && e.timetable.cells[b]);
     const clashHtml = clash.length ? `<div class="tt-clash" role="status"><b>시간이 겹쳐요 ${clash.length}</b>${clash.map(([a, b]) => `<p>${[a, b].map((k) => `${esc(label(k))}${st.readOnly ? '' : ` <button class="quiet" type="button" data-act="cell-clear" data-id="${esc(e.entityId)}" data-key="${esc(k)}">이 칸 지우기</button>`}`).join(' ↔ ')}</p>`).join('')}</div>` : '';
     const owner = st.entities.find((x) => x.entityId === e.timetable.ownerId);
-    const form = st.readOnly ? '' : `<div class="tt-form"><select id="ttDay" aria-label="요일">${TT_DAYS.map((d) => `<option>${d}</option>`).join('')}</select><input id="ttSlot" maxlength="24" placeholder="때(1교시 · 오전 · 09:00–10:30)" aria-label="때"><input id="ttValue" maxlength="80" placeholder="내용(비우면 그 칸을 지움)" aria-label="내용"><button class="quiet" type="button" data-act="cell-save" data-id="${esc(e.entityId)}">칸 저장</button></div>`;
+    const form = !editOn() ? '' : `<div class="tt-form"><select id="ttDay" aria-label="요일">${TT_DAYS.map((d) => `<option>${d}</option>`).join('')}</select><input id="ttSlot" maxlength="24" placeholder="때(1교시 · 오전 · 09:00–10:30)" aria-label="때"><input id="ttValue" maxlength="80" placeholder="내용(비우면 그 칸을 지움)" aria-label="내용"><button class="quiet" type="button" data-act="cell-save" data-id="${esc(e.entityId)}">칸 저장</button></div>`;
     return `<div class="sec"><small>시간표${owner ? ` · ${esc(owner.name)}` : ''} · 칸 ${cells.length}</small>${clashHtml}${table}${form}</div>`;
   }
 
@@ -750,7 +870,7 @@ button.cap:hover{background:var(--wa-soft)}.cap.ghost{border-style:dashed;color:
     const where = st.entities.find((x) => x.entityId === e.appliesTo);
     const tag = e.sources?.appliesTo === 'auto' ? '<span class="auto-tag">· 자동</span>' : '';
     const opts = st.entities.filter((x) => x.type === 'place' || x.type === 'group').sort((a, b) => (a.type === b.type ? a.name.localeCompare(b.name, 'ko') : a.type === 'group' ? -1 : 1));
-    const pick = st.readOnly ? '' : `<span class="roster-add"><select id="appliesPick" aria-label="적용되는 곳"><option value="" ${e.appliesTo ? '' : 'selected'}>모름</option><option value="world" ${e.appliesTo === 'world' ? 'selected' : ''}>세계 전체</option>${opts.map((x) => `<option value="${esc(x.entityId)}" ${x.entityId === e.appliesTo ? 'selected' : ''}>${esc(x.name)} · ${x.type === 'group' ? '집단' : '장소'}</option>`).join('')}</select><button class="quiet" type="button" data-act="applies-set" data-id="${esc(e.entityId)}">바꾸기</button></span>`;
+    const pick = !editOn() ? '' : `<span class="roster-add"><select id="appliesPick" aria-label="적용되는 곳"><option value="" ${e.appliesTo ? '' : 'selected'}>모름</option><option value="world" ${e.appliesTo === 'world' ? 'selected' : ''}>세계 전체</option>${opts.map((x) => `<option value="${esc(x.entityId)}" ${x.entityId === e.appliesTo ? 'selected' : ''}>${esc(x.name)} · ${x.type === 'group' ? '집단' : '장소'}</option>`).join('')}</select><button class="quiet" type="button" data-act="applies-set" data-id="${esc(e.entityId)}">바꾸기</button></span>`;
     const shown = where ? `<button class="quiet" type="button" data-act="open" data-id="${esc(where.entityId)}">${esc(where.name)}</button>` : e.appliesTo === 'world' ? '세계 전체' : '모름 <small>(장면 방식에서 맨 뒤에 넣음)</small>';
     return `<div class="sec"><small>적용되는 곳${tag}</small><p>${shown}</p>${pick}</div>`;
   }
@@ -760,7 +880,7 @@ button.cap:hover{background:var(--wa-soft)}.cap.ghost{border-style:dashed;color:
     const at = st.entities.find((x) => x.entityId === g.base);
     const tag = g.sources?.base === 'auto' ? '<span class="auto-tag">· 자동</span>' : '';
     const places = st.entities.filter((x) => x.type === 'place').sort((a, b) => a.name.localeCompare(b.name, 'ko'));
-    const pick = st.readOnly ? '' : `<span class="roster-add"><select id="basePick" aria-label="본거지"><option value="">없음</option>${places.map((x) => `<option value="${esc(x.entityId)}" ${x.entityId === g.base ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select><button class="quiet" type="button" data-act="base-set" data-id="${esc(g.entityId)}">바꾸기</button></span>`;
+    const pick = !editOn() ? '' : `<span class="roster-add"><select id="basePick" aria-label="본거지"><option value="">없음</option>${places.map((x) => `<option value="${esc(x.entityId)}" ${x.entityId === g.base ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select><button class="quiet" type="button" data-act="base-set" data-id="${esc(g.entityId)}">바꾸기</button></span>`;
     return `<div class="sec"><small>본거지${tag}</small><p>${at ? `<button class="quiet" type="button" data-act="open" data-id="${esc(at.entityId)}">${esc(at.name)}</button>` : '<span class="sub">없음</span>'}</p>${pick}</div>`;
   }
 
@@ -770,14 +890,22 @@ button.cap:hover{background:var(--wa-soft)}.cap.ghost{border-style:dashed;color:
     const tag = p.sources?.room === 'auto' ? '<span class="auto-tag">· 자동</span>' : '';
     const places = st.entities.filter((x) => x.type === 'place').sort((a, b) => a.name.localeCompare(b.name, 'ko'));
     const past = (p.roomPast || []).map((x) => st.entities.find((y) => y.entityId === x.placeId)?.name).filter(Boolean);
-    if (!at && !past.length && st.readOnly) return '';
-    const pick = st.readOnly ? '' : `<span class="roster-add"><select id="roomPick" aria-label="지내는 곳"><option value="">없음</option>${places.map((x) => `<option value="${esc(x.entityId)}" ${x.entityId === p.room ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select><button class="quiet" type="button" data-act="room-set" data-id="${esc(p.entityId)}">바꾸기</button></span>`;
+    if (!at && !past.length && !editOn()) return '';
+    const pick = !editOn() ? '' : `<span class="roster-add"><select id="roomPick" aria-label="지내는 곳"><option value="">없음</option>${places.map((x) => `<option value="${esc(x.entityId)}" ${x.entityId === p.room ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select><button class="quiet" type="button" data-act="room-set" data-id="${esc(p.entityId)}">바꾸기</button></span>`;
     return `<div class="sec"><small>지내는 곳${tag}</small><p>${at ? `<button class="quiet" type="button" data-act="open" data-id="${esc(at.entityId)}">${esc(at.name)}</button>` : '<span class="sub">없음</span>'}${past.length ? ` <small class="past">이전: ${esc(past.join(', '))}</small>` : ''}</p>${pick}</div>`;
   }
-  /** 지내는 사람 (v0.5.1 I): the people whose 지내는 곳 is this place. */
+  /** 지내는 사람 (v0.5.1 I) · v0.6.2 ⑥ 여기서 일하는 사람: the people whose 지내는 곳 / 일하는 곳 is this place. */
   function stayingHtml(pl) {
-    const who = st.entities.filter((x) => x.type === 'person' && x.room === pl.entityId).sort((a, b) => a.name.localeCompare(b.name, 'ko'));
-    return who.length ? `<div class="sec"><small>지내는 사람 · ${who.length}</small><p>${who.map((x) => `<button class="quiet" type="button" data-act="open" data-id="${esc(x.entityId)}">${esc(x.name)}</button>`).join(' ')}</p></div>` : '';
+    const row = (key, label) => {
+      const who = st.entities.filter((x) => x.type === 'person' && x[key] === pl.entityId).sort((a, b) => a.name.localeCompare(b.name, 'ko'));
+      return who.length ? `<div class="sec"><small>${label} · ${who.length}</small><p>${who.map((x) => `<button class="quiet" type="button" data-act="open" data-id="${esc(x.entityId)}">${esc(x.name)}</button>`).join(' ')}</p></div>` : '';
+    };
+    return row('room', '지내는 사람') + row('work', '여기서 일하는 사람');
+  }
+  /** v0.6.2 ⑥: 일하는 곳 (from the 소속 칸, by code). */
+  function workHtml(p) {
+    const at = p.work && st.entities.find((x) => x.entityId === p.work);
+    return at ? `<div class="sec"><small>일하는 곳${p.sources?.work === 'auto' ? '<span class="auto-tag">· 자동</span>' : ''}</small><p><button class="quiet" type="button" data-act="open" data-id="${esc(at.entityId)}">${esc(at.name)}</button></p></div>` : '';
   }
 
   /** 학사일정 (v0.5.0 K) — a plain list for now: by date, 「이전」, cancelled struck through, [적용] [무시]. */
@@ -790,10 +918,13 @@ button.cap:hover{background:var(--wa-soft)}.cap.ghost{border-style:dashed;color:
   /** 「잡다한 설정 정리」 candidates (v0.5.0 P · Q): the person picks — 휴지통 (undoable) · 칸 비우기 · 남기기. */
   function tidyHtml() {
     const t = st.tidy;
-    if (!t || (!t.items.length && !t.fields.length)) return '';
+    const once = t?.once || [];
+    if (!t || (!t.items.length && !t.fields.length && !once.length)) return '';
     const items = t.items.map((x) => `<li><b>${esc(x.name)}</b> <small>${esc(x.why || '')}</small> <button class="quiet" type="button" data-act="tidy-trash" data-id="${esc(x.entityId)}">휴지통으로</button><button class="quiet" type="button" data-act="tidy-keep" data-id="${esc(x.entityId)}">남기기</button></li>`).join('');
-    const fields = t.fields.map((x) => `<li><b>${esc(x.name)}</b> · ${x.key === 'description' ? '메모' : '성격'}: ${esc(x.value)} <small>${esc(x.why || '')}</small> <button class="quiet" type="button" data-act="tidy-clear" data-id="${esc(x.entityId)}" data-key="${esc(x.key)}">칸 비우기</button><button class="quiet" type="button" data-act="tidy-keep" data-id="${esc(x.entityId)}" data-key="${esc(x.key)}">남기기</button></li>`).join('');
-    return `<div class="paper"><h2>잡다한 설정 정리 · 후보 ${t.items.length + t.fields.length}</h2><p class="hint">지우지 않았습니다. 고른 것만 휴지통으로 가고 기록에서 되돌릴 수 있습니다.</p>${items ? `<ul class="hist">${items}</ul>` : ''}${fields ? `<ul class="hist">${fields}</ul>` : ''}</div>`;
+    const fields = t.fields.map((x) => `<li><b>${esc(x.name)}</b> · ${x.key === 'description' ? '메모' : x.key === 'appearance' ? '외형' : '성격'}: ${esc(x.value)} <small>${esc(x.why || '')}</small> <button class="quiet" type="button" data-act="tidy-clear" data-id="${esc(x.entityId)}" data-key="${esc(x.key)}">칸 비우기</button><button class="quiet" type="button" data-act="tidy-keep" data-id="${esc(x.entityId)}" data-key="${esc(x.key)}">남기기</button></li>`).join('');
+    // v0.7.2 E: two rows — ① what the model found passing ② spoken of once (by code), 「남길까요」
+    const onceRows = once.map((x) => `<li><b>${esc(x.name)}</b> <small>${esc(KIND[x.type]?.label || '')}${x.topic ? ` · ${esc(x.topic)}` : ''}</small> <button class="quiet" type="button" data-act="tidy-keep" data-id="${esc(x.entityId)}">남기기</button><button class="quiet" type="button" data-act="tidy-trash" data-id="${esc(x.entityId)}">휴지통으로</button></li>`).join('');
+    return `<div class="paper"><h2>잡다한 설정 정리 · 후보 ${t.items.length + t.fields.length + once.length}</h2><p class="hint">지우지 않았습니다. 고른 것만 휴지통으로 가고 기록에서 되돌릴 수 있습니다.</p>${items || fields ? `<h3 class="grp">① 오래가지 않는 것 같아요 <small>모델 판정</small></h3>` : ''}${items ? `<ul class="hist">${items}</ul>` : ''}${fields ? `<ul class="hist">${fields}</ul>` : ''}${onceRows ? `<h3 class="grp">② 한 번만 나왔어요 — 남길까요 <small>${once.length}개</small></h3><ul class="hist">${onceRows}</ul>` : ''}</div>`;
   }
 
   function detailHtml(e) {
@@ -801,23 +932,41 @@ button.cap:hover{background:var(--wa-soft)}.cap.ghost{border-style:dashed;color:
     const d = defs(e.type);
     const f = e.fields || {};
     const src = e.sources || {};
-    const tag = (k) => (src[k] === 'auto' ? '<span class="auto-tag">· 자동</span>' : '') + (e.hidden?.[k] ? '<span class="auto-tag" title="프로필 블록에만 있고 이야기에는 아직 나오지 않았습니다">· 아직 드러나지 않음</span>' : '');
+    // v0.7.0 6: no 「자동」 stamp by each field (the bottom says where it came from); 숨은 설정 as a dashed capsule
+    const tag = (k) => (e.hidden?.[k] ? '<span class="hid-cap" title="프로필 블록에만 있고 이야기에는 아직 나오지 않았습니다">아직 드러나지 않음</span>' : '');
     // 할 일 10: the earlier value small under the field; a newer value from the story for a field the person wrote.
-    const was = (k) => (e.past?.[k]?.[0] ? `<small class="past">이전: ${esc(e.past[k][0].value)} <button class="quiet" type="button" data-act="past-prompt" data-id="${esc(e.entityId)}" data-key="${esc(k)}" title="켜면 {{세계}}에 「(과거: …)」가 붙습니다">${e.pastInPrompt?.[k] ? '프롬프트에 넣는 중 · 끄기' : '프롬프트에도 넣기'}</button></small>` : '');
+    const was = (k) => (e.past?.[k]?.[0] ? `<small class="past was">이전: ${esc(e.past[k][0].value)} <button class="quiet" type="button" data-act="past-prompt" data-id="${esc(e.entityId)}" data-key="${esc(k)}" title="켜면 {{세계}}에 「(과거: …)」가 붙습니다">${e.pastInPrompt?.[k] ? '프롬프트에 넣는 중 · 끄기' : '프롬프트에도 넣기'}</button></small>` : '');
     const wait = (k) => (e.pending?.[k] ? `<small class="pending">대화에서는 「${esc(e.pending[k].value)}」${copula(e.pending[k].value)} <button class="quiet" type="button" data-act="pending" data-id="${esc(e.entityId)}" data-key="${esc(k)}">적용</button><button class="quiet" type="button" data-act="pending-drop" data-id="${esc(e.entityId)}" data-key="${esc(k)}">무시</button></small>` : '');
-    const facts = d.filter((x) => x.kind === 'line' && f[x.key]).map((x) => `<div class="fact"><small>${esc(x.label)}${tag(x.key)}</small><b>${esc(f[x.key])}</b>${was(x.key)}${wait(x.key)}</div>`).join('');
-    const secs = d.filter((x) => x.kind === 'text' && x.key !== 'state' && f[x.key]).map((x) => `<div class="sec"><small>${esc(x.label)}${tag(x.key)}</small><p>${esc(f[x.key])}</p>${was(x.key)}${wait(x.key)}</div>`).join('');
+    // v0.7.0 6: the short fields as capsules under the name (나이 · 성별 · 소속 · 지내는 곳 / 일하는 곳), then 외형 → 성격 →
+    // 배경 → … → 지금, empty ones left out
+    const roomP = e.type === 'person' && e.room ? st.entities.find((x) => x.entityId === e.room) : null;
+    const workP = e.type === 'person' && e.work ? st.entities.find((x) => x.entityId === e.work) : null;
+    const facts = [
+      ...d.filter((x) => x.kind === 'line' && f[x.key]).map((x) => `<span class="fact-cap"><small>${esc(x.label)}</small>${esc(f[x.key])}${tag(x.key)}</span>${was(x.key)}${wait(x.key)}`),
+      roomP ? `<button class="fact-cap" type="button" data-act="open" data-id="${esc(roomP.entityId)}"><small>지내는 곳</small>${esc(roomP.name)}</button>` : '',
+      workP ? `<button class="fact-cap" type="button" data-act="open" data-id="${esc(workP.entityId)}"><small>일하는 곳</small>${esc(workP.name)}</button>` : '',
+    ].join('');
+    const ORDER = ['appearance', 'personality', 'background', 'family'];
+    const textDefs = d.filter((x) => x.kind === 'text' && x.key !== 'state' && f[x.key]).sort((a, b) => (ORDER.indexOf(a.key) + 1 || 99) - (ORDER.indexOf(b.key) + 1 || 99));
+    const secs = textDefs.map((x) => `<div class="sec"><small>${esc(x.label)}${tag(x.key)}</small><p>${esc(f[x.key])}</p>${was(x.key)}${wait(x.key)}</div>`).join('');
     const extra = (e.extra || []).filter((x) => x.value).map((x) => `<div class="sec"><small>${esc(x.label)}</small><p>${esc(x.value)}</p></div>`).join('');
     const memo = e.description ? `<div class="sec"><small>${d.length ? '메모' : '내용'}${tag('description')}</small><p>${esc(e.description)}</p></div>` : '';
     // v0.5.0 L: 「확인 안 됨 · ○○의 말」
+    // v0.6.2 ⑨: a profile that says another 나이 · 성별 · 종 — never written over, shown beside it
+    // v0.6.2 ②: a rule or system one batch spoke of — kept, not in {{세계}}
+    const once = isOnce(e)
+      ? '<div class="sec"><small>한 번 나옴</small><p>대화의 한 묶음에서만 나왔어요. 설정집에는 두고 {{세계}}에는 넣지 않아요. 다시 나오거나 고정하면 들어가요.</p></div>' : '';
+    const differs = Object.entries(e.differs || {}).map(([k, x]) => `<div class="sec"><small>${esc(d.find((y) => y.key === k)?.label || k)} · 서로 다른 말을 해요</small><p>${esc(e.fields?.[k] || '')} ↔ ${esc(x.value)}</p>${x.evidence ? `<p class="ev">${quoted(x.evidence)}</p>` : ''}</div>`).join('');
     const rumors = Object.entries(e.rumors || {}).map(([k, r]) => `<div class="sec"><small>${esc(d.find((x) => x.key === k)?.label || k)} · 확인 안 됨 · ${esc(r.by || '소문')}의 말</small><p>${esc(r.value)}</p></div>`).join('');
     // 관계: both directions; a chip opens the other setting.
     const rels = (st.relations || []).filter((r) => r.from === e.entityId || r.to === e.entityId).map((r) => {
       const other = st.entities.find((x) => x.entityId === (r.from === e.entityId ? r.to : r.from));
       if (!other) return '';
-      return `<button class="quiet" type="button" data-act="open" data-id="${esc(other.entityId)}">${esc(r.type)} · ${esc(other.name)}${r.note ? ` (${esc(r.note)})` : ''}${r.source === 'auto' ? '<span class="auto-tag">· 자동</span>' : ''}</button>`;
+      // v0.7.0 6: 「친구 테오 마렌」 — the kind and the other one, a capsule that opens them
+      // one line: the kind small and pale, then the name; the note (「기숙사 사감」) on hover or press, not in the capsule
+      return `<button class="rel-cap" type="button" data-act="open" data-id="${esc(other.entityId)}"${r.note ? ` title="${esc(r.note)}"` : ''}><small>${esc(r.type)}</small> <b>${esc(other.name)}</b>${r.note ? '<i class="note-dot" aria-hidden="true">·</i>' : ''}</button>`;
     }).join('');
-    const relSec = rels ? `<div class="sec"><small>관계</small><p>${rels}</p></div>` : '';
+    const relSec = rels ? `<div class="sec"><small>관계</small><div class="rel-caps">${rels}</div></div>` : '';
     const empty = !facts && !secs && !extra && !memo && !f.state && !rels;
     const askKey = `entity:${e.entityId}`;
     return `
@@ -825,18 +974,20 @@ button.cap:hover{background:var(--wa-soft)}.cap.ghost{border-style:dashed;color:
       <div class="paper">
         <div class="sheet-head">
           <div>
-            <div class="eyebrow">${k.en} · ${shortId(e.entityId)}</div>
+            <div class="eyebrow">${k.label}</div>
             <h1 style="margin-bottom:6px">${esc(e.name)}</h1>
             ${e.aliases.length ? `<p class="al">다른 이름 · ${esc(e.aliases.join(', '))}</p>` : ''}
+            ${e.nameSuggest && e.nameSuggest !== e.name && !st.readOnly ? `<p class="sub" style="margin:6px 0 0">대화에서는 「${esc(e.nameSuggest)}」${copula(e.nameSuggest)} 더 많이 불려요. 대표 이름을 바꿀까요? <button class="quiet" type="button" data-act="name-suggest" data-id="${esc(e.entityId)}">바꾸기</button></p>` : ''}
             ${e.glossaryName && e.glossaryName !== e.name ? `<p class="sub" style="margin:6px 0 0">번역 단어장에는 「${esc(e.glossaryName)}」${copula(e.glossaryName)} <button class="quiet" type="button" data-act="glossary-name" data-id="${esc(e.entityId)}">적용</button></p>` : ''}
           </div>
           ${e.pinned ? '<span class="pill">늘 먼저 넣기</span>' : ''}${e.nameCheck ? `<span class="pill" title="근거 문장에는 「${esc(e.nameCheck.said)}」이(가) 나옵니다. 이름을 확인해 주세요(고치면 사라집니다).">이름 확인 필요</span>` : ''}
         </div>
-        ${facts ? `<div class="facts">${facts}</div>` : ''}
-        ${rumors}${e.type === 'rule' || e.type === 'system' ? appliesHtml(e) : ''}${e.type === 'group' ? baseHtml(e) : ''}${e.type === 'person' ? roomHtml(e) : ''}${e.type === 'place' ? stayingHtml(e) : ''}${e.timetable ? timetableHtml(e) : ''}${e.calendar ? calendarHtml(e) : ''}${secs}${extra}${memo}${e.type === 'group' ? rosterHtml(e) : ''}${relSec}
-        ${f.state ? `<div class="state"><small>지금 상태 · 사건으로 바뀐 것${tag('state')}</small><p>${esc(f.state)}</p>${was('state')}${wait('state')}</div>` : ''}
+        ${facts ? `<div class="fact-caps">${facts}</div>` : ''}
+        ${once}${differs}${rumors}${e.type === 'rule' || e.type === 'system' ? appliesHtml(e) : ''}${e.type === 'group' ? baseHtml(e) : ''}${e.type === 'place' ? stayingHtml(e) : ''}${e.timetable ? timetableHtml(e) : ''}${e.calendar ? calendarHtml(e) : ''}${secs}${extra}${memo}${e.type === 'group' ? rosterHtml(e) : ''}
+        ${f.state ? `<div class="state"><small>지금${tag('state')}</small><p>${esc(f.state)}</p>${was('state')}${wait('state')}</div>` : ''}
+        ${relSec}
         ${empty ? '<p class="sub" style="margin-top:16px">아직 적힌 칸이 없습니다. 「고치기」에서 채워 주세요.</p>' : ''}
-        <div class="meta">만든 날 ${fmtDate(e.createdAt)} · 고친 날 ${fmtDate(e.updatedAt)} · ${e.provenance?.source === 'auto' ? '대화에서 자동으로 추가' : '직접 입력'}${e.provenance?.evidence ? `<br>근거 “${esc(e.provenance.evidence)}”` : ''}</div>
+        <div class="meta">${k.en} · ${shortId(e.entityId)} · 만든 날 ${fmtDate(e.createdAt)} · 고친 날 ${fmtDate(e.updatedAt)} · ${e.provenance?.source === 'auto' ? '대화에서 자동으로 추가' : '직접 입력'}${Object.values(src).includes('auto') ? ` · 자동으로 채운 칸: ${esc(Object.entries(src).filter(([, v]) => v === 'auto').map(([key]) => d.find((x) => x.key === key)?.label || (key === 'description' ? '메모' : key)).join(', '))}` : ''}${e.provenance?.evidence ? `<br>근거 “${esc(e.provenance.evidence)}”` : ''}</div>
         <div class="actions">
           <button class="primary" type="button" data-act="edit" data-id="${esc(e.entityId)}">고치기</button>
           <button type="button" data-act="pin" data-id="${esc(e.entityId)}">${e.pinned ? '고정 풀기' : '늘 먼저 넣기'}</button>
@@ -888,20 +1039,61 @@ button.cap:hover{background:var(--wa-soft)}.cap.ghost{border-style:dashed;color:
                  <button type="button" data-act="dismiss" data-a="${esc(a)}" data-b="${esc(b)}">${person ? '다른 사람이에요' : '다른 것이에요'}</button>`}
           </div>
         </div>`;
-      }).join('') : `<div class="empty"><h2>${person ? '같은 사람일 수 있는 인물이' : '같은 것일 수 있는 설정이'} 없습니다</h2><p>이름이나 다른 이름이 겹치는 설정이 생기면 여기에 보입니다.</p></div>`}`;
+      }).join('') : `<div class="empty"><h2>${person ? '같은 사람일 수 있는 인물이' : '같은 것일 수 있는 설정이'} 없습니다</h2><p>이름이나 다른 이름이 겹치는 설정이 생기면 여기에 보입니다.</p></div>`}
+      ${differHtml(type)}`;
+  }
+  /** v0.6.2 ②: rules · systems about the same thing (two words in a row of their names) — 「서로 다른 말을 해요」. */
+  function differHtml(type) {
+    if (type !== 'rule' && type !== 'system') return '';
+    const byId = (id) => st.entities.find((e) => e.entityId === id);
+    const groups = (st.differ || []).map((g) => ({ ...g, list: g.ids.map(byId).filter(Boolean) })).filter((g) => g.list.length >= 2 && g.list.some((e) => e.type === type));
+    if (!groups.length) return '';
+    return `<div class="eyebrow" style="margin-top:22px">SAYS DIFFERENT THINGS? · ${groups.length}</div>
+      <h2>서로 다른 말을 해요</h2>
+      <p class="intro">같은 대상(이름의 두 낱말)을 다루는 규칙 · 시스템이에요. 서로 부딪치면 하나만 남기거나 합쳐 주세요. 자동으로 바꾸지는 않아요.</p>
+      ${groups.map((g) => `<div class="paper"><p class="sub" style="margin:0 0 8px">「${esc(g.topic)}」</p><ul>${g.list.map((e) => `<li><b>${esc(e.name)}</b> <small>${esc(KIND[e.type]?.label || e.type)}${e.description ? ` · ${esc(e.description.slice(0, 80))}` : ''}</small></li>`).join('')}</ul></div>`).join('')}`;
   }
 
-  function fieldInput(x, value, hideLabel) {
+  function fieldInput(x, value, hideLabel, hidden, orig) {
     const hint = x.hint ? `<em>${esc(x.hint)}</em>` : '';
+    const tr = orig != null ? ` data-orig="${esc(orig)}" data-ko="${esc(value)}" data-label="${esc(x.label)}"` : '';
     const label = `<label class="f" for="fd-${x.key}" ${hideLabel ? 'hidden' : ''}>${esc(x.label)}${hint}</label>`;
+    // v0.7.0 7: 「아직 드러나지 않음」 by hand (a field with a value, on a setting that is there)
+    const hid = hidden === undefined ? '' : `<label class="hid-toggle"><input type="checkbox" data-hidden="${x.key}" ${hidden ? 'checked' : ''}> 아직 드러나지 않음</label>`;
     return x.kind === 'line'
-      ? `<div>${label}<input id="fd-${x.key}" data-field="${x.key}" maxlength="200" value="${esc(value)}"></div>`
-      : `<div>${label}<textarea id="fd-${x.key}" data-field="${x.key}" maxlength="2000">${esc(value)}</textarea></div>`;
+      ? `<div>${label}<input id="fd-${x.key}" data-field="${x.key}" maxlength="200" value="${esc(value)}"${tr}>${hid}</div>`
+      : `<div>${label}<textarea id="fd-${x.key}" data-field="${x.key}" maxlength="2000"${tr}>${esc(value)}</textarea>${hid}</div>`;
   }
 
   function extraRow(x = { label: '', value: '' }) {
     return `<div class="extra-row" data-extra><input data-x="label" maxlength="40" placeholder="칸 이름 (예: 좋아하는 것)" value="${esc(x.label)}"><textarea data-x="value" maxlength="2000" rows="1" style="min-height:42px">${esc(x.value)}</textarea><button class="quiet" type="button" data-act="drop-extra">빼기</button></div>`;
   }
+
+  /**
+   * v0.7.0 7: the rest of the screen in 「고치기」 — 지내는 곳 · 일하는 곳, 적용되는 곳 · 주제, 본거지 · 명단, 시간표 칸,
+   * 학사일정, 관계. The pickers act at once (each in 기록); 일하는 곳 · 주제 · 숨김 are saved with 「저장」.
+   */
+  function moreEdit(e, type) {
+    EDIT_ON = true;
+    try {
+      const places = st.entities.filter((x) => x.type === 'place').sort((a, b) => a.name.localeCompare(b.name, 'ko'));
+      const work = type === 'person' ? `<label class="f" for="fd-work">일하는 곳<em>가게 · 장소. 소속 칸에서 자동으로 잇기도 해요</em></label><select id="fd-work" style="max-width:360px"><option value="">없음</option>${places.map((x) => `<option value="${esc(x.entityId)}" ${x.entityId === e.work ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select>` : '';
+      const topic = type === 'rule' || type === 'system' ? `<label class="f" for="fd-topic">주제<em>규칙 · 시스템 화면에서 주제로 거를 때 써요</em></label><select id="fd-topic" style="max-width:240px"><option value="">고르지 않음</option>${(st.topics || []).map((t) => `<option ${t === e.topic ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select>` : '';
+      return [
+        type === 'person' ? roomHtml(e) + work : '',
+        type === 'rule' || type === 'system' ? appliesHtml(e) + topic : '',
+        type === 'group' ? baseHtml(e) + rosterHtml(e) : '',
+        e.timetable ? timetableHtml(e) : '',
+        e.calendar ? calendarHtml(e) + calAddHtml(e) : '',
+        relEditHtml(e),
+      ].join('');
+    } finally {
+      EDIT_ON = false;
+    }
+  }
+
+  /** v0.7.0 3: what the person wrote in the Korean view and what will be saved (the settings' language). */
+  const backCheckHtml = (plan) => `<div class="back-check" id="backCheck" data-no-tr><h4>원문 언어로 이렇게 저장해요</h4><dl>${plan.changed.map((c) => `<dt>${esc(c.label)} · 고친 글</dt><dd>${esc(c.ko)}</dd><dt>저장될 원문</dt><dd class="to">${esc(c.to)}</dd>`).join('')}</dl><div class="actions"><button class="primary" type="button" data-act="back-save">이대로 저장</button><button class="quiet" type="button" data-act="back-cancel">다시 고치기</button></div></div>`;
 
   /** e: the saved setting, or null for a new one. st.draft (if any) wins over e for what is shown. */
   function formHtml(e, type) {
@@ -913,6 +1105,11 @@ button.cap:hover{background:var(--wa-soft)}.cap.ghost{border-style:dashed;color:
     const lines = d.filter((x) => x.kind === 'line');
     const texts = d.filter((x) => x.kind === 'text' && x.key !== 'state');
     const state = d.find((x) => x.key === 'state');
+    const hidOf = (key) => (isNew || !e || !(e.fields || {})[key] ? undefined : Boolean(e.hidden?.[key]));
+    // v0.7.0 3: in the Korean view a saved value shows its Korean (the original kept in the input, put back if unchanged)
+    const koOf = (orig) => (st.viewKo && !isNew && e && !st.draft && koCache.get(String(orig || '').trim())) || null;
+    const fi = (x, hideLabel) => { const ko = koOf(f[x.key]); return fieldInput(x, ko || f[x.key] || '', hideLabel, hidOf(x.key), ko ? (e.fields || {})[x.key] : undefined); };
+    const descKo = koOf(v.description);
     return `
       <button class="back" type="button" data-act="cancel">${icon('back')}${isNew ? `${k.label} 목록` : '돌아가기'}</button>
       <div class="eyebrow">${k.en} · ${isNew ? '새로 만들기' : '고치기'}</div>
@@ -925,14 +1122,16 @@ button.cap:hover{background:var(--wa-soft)}.cap.ghost{border-style:dashed;color:
         </div>
         <label class="f" for="fd-aliases">다른 이름<em>애칭·영어 표기·직함. 쉼표로 나눠 주세요</em></label>
         <input id="fd-aliases" value="${esc((v.aliases || []).join(', '))}">
-        ${lines.length ? `<div class="grid3">${lines.map((x) => fieldInput(x, f[x.key] || '')).join('')}</div>` : ''}
-        ${texts.map((x) => fieldInput(x, f[x.key] || '')).join('')}
-        ${state ? `<div class="state"><small>지금 상태 · 사건으로 바뀐 것</small><p class="sub" style="margin:0 0 8px">${esc(state.hint || '')}</p>${fieldInput(state, f.state || '', true)}</div>` : ''}
+        ${st.viewKo && !isNew ? '<p class="sub" data-no-tr>한국어 보기로 고치는 중이에요. 바꾼 칸만 저장할 때 원문 언어로 되돌려 두 글을 같이 보여 드려요.</p>' : ''}
+        ${lines.length ? `<div class="grid3">${lines.map((x) => fi(x, false)).join('')}</div>` : ''}
+        ${texts.map((x) => fi(x, false)).join('')}
+        ${state ? `<div class="state"><small>지금 상태 · 사건으로 바뀐 것</small><p class="sub" style="margin:0 0 8px">${esc(state.hint || '')}</p>${fi(state, true)}</div>` : ''}
+        ${!isNew && e ? moreEdit(e, type) : ''}
         <label class="f">추가 칸<em>이 항목에만 필요한 칸</em></label>
         <div id="extras">${(v.extra || []).map(extraRow).join('')}</div>
         <button type="button" data-act="add-extra" style="margin-top:8px">칸 추가</button>
         <label class="f" for="fd-desc">${d.length ? '메모' : '내용'}</label>
-        <textarea id="fd-desc" maxlength="4000">${esc(v.description || '')}</textarea>
+        <textarea id="fd-desc" maxlength="4000"${descKo ? ` data-orig="${esc(e.description)}" data-ko="${esc(descKo)}" data-label="메모"` : ''}>${esc(descKo || v.description || '')}</textarea>
         <label class="check"><input type="checkbox" id="fd-pinned" ${v.pinned ? 'checked' : ''}> 늘 먼저 넣기 (글자 수가 모자랄 때 이 설정부터 넣습니다)</label>
         <div class="actions"><button class="primary" type="button" data-act="save">저장</button><button class="quiet" type="button" data-act="cancel">취소</button></div>
       </form>`;
@@ -950,6 +1149,18 @@ button.cap:hover{background:var(--wa-soft)}.cap.ghost{border-style:dashed;color:
       </form>`;
   }
 
+  /** v0.7.0 2: {{세계}} 글자 수 — the person picks; what goes in now and what did not fit, from this room's preview. */
+  const BUDGETS = [3000, 5000, 8000, 12000];
+  function budgetHtml(w) {
+    const cur = w.injectChars;
+    const custom = st.budgetCustom || !BUDGETS.includes(cur);
+    const p = st.preview && st.preview.worldId === w.worldId ? st.preview : null;
+    const now = p ? `<p class="sub budget-now">지금 들어가는 글: ${Number(p.chars || 0).toLocaleString()}자 / ${Number(p.budget || cur).toLocaleString()}자${p.omitted?.length ? ` · <b>글자가 모자라 설정 ${p.omitted.length}개가 빠졌어요</b>` : ''}</p>` : '';
+    return `<label class="f" for="w-budget">{{세계}}에 넣을 글자 수<em>넘치면 고정하지 않은 설정부터 빠집니다. 늘리면 모델에 보내는 글도 그만큼 길어져요</em></label>
+        <div class="caps" role="radiogroup" aria-label="{{세계}}에 넣을 글자 수">${BUDGETS.map((n) => `<button type="button" role="radio" aria-checked="${!custom && cur === n}" class="${!custom && cur === n ? 'on' : ''}" data-act="budget" data-n="${n}">${n.toLocaleString()}자</button>`).join('')}<button type="button" role="radio" aria-checked="${custom}" class="${custom ? 'on' : ''}" data-act="budget" data-n="custom">직접 입력</button></div>
+        <input id="w-budget" type="number" min="300" max="20000" step="100" value="${cur}" style="max-width:200px" ${custom ? '' : 'hidden'} aria-label="직접 입력(300~20000자)">${now}`;
+  }
+
   function worldHtml() {
     const w = world();
     return `
@@ -958,13 +1169,15 @@ button.cap:hover{background:var(--wa-soft)}.cap.ghost{border-style:dashed;color:
       <form class="paper" onsubmit="return false">
         <label class="f" for="w-name">이름</label><input id="w-name" maxlength="120" value="${esc(w.name)}">
         <label class="f" for="w-desc">시대·배경<em>설정 맨 앞에 들어갑니다</em></label><textarea id="w-desc" maxlength="4000" style="min-height:120px">${esc(w.description)}</textarea>
-        <label class="f" for="w-budget">프롬프트에 넣을 최대 글자 수<em>300~20000. 넘치면 고정하지 않은 설정부터 빠집니다</em></label><input id="w-budget" type="number" min="300" max="20000" step="100" value="${w.injectChars}" style="max-width:200px">
+        ${budgetHtml(w)}
         <label class="f" for="w-mode">넣는 방식<em>장면 방식은 최근 메시지 12개에 이름이 나온 설정만 넣습니다</em></label><select id="w-mode" style="max-width:360px"><option value="all" ${w.injectMode === 'scene' ? '' : 'selected'}>전부 넣기</option><option value="scene" ${w.injectMode === 'scene' ? 'selected' : ''}>장면에 나온 것만(고정·규칙·시스템은 늘)</option></select>
         <label class="f" for="w-year">학년도 시작 달<em>시간표와 학사일정을 학년도로 나눕니다(이야기 속 날짜를 알 때)</em></label><select id="w-year" style="max-width:200px">${Array.from({ length: 12 }, (_, i) => `<option value="${i + 1}" ${(w.yearStart || 9) === i + 1 ? 'selected' : ''}>${i + 1}월</option>`).join('')}</select>
         <label class="f">{{세계}} 맨 끝 두 줄<em>글자 수 안에서 고정 설정 다음으로 먼저 자리를 잡습니다</em></label>
         <label class="check"><input type="checkbox" id="w-tail-cast" ${w.tail?.cast !== false ? 'checked' : ''}> [이미 있는 인물] — 이름 목록(600자까지, 최근 순 · 넘으면 「외 N명」)</label>
         <label class="check"><input type="checkbox" id="w-tail-bal" ${w.tail?.balance !== false ? 'checked' : ''}> [균형] — 반복 등장 인물(두 번 이상 나왔거나 고정) 수를 칸별로</label>
         <label class="f" for="w-balance">균형 볼 칸<em>쉼표로 나눔 · 4개까지 · 기본 성별. 인물 칸 이름(성별 · 종 · 소속 …)이 아니면 인물의 추가 칸으로 생기고, 자동 반영은 근거가 있을 때만 채웁니다</em></label><input id="w-balance" maxlength="100" value="${esc((w.balance?.length ? w.balance : ['성별']).join(', '))}">
+        <label class="f" for="w-lang">정리 언어<em>자동: 이 방 기억 서재의 기억 언어(없으면 한국어). 영어로 정리하면 이름은 원문 그대로 두고 번역 단어장의 한국어 이름은 다른 이름에 넣어요</em></label><select id="w-lang" style="max-width:360px">${[['auto', '자동'], ['ko', '한국어'], ['en', '영어']].map(([v, l]) => `<option value="${v}" ${(w.summaryLang || 'auto') === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
+        <label class="f">인물 추가 칸<em>학교 세계에서 켜요. 소속 · 명단으로 알 수 있으면 코드가 채우고, 사람이 쓴 칸은 덮지 않아요</em></label><div class="row">${[['house', '기숙사'], ['year', '학년']].map(([k, l]) => `<label class="check"><input type="checkbox" data-pf="${k}" ${(w.personFields || []).includes(k) ? 'checked' : ''}> ${l}</label>`).join('')}</div>
         <label class="f" for="w-names">{{세계}} 이름 표기<em>자동: 영어로 진행하는 방에서는 「원래 표기(한국어)」</em></label><select id="w-names" style="max-width:360px">${[['auto', '자동'], ['ko', '한국어만'], ['original', '원래 표기(한국어)']].map(([v, l]) => `<option value="${v}" ${(w.nameStyle || 'auto') === v ? 'selected' : ''}>${l}</option>`).join('')}</select>
         <div class="grid2">
           <div><label class="f" for="w-board">점수판 이름<em>비우면 점수를 찾지 않습니다 (예: 기숙사 점수)</em></label><input id="w-board" maxlength="40" value="${esc(w.scoreboard?.name || '')}"></div>
@@ -987,7 +1200,7 @@ button.cap:hover{background:var(--wa-soft)}.cap.ghost{border-style:dashed;color:
         <h2>인물 종 채우기 <small>추가 기능</small></h2>
         <p class="sub" style="margin:0 0 12px">「종」 칸이 생기기 전에 읽은 인물은 종이 비어 있습니다. 누를 때만, 종이 빈 인물의 이름 · 다른 이름 · 외형 · 메모를 모아 100명씩 작은 호출로 묻고, 사람이 아닌 존재(반려동물 · 마법 생물 같은)에만 종을 적습니다. 직접 고친 칸은 건드리지 않고, 기록에서 하나씩 되돌릴 수 있습니다. 자동 반영 연결을 씁니다.</p>
         ${tidyHtml()}
-        <div class="row"><button type="button" data-act="tidy" title="한 번 스친 물건·주문 같은 규칙·시스템·일정과, 성격·메모에 섞인 사건을 후보로만 고릅니다(작은 호출). 지우지는 않습니다.">잡다한 설정 정리</button><button type="button" data-act="species-fill">인물 종 채우기</button><button type="button" data-act="applies-fill" title="적용되는 곳이 빈 규칙·시스템을 이름·분류·내용만으로 한 번에 묻습니다(작은 호출). 근거가 없으면 모름으로 둡니다.">규칙 적용되는 곳 채우기</button><button type="button" data-act="location-fill" title="아직 어느 장소 안에도 없는 장소를 위치 칸으로 먼저 잇고, 남은 것만 작은 호출로 묻습니다.">장소 위치 채우기</button></div>
+        <div class="row"><button type="button" data-act="tidy" title="한 번 스친 물건·주문 같은 규칙·시스템·일정과, 성격·메모에 섞인 사건을 후보로만 고릅니다(작은 호출). 지우지는 않습니다.">잡다한 설정 정리</button><button type="button" data-act="species-fill">인물 종 채우기</button><button type="button" data-act="hair-fill" title="머리색 · 눈색이 빈 인물을 외형 글에서만 뽑습니다(작은 호출, 지어내지 않음).">머리색 · 눈색 채우기</button><button type="button" data-act="applies-fill" title="적용되는 곳이 빈 규칙·시스템을 이름·분류·내용만으로 한 번에 묻습니다(작은 호출). 근거가 없으면 모름으로 둡니다.">규칙 적용되는 곳 채우기</button><button type="button" data-act="topic-fill" title="주제가 빈 규칙·시스템을 이름·분류·내용만으로 한 번에 묻습니다(작은 호출).">규칙 주제 채우기</button><button type="button" data-act="topic-redo" title="자동으로 붙은 주제도 다시 매깁니다(사람이 고친 것은 그대로, 기록에서 되돌릴 수 있음).">주제 다시 매기기</button><button type="button" data-act="location-fill" title="아직 어느 장소 안에도 없는 장소를 위치 칸으로 먼저 잇고, 남은 것만 작은 호출로 묻습니다.">장소 위치 채우기</button></div>
       </div>
       <div class="paper">
         <h2>백업 · 복원</h2>
@@ -1009,10 +1222,10 @@ button.cap:hover{background:var(--wa-soft)}.cap.ghost{border-style:dashed;color:
       const keys = (c.keys || []).map((k) => label[k] || (st.fields[c.type] || []).find((f) => f.key === k)?.label || k);
       return `<b>${esc(c.name)}</b> · 직접 고침${keys.length ? `: ${esc(keys.join(', '))}` : ''}`;
     },
-    field: (c) => `<b>${esc(c.name)}</b> · ${esc((st.fields[c.type] || []).find((f) => f.key === c.key)?.label || c.key)}: ${c.before ? `${esc(c.before)} → ` : ''}${esc(c.after)}${c.correction ? ' · 정정됨' : ''}`,
+    field: (c) => `<b>${esc(c.name)}</b> · ${esc((st.fields[c.type] || []).find((f) => f.key === c.key)?.label || c.key)}: ${c.before ? `${esc(c.before)} → ` : ''}${esc(c.after)}${c.correction ? ' · 정정됨' : ''}${c.why ? ` · ${esc(c.why)}` : ''}`,
     rumor: (c) => `<b>${esc(c.name)}</b> · ${esc((st.fields[c.type] || []).find((f) => f.key === c.key)?.label || c.key)}: 확인 안 됨 「${esc(c.after)}」 · ${esc(c.by2 || '소문')}의 말`,
     alias: (c) => `<b>${esc(c.name)}</b> · 다른 이름 「${esc(c.after)}」`,
-    memo: (c) => `<b>${esc(c.name)}</b> · 메모: ${esc(c.after)}`,
+    memo: (c) => `<b>${esc(c.name)}</b> · 메모: ${esc(c.after)}${c.why ? ` · ${esc(c.why)}` : ''}`,
     merge: (c) => `<b>${esc(c.name)}</b> · 「${esc(c.dropName)}」와(과) 합침`,
     rename: (c) => `<b>${esc(c.before)}</b> → <b>${esc(c.after)}</b> · 번역 단어장의 이름으로`,
     'relation-add': (c) => `관계 <b>${esc(c.name)}</b> · ${esc(c.relation?.type || '')}${c.relation?.note ? ` (${esc(c.relation.note)})` : ''}`,
@@ -1025,7 +1238,9 @@ button.cap:hover{background:var(--wa-soft)}.cap.ghost{border-style:dashed;color:
     base: (c) => `<b>${esc(c.name)}</b> · 본거지: ${esc(c.beforeName || '없음')} → ${esc(c.afterName || '없음')}`,
     extra: (c) => `<b>${esc(c.name)}</b> · ${esc(c.key)}: ${c.before ? `${esc(c.before)} → ` : ''}${esc(c.after)}`,
     room: (c) => `<b>${esc(c.name)}</b> · 지내는 곳: ${esc(c.beforeName || '없음')} → ${esc(c.afterName || '없음')}`,
+    work: (c) => `<b>${esc(c.name)}</b> · 일하는 곳: ${esc(c.beforeName || '없음')} → ${esc(c.afterName || '없음')}`,
     reveal: (c) => `<b>${esc(c.name)}</b> · ${esc((st.fields[c.type] || []).find((f) => f.key === c.key)?.label || c.key)}: 이야기에 드러남`,
+    hide: (c) => `<b>${esc(c.name)}</b> · ${esc((st.fields[c.type] || []).find((f) => f.key === c.key)?.label || c.key)}: 아직 드러나지 않음(프로필에만 있음)`,
     applies: (c) => `<b>${esc(c.name)}</b> · 적용되는 곳: ${esc(c.beforeName || '세계 전체')} → ${esc(c.afterName || '세계 전체')}`,
     'alias-remove': (c) => `<b>${esc(c.name)}</b> · 이름이 아닌 다른 이름 「${esc(c.alias)}」 뗌`,
     'alias-move': (c) => `<b>${esc(c.name)}</b> · 다른 이름 「${esc(c.alias)}」을(를) 새 집단 「${esc(c.to)}」(으)로 옮김`,
@@ -1107,6 +1322,24 @@ button.cap:hover{background:var(--wa-soft)}.cap.ghost{border-style:dashed;color:
   /** The story's today in this room (when the room reads the world on screen): { date, weekday } or null. */
   const storyToday = () => (st.room?.worldId === st.worldId && st.room?.story?.date ? st.room.story : null);
 
+  // v0.6.2: a place whose 위치 칸 names a group (교장실 → 「호그와트」) is in that group — the same rule as the server's
+  // groupOfPlace (world-archive/lib/store.cjs): the group's name or other name, or that without 학교 · 기숙사 · 가문 …
+  const SQ = (x) => String(x || '').normalize('NFC').toLowerCase().replace(/[\s"'“”‘’·,.()]+/g, '');
+  const GROUP_ENDS = ['마법학교', '기숙사', '기사단', '가문', '집안', '일가', '학교', '학원', '조직', '무리', '일행', 'family', 'school', 'house'];
+  const groupKeysC = (g) => [...new Set([g.name, ...(g.aliases || [])].map(SQ).flatMap((k) => { const end = GROUP_ENDS.find((x) => k.endsWith(x) && k.length - x.length >= 2); return [k, end ? k.slice(0, -end.length) : k]; }))].filter((k) => k.length >= 2);
+  const GROUP_BUILDING = ['성', '성채', '본관', '교정', '캠퍼스', '본부', 'castle', 'campus', 'grounds', 'manor', 'estate', 'hall', 'headquarters', 'hq'];
+  const VEHICLE = /(열차|기차|마차|보트|급행|호차|(^|\s)배(\s|$)|express|train|carriage|coach|boat)/i; // v0.6.4 f: the same as the server's
+  function groupOfPlaceC(p, all) {
+    if (p?.type !== 'place' || VEHICLE.test(String(p.name || ''))) return null;
+    const nm = SQ(p.name);
+    const own = all.find((g) => g.type === 'group' && groupKeysC(g).some((k) => GROUP_BUILDING.some((w) => nm === k + w)));
+    if (own) return own;
+    const t = SQ(p?.fields?.location);
+    if (!t) return null;
+    if (all.some((x) => x.type === 'place' && x.entityId !== p.entityId && [x.name, ...(x.aliases || [])].some((n) => SQ(n).length >= 2 && SQ(n) === t))) return null;
+    const len = (g) => Math.max(0, ...groupKeysC(g).filter((k) => t.includes(k)).map((k) => k.length));
+    return all.filter((g) => g.type === 'group' && len(g) > 0).sort((a, b) => len(b) - len(a))[0] || null;
+  }
   function worldMap() {
     const byId = new Map(st.entities.map((e) => [e.entityId, e]));
     const rels = st.relations || [];
@@ -1114,15 +1347,20 @@ button.cap:hover{background:var(--wa-soft)}.cap.ghost{border-style:dashed;color:
     for (const r of rels) if (r.type === '위치' && byId.get(r.from)?.type === 'place' && byId.get(r.to)?.type === 'place' && !up.has(r.from)) up.set(r.from, r.to);
     const chain = (id) => { const out = []; const seen = new Set([id]); let x = id; while (up.has(x) && !seen.has(up.get(x))) { x = up.get(x); seen.add(x); out.push(x); } return out; }; // the places it is in, nearest first
     const top = (id) => chain(id).at(-1) || id;
+    // a top place that is in a group: the group heads its tab
+    const inGroup = new Map();
+    for (const p of st.entities.filter((e) => e.type === 'place' && !up.has(e.entityId))) { const g = groupOfPlaceC(p, st.entities); if (g) inGroup.set(p.entityId, g.entityId); }
+    const tabTop = (id) => inGroup.get(top(id)) || top(id);
+    const heads = new Set(inGroup.values());
     const groupUp = new Map(); // a group → the bigger group it belongs to (소속, smaller → bigger)
     for (const r of rels) if (r.type === '소속' && byId.get(r.from)?.type === 'group' && byId.get(r.to)?.type === 'group' && !groupUp.has(r.from)) groupUp.set(r.from, r.to);
-    const groupHome = (g) => { const seen = new Set(); let x = g; while (x && !seen.has(x.entityId)) { seen.add(x.entityId); if (x.base && byId.get(x.base)?.type === 'place') return top(x.base); x = byId.get(groupUp.get(x.entityId)); } return null; };
-    const homeOf = (id) => { const e = byId.get(id); return !e ? null : e.type === 'place' ? top(id) : e.type === 'group' ? groupHome(e) : e.type === 'person' && e.room && byId.has(e.room) ? top(e.room) : null; };
+    const groupHome = (g) => { const seen = new Set(); let x = g; while (x && !seen.has(x.entityId)) { seen.add(x.entityId); if (x.base && byId.get(x.base)?.type === 'place') return tabTop(x.base); if (heads.has(x.entityId)) return x.entityId; x = byId.get(groupUp.get(x.entityId)); } return null; };
+    const homeOf = (id) => { const e = byId.get(id); return !e ? null : e.type === 'place' ? tabTop(id) : e.type === 'group' ? groupHome(e) : e.type === 'person' && e.room && byId.has(e.room) ? tabTop(e.room) : null; };
     const tabs = new Map();
     const tabOf = (id) => { if (!tabs.has(id)) tabs.set(id, { key: id, place: byId.get(id), places: [], groups: [], rules: [], sheets: [], cals: [] }); return tabs.get(id); };
     const everywhere = { key: 'world', rules: [], sheets: [], cals: [] };
     const lost = { key: 'unknown', rules: [], groups: [], places: [], sheets: [], cals: [] };
-    for (const p of st.entities.filter((e) => e.type === 'place')) { if (up.has(p.entityId)) tabOf(top(p.entityId)).places.push(p); else tabOf(p.entityId); }
+    for (const p of st.entities.filter((e) => e.type === 'place')) { const t = tabTop(p.entityId); if (t !== p.entityId) tabOf(t).places.push(p); else tabOf(p.entityId); }
     for (const g of st.entities.filter((e) => e.type === 'group')) { const h = groupHome(g); (h ? tabOf(h).groups : lost.groups).push(g); }
     for (const e of st.entities) {
       if (RULEISH.has(e.type)) { if (e.appliesTo === 'world') everywhere.rules.push(e); else { const h = e.appliesTo && homeOf(e.appliesTo); (h ? tabOf(h).rules : lost.rules).push(e); } }
@@ -1131,15 +1369,58 @@ button.cap:hover{background:var(--wa-soft)}.cap.ghost{border-style:dashed;color:
     }
     const size = (t) => t.places.length + t.groups.length + t.rules.length + t.sheets.length + t.cals.length;
     const list = [...tabs.values()].filter((t) => t.place);
-    for (const t of list) if (!size(t)) lost.places.push(t.place);
-    const big = list.filter((t) => size(t)).sort((a, b) => size(b) - size(a) || a.place.name.localeCompare(b.place.name, 'ko'));
-    const pathOf = (p) => [...chain(p.entityId).slice(0, -1).reverse().map((id) => byId.get(id)?.name), p.name].filter(Boolean).join(' › ');
-    return { byId, big, everywhere, lost, size, pathOf, top, homeOf, up, groupUp };
+    for (const t of list) if (!size(t) && t.place.type === 'place') lost.places.push(t.place);
+    const big = list.filter((t) => size(t) && (t.place.type === 'place' || heads.has(t.key))).sort((a, b) => size(b) - size(a) || a.place.name.localeCompare(b.place.name, 'ko'));
+    // the path inside the tab: every place it is in but the tab's own head (a group head: the top place is shown)
+    const pathOf = (p, key) => [...chain(p.entityId).reverse().filter((id) => id !== key).map((id) => byId.get(id)?.name), p.name].filter(Boolean).join(' › ');
+    return { byId, big, everywhere, lost, size, pathOf, top: tabTop, homeOf, up, groupUp };
   }
   const RULEISH = new Set(['rule', 'system']);
   const caps = (list, label = (e) => e.name) => `<div class="wt-row">${list.map((e) => `<button class="cap" type="button" data-act="open" data-id="${esc(e.entityId)}" data-q="${esc(label(e).toLowerCase())}">${esc(label(e))}</button>`).join('')}</div>`;
   const ruleText = (e) => e.description || e.fields?.how || e.fields?.category || '';
-  const rulesHtml = (list) => list.slice().sort((a, b) => a.name.localeCompare(b.name, 'ko')).map((e) => `<div class="wt-rule" data-q="${esc(`${e.name} ${ruleText(e)}`.toLowerCase())}"><button type="button" data-act="open" data-id="${esc(e.entityId)}">${esc(e.name)}</button><span>${esc(clip(ruleText(e), 140))}${e.type === 'system' ? ' <small>· 시스템</small>' : ''}</span></div>`).join('');
+  // v0.6.2 ②: a rule or system one batch spoke of — kept, not in {{세계}} (the same test as the server's)
+  const LAW_NAME = /([^\s마]법(\s|$)|령(\s|$)|규칙|제도)|\b(?:laws?|decrees?|statutes?|acts?|codes?|charters?|treaty|treaties|rules?|regulations?|edicts?)\b/i; // the server's (inject.cjs)
+  function isOnce(e) {
+    return ['rule', 'system', 'custom', 'history'].includes(e.type) && !(e.appliesTo && e.appliesTo !== 'world') && !e.pinned && e.provenance?.source !== 'manual' && !Object.values(e.sources || {}).includes('manual') && !LAW_NAME.test(e.name) && Number.isFinite(e.seen?.n) && e.seen.n < 2;
+  }
+  const topicRank = (t) => { const i = (st.topics || []).indexOf(t); return i < 0 ? 99 : i; };
+  const ruleRow = (e) => `<div class="wt-rule" data-q="${esc(`${e.name} ${ruleText(e)} ${e.topic || ''}`.toLowerCase())}"><span class="tcap${e.topic ? '' : ' none'}">${esc(e.topic || '주제 없음')}</span><div class="rb"><button class="rt" type="button" data-act="open" data-id="${esc(e.entityId)}">${esc(e.name)}</button>${st.ruleKind ? `<small class="kind">${e.type === 'system' ? '시스템' : '규칙'}</small>` : ''}${ruleText(e) ? `<p class="rd">${esc(clip(ruleText(e), 220))}</p>` : ''}</div></div>`;
+  /** The 주제 capsules over a tab's rules: 전부 · each topic (with its count) · 한 번 나옴 숨기기 · 규칙/시스템 나눠 보기. */
+  function topicBar(list) {
+    const n = (t) => list.filter((e) => (t === '' ? true : (e.topic || '그 밖') === t)).length;
+    const pick = st.topicFilter || '';
+    const caps = ['', ...(st.topics || [])].filter((t) => t === '' || t === pick || n(t)).map((t) => `<button class="cap${t === pick ? ' on' : ''}" type="button" data-act="topic-filter" data-topic="${esc(t)}" aria-pressed="${t === pick}">${t ? esc(t) : '전부'}<small>${n(t)}</small></button>`).join('');
+    const onceN = list.filter(isOnce).length;
+    const opts = `${onceN || st.hideOnce ? `<button class="cap opt${st.hideOnce ? ' on' : ''}" type="button" data-act="hide-once" aria-pressed="${!!st.hideOnce}">한 번 나옴 숨기기<small>${onceN}</small></button>` : ''}<button class="cap opt${st.ruleKind ? ' on' : ''}" type="button" data-act="rule-kind" aria-pressed="${!!st.ruleKind}">규칙 · 시스템 나눠 보기</button>${!st.readOnly && st.entities.some((e) => RULEISH_T.has(e.type) && !e.topic && e.sources?.topic !== 'manual') ? '<button class="cap opt" type="button" data-act="topic-fill" title="주제가 빈 규칙 · 시스템을 이름 · 분류 · 내용만으로 한 번에 묻습니다(작은 호출).">주제 채우기</button>' : ''}`;
+    return `<div class="topic-bar" role="group" aria-label="주제로 거르기">${caps}${opts}</div>`;
+  }
+  const RULEISH_T = new Set(['rule', 'system']);
+  /**
+   * A tab's rules and systems: the 주제 bar, then (in a big place's tab, key) one block per small place they hold in
+   * (「시장 전체」 first, then 「지팡이 가게」 …), each sorted by 주제 then name.
+   */
+  function rulesHtml(list, key = null) {
+    const m = key ? worldMap() : null;
+    const pick = st.topicFilter || '';
+    const shown = list.filter((e) => (!pick || (e.topic || '그 밖') === pick) && !(st.hideOnce && isOnce(e)));
+    const sort = (a, b) => topicRank(a.topic) - topicRank(b.topic) || a.name.localeCompare(b.name, 'ko');
+    let rows;
+    if (!m) rows = shown.slice().sort(sort).map(ruleRow).join('');
+    else {
+      const bigName = m.byId.get(key)?.name || '';
+      const blocks = new Map();
+      for (const e of shown) {
+        const at = e.appliesTo && e.appliesTo !== key ? m.byId.get(e.appliesTo) : null;
+        const label = at ? at.name : `${bigName} 전체`;
+        if (!blocks.has(label)) blocks.set(label, { whole: !at, path: at ? m.pathOf(at, key) : '', list: [] });
+        blocks.get(label).list.push(e);
+      }
+      const order = [...blocks.entries()].sort(([a, x], [b, y]) => (y.whole - x.whole) || x.path.localeCompare(y.path, 'ko') || a.localeCompare(b, 'ko'));
+      rows = order.length < 2 && order[0]?.[1].whole ? order[0][1].list.sort(sort).map(ruleRow).join('')
+        : order.map(([label, b]) => `<h4 class="wt-rgrp">${esc(label)}<small>${b.list.length}</small></h4>${b.list.sort(sort).map(ruleRow).join('')}`).join('');
+    }
+    return `${topicBar(list)}${rows || '<p class="wt-empty">고른 주제에 맞는 것이 없습니다.</p>'}`;
+  }
 
   /** The part of a 소속 칸 that says what the person is there (「5학년 반장」 of 「은사슴 기숙사생 5학년 반장」). */
   function roleIn(p, g) {
@@ -1171,7 +1452,7 @@ button.cap:hover{background:var(--wa-soft)}.cap.ghost{border-style:dashed;color:
     const c = r.counts || {};
     const head = c.total ? ` · 이름 아는 사람 ${c.known}명 / 전체 ${c.total}명` : ` · ${list.filter((m) => m.kind === 'member').length}명`;
     const small = subs.length ? `<div class="wt-grp">작은 집단</div><div class="wt-row">${subs.map((x) => `<button class="cap" type="button" data-act="open" data-id="${esc(x.entityId)}" data-q="${esc(x.name.toLowerCase())}">${esc(x.name)}${x.fields?.size ? ` · ${esc(x.fields.size)}` : ''}</button>`).join('')}</div>` : '';
-    const body = list.length ? part('member', '구성원', head) + small + part('staff', '맡은 사람') + part('past', '지난 구성원') : small + `<p class="wt-empty">아직 이 집단에 소속된 인물이 없습니다.${c.total ? ` 전체 ${c.total}명` : ''}</p>`;
+    const body = list.length ? part('member', '구성원', head) + small + part('staff', '맡은 사람') + part('past', '지난 구성원') + part('animal', '함께 사는 동물') : small + `<p class="wt-empty">아직 이 집단에 소속된 인물이 없습니다.${c.total ? ` 전체 ${c.total}명` : ''}</p>`;
     return `<div class="world-card" data-q="${esc([g.name, ...list.map((m) => m.name)].join(' ').toLowerCase())}"><h3><button type="button" data-act="open" data-id="${esc(g.entityId)}">${esc(g.name)}</button> <span class="pill">집단</span></h3>${body}</div>`;
   }
 
@@ -1336,12 +1617,12 @@ button.cap:hover{background:var(--wa-soft)}.cap.ghost{border-style:dashed;color:
       const based = t.groups.some((g) => g.base);
       const lead = p.description || p.fields?.use || '';
       const staying = st.entities.filter((e) => e.type === 'person' && e.room && m.top(e.room) === p.entityId);
-      body = `${yearsHtml(y)}<p class="wt-eyebrow">${based ? '큰 장소 · 집단 본거지' : '큰 장소'}</p><h1 class="wt-h1">${esc(p.name)}</h1><p class="wt-lead">${esc(lead)}${lead ? (/[.!?。」)]$/.test(lead.trim()) ? ' ' : '. ') : ''}이 탭의 규칙은 장면이 여기일 때 모델에게 들어가요${todayLine}.</p>${find}
-        ${t.places.length ? `<div class="wt-sec">안의 장소</div>${caps(t.places.slice().sort((a, b) => m.pathOf(a).localeCompare(m.pathOf(b), 'ko')), m.pathOf)}` : ''}
+      body = `${yearsHtml(y)}<p class="wt-eyebrow">${p.type === 'group' ? '큰 장소 · 집단' : based ? '큰 장소 · 집단 본거지' : '큰 장소'}</p><h1 class="wt-h1">${esc(p.name)}</h1><p class="wt-lead">${esc(lead)}${lead ? (/[.!?。」)]$/.test(lead.trim()) ? ' ' : '. ') : ''}이 탭의 규칙은 장면이 여기일 때 모델에게 들어가요${todayLine}.</p>${find}
+        ${t.places.length ? `<div class="wt-sec">안의 장소</div>${caps(t.places.slice().sort((a, b) => m.pathOf(a, t.key).localeCompare(m.pathOf(b, t.key), 'ko')), (e) => m.pathOf(e, t.key))}` : ''}
         ${t.groups.length ? `<div class="wt-sec">집단 · 명단</div>${t.groups.filter((g) => !t.groups.some((x) => x.entityId === m.groupUp.get(g.entityId))).map((g) => rosterCard(g, t.groups.filter((x) => m.groupUp.get(x.entityId) === g.entityId))).join('')}` : ''}
         ${staying.length ? `<div class="wt-sec">여기서 지내는 사람</div>${caps(staying, (e) => `${e.name} · ${m.byId.get(e.room)?.name || ''}`)}` : ''}
         ${timeParts(t, y)}
-        ${t.rules.length ? `<div class="wt-sec">규칙 · 시스템</div>${rulesHtml(t.rules)}` : ''}
+        ${t.rules.length ? `<div class="wt-sec">규칙 · 시스템</div>${rulesHtml(t.rules, t.key)}` : ''}
         <p class="wt-empty" style="margin-top:18px"><button class="quiet" type="button" data-act="open" data-id="${esc(p.entityId)}">「${esc(p.name)}」 카드 열기</button></p>`;
     }
     return `${subtabsHtml(m, sel)}${body}<p class="sub" id="tabNoHit" hidden>이 탭에는 찾는 것이 없습니다.</p>`;
@@ -1406,12 +1687,72 @@ button.cap:hover{background:var(--wa-soft)}.cap.ghost{border-style:dashed;color:
       ? `<p class="msg bad" role="status">서버 쪽 World Archive(v${esc(st.serverVersion)})와 이 화면(v${esc(VERSION)})의 판이 달라요. 서버 쪽을 업데이트해 주세요 — 서버에서 설치 명령을 다시 실행하면 됩니다.</p>`
       : '';
     const nav = EMBEDDED && st.loaded && world() && st.view !== 'tabs' && !st.detail && !st.editing && (['log', 'scores', 'world', 'overview'].includes(st.view) || KIND[st.view]) ? subtabsHtml(worldMap(), null) : '';
-    el.main.innerHTML = skew + (st.msg && !(st.readOnly && st.msg === UPDATE_MSG) ? `<p class="msg ${st.bad ? 'bad' : ''}" role="status">${esc(st.msg)}</p>` : '') + nav + mainHtml();
+    const viewBar = EMBEDDED && st.loaded && st.worldId ? `<div class="emb-view" data-no-tr>${viewLangHtml()}</div>` : '';
+    el.main.innerHTML = viewBar + skew + (st.msg && !(st.readOnly && st.msg === UPDATE_MSG) ? `<p class="msg ${st.bad ? 'bad' : ''}" role="status">${esc(st.msg)}</p>` : '') + nav + mainHtml();
     el.main.scrollTop = keep;
     lastScreen = screen;
     if (st.query) filterCards();
     if (st.view === 'tabs' && st.tabQuery) filterTab();
     if (st.busy) root.querySelectorAll('main button, .rail button').forEach((b) => { b.disabled = true; });
+    koFix([el.side, el.top, el.rail, el.main]);
+    if (st.viewKo) koView();
+  }
+  // ------------------------------------------------------------------ v0.7.0 3: 「보기: 한국어」
+  // Only a view: text nodes on the screen that are not Korean show their Korean (cache by text, then small calls on
+  // the server, cached there by value hash). Inputs are never touched; {{세계}} always gets the original.
+  const koCache = new Map(); // original text → Korean
+  const koFailed = new Set();
+  // the screen's own English (PEOPLE · 14, WORLD ARCHIVE) is decoration in capitals: never sent
+  const needsKo = (t) => /[A-Za-z]{2}/.test(t) && /[a-z]/.test(t) && !/[가-힣]/.test(t);
+  let koAsking = false;
+  function koNodes() {
+    const out = [];
+    for (const box of [el.main, el.rail]) {
+      const w = document.createTreeWalker(box, NodeFilter.SHOW_TEXT, { acceptNode: (n) => (n.parentElement?.closest('input,textarea,select,script,style,[data-no-tr],.eyebrow,.wt-eyebrow,.brand') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT) });
+      for (let n = w.nextNode(); n; n = w.nextNode()) { const t = n.nodeValue.trim(); if (t && needsKo(t)) out.push(n); }
+    }
+    return out;
+  }
+  function koView() {
+    const missing = new Set();
+    for (const n of koNodes()) {
+      const t = n.nodeValue.trim();
+      const ko = koCache.get(t);
+      if (ko) n.nodeValue = n.nodeValue.replace(t, ko);
+      else if (!koFailed.has(t)) missing.add(t);
+    }
+    if (!missing.size || koAsking || !st.worldId) return;
+    koAsking = true;
+    st.koBusy = true;
+    refreshViewLang();
+    const texts = [...missing].slice(0, 120);
+    const worldId = st.worldId;
+    api('POST', `/worlds/${worldId}/translate`, { texts })
+      .then((r) => { for (const [k, v] of Object.entries(r.items || {})) koCache.set(k, v); for (const t of texts) if (!koCache.has(t)) koFailed.add(t); })
+      .catch((e) => { for (const t of texts) koFailed.add(t); st.msg = `한국어 보기: ${e?.message || e}`; st.bad = true; })
+      // never a whole redraw (a form being written stays): the top bar, and the Korean put into the nodes there are
+      .finally(() => { koAsking = false; st.koBusy = false; refreshViewLang(); if (st.viewKo && st.worldId === worldId) koView(); });
+  }
+  /** Korean for these settings values (the edit form in the Korean view), into koCache. */
+  async function koFor(values) {
+    const texts = [...new Set(values.map((t) => String(t || '').trim()).filter((t) => t && needsKo(t) && !koCache.has(t)))];
+    if (!texts.length) return;
+    const r = await api('POST', `/worlds/${st.worldId}/translate`, { texts });
+    for (const [k, v] of Object.entries(r.items || {})) koCache.set(k, v);
+  }
+  /**
+   * v0.7.0 1: the small fixed-width, letter-spaced styles are English decoration (WORLD · SETTINGS); a label or note in
+   * Korean in one of them is set like a Korean label (명조, no letter spacing) — labels bold 14px in ink, notes 12.5px.
+   */
+  const KO_LABEL = '.eyebrow,.wt-eyebrow,.sec small,.state small,.fact small,.rail-title,.nav-label,.wt-tt th small,.wt-mon small,.chart .num small';
+  const KO_NOTE = '.pill,.card .foot,.meta,.hist .when,.auto-tag,.card .al,.sheet-head .al,.side-bottom small,.wt-ev .d small,.brand small';
+  function koFix(parts) {
+    const hangul = /[가-힣]/;
+    for (const part of parts) {
+      if (!part) continue;
+      part.querySelectorAll(KO_LABEL).forEach((x) => { if (hangul.test(x.textContent)) x.classList.add('ko', 'lab'); });
+      part.querySelectorAll(KO_NOTE).forEach((x) => { if (hangul.test(x.textContent)) x.classList.add('ko', 'sm'); });
+    }
   }
 
   // 할 일 6 — 검색: the server finds names, other names, field values and memos (and the glossary's English names);
@@ -1454,6 +1795,18 @@ button.cap:hover{background:var(--wa-soft)}.cap.ghost{border-style:dashed;color:
 
   // ------------------------------------------------------------------ actions
   const val = (id) => root.getElementById(id)?.value ?? '';
+  const setVal = (v, key, value) => { if (key === 'description') v.description = value; else v.fields[key] = value; };
+  async function saveEntity(v) {
+    let e;
+    if (st.editing === 'new') e = await api('POST', `/worlds/${st.worldId}/entities`, v);
+    else {
+      const old = st.entities.find((x) => x.entityId === st.editing);
+      e = await api('PATCH', `/worlds/${st.worldId}/entities/${old.entityId}`, { ...v, revision: old.revision });
+    }
+    st.view = e.type; st.detail = e.entityId; st.editing = null; st.draft = null; st.backCheck = null;
+    await loadEntities();
+    await loadRoom();
+  }
   function readForm() {
     const fields = {};
     root.querySelectorAll('[data-field]').forEach((x) => { fields[x.dataset.field] = x.value; });
@@ -1466,6 +1819,10 @@ button.cap:hover{background:var(--wa-soft)}.cap.ghost{border-style:dashed;color:
       extra,
       description: val('fd-desc'),
       pinned: !!root.getElementById('fd-pinned')?.checked,
+      // v0.7.0 7: 숨김 · 주제 · 일하는 곳 — only when the form shows them
+      ...(root.querySelector('[data-hidden]') ? { hidden: Object.fromEntries([...root.querySelectorAll('[data-hidden]')].map((x) => [x.dataset.hidden, x.checked])) } : {}),
+      ...(root.getElementById('fd-topic') ? { topic: val('fd-topic') } : {}),
+      ...(root.getElementById('fd-work') ? { work: val('fd-work') || null } : {}),
     };
   }
 
@@ -1519,31 +1876,92 @@ button.cap:hover{background:var(--wa-soft)}.cap.ghost{border-style:dashed;color:
       await loadWorlds();
       await loadRoom();
     }, '저장했습니다.'),
+    'view-lang': (b) => { st.viewKo = b.dataset.lang === 'ko'; store.set('world-archive-view', st.viewKo ? 'ko' : 'orig'); st.backCheck = null; render(); },
+    'back-cancel': () => { st.backCheck = null; root.getElementById('backCheck')?.remove(); },
+    'back-save': () => run(async () => {
+      const plan = st.backCheck;
+      if (!plan) return;
+      st.backCheck = null;
+      await saveEntity(plan.v);
+    }, '저장했습니다.'),
     theme: () => { st.theme = st.theme === 'dark' ? 'light' : 'dark'; store.set('world-archive-theme', st.theme); render(); },
     close: () => toggle(false),
     open: (b) => { if (st.view === 'tabs') { st.fromTabs = true; st.view = st.entities.find((x) => x.entityId === b.dataset.id)?.type || st.view; } st.detail = b.dataset.id; st.editing = null; st.ask = null; st.msg = ''; render(); },
-    tab: (b) => { st.tab = b.dataset.tab; st.year = null; st.tabQuery = ''; st.ttDay = null; render(); },
+    // v0.7.0 4: from 세계관 정보 · 기록 · 모든 설정 too — back to the tab view, nothing open or being edited
+    tab: (b) => { st.tab = b.dataset.tab; st.view = 'tabs'; st.detail = null; st.editing = null; st.ask = null; st.fromTabs = false; st.year = null; st.tabQuery = ''; st.ttDay = null; render(); },
     year: (b) => { st.year = b.dataset.year; render(); },
+    // v0.7.0 2: a capsule sets the number field (saved with 「저장」 like the rest of the form; no re-render, so other
+    // unsaved edits stay)
+    budget: (b) => {
+      const input = root.querySelector('#w-budget');
+      if (!input) return;
+      const custom = b.dataset.n === 'custom';
+      st.budgetCustom = custom;
+      if (!custom) input.value = b.dataset.n;
+      input.hidden = !custom;
+      b.parentElement.querySelectorAll('button').forEach((x) => { x.classList.toggle('on', x === b); x.setAttribute('aria-checked', String(x === b)); });
+      if (custom) input.focus();
+    },
     'tt-day': (b) => { st.ttDay = b.dataset.day; render(); },
     'roster-more': (b) => { st.rosterOpen.add(b.dataset.id); render(); },
     new: (b) => { st.view = b.dataset.type; st.editing = 'new'; st.detail = null; st.draft = null; st.msg = ''; render(); },
-    edit: (b) => { st.editing = b.dataset.id; st.detail = b.dataset.id; st.draft = null; st.msg = ''; render(); },
+    edit: (b) => {
+      st.editing = b.dataset.id; st.detail = b.dataset.id; st.draft = null; st.msg = ''; st.backCheck = null;
+      const e = st.entities.find((x) => x.entityId === b.dataset.id);
+      // the Korean view: the values in Korean first (cache, then a small call)
+      if (st.viewKo && e) return run(() => koFor([...Object.values(e.fields || {}), e.description || '']));
+      render();
+    },
     cancel: () => { if (st.editing !== 'new') st.view = st.entities.find((x) => x.entityId === st.editing)?.type || st.view; st.editing = null; st.draft = null; st.msg = ''; render(); },
     ask: (b) => { st.ask = b.dataset.key || null; render(); },
     'add-extra': () => { root.getElementById('extras').insertAdjacentHTML('beforeend', extraRow()); root.querySelector('#extras [data-extra]:last-child input')?.focus(); },
     'drop-extra': (b) => b.closest('[data-extra]').remove(),
-    save: () => run(async () => {
+    save: async () => {
       const v = readForm();
-      let e;
-      if (st.editing === 'new') e = await api('POST', `/worlds/${st.worldId}/entities`, v);
-      else {
-        const old = st.entities.find((x) => x.entityId === st.editing);
-        e = await api('PATCH', `/worlds/${st.worldId}/entities/${old.entityId}`, { ...v, revision: old.revision });
+      // v0.7.0 3: written in the Korean view — what was left as shown keeps its original; what was changed goes back
+      // into the settings' language (a small call) and both are shown before saving
+      const shown = [...root.querySelectorAll('[data-orig]')];
+      const changed = [];
+      for (const x of shown) {
+        const key = x.dataset.field || 'description';
+        const now = x.value;
+        if (now === x.dataset.ko) setVal(v, key, x.dataset.orig);
+        else if (now.trim() && now !== x.dataset.orig) changed.push({ key, label: x.dataset.label || key, ko: now });
       }
-      st.view = e.type; st.detail = e.entityId; st.editing = null; st.draft = null;
+      if (!changed.length) return run(() => saveEntity(v), '저장했습니다.');
+      // not through run(): the form stays as written (with its originals) until the person confirms
+      if (st.busy) return;
+      st.busy = true;
+      const btn = root.querySelector('#entityForm [data-act="save"]');
+      if (btn) { btn.disabled = true; btn.textContent = '원문 언어로 되돌리는 중…'; }
+      root.getElementById('backCheck')?.remove();
+      let box;
+      try {
+        const r = await api('POST', `/worlds/${st.worldId}/translate-back`, { texts: changed.map((c) => c.ko), lang: 'en' });
+        changed.forEach((c, i) => { c.to = r.items?.[i] || ''; });
+        if (changed.some((c) => !c.to)) throw Error('원문 언어로 되돌리지 못했어요. 다시 해 보거나 「원문」 보기에서 고쳐 주세요.');
+        for (const c of changed) { setVal(v, c.key, c.to); koCache.set(c.to.trim(), c.ko); }
+        st.backCheck = { v, changed };
+        box = backCheckHtml(st.backCheck);
+      } catch (e) {
+        box = `<p class="msg bad" id="backCheck" role="status" data-no-tr>${esc(e?.message || String(e))}</p>`;
+      } finally {
+        st.busy = false;
+        if (btn) { btn.disabled = false; btn.textContent = '저장'; }
+      }
+      root.querySelector('#entityForm > .actions')?.insertAdjacentHTML('beforebegin', box);
+      root.getElementById('backCheck')?.scrollIntoView?.({ block: 'nearest' });
+    },
+    // v0.7.2 L: 「대표 이름을 바꿀까요 [바꾸기]」 — the same ordinary rename (the old name stays as an other name)
+    'name-suggest': (b) => run(async () => {
+      const e = st.entities.find((x) => x.entityId === b.dataset.id);
+      if (!e?.nameSuggest) throw Error('설정을 찾지 못했습니다. 새로 불러온 뒤 다시 해 주세요.');
+      const name = e.nameSuggest;
+      const aliases = [...e.aliases, e.name].filter((a, i, all) => a !== name && all.indexOf(a) === i).slice(0, 20);
+      await api('PATCH', `/worlds/${st.worldId}/entities/${e.entityId}`, { name, aliases, revision: e.revision });
       await loadEntities();
       await loadRoom();
-    }, '저장했습니다.'),
+    }, '대표 이름을 바꿨습니다.'),
     // 「번역 단어장에는 ○○예요 [적용]」: an ordinary rename by the person; the old name stays as an other name.
     'glossary-name': (b) => run(async () => {
       const e = st.entities.find((x) => x.entityId === b.dataset.id);
@@ -1601,7 +2019,7 @@ button.cap:hover{background:var(--wa-soft)}.cap.ghost{border-style:dashed;color:
     }, '세계관을 만들었습니다.'),
     'save-world': () => run(async () => {
       const w = world();
-      await api('PATCH', `/worlds/${w.worldId}`, { name: val('w-name'), description: val('w-desc'), injectChars: Number(val('w-budget')), injectMode: val('w-mode') === 'scene' ? 'scene' : 'all', scoreboard: { name: val('w-board'), unit: val('w-unit') }, yearStart: Number(val('w-year')) || 9, nameStyle: val('w-names') || 'auto', tail: { cast: !!root.getElementById('w-tail-cast')?.checked, balance: !!root.getElementById('w-tail-bal')?.checked }, balance: val('w-balance').split(/[,，]/).map((x) => x.trim()).filter(Boolean).slice(0, 4), revision: w.revision });
+      await api('PATCH', `/worlds/${w.worldId}`, { name: val('w-name'), description: val('w-desc'), injectChars: Number(val('w-budget')), injectMode: val('w-mode') === 'scene' ? 'scene' : 'all', scoreboard: { name: val('w-board'), unit: val('w-unit') }, yearStart: Number(val('w-year')) || 9, nameStyle: val('w-names') || 'auto', summaryLang: val('w-lang') || 'auto', personFields: [...root.querySelectorAll('[data-pf]')].filter((x) => x.checked).map((x) => x.dataset.pf), tail: { cast: !!root.getElementById('w-tail-cast')?.checked, balance: !!root.getElementById('w-tail-bal')?.checked }, balance: val('w-balance').split(/[,，]/).map((x) => x.trim()).filter(Boolean).slice(0, 4), revision: w.revision });
       await loadWorlds();
       await loadRoom();
     }, '저장했습니다.'),
@@ -1689,6 +2107,42 @@ button.cap:hover{background:var(--wa-soft)}.cap.ghost{border-style:dashed;color:
       st.bad = false;
       st.msg = `장소를 이었습니다 — 위치 칸으로 ${r.byCode.length}개, 모델로 ${r.byModel.length}개(호출 ${r.calls}번). 큰 장소 ${r.big}개. 기록에서 되돌릴 수 있습니다.`;
     }),
+    // v0.7.0 6: list layout capsules
+    'list-mode': (b) => { st.listMode = { ...(st.listMode || {}), [b.dataset.type]: b.dataset.key }; render(); },
+    'list-filter': (b) => { st.listFilter = { ...(st.listFilter || {}), [b.dataset.key]: !(st.listFilter || {})[b.dataset.key] }; render(); },
+    // v0.7.0 7: 관계 · 학사일정 in 「고치기」 (each at once, in 기록)
+    'rel-add': (b) => run(async () => {
+      const to = root.getElementById('relTo')?.value;
+      if (!to) return;
+      await api('POST', `/worlds/${st.worldId}/relations`, { from: b.dataset.id, to, type: root.getElementById('relType')?.value || '기타', note: '' });
+      await loadEntities();
+    }, '관계를 더했습니다.'),
+    'rel-del': (b) => run(async () => {
+      await api('DELETE', `/worlds/${st.worldId}/relations/${b.dataset.id}`);
+      await loadEntities();
+    }, '관계를 뺐습니다. 기록에서 되돌릴 수 있습니다.'),
+    'rel-flip': (b) => run(async () => {
+      const x = (st.relations || []).find((y) => y.relationId === b.dataset.id);
+      if (!x) return;
+      await api('PATCH', `/worlds/${st.worldId}/relations/${x.relationId}`, { from: x.to, to: x.from });
+      await loadEntities();
+    }, '방향을 바꿨습니다.'),
+    'rel-type': (b) => run(async () => {
+      const x = (st.relations || []).find((y) => y.relationId === b.dataset.id);
+      const type = root.querySelector(`[data-rel-type="${b.dataset.id}"]`)?.value;
+      if (!x || !type || type === x.type) return;
+      // another kind: the old one taken off and the new one made (both in 기록)
+      await api('POST', `/worlds/${st.worldId}/relations`, { from: x.from, to: x.to, type, note: x.note || '' });
+      await api('DELETE', `/worlds/${st.worldId}/relations/${x.relationId}`);
+      await loadEntities();
+    }, '관계 종류를 바꿨습니다.'),
+    'cal-add': (b) => run(async () => {
+      const name = val('calName').trim();
+      const date = val('calDate').trim();
+      if (!name || !date) throw Error('날짜와 행사 이름을 적어 주세요.');
+      await api('PUT', `/worlds/${st.worldId}/calendar/event`, { entityId: b.dataset.id, name, date, place: val('calPlace').trim() });
+      await loadEntities();
+    }, '일정을 더했습니다.'),
     'room-set': (b) => run(async () => {
       await api('PUT', `/worlds/${st.worldId}/entities/${b.dataset.id}/room`, { room: root.getElementById('roomPick')?.value || null });
       await loadEntities();
@@ -1717,6 +2171,27 @@ button.cap:hover{background:var(--wa-soft)}.cap.ghost{border-style:dashed;color:
     }, '칸을 비웠습니다. 기록에서 되돌릴 수 있습니다.'),
     'tidy-keep': (b) => run(async () => {
       st.tidy = await api('POST', `/worlds/${st.worldId}/tidy/keep`, { entityId: b.dataset.id, key: b.dataset.key || null });
+    }),
+    'topic-filter': (b) => { st.topicFilter = b.dataset.topic || ''; render(); },
+    'hide-once': () => { st.hideOnce = !st.hideOnce; render(); },
+    'rule-kind': () => { st.ruleKind = !st.ruleKind; render(); },
+    'topic-redo': () => run(async () => {
+      const r = await api('POST', `/worlds/${st.worldId}/topic-fill`, { redo: true });
+      await loadEntities();
+      st.bad = false;
+      st.msg = `규칙·시스템 ${r.asked}개의 주제를 다시 물어 ${r.filled.length}개를 바꿨습니다(호출 ${r.calls}번). 기록에서 되돌릴 수 있습니다.`;
+    }),
+    'topic-fill': () => run(async () => {
+      const r = await api('POST', `/worlds/${st.worldId}/topic-fill`, {});
+      await loadEntities();
+      st.bad = false;
+      st.msg = `주제가 빈 규칙·시스템 ${r.asked}개 가운데 ${r.filled.length}개를 채웠습니다(호출 ${r.calls}번). 기록에서 되돌릴 수 있습니다.`;
+    }),
+    'hair-fill': () => run(async () => {
+      const r = await api('POST', `/worlds/${st.worldId}/hair-fill`, {});
+      await loadEntities();
+      st.bad = false;
+      st.msg = `머리색 · 눈색이 빈 인물 ${r.asked}명 가운데 ${r.filled.length}명을 외형 글에서 채웠습니다(호출 ${r.calls}번). 기록에서 되돌릴 수 있습니다.`;
     }),
     'species-fill': () => run(async () => {
       const r = await api('POST', `/worlds/${st.worldId}/species-fill`);

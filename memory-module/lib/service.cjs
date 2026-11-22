@@ -5358,7 +5358,8 @@ async function routes(app) {
         return Addr.toggleEntry(book, id, req.body.on);
       }
       if (action === 'split') return Addr.splitPair(book, id)[0];
-      throw Error('add, edit, delete, toggle, split 중 하나여야 합니다.');
+      if (action === 'unblock') return Addr.unblockEntry(book, String(req.body?.key || ''));
+      throw Error('add, edit, delete, toggle, split, unblock 중 하나여야 합니다.');
     });
     recalls.delete(chatId);
     return { entry, ...addressView(chatId) };
