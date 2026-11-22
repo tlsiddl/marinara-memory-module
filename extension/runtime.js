@@ -1613,6 +1613,12 @@
         <button data-act="aliasPreview" data-alias="${esc(a)}" data-input="${id}">글 속 표기 바꾸기</button></div>`;
     };
     const table = Object.entries(names.people || {}).filter(([, v]) => v.aliases?.length || v.display).map(([k, v]) => `<li><b>${esc(k)}</b>${v.display ? ` · 글에는 ${esc(v.display)}` : ''}${v.aliases?.length ? ` · 별칭: ${v.aliases.map(esc).join(', ')}` : ''}${v.aliases?.length ? v.aliases.map((a) => aliasRow(k, a)).join('') : ''}</li>`).join('');
+    // Merges made on their own from the 번역 단어장: each can be taken back alone (and is not made again).
+    const auto = (names.autoMerged || []).map((r) => {
+      const key = `nameAutoUndo:${r.id}`;
+      return `<div class="routine-row"><span>${esc(day(r.at))} · <b>${esc(r.source)}</b> → <b>${esc(r.target)}</b> (${r.changes}곳)${r.why ? `<br><small>단어장: ${esc(r.why)}</small>` : ''}</span>
+        <button class="ghost" data-act="nameAutoUndo" data-id="${esc(r.id)}">${armed === key ? '한 번 더 누르면 되돌립니다' : '되돌리기'}</button></div>`;
+    }).join('');
     const last = (names.history || []).at(-1);
     const history = (names.history || []).slice().reverse().map((h) => `<li>${esc(day(h.at))} · ${h.kind === 'merge' ? '중복 합치기' : h.kind === 'alias-text' ? '글 속 표기 바꾸기' : '이름 바꾸기'}: ${esc(h.source)} → ${esc(h.target)} (${h.changes}곳)</li>`).join('');
     return `<div class="eyebrow">NAMES</div><h1>이름 정리</h1>
@@ -1621,6 +1627,7 @@
       ${previewBox()}
       ${addressPaper(names.address, addressForm, armed, names.known || [])}
       ${form}
+      <div class="paper"><h2>자동으로 합친 이름 · ${names.autoMerged?.length || 0}건</h2><p class="hint">번역 단어장에 짝지어 둔 이름(예: Daniel = 다니엘)이 기억에 따로 저장돼 있으면 한 사람으로 자동으로 합칩니다. 남기는 이름은 기억을 정리하는 언어를 따릅니다(한국어로 정리하면 한국어 이름, 영어로 정리하면 영어 이름). 되돌리면 그 합침으로 바뀐 곳이 원래대로 돌아가고(그 뒤에 다시 고친 곳은 그대로), 그 짝은 다시 자동으로 합치지 않습니다.</p>${auto ? auto : '<p class="hint">없습니다.</p>'}</div>
       <div class="paper"><h2>같은 사람일 수 있음 · ${names.suggestions?.length || 0}건</h2><p class="hint">철자나 소리가 비슷할 뿐 확실하지 않아 자동으로 합치지 않습니다. 같은 사람이면 미리 보기 뒤 합치고, 다른 사람이면 '다른 사람'을 눌러 다시 묻지 않게 하세요.</p>${sug || '<p class="hint">없습니다.</p>'}</div>
       <div class="paper"><h2>이미 저장된 중복 · ${names.duplicates?.length || 0}명</h2><p class="hint">별칭이나 이름만 부른 형태(조사 포함)처럼 규칙으로 같은 사람인 이름이 따로 저장된 경우입니다. 합치면 기록은 하나도 버리지 않고 이야기 순서대로 모읍니다(같은 기록이 두 번 저장된 것만 하나로).</p>${dup ? `<ul>${dup}</ul><div class="buttons"><button data-act="mergePreview">중복 합치기 미리 보기</button></div>` : '<p class="hint">없습니다.</p>'}</div>
       <div class="paper"><h2>별칭 표</h2>${table ? `<ul>${table}</ul>` : '<p class="hint">아직 별칭이 없습니다.</p>'}</div>
@@ -2407,7 +2414,7 @@
   async function handle(actName, el) {
     const id = el?.dataset?.id;
     const chat = encodeURIComponent(room);
-    if (actName !== 'fresh' && !actName.startsWith('deleteFact') && actName !== 'closeThread' && actName !== 'factBulkDelete' && actName !== 'rebuildChapters' && actName !== 'deleteRoutine' && !['trackerUndoApplied', 'nameApply', 'mergeApply', 'aliasApply', 'nameUndo', 'backupDownload', 'restoreApply', 'restoreUndo', 'addressDelete', 'stateReset', 'placeDelete', 'keepDelete', 'noteDelete', 'noteRebuildAll', 'trackerDelete', 'trackerDropStart'].includes(actName)) armed = '';
+    if (actName !== 'fresh' && !actName.startsWith('deleteFact') && actName !== 'closeThread' && actName !== 'factBulkDelete' && actName !== 'rebuildChapters' && actName !== 'deleteRoutine' && !['trackerUndoApplied', 'nameApply', 'mergeApply', 'aliasApply', 'nameUndo', 'nameAutoUndo', 'backupDownload', 'restoreApply', 'restoreUndo', 'addressDelete', 'stateReset', 'placeDelete', 'keepDelete', 'noteDelete', 'noteRebuildAll', 'trackerDelete', 'trackerDropStart'].includes(actName)) armed = '';
     switch (actName) {
       case 'factPickClear':
         pickedFacts.clear();
@@ -2941,6 +2948,14 @@
           await api('POST', `/chats/${chat}/names/dismiss`, { source: el.dataset.source, target: el.dataset.target });
           names = null;
         }, '다른 사람으로 두었습니다. 다시 묻지 않습니다.');
+      case 'nameAutoUndo':
+        if (armed !== `nameAutoUndo:${id}`) { armed = `nameAutoUndo:${id}`; return render(); }
+        armed = '';
+        return act(async () => {
+          const r = await api('POST', `/chats/${chat}/names/auto-undo`, { id });
+          names = null;
+          notice = `${r.source} → ${r.target} 자동 합침을 되돌렸습니다. 이 짝은 다시 자동으로 합치지 않습니다.${r.kept ? ` 그 뒤에 다시 고친 ${r.kept}곳은 그대로 두었습니다.` : ''}`;
+        });
       case 'nameUndo':
         if (armed !== 'nameUndo') { armed = 'nameUndo'; return render(); }
         armed = '';
