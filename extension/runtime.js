@@ -111,6 +111,8 @@
   let addressForm = { id: '', from: '', to: '', term: '', note: '' };
   /** What a rename or merge would change, shown before it is applied: { kind: 'rename' | 'merge', data, form }. */
   let namePreview = null;
+  // 여러 이름 한꺼번에 묶기: the chosen name and the names ticked to go under it (kept across redraws).
+  let groupForm = { target: '', picked: [], text: false };
   let searchQuery = '';
   let searchKind = 'all';
   const pickedFacts = new Set();
@@ -1330,6 +1332,12 @@
     </div>${blocks}`;
   }
 
+  function readGroupForm() {
+    const target = root.querySelector('#groupTarget')?.value.trim() || '';
+    const picked = [...root.querySelectorAll('[data-group-pick]')].filter((x) => x.checked).map((x) => x.dataset.groupPick);
+    groupForm = { target, picked, text: !!root.querySelector('#groupText')?.checked };
+  }
+
   function readNameForm() {
     const v = (id) => root.querySelector(id);
     nameForm = { source: v('#nameSource')?.value.trim() || '', target: v('#nameTarget')?.value.trim() || '', display: v('#nameDisplay')?.value.trim() || '', text: v('#nameText')?.checked !== false };
@@ -1351,16 +1359,17 @@
   function previewBox() {
     if (!namePreview || namePreview.room !== room) return '';
     const p = namePreview.data;
-    const merge = namePreview.kind === 'merge';
+    const group = namePreview.kind === 'group';
+    const merge = namePreview.kind === 'merge' || group;
     const alias = namePreview.kind === 'alias';
     const rows = AREA_ORDER.map((k) => `<tr><th>${esc(p.areas?.[k] || k)}</th><td>${p.counts?.[k] || 0}곳</td></tr>`).join('');
     const samples = (p.samples || []).map((x) => `<div class="quote-card"><small>${esc(x.areaName)} · ${esc(x.label)}</small><p><s>${esc(x.before)}</s></p><p>→ ${esc(x.after)}</p></div>`).join('');
     const what = alias
       ? `<p>글 속 <b>${esc(p.source)}</b> → <b>${esc(p.display)}</b> (요약·사건·사실·챕터·할 일·생활 기록의 글만)</p><p class="hint">이름 칸과 원문 대사(번역 포함), 직접 고친 항목은 바꾸지 않습니다. 이름 표는 그대로입니다.</p>`
       : merge
-      ? `<p>${(p.items || []).map((i) => `<b>${esc(i.source)}</b> → <b>${esc(i.target)}</b>`).join(', ')}</p><p class="hint">이름 칸(말한 사람·들은 사람·인물·누구)만 합칩니다. 글 속 표현은 그대로 둡니다.</p>`
+      ? `<p>${(p.items || []).map((i) => `<b>${esc(i.source)}</b> → <b>${esc(i.target)}</b>`).join(', ')}</p><p class="hint">${p.text ? '이름 칸과 글 속 이름을 함께 바꿉니다.' : '이름 칸(말한 사람·들은 사람·인물·누구)만 합칩니다. 글 속 표현은 그대로 둡니다.'}</p>`
       : `<p><b>${esc(p.source)}</b> → <b>${esc(p.target)}</b>${p.text ? ` · 글 속에는 <b>${esc(p.display)}</b>(으)로 씁니다` : ' · 이름 칸만 바꿉니다'}</p>`;
-    const armedKey = alias ? 'aliasApply' : merge ? 'mergeApply' : 'nameApply';
+    const armedKey = alias ? 'aliasApply' : group ? 'groupApply' : merge ? 'mergeApply' : 'nameApply';
     return `<div class="paper"><h2>미리 보기 · 모두 ${p.total || 0}곳</h2>${what}
       <table class="counts">${rows}</table>
       ${samples ? `<h3>바뀌는 예</h3>${samples}` : ''}
@@ -1648,7 +1657,38 @@
       return `<div class="routine-row alias-row"><span>${esc(a)}</span><input id="${id}" value="${esc(shortOf(canon))}" aria-label="${esc(a)} 대신 글에 쓸 표기">
         <button data-act="aliasPreview" data-alias="${esc(a)}" data-input="${id}">글 속 표기 바꾸기</button></div>`;
     };
-    const table = Object.entries(names.people || {}).filter(([, v]) => v.aliases?.length || v.display).map(([k, v]) => `<li><b>${esc(k)}</b>${v.display ? ` · 글에는 ${esc(v.display)}` : ''}${v.aliases?.length ? ` · 별칭: ${v.aliases.map(esc).join(', ')}` : ''}${v.aliases?.length ? v.aliases.map((a) => aliasRow(k, a)).join('') : ''}</li>`).join('');
+    // 여러 이름 한꺼번에 묶기: one person, and every name ticked goes under it in one change (one undo).
+    const count = new Map(used.map((u) => [u.name, u.count]));
+    const g = groupForm;
+    const pickable = used.filter((u) => u.count && u.name !== g.target);
+    const groupPaper = `<div class="paper"><h2>여러 이름 한꺼번에 묶기</h2>
+      <p class="hint">한 사람이 여러 이름(애칭·별명·멸칭·오타·표기)으로 따로 저장돼 있으면 기준 이름을 고르고 묶을 이름을 모두 체크하세요. 한 번에 합쳐지고, 한 번에 되돌릴 수 있습니다. 묶은 이름은 다른 이름으로 남아 다음 정리부터 같은 사람으로 봅니다.</p>
+      <label>기준 이름<input id="groupTarget" list="nameKnown" value="${esc(g.target)}" placeholder="예: 카드에 적힌 이름"></label>
+      <div class="group-picks">${pickable.length ? pickable.map((u) => `<label class="mini"><input type="checkbox" data-group-pick="${esc(u.name)}" ${g.picked.includes(u.name) ? 'checked' : ''}>${esc(u.name)} <small>${u.count}곳</small></label>`).join('') : '<p class="hint">묶을 이름이 없습니다.</p>'}</div>
+      <label class="mini"><input id="groupText" type="checkbox" ${g.text ? 'checked' : ''}>글 속 이름도 기준 이름으로 바꾸기 <small>(끄면 요약 속 "꼬맹이라고 놀렸다" 같은 표현은 그대로 두고 인물 칸만 묶습니다)</small></label>
+      <div class="buttons"><button class="primary" data-act="groupPreview">묶기 미리 보기</button>${g.picked.length ? `<button class="ghost" data-act="groupClear">체크 모두 풀기</button>` : ''}</div></div>`;
+    // 같은 사람 찾기: the memory model's guesses from the scenes, with why; nothing is merged until the user says so.
+    const ms = names.modelSame || {};
+    const sameRow = (x) => `<div class="routine-row same-row"><span><b>${esc(x.name)}</b> (${count.get(x.name) || 0}곳) → <b>${esc(x.person)}</b> · ${x.sure === 'high' ? '거의 확실' : '아마도'}${x.why ? `<br><small>${esc(x.why)}</small>` : ''}</span>
+      <button data-act="sameToGroup" data-source="${esc(x.name)}" data-target="${esc(x.person)}">묶기에 담기</button><button class="ghost" data-act="nameSuggest" data-source="${esc(x.name)}" data-target="${esc(x.person)}">미리 보기</button><button class="ghost" data-act="nameDismiss" data-source="${esc(x.name)}" data-target="${esc(x.person)}">다른 사람</button></div>`;
+    const samePaper = `<div class="paper"><h2>같은 사람 찾기 (모델)${ms.items?.length ? ` · ${ms.items.length}건` : ''}</h2>
+      <p class="hint">애칭·별명·멸칭·직함은 글자만으로는 누구인지 알 수 없어서, 기억 정리 모델이 그 이름이 나온 장면을 읽고 같은 사람을 찾아 근거와 함께 알려 줍니다. 자동으로 합치지는 않습니다. 맞으면 '묶기에 담기'로 위 칸에 모아 한 번에 묶고, 아니면 '다른 사람'을 누르세요. 모델을 한 번 부릅니다(연결에 따라 비용이 들 수 있음).</p>
+      <div class="buttons"><button class="primary" data-act="sameFind">${ms.at ? '다시 찾기' : '모델에게 찾아 달라기'}</button>${ms.at ? `<small>${esc(day(ms.at))}에 찾음</small>` : ''}</div>
+      ${ms.items?.length ? ms.items.map(sameRow).join('') : ms.at ? '<p class="hint">남은 후보가 없습니다.</p>' : ''}</div>`;
+    // 인물별 이름: every person with the names they go by; a wrongly tied name can be taken off, a new one added.
+    let addN = 0;
+    const personBox = (k) => {
+      const v = names.people?.[k] || { aliases: [] };
+      const total = [k, ...(v.aliases || [])].reduce((n, x) => n + (count.get(x) || 0), 0);
+      const inputId = `aliasAdd${addN++}`;
+      const rows = (v.aliases || []).map((a) => `${aliasRow(k, a)}<div class="routine-row"><span><small>${count.get(a) ? `${count.get(a)}곳에 따로 쓰임` : ''}</small></span><button class="ghost" data-act="aliasRemove" data-person="${esc(k)}" data-alias="${esc(a)}">${armed === `aliasRemove:${k}|${a}` ? '한 번 더 누르면 뗍니다' : `‘${esc(a)}’ 떼기`}</button></div>`).join('');
+      return `<details class="person-names" data-person="${esc(k)}"><summary><b>${esc(k)}</b>${v.seeded ? ' <small>카드</small>' : ''} · 다른 이름 ${(v.aliases || []).length}개 · ${total}곳</summary>
+        ${v.display ? `<p class="hint">글에는 ${esc(v.display)}(으)로 씁니다.</p>` : ''}${rows || '<p class="hint">다른 이름이 없습니다.</p>'}
+        <div class="routine-row"><input id="${inputId}" placeholder="다른 이름 더하기 (예: 꼬맹이)" aria-label="${esc(k)}의 다른 이름 더하기"><button data-act="aliasAdd" data-person="${esc(k)}" data-input="${inputId}">더하기</button></div></details>`;
+    };
+    const peoplePaper = `<div class="paper"><h2>인물별 이름 · ${known.length}명</h2>
+      <p class="hint">인물마다 같은 사람으로 보는 다른 이름입니다. 잘못 묶인 이름은 떼면 다시 따로 보고, 다시 자동으로 묶지 않습니다(이미 바뀐 기록은 그대로). 아직 기억에 안 나온 별명은 미리 더해 두면 처음부터 같은 사람으로 봅니다.</p>
+      ${known.length ? known.map(personBox).join('') : '<p class="hint">아직 인물이 없습니다.</p>'}</div>`;
     // Merges made on their own from the 번역 단어장: each can be taken back alone (and is not made again).
     const auto = (names.autoMerged || []).map((r) => {
       const key = `nameAutoUndo:${r.id}`;
@@ -1663,10 +1703,12 @@
       ${previewBox()}
       ${addressPaper(names.address, addressForm, armed, names.known || [])}
       ${form}
+      ${groupPaper}
+      ${samePaper}
       <div class="paper"><h2>자동으로 합친 이름 · ${names.autoMerged?.length || 0}건</h2><p class="hint">번역 단어장에 짝지어 둔 이름(예: Daniel = 다니엘)이 기억에 따로 저장돼 있으면 한 사람으로 자동으로 합칩니다. 남기는 이름은 기억을 정리하는 언어를 따릅니다(한국어로 정리하면 한국어 이름, 영어로 정리하면 영어 이름). 되돌리면 그 합침으로 바뀐 곳이 원래대로 돌아가고(그 뒤에 다시 고친 곳은 그대로), 그 짝은 다시 자동으로 합치지 않습니다.</p>${auto ? auto : '<p class="hint">없습니다.</p>'}</div>
       <div class="paper"><h2>같은 사람일 수 있음 · ${names.suggestions?.length || 0}건</h2><p class="hint">철자나 소리가 비슷할 뿐 확실하지 않아 자동으로 합치지 않습니다. 같은 사람이면 미리 보기 뒤 합치고, 다른 사람이면 '다른 사람'을 눌러 다시 묻지 않게 하세요.</p>${sug || '<p class="hint">없습니다.</p>'}</div>
       <div class="paper"><h2>이미 저장된 중복 · ${names.duplicates?.length || 0}명</h2><p class="hint">별칭이나 이름만 부른 형태(조사 포함)처럼 규칙으로 같은 사람인 이름이 따로 저장된 경우입니다. 합치면 기록은 하나도 버리지 않고 이야기 순서대로 모읍니다(같은 기록이 두 번 저장된 것만 하나로).</p>${dup ? `<ul>${dup}</ul><div class="buttons"><button data-act="mergePreview">중복 합치기 미리 보기</button></div>` : '<p class="hint">없습니다.</p>'}</div>
-      <div class="paper"><h2>별칭 표</h2>${table ? `<ul>${table}</ul>` : '<p class="hint">아직 별칭이 없습니다.</p>'}</div>
+      ${peoplePaper}
       <div class="paper"><h2>최근 이름 바꾸기</h2>${history ? `<ul>${history}</ul>` : '<p class="hint">없습니다.</p>'}${last ? `<div class="buttons"><button class="ghost" data-act="nameUndo">${armed === 'nameUndo' ? '한 번 더 누르면 되돌립니다' : `마지막 바꾸기 되돌리기 (${esc(last.source)} → ${esc(last.target)})`}</button></div>` : ''}</div>`;
   }
 
@@ -2543,7 +2585,7 @@
   async function handle(actName, el) {
     const id = el?.dataset?.id;
     const chat = encodeURIComponent(room);
-    if (actName !== 'fresh' && !actName.startsWith('deleteFact') && actName !== 'closeThread' && actName !== 'factBulkDelete' && actName !== 'rebuildChapters' && actName !== 'deleteRoutine' && !['trackerUndoApplied', 'nameApply', 'mergeApply', 'aliasApply', 'nameUndo', 'nameAutoUndo', 'backupDownload', 'restoreApply', 'restoreUndo', 'addressDelete', 'stateReset', 'placeDelete', 'keepDelete', 'noteDelete', 'noteRebuildAll', 'trackerDelete', 'trackerDropStart'].includes(actName)) armed = '';
+    if (actName !== 'fresh' && !actName.startsWith('deleteFact') && actName !== 'closeThread' && actName !== 'factBulkDelete' && actName !== 'rebuildChapters' && actName !== 'deleteRoutine' && !['trackerUndoApplied', 'nameApply', 'mergeApply', 'aliasApply', 'nameUndo', 'nameAutoUndo', 'groupApply', 'aliasRemove', 'backupDownload', 'restoreApply', 'restoreUndo', 'addressDelete', 'stateReset', 'placeDelete', 'keepDelete', 'noteDelete', 'noteRebuildAll', 'trackerDelete', 'trackerDropStart'].includes(actName)) armed = '';
     switch (actName) {
       case 'factPickClear':
         pickedFacts.clear();
@@ -2776,6 +2818,60 @@
           namePreview = null;
           names = null;
         }, `${form.source} → ${form.target}: 이름을 바꿨습니다.`);
+      }
+      case 'groupPreview': {
+        readGroupForm();
+        if (!groupForm.target || !groupForm.picked.length) { lastError = '기준 이름과 묶을 이름을 골라 주세요.'; return render(); }
+        const form = { target: groupForm.target, sources: groupForm.picked, text: groupForm.text };
+        return act(async () => {
+          namePreview = { kind: 'group', room, form, data: await api('POST', `/chats/${chat}/names/group-preview`, form) };
+        }, '', { reload: false });
+      }
+      case 'groupApply': {
+        if (armed !== 'groupApply') { armed = 'groupApply'; return render(); }
+        armed = '';
+        const { form, data } = namePreview;
+        return act(async () => {
+          await api('POST', `/chats/${chat}/names/group-apply`, { ...form, token: data.token, confirm: true });
+          namePreview = null;
+          groupForm = { target: '', picked: [], text: false };
+          names = null;
+        }, `${form.sources.length}개 이름을 ${form.target}(으)로 묶었습니다.`);
+      }
+      case 'groupClear':
+        readGroupForm();
+        groupForm = { ...groupForm, picked: [] };
+        return render();
+      case 'sameToGroup': {
+        readGroupForm();
+        const target = el.dataset.target;
+        const picked = groupForm.target === target ? groupForm.picked : [];
+        groupForm = { target, picked: [...new Set([...picked, el.dataset.source])], text: groupForm.text };
+        notice = `‘${el.dataset.source}’을(를) ${target} 묶기에 담았습니다. 위 「여러 이름 한꺼번에 묶기」에서 미리 보기 하세요.`;
+        return render();
+      }
+      case 'sameFind':
+        return act(async () => {
+          const r = await api('POST', `/chats/${chat}/names/model-same`);
+          names = null;
+          notice = r.note || `${r.asked}개 이름을 살펴 ${r.items.length}건을 찾았습니다.`;
+        }, '', { reload: false });
+      case 'aliasRemove': {
+        const key = `aliasRemove:${el.dataset.person}|${el.dataset.alias}`;
+        if (armed !== key) { armed = key; return render(); }
+        armed = '';
+        return act(async () => {
+          await api('POST', `/chats/${chat}/names/alias`, { action: 'remove', person: el.dataset.person, alias: el.dataset.alias });
+          names = null;
+        }, `${el.dataset.person}에서 ‘${el.dataset.alias}’을(를) 뗐습니다.`);
+      }
+      case 'aliasAdd': {
+        const alias = root.querySelector(`#${el.dataset.input}`)?.value.trim() || '';
+        if (!alias) { lastError = '더할 이름을 적어 주세요.'; return render(); }
+        return act(async () => {
+          await api('POST', `/chats/${chat}/names/alias`, { action: 'add', person: el.dataset.person, alias });
+          names = null;
+        }, `${el.dataset.person}에 ‘${alias}’을(를) 더했습니다.`);
       }
       case 'mergePreview':
         return act(async () => {
@@ -3863,6 +3959,8 @@
         const mode = e.target.value === 'simulator' ? 'simulator' : 'character';
         void act(() => api('POST', `/chats/${encodeURIComponent(room)}/mode`, { mode }), mode === 'simulator' ? '세계 시뮬레이터로 바꿨습니다. 다음 정리부터 적용됩니다.' : '캐릭터 RP로 바꿨습니다. 다음 정리부터 적용됩니다.');
       }
+      // 여러 이름 한꺼번에 묶기: the ticks and the chosen name are kept as they change (a redraw must not drop them).
+      if (e.target.dataset?.groupPick !== undefined || e.target.id === 'groupTarget' || e.target.id === 'groupText') readGroupForm();
       if (e.target.id === 'setDatesFromText') {
         const on = e.target.checked;
         void act(async () => {

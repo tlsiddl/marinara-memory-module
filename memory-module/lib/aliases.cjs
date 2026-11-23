@@ -218,6 +218,25 @@ function undoAlias(table, undo) {
   touch(table);
 }
 
+/**
+ * `alias` is no longer another name of `person` (it was wrongly tied). The pair is dismissed, so no suggestion or
+ * automatic merge ties them again. The memory already written with the person's name stays as it is.
+ */
+function removeAlias(table, person, alias) {
+  const canon = canonOf(person, table) || tidy(person);
+  const entry = table.people?.[canon];
+  const name = tidy(alias);
+  if (!entry || !name) throw Error('그 인물을 찾지 못했습니다.');
+  if (fold(name) === fold(canon)) throw Error('기준 이름은 뗄 수 없습니다. 다른 이름을 기준으로 바꾸려면 이름 바꾸기를 써 주세요.');
+  const before = entry.aliases.length;
+  entry.aliases = entry.aliases.filter((a) => fold(a) !== fold(name));
+  if (entry.aliases.length === before) throw Error('그 인물의 다른 이름이 아닙니다.');
+  if (entry.display && fold(entry.display) === fold(name)) entry.display = null;
+  dismiss(table, name, canon);
+  touch(table);
+  return canon;
+}
+
 function dismiss(table, source, target) {
   table.dismissed ||= [];
   if (!table.dismissed.some((d) => fold(d[0]) === fold(source) && fold(d[1]) === fold(target))) table.dismissed.push([tidy(source), tidy(target)]);
@@ -383,6 +402,7 @@ function rewriteDeep(value, table = current(), key = null) {
 
 module.exports = {
   touch,
+  removeAlias,
   rewriteDeep,
   NAME_FIELDS,
   TEXT_FIELDS,

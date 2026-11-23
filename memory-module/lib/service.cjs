@@ -5681,6 +5681,7 @@ async function routes(app) {
         used: N.usedNames(store, ledger, people),
         duplicates: N.duplicates(store, ledger, table),
         suggestions: N.suggestions(store, ledger, table),
+        modelSame: { at: sameFound.get(chatId)?.at || null, items: N.openSameNames(store, ledger, table, sameFound.get(chatId)?.items) },
         history: historyView(table),
         autoMerged: autoMergedView(table),
         address: addressView(chatId),
@@ -5716,6 +5717,71 @@ async function routes(app) {
       const items = mergeItems(store, ledger, table);
       if (!items.length) throw Error('합칠 중복 이름이 없습니다.');
       return checkToken(N.planMany(store, ledger, table, items), req.body?.token);
+    });
+  }));
+  // 같은 사람 찾기 results per room, while the server runs.
+  const sameFound = new Map();
+  // 여러 이름 한꺼번에 묶기: several names one person, in one change (one undo). Name fields only unless asked.
+  const groupItems = (body) => {
+    const target = A.tidy(body?.target);
+    const sources = [...new Set((Array.isArray(body?.sources) ? body.sources : []).map((x) => A.tidy(x)).filter((x) => x && A.fold(x) !== A.fold(target)))];
+    if (!target) throw Error('기준 이름을 골라 주세요.');
+    if (!sources.length) throw Error('묶을 이름을 하나 이상 골라 주세요.');
+    if (sources.length > 40) throw Error('한 번에 40개까지 묶을 수 있습니다.');
+    return sources.map((source) => ({ source, target, text: body?.text === true }));
+  };
+  app.post('/chats/:id/names/group-preview', guard(async (req) => {
+    const chatId = safeChatId(req.params.id);
+    const { store, ledger, table } = namesState(chatId);
+    return planView(A.using(table, () => N.planMany(store, ledger, table, groupItems(req.body))));
+  }));
+  app.post('/chats/:id/names/group-apply', guard(async (req) => {
+    const chatId = safeChatId(req.params.id);
+    if (req.body?.confirm !== true) throw Error('미리 보기를 확인한 뒤 묶어 주세요.');
+    refuseBusy(chatId);
+    const items = groupItems(req.body);
+    return applyPlanned(chatId, (store, ledger, table) => checkToken(N.planMany(store, ledger, table, items), req.body?.token));
+  }));
+  // 같은 사람 찾기: the memory model reads where each unknown name is used and pairs it with a person. Only offered;
+  // the user merges (or dismisses) each pair.
+  app.post('/chats/:id/names/model-same', guard(async (req) => {
+    const chatId = safeChatId(req.params.id);
+    const { store, ledger, table } = namesState(chatId);
+    const ask = A.using(table, () => N.sameNameAsk(store, ledger, table));
+    if (!ask.names.length) return { items: [], asked: 0, note: '누구인지 모르는 이름이 없습니다.' };
+    const model = await memoryModel();
+    const reply = await askModel(model, N.buildSameNamePrompt(ask), { maxTokens: 3000 });
+    const found = N.parseSameNameReply(reply, ask, table);
+    // Kept while the server runs (not in the room's files: a job writing the room must not hold it up or lose it).
+    sameFound.set(chatId, { at: new Date().toISOString(), items: found });
+    log(`chat ${chatId}: same-name search asked ${ask.names.length} name(s), ${found.length} pair(s) offered`);
+    const now = namesState(chatId);
+    return { items: N.openSameNames(now.store, now.ledger, now.table, found), asked: ask.names.length };
+  }));
+  // 인물별 이름: another name taken off a person (it was wrongly tied), or added to one (a name not in the memory yet).
+  app.post('/chats/:id/names/alias', guard(async (req) => {
+    const chatId = safeChatId(req.params.id);
+    const action = String(req.body?.action || '');
+    const person = A.tidy(req.body?.person);
+    const alias = A.tidy(req.body?.alias);
+    refuseBusy(chatId);
+    return withRoom(chatId, async () => {
+      const { store, ledger, table: saved } = namesState(chatId);
+      const table = structuredClone(saved);
+      if (action === 'remove') A.removeAlias(table, person, alias);
+      else if (action === 'add') {
+        if (!alias) throw Error('더할 이름을 적어 주세요.');
+        const used = A.using(table, () => N.usedNames(store, ledger, []).find((u) => A.fold(u.name) === A.fold(alias) && u.count));
+        if (used) throw Error(`‘${alias}’은(는) 이미 기억에 ${used.count}곳 쓰였습니다. 「여러 이름 한꺼번에 묶기」로 합쳐 주세요.`);
+        const owner = A.canonOf(alias, table);
+        if (owner && A.fold(owner) !== A.fold(A.canonOf(person, table) || person)) throw Error(`‘${alias}’은(는) 이미 ${owner}의 다른 이름입니다.`);
+        if (!table.people?.[A.canonOf(person, table) || person]) A.addPerson(table, person);
+        A.addAlias(table, alias, person, { rewrite: false });
+      } else throw Error('add 또는 remove여야 합니다.');
+      saveNames(chatId, table);
+      recalls.delete(chatId);
+      log(`chat ${chatId}: ${action === 'add' ? 'added' : 'removed'} other name ${alias} ${action === 'add' ? 'to' : 'from'} ${person}`);
+      return { people: Object.fromEntries(Object.entries(table.people || {}).map(([k, v]) => [k, { aliases: v.aliases || [], display: v.display || null, seeded: !!v.seeded }])) };
     });
   }));
   // An alias left in running text after a merge: written in the text as the form the user types; text only.

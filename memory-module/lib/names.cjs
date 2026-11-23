@@ -508,6 +508,93 @@ function suggestions(store, ledger, table) {
 }
 
 
+/* ---------- 같은 사람 찾기 (the memory model reads the scenes) ---------- */
+
+// Names offered to the model at a time, and what it is shown of each.
+const SAME_MAX_NAMES = 40;
+const SAME_MAX_SCENES = 3;
+const SAME_SNIPPET = 160;
+
+/** Where a name is used: the scenes whose name fields hold it, each with a line it said or was said to, if any. */
+function nameContexts(store, ledger, name, max = SAME_MAX_SCENES) {
+  const docs = { scenes: store, ledger };
+  const want = A.fold(name);
+  const hit = new Set();
+  for (const field of fieldsOf(store, ledger)) {
+    if (field.doc !== 'scenes' || field.path[0] !== 'scenes' || !['name', 'names', 'list'].includes(field.kind)) continue;
+    const v = getPath(docs.scenes, field.path);
+    const list = field.kind === 'name' ? [v] : field.kind === 'names' && typeof v === 'string' ? v.split(/\s*[·,、/]\s*/) : Array.isArray(v) ? v : [];
+    if (list.some((n) => A.fold(A.tidy(n)) === want)) hit.add(field.path[1]);
+  }
+  const cut = (t) => { const x = A.tidy(t); return x.length > SAME_SNIPPET ? `${x.slice(0, SAME_SNIPPET)}…` : x; };
+  return [...hit].sort((a, b) => b - a).slice(0, max).map((i) => {
+    const sc = store.scenes[i];
+    const quotes = (sc.events || []).flatMap((e) => e.quotes || []);
+    const line = quotes.find((q) => A.fold(A.tidy(q.by)) === want) || quotes.find((q) => String(q.to || '').split(/\s*[·,、/]\s*/).some((n) => A.fold(A.tidy(n)) === want));
+    return { id: sc.id, title: sc.title || '', summary: cut(sc.summary || (sc.events || []).map((e) => e.text).join(' ')), line: line ? `${A.tidy(line.by)}${line.to ? ` → ${A.tidy(line.to)}` : ''}: ${cut(line.q || line.text || '')}` : null };
+  });
+}
+
+/**
+ * What the model is asked about: the room's people with the names they already go by, and the names in use that
+ * are no one's yet (with where they are used). Busy names first; at most SAME_MAX_NAMES.
+ */
+function sameNameAsk(store, ledger, table) {
+  const people = knownPeople(store, ledger, table);
+  const used = usedNames(store, ledger, people);
+  const resolved = (n) => A.using(table, () => L.matchName(n, people) || A.canonOf(n, table));
+  const unknown = used.filter((u) => u.count && !people.includes(u.name) && !resolved(u.name)).slice(0, SAME_MAX_NAMES);
+  // People who are not a card or persona name and are little used may be someone else under another name too.
+  const loose = people.filter((p) => !table.people?.[p]?.seeded && (used.find((u) => u.name === p)?.count || 0) > 0 && (used.find((u) => u.name === p)?.count || 0) <= 3);
+  const ask = [...unknown.map((u) => u.name), ...loose.filter((p) => !unknown.some((u) => u.name === p))].slice(0, SAME_MAX_NAMES);
+  return {
+    people: people.map((p) => ({ name: p, aliases: (table.people?.[p]?.aliases || []).slice(0, 8), count: used.find((u) => u.name === p)?.count || 0 })),
+    names: ask.map((n) => ({ name: n, count: used.find((u) => u.name === n)?.count || 0, contexts: nameContexts(store, ledger, n) })),
+  };
+}
+
+const SAME_PROMPT = `너는 롤플레이 기억의 인물 이름을 정리하는 도우미야. 한 사람이 여러 이름으로 따로 저장돼 있어: 다른 언어 표기(Daniel/대니얼), 오타, 성만·이름만, 애칭·별명, 직함·호칭(보스, 선생님), 비아냥거리는 멸칭.
+[아직 누구인지 모르는 이름]마다 [인물] 가운데 같은 사람이 있는지 장면 내용을 근거로 판단해.
+- 근거가 장면에 있을 때만 짝지어. 이름이 비슷하다는 것만으로는 안 돼. 확실하지 않으면 빼.
+- 서로 다른 두 사람이 같은 장면에 함께 있으면 같은 사람이 아니야.
+- 직함·호칭이 여러 사람에게 쓰이면(예: 아가씨를 두 사람에게) 빼.
+- 모르는 이름끼리 같은 사람이고 [인물]에 없으면, 둘 중 더 많이 쓰인 이름을 person에 써.
+JSON 하나로만 답해: {"same":[{"name":"모르는 이름","person":"같은 사람의 이름","sure":"high"|"medium","why":"근거 한 문장(장면 번호 포함)","scenes":["S12"]}]}`;
+
+function buildSameNamePrompt(ask) {
+  const people = ask.people.map((p) => `- ${p.name}${p.aliases.length ? ` (다른 이름: ${p.aliases.join(', ')})` : ''} · ${p.count}곳`).join('\n');
+  const names = ask.names.map((n) => [`- ${n.name} · ${n.count}곳`, ...n.contexts.map((c) => `  ${c.id}${c.title ? ` 「${c.title}」` : ''}: ${c.summary}${c.line ? ` / 대사 ${c.line}` : ''}`)].join('\n')).join('\n');
+  return [{ role: 'system', content: SAME_PROMPT }, { role: 'user', content: `## 인물\n${people || '(없음)'}\n\n## 아직 누구인지 모르는 이름\n${names}` }];
+}
+
+/** The model's pairs that hold: a name it was asked about, a person (or a busier unknown name), not the same, not dismissed. */
+function parseSameNameReply(reply, ask, table, now = new Date().toISOString()) {
+  let data = null;
+  try { data = JSON.parse(String(reply).replace(/^[^{]*/, '').replace(/[^}]*$/, '')); } catch { return []; }
+  const asked = new Map(ask.names.map((n) => [A.fold(n.name), n.name]));
+  const targets = new Map([...ask.people.map((p) => [A.fold(p.name), p.name]), ...ask.names.map((n) => [A.fold(n.name), n.name])]);
+  const out = [];
+  const seen = new Set();
+  for (const item of Array.isArray(data?.same) ? data.same : []) {
+    const name = asked.get(A.fold(A.tidy(item?.name)));
+    const person = targets.get(A.fold(A.tidy(item?.person))) || A.using(table, () => A.canonOf(A.tidy(item?.person), table));
+    if (!name || !person || A.fold(name) === A.fold(person)) continue;
+    if (A.dismissed(table, name, person)) continue;
+    const key = `${A.fold(name)}\u0000${A.fold(person)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ name, person, sure: item.sure === 'high' ? 'high' : 'medium', why: A.tidy(item.why).slice(0, 200), scenes: (Array.isArray(item.scenes) ? item.scenes : []).map(String).filter((x) => /^S\d+$/.test(x)).slice(0, 4), at: now });
+  }
+  return out;
+}
+
+/** The model's pairs still open: neither merged since (one person now) nor dismissed. */
+function openSameNames(store, ledger, table, items = []) {
+  const people = knownPeople(store, ledger, table);
+  const one = (n) => A.using(table, () => L.matchName(n, people) || A.canonOf(n, table)) || n;
+  return (items || []).filter((x) => !A.dismissed(table, x.name, x.person) && A.fold(one(x.name)) !== A.fold(one(x.person)));
+}
+
 /* ---------- automatic merges from the user's glossary ---------- */
 
 // Merges made on their own are kept apart from the hand renames (which keep only a few, for the last-undo), so each
@@ -613,4 +700,4 @@ function undoAutoMerge(store, ledger, table, id) {
   return { undone: rec.id, source: rec.source, target: rec.target, restored, kept };
 }
 
-module.exports = { glossaryMerges, applyAutoMerge, undoAutoMerge, AUTO_KEEP, AREAS, fieldsOf, plan, planAliasText, planMany, apply, undo, usedNames, knownPeople, duplicates, suggestions, lookAlike, mergeRoutine, getPath };
+module.exports = { nameContexts, sameNameAsk, buildSameNamePrompt, parseSameNameReply, openSameNames, SAME_MAX_NAMES, glossaryMerges, applyAutoMerge, undoAutoMerge, AUTO_KEEP, AREAS, fieldsOf, plan, planAliasText, planMany, apply, undo, usedNames, knownPeople, duplicates, suggestions, lookAlike, mergeRoutine, getPath };
