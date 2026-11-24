@@ -31,6 +31,27 @@ const story = [
 ];
 const prepared = () => L.markOoc(L.prepareMessages(story.map((m) => ({ ...m }))));
 
+test('inline author notes are removed from user story without changing the original fingerprint', () => {
+  const content = '미나가 문을 열었다. (OOC: 기록하지 마 (비밀)) [ooc: 지시] ((작가 메모)) 빅터가 웃었다.';
+  const row = { id: 'inline', number: 1, role: 'user', speaker: 'Mina', content };
+  const [m] = L.markOoc(L.prepareMessages([row]));
+  assert.match(m.content, /미나가 문을 열었다/); assert.match(m.content, /빅터가 웃었다/);
+  assert.doesNotMatch(m.content, /OOC|기록하지|지시|작가 메모/i); assert.ok(!m.ooc);
+  assert.equal(m.h, L.hashText(content));
+  const scenePrompt = S.buildScenePrompt(S.emptyStore(), [m], 1, null, {});
+  const ledgerPrompt = L.buildPrompt(L.emptyLedger(), [m]);
+  assert.doesNotMatch(scenePrompt[1].content, /기록하지|작가 메모/);
+  assert.doesNotMatch(ledgerPrompt[1].content, /기록하지|작가 메모/);
+  assert.match(scenePrompt[0].content, /메시지 중간의.*OOC/);
+  assert.match(ledgerPrompt[0].content, /메시지 중간의.*OOC/);
+  const [whole] = L.markOoc(L.prepareMessages([{ ...row, content: '[OOC: 그대로] 이야기' }]));
+  assert.ok(whole.ooc); assert.match(whole.content, /그대로/);
+  const [unclosed] = L.prepareMessages([{ ...row, content: '이야기 (OOC: 닫히지 않음' }]);
+  assert.match(unclosed.content, /닫히지 않음/);
+  const [assistant] = L.prepareMessages([{ ...row, role: 'assistant' }]);
+  assert.match(assistant.content, /기록하지/);
+});
+
 test('marking: an OOC direction alone; an OOC talk with its answers and dialogue-free follow-ups; hand-set marks win', () => {
   assert.deepEqual(prepared().map((m) => !!m.ooc), [false, false, true, false, true, true, true, true, false, false]);
   assert.ok(L.OOC_START.test('Ooc. 그는 잠듦') && L.OOC_START.test('((잠깐 질문')  && L.OOC_START.test('[OOC] test') && !L.OOC_START.test('Oocyte was the word'));

@@ -2189,6 +2189,13 @@ async function foldScenes(chatId, store, messages, window, model, job, { minPend
         else { lastError = part.error; lastCode = part.errorCode || lastCode; }
       }
       if (applied) break;
+      // At the smallest exchange only, allow an uncited user direction. Character replies still need coverage.
+      if (maxMessages <= 1 && lastCode === 'coverage_missing' && lastParsed && next.slice.some((m) => m.role === 'user' && !m.ooc)) {
+        const fallback = S.applyScenes(store, lastParsed, next.slice, next.required, undefined, { quoteMode: settings().chats?.[chatId]?.organize?.quoteMode, verifyAttribution: true, strictCoverage: true, allowUncitedUser: true, ...sceneRecords(chatId) });
+        if (!fallback.error) applied = fallback;
+        else lastError = fallback.error;
+      }
+      if (applied) break;
       if (lastCode !== 'coverage_missing' && lastCode !== 'uncited_run') break;
       if (maxMessages <= 1) break;
       const smallerLimit = maxMessages > 4 ? 4 : maxMessages > 2 ? 2 : 1;

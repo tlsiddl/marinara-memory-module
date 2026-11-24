@@ -29,8 +29,8 @@ test('the user\'s bracketed words are read as speech, each line with the languag
     { id: 'c', number: 12, role: 'user', speaker: 'Mina', content: '"Andiamo." [가자.]' },
   ];
   const [a, b, c] = L.prepareMessages(rows, { speechMarks: RULES });
-  assert.deepEqual(a.sentences, ['미나가 웃었다.', '"오늘은 바다 가자."', '(가자!)', '"좋아, 가 보자. 근데 비 오면?"', '[ooc: 잠깐 쉬어요]'], 'one bracketed line stays one line; an OOC note is left alone');
-  assert.deepEqual(a.speechLangs, [null, 'en', null, 'it', null]);
+  assert.deepEqual(a.sentences, ['미나가 웃었다.', '"오늘은 바다 가자."', '(가자!)', '"좋아, 가 보자. 근데 비 오면?"'], 'inline OOC is excluded while spoken brackets stay');
+  assert.deepEqual(a.speechLangs, [null, 'en', null, 'it']);
   assert.equal(b.speechLangs, undefined, 'a reply keeps its own way of writing');
   assert.deepEqual(b.sentences, L.prepareMessages(rows)[1].sentences, 'read exactly as with no rules');
   assert.deepEqual(c.speechLangs, ['it', 'en'], 'from message 10 the marks mean the other languages');

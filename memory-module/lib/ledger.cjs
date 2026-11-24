@@ -366,6 +366,31 @@ function speechLangs(sentences, converted, marks) {
   return langs.some(Boolean) ? langs : null;
 }
 
+// Remove only closed inline author notes; a message beginning with OOC is handled by markOoc as a whole.
+function stripInlineOoc(text) {
+  if (OOC_START.test(text)) return text;
+  let out = '';
+  for (let i = 0; i < text.length;) {
+    const tail = text.slice(i);
+    const open = /^(?:\(\(|\(\s*o(?:\.o\.c\.?|oc)\s*:|\[\s*o(?:\.o\.c\.?|oc)\s*:)/i.test(tail);
+    if (!open) { out += text[i++]; continue; }
+    const stack = [];
+    let end = -1;
+    for (let j = i; j < text.length; j++) {
+      if (text[j] === '(' || text[j] === '[') stack.push(text[j]);
+      else if (text[j] === ')' || text[j] === ']') {
+        if (stack.at(-1) !== (text[j] === ')' ? '(' : '[')) break;
+        stack.pop();
+        if (!stack.length) { end = j + 1; break; }
+      }
+    }
+    if (end < 0) { out += text[i++]; continue; }
+    out += ' ';
+    i = end;
+  }
+  return out;
+}
+
 function prepareMessages(rows, { speechMarks = null } = {}) {
   // The fingerprint (h) is of the message as stored, so a change in how it is read never looks like an edit.
   // Bubbles drawn on the user's side of an HTML chat are the user's own character speaking.
@@ -374,6 +399,7 @@ function prepareMessages(rows, { speechMarks = null } = {}) {
   return rows.map((row) => {
     const speech = [];
     let content = htmlToText(row.content, { user, speech });
+    if (row.role === 'user') content = stripInlineOoc(content);
     const { trackerMark, ...rest } = row;
     // The room's speech marks, for the user's own messages only (the replies keep their own way of writing).
     const marks = row.role === 'user' ? speechMarksAt(rules, row.number) : null;
@@ -584,6 +610,7 @@ const SYSTEM_PROMPT = `너는 장기 롤플레이의 기억 관리자야. 새 �
 
 OOC(이야기 밖 대화):
 - 메시지에 (OOC)라고 표시된 건 작가와 AI가 이야기 밖에서 나눈 상의야. 이야기 속에서 일어난 일이 아니니까 그 내용으로는 아무것도 기록하거나 update·close하지 마(아래 작가 계획만 예외).
+- 메시지 중간의 (OOC: …), [OOC: …], ((…))는 이야기 밖 지시이므로 사실이나 장부 항목으로 기록하지 마.
 - 거기서 작가가 "앞으로 이렇게 하자"고 정한 전개 계획(복선, 숨겨 둔 설정)만 kind "secret", "plan":true로 open해. who는 null, unaware는 [](이야기 속 인물은 아무도 몰라). title은 계획을 한 줄로, detail에 정해진 내용만. 아직 정하지 못한 것, 후보·아이디어 목록은 적지 마.
 - 작가 계획에는 "mystery"도 적어: 그 계획이 이야기에서 아직 감추는 것을 답 없이 한 줄로(예: "세라의 손목 흉터가 생긴 진짜 이유", "등대지기가 사라진 까닭"). 이름·정체·방법 같은 답은 mystery에 쓰지 마. 롤플 모델에게는 기본으로 이 줄만 보여.
 - 이미 있는 작가 계획(장부에 [작가 계획]으로 표시)이 OOC에서 바뀌거나 구체화되면 update해.

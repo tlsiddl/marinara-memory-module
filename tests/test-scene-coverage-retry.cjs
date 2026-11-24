@@ -21,3 +21,16 @@ test('persistent omission stops without falsely advancing coverage',async()=>{
  const store=S.emptyStore();await assert.rejects(T.foldScenes('fold-fail',store,messages,8,model,{cancel:false},{minPending:1}),/메시지의 사건과 원문 인용이 빠졌습니다/);
  assert.equal(store.covered.length,0);
 });
+
+test('an uncited user direction can pass only after shrinking to the smallest exchange',async()=>{
+ const messages=L.prepareMessages(Array.from({length:12},(_,i)=>({id:`u${i}`,number:i+1,role:i%2?'assistant':'user',speaker:i%2?'민':'손님',content:`${i+1}번째 긴 이야기가 이어졌다. `.repeat(12)})));
+ const sizes=[]; const model={provider:{async chatComplete(prompt){const ns=[...prompt[1].content.matchAll(/^\[(\d+)\] /gm)].map(x=>Number(x[1]));sizes.push(ns.length);return {content:JSON.stringify({scenes:[{end:ns.at(-1),title:'대화',events:ns.filter(n=>n%2===0).map(n=>({text:'대답이 이어졌다',quotes:[{n:`${n}.1`}]}))}]})};}}};
+ const store=S.emptyStore(); await T.foldScenes('fold-user-direction',store,messages,8,model,{cancel:false},{minPending:1});
+ assert.ok(sizes.some(n=>n<=2)); assert.ok(store.covered.some(x=>x.id==='u0')); assert.ok(store.covered.some(x=>x.id==='u1'));
+});
+
+test('the smallest exchange still rejects an uncited character reply',async()=>{
+ const messages=L.prepareMessages(Array.from({length:12},(_,i)=>({id:`c${i}`,number:i+1,role:i%2?'assistant':'user',speaker:i%2?'민':'손님',content:`${i+1}번째 긴 이야기가 이어졌다. `.repeat(12)})));
+ const model={provider:{async chatComplete(prompt){const ns=[...prompt[1].content.matchAll(/^\[(\d+)\] /gm)].map(x=>Number(x[1]));return {content:JSON.stringify({scenes:[{end:ns.at(-1),title:'대화',events:ns.filter(n=>n%2===1).map(n=>({text:'지시가 이어졌다',quotes:[{n:`${n}.1`}]}))}]})};}}};
+ const store=S.emptyStore(); await assert.rejects(T.foldScenes('fold-character-missing',store,messages,8,model,{cancel:false},{minPending:1}),/메시지의 사건과 원문 인용이 빠졌습니다/); assert.equal(store.covered.length,0);
+});
