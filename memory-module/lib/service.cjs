@@ -6252,6 +6252,43 @@ async function computeRecall(chatId, store, view, userMessage, { mode, firstInsi
   return entry;
 }
 
+// A disconnected SSE response may never run onResponse. Recover only after a reply was saved.
+function replyStamp(rows) {
+  return L.hashText(JSON.stringify(rows.filter((row) => ['assistant', 'narrator'].includes(row.role))
+    .map((row) => [row.id, row.activeSwipeIndex, row.content])));
+}
+
+async function savedReplyStamp(chatId) {
+  const e = await engine();
+  return replyStamp(await e.chats.listMessages(chatId));
+}
+
+function watchDisconnectedReply(reply, chatId, { baseline, status, stamp, enabled, run, wait, attempts = 300 }) {
+  const state = { claimed: false };
+  reply.raw.once('close', () => {
+    if (reply.raw.writableFinished || state.claimed || reply.statusCode >= 400) return;
+    state.claimed = true;
+    void (async () => {
+      try {
+        const before = await baseline;
+        for (let i = 0; i < attempts; i++) {
+          await wait();
+          if (!enabled()) return;
+          let current;
+          try { current = await status(); } catch { continue; }
+          if (!current || current.active || current.translating) continue;
+          if (await stamp() !== before) await run();
+          return;
+        }
+        log(`chat ${chatId}: disconnected reply recovery timed out`);
+      } catch (error) {
+        log(`chat ${chatId}: disconnected reply recovery: ${error?.message || error}`);
+      }
+    })();
+  });
+  return state;
+}
+
 function attach(app) {
   app.register(routes, { prefix: '/api/memory-module' });
   app.addHook('onSend', (req, reply, payload, done) => {
@@ -6264,11 +6301,30 @@ function attach(app) {
     deleteOnSend(req, reply, payload).then(value => done(null, value), done);
   });
   app.addHook('preHandler', deletePrepare);
-  app.addHook('preHandler', async (req) => {
+  app.addHook('preHandler', async (req, reply) => {
     try {
       const url = String(req.raw?.url || '').split('?')[0];
       if (req.method !== 'POST' || url !== '/api/generate') return;
       const chatId = req.body?.chatId;
+      if (typeof chatId === 'string' && chatEnabled(chatId)) {
+        const baseline = savedReplyStamp(chatId);
+        baseline.catch(() => {});
+        req.mmReplyRecovery = watchDisconnectedReply(reply, chatId, {
+          baseline,
+          enabled: () => chatEnabled(chatId),
+          status: async () => {
+            const res = await app.inject({ method: 'GET', url: `/api/generate/status/${encodeURIComponent(chatId)}`, headers: { 'x-marinara-csrf': '1' } });
+            if (res.statusCode !== 200) throw Error(`generation status ${res.statusCode}`);
+            const result = res.json();
+            if (typeof result.active !== 'boolean' || typeof result.translating !== 'boolean') throw Error('invalid generation status');
+            return result;
+          },
+          stamp: () => savedReplyStamp(chatId),
+          run: () => processChat(chatId, { reason: 'reply' }),
+          wait: () => new Promise((resolve) => setTimeout(resolve, 2000)),
+        });
+        await baseline.catch(() => {});
+      }
       if (typeof chatId === 'string') await prepareSpeakers(chatId, req.body).catch((error) => log(`speaker tags: ${error?.message || error}`));
       if (typeof chatId === 'string' && chatEnabled(chatId)) await syncBeforeReply(chatId, req.body);
     } catch (error) {
@@ -6280,7 +6336,10 @@ function attach(app) {
       const url = String(req.raw?.url || '').split('?')[0];
       if (req.method !== 'POST' || url !== '/api/generate' || reply.statusCode >= 400) return;
       const chatId = req.body?.chatId;
-      if (typeof chatId === 'string' && chatEnabled(chatId)) setTimeout(() => processChat(chatId, { reason: 'reply' }), 1500);
+      if (typeof chatId === 'string' && chatEnabled(chatId) && !req.mmReplyRecovery?.claimed) {
+        if (req.mmReplyRecovery) req.mmReplyRecovery.claimed = true;
+        setTimeout(() => processChat(chatId, { reason: 'reply' }), 1500);
+      }
     } catch (error) {
       log(`reply hook: ${error?.message || error}`);
     }
@@ -6302,3 +6361,5 @@ module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, r
 
 
 
+
+Object.assign(module.exports._test, { replyStamp, watchDisconnectedReply });
