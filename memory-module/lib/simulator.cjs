@@ -82,7 +82,28 @@ const GROUP_WORDS = new Set(['모두', '여러분', '다들', '일행', '사람�
 function isGroup(name) {
   const n = String(name || '').trim();
   const k = squash(n);
-  return GROUP_WORDS.has(k) || /[가-힣]들$/.test(n) || /^the\s+\w+s$/i.test(n);
+  return GROUP_WORDS.has(k) || /[가-힣]들$/.test(n) || /^the\s+[\w-]+s$/i.test(n);
+}
+
+/**
+ * 0.39.2: not a person's name, for a new name only (names already in the room stay; the name tab lists them and the user
+ * takes them out). A lone jamo (「ㄴ」 — a one-syllable name like 「율」 passes), a phrase starting with an article
+ * ("the first-years", "a stranger"), a description ("dark-haired girl in the window", "Abernethy boy") or a role word
+ * written alone ("Guard"; "Guard Malone" is a name). The role list starts short on purpose.
+ */
+const ROLE_WORDS = new Set(['guard', 'guards', 'prefect', 'servant', 'maid', 'butler', 'shopkeeper', 'waiter', 'waitress', 'stranger', 'someone', 'somebody', 'voice', '경비', '경비병', '하인', '하녀', '점원', '낯선사람', '누군가', '목소리']);
+const DESCRIBED_TAIL = /\s(boy|girl|man|woman|kid|child|lady|gentleman|boys|girls|men|women)$/i;
+const DESCRIBED_MID = /\s(in|with|at|on|from|near|by|behind)\s(the|a|an|his|her|their|its)\s/i;
+function notAPerson(name) {
+  const n = String(name || '').normalize('NFC').trim();
+  if (!n) return 'empty';
+  if (/^[ㄱ-ㅎㅏ-ㅣ\s]+$/.test(n)) return 'jamo';
+  if (isGroup(n)) return 'group';
+  if (isDescribedName(n)) return 'described';
+  if (/^(the|a|an)\s/i.test(n)) return 'article';
+  if (DESCRIBED_MID.test(` ${n} `) || DESCRIBED_TAIL.test(n)) return 'described';
+  if (ROLE_WORDS.has(squash(n))) return 'role';
+  return null;
 }
 
 /** Title words that are not a name of their own (from World Archive's NAME_FILLER, c813aeb). */
@@ -135,7 +156,7 @@ function newPeople(store, scenes, slice) {
   for (const name of namedPeople(scenes)) {
       if (cast.length + added.length >= ROOM_CAST_MAX) return added;
       // A one-syllable name (톰) counts when the name table has a longer form of it (Tom, from the glossary).
-      if (!A.formsOf(name).concat(name).some((n) => squash(n).length >= 2) || isGroup(name) || isDescribedName(name) || !A.formsOf(name).concat(name).some((n) => nameInText(n, text))) continue;
+      if (!A.formsOf(name).concat(name).some((n) => squash(n).length >= 2) || isGroup(name) || isDescribedName(name) || notAPerson(name) || !A.formsOf(name).concat(name).some((n) => nameInText(n, text))) continue;
       if (inList(name, narrators) || inList(name, personas) || inList(name, cast) || inList(name, added)) continue;
       added.push(name);
   }
@@ -158,4 +179,4 @@ function narratorLine(narrators) {
   return list.length ? `[내레이터] ${list.join(', ')} (인물이 아님)` : '';
 }
 
-module.exports = { inList, isGroup, namedPeople, canonCast, MODES, BATCH_CAST_MAX, ROOM_CAST_MAX, NARRATOR_PROMPT, mode, isDescribedName, nameInText, batchCast, newPeople, narratorLine, squash };
+module.exports = { inList, isGroup, notAPerson, ROLE_WORDS, namedPeople, canonCast, MODES, BATCH_CAST_MAX, ROOM_CAST_MAX, NARRATOR_PROMPT, mode, isDescribedName, nameInText, batchCast, newPeople, narratorLine, squash };
