@@ -256,9 +256,19 @@ function saveNames(chatId, table) {
 // Every job and edit of a room compares names through that room's table.
 A.setLoader((chatId) => loadNames(chatId));
 /** The card and persona names become people of the table (with both scripts when a name is written in two). */
+/** 0.39.2: names the user took out of the room's list (이름 정리 › 목록에서 빼기), folded. They are not seeded or added back. */
+function forgottenSet(chatId) {
+  try {
+    return new Set((loadNames(chatId).forgotten || []).map((r) => A.fold(r?.name || '')).filter(Boolean));
+  } catch {
+    return new Set();
+  }
+}
 function seedNames(chatId, names) {
   try {
     const table = loadNames(chatId);
+    const forgotten = forgottenSet(chatId);
+    names = (Array.isArray(names) ? names : []).filter((n) => !forgotten.has(A.fold(n)));
     if (A.seed(table, names)) saveNames(chatId, table);
   } catch (error) {
     log(`chat ${chatId}: name table not updated (${error?.message || error})`);
@@ -1344,8 +1354,16 @@ async function roomPeople(chatId, store) {
   };
   // The people the scenes named before: the cast while the room was a simulator, kept as simCast while it is not.
   const before = store?.mode === 'simulator' ? store.cast : store?.simCast;
-  for (const name of Array.isArray(before) ? before : []) add(name);
-  for (const p of worldArchivePeople(chatId)) add(p.name, p.aliases);
+  // 0.39.2: names the user took out of the list (이름 정리 › 목록에서 빼기) stay out, and a World Archive person new to
+  // the room joins only when it reads as a person's name (the same rule as a new name from a scene reply).
+  const forgotten = forgottenSet(chatId);
+  const out = (n) => forgotten.has(A.fold(A.canonical(n) || n));
+  for (const name of Array.isArray(before) ? before : []) if (!out(name)) add(name);
+  for (const p of worldArchivePeople(chatId)) {
+    if (out(p.name)) continue;
+    if (!cast.some((c) => A.canonical(c) === A.canonical(p.name)) && Sim.notAPerson(p.name)) continue;
+    add(p.name, p.aliases);
+  }
   return { cast, narrators: cards, aliases };
 }
 
@@ -5680,6 +5698,7 @@ async function routes(app) {
   app.get('/chats/:id/names', guard(async (req) => {
     const chatId = safeChatId(req.params.id);
     const { store, ledger, table } = namesState(chatId);
+    const cleanup = await listCleanup(chatId, store, ledger, table);
     return A.using(table, () => {
       const people = N.knownPeople(store, ledger, table);
       return {
@@ -5693,8 +5712,107 @@ async function routes(app) {
         autoMerged: autoMergedView(table),
         address: addressView(chatId),
         busy: roomBusy(chatId),
+        ...cleanup,
       };
     });
+  }));
+  /**
+   * 0.39.2 목록 정리: names in the room's list that are written nowhere (a person deleted or renamed away, like 「ㄴ」),
+   * and names that do not read as a person's (Sim.notAPerson). Only listed here; the user takes them out.
+   */
+  const listCleanup = async (chatId, store, ledger, table) => {
+    const keep = new Set([...(await chatCast(chatId)), ...(store.personas || []), ...(store.narrators || [])].map((n) => A.fold(n)));
+    const uses = new Map();
+    const people = A.using(table, () => {
+      for (const u of N.usedNames(store, ledger, [])) { const c = A.fold(A.canonical(u.name, table) || u.name); uses.set(c, (uses.get(c) || 0) + u.count); }
+      return N.knownPeople(store, ledger, table);
+    });
+    const free = people.filter((n) => !keep.has(A.fold(n)));
+    return {
+      unused: free.filter((n) => !uses.get(A.fold(n))).map((name) => ({ name })),
+      suspects: free.filter((n) => Sim.notAPerson(n)).map((name) => ({ name, why: Sim.notAPerson(name), uses: uses.get(A.fold(name)) || 0 })),
+      forgotten: (table.forgotten || []).slice().reverse().map((r) => ({ name: r.name, at: r.at, uses: r.uses || 0 })),
+    };
+  };
+  /**
+   * 0.39.2 목록에서 빼기: takes names out of the room's list of people (cast · simCast · the ledger's cast · castAliases · the
+   * name table) and keeps what it took in table.forgotten so it can be put back. Memories that name them stay as they are.
+   * A card, the user's character or the narrator cannot be taken out. Not while the room is being organized.
+   */
+  app.post('/chats/:id/names/forget', guard(async (req) => {
+    const chatId = safeChatId(req.params.id);
+    if (req.body?.confirm !== true) throw Error('미리 보기를 확인한 뒤 빼 주세요.');
+    const asked = (Array.isArray(req.body?.names) ? req.body.names : [req.body?.name]).map((n) => A.tidy(n)).filter(Boolean).slice(0, 200);
+    if (!asked.length) throw Error('뺄 이름이 없습니다.');
+    refuseBusy(chatId, '목록을 고칠');
+    const cards = await chatCast(chatId);
+    return withRoom(chatId, async () => {
+      const { store, ledger, table: saved } = namesState(chatId);
+      const table = structuredClone(saved);
+      const keep = new Set([...cards, ...(store.personas || []), ...(store.narrators || [])].map((n) => A.fold(n)));
+      const uses = new Map();
+      for (const u of A.using(table, () => N.usedNames(store, ledger, []))) { const c = A.fold(A.canonical(u.name, table) || u.name); uses.set(c, (uses.get(c) || 0) + u.count); }
+      const taken = [];
+      for (const name of asked) {
+        const canon = A.using(table, () => A.canonOf(name, table)) || name;
+        const f = A.fold(canon);
+        if (keep.has(f)) throw Error(`‘${canon}’은(는) 카드 · 사용자 캐릭터 · 내레이터라 뺄 수 없습니다.`);
+        const same = (n) => A.fold(A.using(table, () => A.canonical(n, table)) || n) === f;
+        const rec = {
+          name: canon,
+          at: new Date().toISOString(),
+          uses: uses.get(f) || 0,
+          cast: (store.cast || []).filter(same),
+          simCast: (store.simCast || []).filter(same),
+          ledgerCast: (ledger.cast || []).filter(same),
+          castAliases: Object.fromEntries(Object.entries(store.castAliases || {}).filter(([k]) => same(k))),
+          person: table.people?.[canon] ? structuredClone(table.people[canon]) : null,
+        };
+        if (Array.isArray(store.cast)) store.cast = store.cast.filter((n) => !same(n));
+        if (Array.isArray(store.simCast)) store.simCast = store.simCast.filter((n) => !same(n));
+        if (Array.isArray(ledger.cast)) ledger.cast = ledger.cast.filter((n) => !same(n));
+        for (const k of Object.keys(rec.castAliases)) delete store.castAliases[k];
+        if (table.people?.[canon]) delete table.people[canon];
+        table.forgotten = [...(table.forgotten || []).filter((r) => A.fold(r.name) !== f), rec].slice(-200);
+        taken.push({ name: canon, uses: rec.uses });
+      }
+      A.touch(table);
+      saveScenes(chatId, store);
+      if (loadLedger(chatId)) saveLedger(chatId, ledger);
+      saveNames(chatId, table);
+      recalls.delete(chatId);
+      waPeopleCache.delete(chatId);
+      log(`chat ${chatId}: took ${taken.length} name(s) out of the list (${taken.map((t) => t.name).join(', ')})`);
+      return { taken, forgotten: (table.forgotten || []).slice().reverse().map((r) => ({ name: r.name, at: r.at, uses: r.uses || 0 })) };
+    }, '목록을 고칠');
+  }));
+  /** 0.39.2 목록에서 빼기 되돌리기: puts one name back where it was. */
+  app.post('/chats/:id/names/forget-undo', guard(async (req) => {
+    const chatId = safeChatId(req.params.id);
+    const name = A.tidy(req.body?.name);
+    if (!name) throw Error('이름이 비어 있습니다.');
+    refuseBusy(chatId, '되돌릴');
+    return withRoom(chatId, async () => {
+      const { store, ledger, table: saved } = namesState(chatId);
+      const table = structuredClone(saved);
+      const rec = (table.forgotten || []).find((r) => A.fold(r.name) === A.fold(name));
+      if (!rec) throw Error(`‘${name}’은(는) 뺀 목록에 없습니다.`);
+      const put = (list, add) => [...(Array.isArray(list) ? list : []), ...add.filter((n) => !(list || []).includes(n))];
+      if (rec.cast?.length) store.cast = put(store.cast, rec.cast);
+      if (rec.simCast?.length) store.simCast = put(store.simCast, rec.simCast);
+      if (rec.ledgerCast?.length) ledger.cast = put(ledger.cast, rec.ledgerCast);
+      if (Object.keys(rec.castAliases || {}).length) store.castAliases = { ...(store.castAliases || {}), ...rec.castAliases };
+      if (rec.person && !table.people?.[rec.name]) { table.people ||= {}; table.people[rec.name] = rec.person; }
+      table.forgotten = (table.forgotten || []).filter((r) => r !== rec);
+      A.touch(table);
+      saveScenes(chatId, store);
+      if (loadLedger(chatId)) saveLedger(chatId, ledger);
+      saveNames(chatId, table);
+      recalls.delete(chatId);
+      waPeopleCache.delete(chatId);
+      log(`chat ${chatId}: put ${rec.name} back on the list`);
+      return { restored: rec.name, forgotten: (table.forgotten || []).slice().reverse().map((r) => ({ name: r.name, at: r.at, uses: r.uses || 0 })) };
+    }, '되돌릴');
   }));
   app.post('/chats/:id/names/preview', guard(async (req) => {
     const chatId = safeChatId(req.params.id);
@@ -6347,7 +6465,7 @@ function attach(app) {
   log('admin API ready at /api/memory-module');
 }
 
-module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { loadAddress, saveAddress, refreshAddress, presentPeople, Addr, loadState, saveState, loadPlaces, savePlaces, loadKeepsakes, saveKeepsakes, loadNotebook, saveNotebook, Nb, loadTrackers, saveTrackers, Tk, loadConflicts, saveConflicts, refreshConflicts, refreshWorld, Cf, Ks, organizeFor, sceneTokens, lastScenePeople, St, Pl, listRooms, purgeChatMemory, purgeIfGone, deleteOnSend, deletePrepare, listOrphans, deleteOrphans, goneChats, loadNames, saveNames, enqueue, foldScenes, reviewAttributions, loadAttributionLog, sceneJobs, selectedForView, loadSelected, recalls, windows, loadRecallPrefs, saveRecallPrefs, recallReport, recallCandidates, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, staleNames, autoMergeByGlossary, translateDisplayLater, fixNoteLanguages, tidySteps, tidyLedger, noteUsage, usageSummary, planAnswersOn, notebookLanguageOf, notebookLanguageSetting, rebuildNotebook, notebookJobStatus, notebookRunning: (id) => notebookJobs.get(id)?.state === 'running', loadTranslations, saveTranslations, translationRun: (id, texts) => translateMissing(id, "ko", texts), flushTranslations, clearTranslationFailures, translationGaveUp, chatLangs, langRecords, loadLang, noteLanguage, LANG_REFRESH_EVERY, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, routinePeople, noteSourceKo, sourceKo, sourceQuoteItems, quoteHints, roomSetup, setupNote, withSetup, nameInstructions, jobs, writeLanguage, roomWriteLanguage, promptLanguage, memoryCallOptions, lightRefused, routineSetting, routineEnabled, attributionSetting, featureOn, featureSetting, F, B, clearRoomCaches, RESTORE_UNDO_DIR, connectionWithKey, memoryModel, startTrial, trials, roomMode, setRoomMode, roomPeople, stampMode, worldArchivePeople, waPeopleCache, simulatorExample, petNotes, askModel, worldLink, worldLinked, worldLinkOn, setWorldLink, worldRelations, worldRelCache, worldSpecies, sceneOptions } };
+module.exports = { fixSpeakers, speakerInstructions, nameInstructions, attach, renderLedger, processChat, chatMessages, DATA_DIR, _test: { seedNames, forgottenSet, loadAddress, saveAddress, refreshAddress, presentPeople, Addr, loadState, saveState, loadPlaces, savePlaces, loadKeepsakes, saveKeepsakes, loadNotebook, saveNotebook, Nb, loadTrackers, saveTrackers, Tk, loadConflicts, saveConflicts, refreshConflicts, refreshWorld, Cf, Ks, organizeFor, sceneTokens, lastScenePeople, St, Pl, listRooms, purgeChatMemory, purgeIfGone, deleteOnSend, deletePrepare, listOrphans, deleteOrphans, goneChats, loadNames, saveNames, enqueue, foldScenes, reviewAttributions, loadAttributionLog, sceneJobs, selectedForView, loadSelected, recalls, windows, loadRecallPrefs, saveRecallPrefs, recallReport, recallCandidates, setSelectedQuery: (id, query) => turnQuery.set(id, query), condense, branchMemory, branchOnSend, inheritBranch, setEngine: (e) => { enginePromise = Promise.resolve(e); }, saveLedger, loadLedger, saveSettings, settings, readJson, writeJson, loadScenes, saveScenes, checkFiles, recallFingerprint, health, trackerClock, addTrackerClock, storyToday, storyDays, translationLookup, staleNames, autoMergeByGlossary, translateDisplayLater, fixNoteLanguages, tidySteps, tidyLedger, noteUsage, usageSummary, planAnswersOn, notebookLanguageOf, notebookLanguageSetting, rebuildNotebook, notebookJobStatus, notebookRunning: (id) => notebookJobs.get(id)?.state === 'running', loadTranslations, saveTranslations, translationRun: (id, texts) => translateMissing(id, "ko", texts), flushTranslations, clearTranslationFailures, translationGaveUp, chatLangs, langRecords, loadLang, noteLanguage, LANG_REFRESH_EVERY, memoryLanguage, injectionLines, displayTranslationTexts, withLanguage, renderMemorySource, syncBeforeReply, routinePeople, noteSourceKo, sourceKo, sourceQuoteItems, quoteHints, roomSetup, setupNote, withSetup, nameInstructions, jobs, writeLanguage, roomWriteLanguage, promptLanguage, memoryCallOptions, lightRefused, routineSetting, routineEnabled, attributionSetting, featureOn, featureSetting, F, B, clearRoomCaches, RESTORE_UNDO_DIR, connectionWithKey, memoryModel, startTrial, trials, roomMode, setRoomMode, roomPeople, stampMode, worldArchivePeople, waPeopleCache, simulatorExample, petNotes, askModel, worldLink, worldLinked, worldLinkOn, setWorldLink, worldRelations, worldRelCache, worldSpecies, sceneOptions } };
 
 
 

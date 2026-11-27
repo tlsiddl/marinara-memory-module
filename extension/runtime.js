@@ -1689,6 +1689,18 @@
     const peoplePaper = `<div class="paper"><h2>인물별 이름 · ${known.length}명</h2>
       <p class="hint">인물마다 같은 사람으로 보는 다른 이름입니다. 잘못 묶인 이름은 떼면 다시 따로 보고, 다시 자동으로 묶지 않습니다(이미 바뀐 기록은 그대로). 아직 기억에 안 나온 별명은 미리 더해 두면 처음부터 같은 사람으로 봅니다.</p>
       ${known.length ? known.map(personBox).join('') : '<p class="hint">아직 인물이 없습니다.</p>'}</div>`;
+    // 0.39.2 목록 정리: names in the list written nowhere (a person deleted or renamed away) and names that do not read as
+    // a person's. Nothing is taken out on its own; each button needs a second press, and every taken-out name can come back.
+    const WHY = { jamo: '자모만 있음', group: '무리', described: '묘사', article: 'the · a로 시작', role: '역할 낱말만', empty: '빈 이름' };
+    const forgetBtn = (n) => `<button class="ghost" data-act="nameForget" data-name="${esc(n)}">${armed === `nameForget:${n}` ? '한 번 더 누르면 뺍니다' : '목록에서 빼기'}</button>`;
+    const unused = names.unused || [], suspects = names.suspects || [], forgotten = names.forgotten || [];
+    const cleanupPaper = `<div class="paper"><h2>목록 정리 · 쓰인 곳 없음 ${unused.length} · 인물이 아닐 수 있음 ${suspects.length}</h2>
+      <p class="hint">인물 목록에서만 빼고, 기억(장면·대사·사실·할 일)에 쓰인 기록은 그대로 둡니다. 뺀 이름은 다시 자동으로 들어오지 않고, 아래 「뺀 이름」에서 되돌릴 수 있습니다. 카드·사용자 캐릭터·내레이터는 뺄 수 없습니다.</p>
+      <h3>쓰인 곳 없는 이름 · ${unused.length}</h3>
+      ${unused.length ? unused.map((x) => `<div class="routine-row"><span><b>${esc(x.name)}</b> <small>기억에 쓰인 곳 0</small></span>${forgetBtn(x.name)}</div>`).join('') + (unused.length > 1 ? `<div class="buttons"><button class="ghost" data-act="nameForgetAll">${armed === 'nameForgetAll' ? `한 번 더 누르면 ${unused.length}개를 뺍니다` : `${unused.length}개 모두 빼기`}</button></div>` : '') : '<p class="hint">없습니다.</p>'}
+      <h3>인물이 아닐 수 있음 · ${suspects.length}</h3>
+      ${suspects.length ? suspects.map((x) => `<div class="routine-row"><span><b>${esc(x.name)}</b> <small>${esc(WHY[x.why] || x.why)} · 기억에 쓰인 곳 ${x.uses}</small></span>${forgetBtn(x.name)}</div>`).join('') : '<p class="hint">없습니다.</p>'}
+      ${forgotten.length ? `<h3>뺀 이름 · ${forgotten.length}</h3>${forgotten.map((x) => `<div class="routine-row"><span><b>${esc(x.name)}</b> <small>${esc(day(x.at))}</small></span><button class="ghost" data-act="nameForgetUndo" data-name="${esc(x.name)}">되돌리기</button></div>`).join('')}` : ''}</div>`;
     // Merges made on their own from the 번역 단어장: each can be taken back alone (and is not made again).
     const auto = (names.autoMerged || []).map((r) => {
       const key = `nameAutoUndo:${r.id}`;
@@ -1708,6 +1720,7 @@
       <div class="paper"><h2>자동으로 합친 이름 · ${names.autoMerged?.length || 0}건</h2><p class="hint">번역 단어장에 짝지어 둔 이름(예: Daniel = 다니엘)이 기억에 따로 저장돼 있으면 한 사람으로 자동으로 합칩니다. 남기는 이름은 기억을 정리하는 언어를 따릅니다(한국어로 정리하면 한국어 이름, 영어로 정리하면 영어 이름). 되돌리면 그 합침으로 바뀐 곳이 원래대로 돌아가고(그 뒤에 다시 고친 곳은 그대로), 그 짝은 다시 자동으로 합치지 않습니다.</p>${auto ? auto : '<p class="hint">없습니다.</p>'}</div>
       <div class="paper"><h2>같은 사람일 수 있음 · ${names.suggestions?.length || 0}건</h2><p class="hint">철자나 소리가 비슷할 뿐 확실하지 않아 자동으로 합치지 않습니다. 같은 사람이면 미리 보기 뒤 합치고, 다른 사람이면 '다른 사람'을 눌러 다시 묻지 않게 하세요.</p>${sug || '<p class="hint">없습니다.</p>'}</div>
       <div class="paper"><h2>이미 저장된 중복 · ${names.duplicates?.length || 0}명</h2><p class="hint">별칭이나 이름만 부른 형태(조사 포함)처럼 규칙으로 같은 사람인 이름이 따로 저장된 경우입니다. 합치면 기록은 하나도 버리지 않고 이야기 순서대로 모읍니다(같은 기록이 두 번 저장된 것만 하나로).</p>${dup ? `<ul>${dup}</ul><div class="buttons"><button data-act="mergePreview">중복 합치기 미리 보기</button></div>` : '<p class="hint">없습니다.</p>'}</div>
+      ${cleanupPaper}
       ${peoplePaper}
       <div class="paper"><h2>최근 이름 바꾸기</h2>${history ? `<ul>${history}</ul>` : '<p class="hint">없습니다.</p>'}${last ? `<div class="buttons"><button class="ghost" data-act="nameUndo">${armed === 'nameUndo' ? '한 번 더 누르면 되돌립니다' : `마지막 바꾸기 되돌리기 (${esc(last.source)} → ${esc(last.target)})`}</button></div>` : ''}</div>`;
   }
@@ -2585,7 +2598,7 @@
   async function handle(actName, el) {
     const id = el?.dataset?.id;
     const chat = encodeURIComponent(room);
-    if (actName !== 'fresh' && !actName.startsWith('deleteFact') && actName !== 'closeThread' && actName !== 'factBulkDelete' && actName !== 'rebuildChapters' && actName !== 'deleteRoutine' && !['trackerUndoApplied', 'nameApply', 'mergeApply', 'aliasApply', 'nameUndo', 'nameAutoUndo', 'groupApply', 'aliasRemove', 'backupDownload', 'restoreApply', 'restoreUndo', 'addressDelete', 'stateReset', 'placeDelete', 'keepDelete', 'noteDelete', 'noteRebuildAll', 'trackerDelete', 'trackerDropStart'].includes(actName)) armed = '';
+    if (actName !== 'fresh' && !actName.startsWith('deleteFact') && actName !== 'closeThread' && actName !== 'factBulkDelete' && actName !== 'rebuildChapters' && actName !== 'deleteRoutine' && !['trackerUndoApplied', 'nameApply', 'mergeApply', 'aliasApply', 'nameUndo', 'nameAutoUndo', 'groupApply', 'aliasRemove', 'nameForget', 'nameForgetAll', 'backupDownload', 'restoreApply', 'restoreUndo', 'addressDelete', 'stateReset', 'placeDelete', 'keepDelete', 'noteDelete', 'noteRebuildAll', 'trackerDelete', 'trackerDropStart'].includes(actName)) armed = '';
     switch (actName) {
       case 'factPickClear':
         pickedFacts.clear();
@@ -2925,7 +2938,12 @@
         return act(async () => {
           await api('POST', `/chats/${chat}/state`, { action: 'reset', name });
           world = null;
-        }, '카드의 직접 고침을 지웠습니다.');
+          // 0.39.2: a person card gone does not take the name out of the room's list; say where to do that when it is unused
+          const n = await api('GET', `/chats/${chat}/names`).catch(() => null);
+          notice = (n?.unused || []).some((x) => x.name === name)
+            ? `카드의 직접 고침을 지웠습니다. ‘${name}’은(는) 기억에 쓰인 곳이 없어요 — 이름 정리 › 목록 정리에서 인물 목록에서도 뺄 수 있습니다.`
+            : '카드의 직접 고침을 지웠습니다.';
+        });
       }
       case 'placeUnlock':
         return act(async () => {
@@ -3184,6 +3202,25 @@
           await api('POST', `/chats/${chat}/names/dismiss`, { source: el.dataset.source, target: el.dataset.target });
           names = null;
         }, '다른 사람으로 두었습니다. 다시 묻지 않습니다.');
+      // 0.39.2 목록 정리: 목록에서 빼기(한 번 더 눌러 확정) · 쓰인 곳 없는 이름 모두 빼기 · 뺀 이름 되돌리기
+      case 'nameForget':
+      case 'nameForgetAll': {
+        const list = actName === 'nameForgetAll' ? (names?.unused || []).map((x) => x.name) : [el.dataset.name];
+        const key = actName === 'nameForgetAll' ? 'nameForgetAll' : `nameForget:${el.dataset.name}`;
+        if (armed !== key) { armed = key; return render(); }
+        armed = '';
+        return act(async () => {
+          const r = await api('POST', `/chats/${chat}/names/forget`, { names: list, confirm: true });
+          names = null;
+          notice = `${r.taken.map((t) => t.name).join(', ')}을(를) 인물 목록에서 뺐습니다. 기억에 쓰인 기록은 그대로입니다. 「뺀 이름」에서 되돌릴 수 있습니다.`;
+        });
+      }
+      case 'nameForgetUndo':
+        return act(async () => {
+          const r = await api('POST', `/chats/${chat}/names/forget-undo`, { name: el.dataset.name });
+          names = null;
+          notice = `${r.restored}을(를) 인물 목록에 되돌렸습니다.`;
+        });
       case 'nameAutoUndo':
         if (armed !== `nameAutoUndo:${id}`) { armed = `nameAutoUndo:${id}`; return render(); }
         armed = '';
